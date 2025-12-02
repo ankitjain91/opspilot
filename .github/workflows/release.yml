@@ -63,7 +63,7 @@ jobs:
       - name: Compress binary (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
-          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app/Contents/MacOS/OpsPilot opspilot
+          cp src-tauri/target/universal-apple-darwin/release/opspilot opspilot
           tar -czf opspilot-x86_64-apple-darwin.tar.gz opspilot
           tar -czf opspilot-aarch64-apple-darwin.tar.gz opspilot
           rm opspilot
