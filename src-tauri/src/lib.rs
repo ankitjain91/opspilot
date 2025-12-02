@@ -1602,13 +1602,9 @@ async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, S
     let lp = ListParams::default();
     
     // Fetch each resource individually and handle permission errors gracefully
-    let nodes_count = match nodes.list(&lp).await {
-        Ok(list) => list.items.len(),
-        Err(e) => {
-            eprintln!("Warning: Cannot list nodes (permission denied?): {}", e);
-            0
-        }
-    };
+    // Fetch each resource individually
+    // Critical: If nodes fail, the cluster is likely unreachable. Propagate error.
+    let nodes_count = nodes.list(&lp).await.map_err(|e| format!("Cluster unreachable: {}", e))?.items.len();
     
     let pods_count = match pods.list(&lp).await {
         Ok(list) => list.items.len(),
