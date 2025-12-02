@@ -1,4 +1,4 @@
-# Lens Killer
+# OpsPilot
 
 A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeScript. Designed to be a faster, cleaner alternative to existing tools.
 

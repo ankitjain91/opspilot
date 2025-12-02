@@ -2264,26 +2264,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
-name = "lens-killer"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "futures",
- "k8s-openapi",
- "kube",
- "portable-pty",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-shell",
- "tokio",
-]
-
-[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2922,6 +2902,26 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "opspilot"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "portable-pty",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-shell",
+ "tokio",
 ]
 
 [[package]]
