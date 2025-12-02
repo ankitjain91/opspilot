@@ -11,18 +11,20 @@ use tauri::{State, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
+use std::fs;
+use std::path::PathBuf;
 
 mod ai_local;
 
 // --- Data Structures ---
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct NavGroup {
     title: String,
     items: Vec<NavResource>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct NavResource {
     kind: String,
     group: String,
@@ -292,8 +294,19 @@ async fn get_cached_discovery(state: &State<'_, AppState>, client: Client) -> Re
 // Utility: Clear discovery cache so new CRDs/groups appear immediately
 #[tauri::command]
 async fn clear_discovery_cache(state: State<'_, AppState>) -> Result<(), String> {
-    let mut cache = state.discovery_cache.lock().map_err(|e| e.to_string())?;
-    *cache = None;
+    {
+        let mut cache = state.discovery_cache.lock().map_err(|e| e.to_string())?;
+        *cache = None;
+    }
+
+    // Also delete file from disk
+    let context_name = get_current_context_name(state.clone(), None).await.unwrap_or("default".to_string());
+    if let Some(path) = get_discovery_cache_path(&context_name) {
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| format!("Failed to delete cache file: {}", e))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -357,14 +370,93 @@ async fn set_kube_config(
     Ok(())
 }
 
+// --- Caching Helpers ---
+
+fn get_discovery_cache_path(context: &str) -> Option<PathBuf> {
+    let home = if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE").ok()
+    } else {
+        std::env::var("HOME").ok()
+    };
+
+    if let Some(h) = home {
+        let mut p = PathBuf::from(h);
+        p.push(".kube");
+        p.push("cache");
+        p.push("opspilot");
+        if let Err(_) = fs::create_dir_all(&p) {
+            return None;
+        }
+        // Sanitize context name for filename
+        let safe_ctx = context.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_");
+        p.push(format!("discovery_{}.json", safe_ctx));
+        Some(p)
+    } else {
+        None
+    }
+}
+
+fn load_cached_nav_structure(context: &str) -> Option<Vec<NavGroup>> {
+    if let Some(path) = get_discovery_cache_path(context) {
+        if let Ok(file) = fs::File::open(&path) {
+            // Check file age (e.g. 1 hour)
+            if let Ok(metadata) = file.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(elapsed) = modified.elapsed() {
+                        if elapsed.as_secs() > 3600 {
+                            return None; // Too old
+                        }
+                    }
+                }
+            }
+            let reader = std::io::BufReader::new(file);
+            if let Ok(groups) = serde_json::from_reader(reader) {
+                return Some(groups);
+            }
+        }
+    }
+    None
+}
+
+fn save_cached_nav_structure(context: &str, groups: &Vec<NavGroup>) {
+    if let Some(path) = get_discovery_cache_path(context) {
+        if let Ok(file) = fs::File::create(&path) {
+            let writer = std::io::BufWriter::new(file);
+            let _ = serde_json::to_writer(writer, groups);
+        }
+    }
+}
+
 // 1. DISCOVERY ENGINE: Dynamically finds what your cluster supports
 #[tauri::command]
 async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGroup>, String> {
-    let client = create_client(state.clone()).await?;
+    let context_name = get_current_context_name(state.clone(), None).await.unwrap_or("default".to_string());
     
-    // Discovery fetches ALL groups/versions/kinds from the cluster
-    let discovery = Discovery::new(client).run().await.map_err(|e| e.to_string())?;
+    // Try load cache
+    if let Some(cached) = load_cached_nav_structure(&context_name) {
+        println!("Loaded discovery from cache for {}", context_name);
+        return Ok(cached);
+    }
 
+    let client = create_client(state.clone()).await?;
+    let client2 = client.clone();
+
+    // Parallel Execution: Run Discovery and CRD Listing concurrently
+    let (discovery_result, crd_result) = tokio::join!(
+        // Task 1: Standard Discovery
+        async {
+            Discovery::new(client).run().await.map_err(|e| e.to_string())
+        },
+        // Task 2: CRD Listing (Manual fallback)
+        async {
+            use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+            let api_crd: Api<CustomResourceDefinition> = Api::all(client2);
+            api_crd.list(&ListParams::default()).await.map_err(|e| e.to_string())
+        }
+    );
+
+    let discovery = discovery_result?;
+    
     let mut groups: HashMap<String, Vec<NavResource>> = HashMap::new();
 
     // Standard Categories Map
@@ -406,7 +498,7 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
                 }
             };
 
-            println!("Discovered: {} ({}) -> {}", ar.kind, ar.group, category);
+            // println!("Discovered: {} ({}) -> {}", ar.kind, ar.group, category);
 
             let res = NavResource {
                 kind: ar.kind.clone(),
@@ -446,44 +538,42 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
 
     // Fallback: ensure CRDs are visible even if discovery missed some kinds
     // We append any CRD kinds not already present, grouped under their API group
-    {
-        use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-        let client2 = create_client(state.clone()).await?;
-        let api_crd: Api<CustomResourceDefinition> = Api::all(client2);
-        if let Ok(crd_list) = api_crd.list(&ListParams::default()).await {
-            let mut seen: std::collections::HashSet<(String,String)> = std::collections::HashSet::new();
-            // Build set of existing group/kind in result to avoid duplicates
-            for ng in &result {
-                for it in &ng.items {
-                    seen.insert((it.group.clone(), it.kind.clone()));
-                }
+    if let Ok(crd_list) = crd_result {
+        let mut seen: std::collections::HashSet<(String,String)> = std::collections::HashSet::new();
+        // Build set of existing group/kind in result to avoid duplicates
+        for ng in &result {
+            for it in &ng.items {
+                seen.insert((it.group.clone(), it.kind.clone()));
             }
-            // Collect CRDs for Custom Resources category and append missing per-group too
-            let mut custom_resources: Vec<NavResource> = Vec::new();
-            for crd in crd_list.items {
-                let group = crd.spec.group.clone();
-                let kind = crd.spec.names.kind.clone();
-                let plural = crd.spec.names.plural.clone();
-                let version = crd.spec.versions.first().map(|v| v.name.clone()).unwrap_or_else(|| "v1".into());
-                let namespaced = crd.spec.scope == "Namespaced";
-                if !seen.contains(&(group.clone(), kind.clone())) {
-                    // Find or create category for this API group
-                    if let Some(existing) = result.iter_mut().find(|ng| ng.title == group) {
-                        existing.items.push(NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() });
-                        existing.items.sort_by(|a, b| a.kind.cmp(&b.kind));
-                    } else {
-                        result.push(NavGroup { title: group.clone(), items: vec![NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() }] });
-                    }
-                }
-                // Always include in Custom Resources top-level list
-                custom_resources.push(NavResource { kind: kind, group, version, namespaced, title: plural });
-            }
-
-            // Sort and add Custom Resources category at the end
-            custom_resources.sort_by(|a, b| a.kind.cmp(&b.kind));
-            result.push(NavGroup { title: "Custom Resources".to_string(), items: custom_resources });
         }
+        // Collect CRDs for Custom Resources category and append missing per-group too
+        let mut custom_resources: Vec<NavResource> = Vec::new();
+        for crd in crd_list.items {
+            let group = crd.spec.group.clone();
+            let kind = crd.spec.names.kind.clone();
+            let plural = crd.spec.names.plural.clone();
+            let version = crd.spec.versions.first().map(|v| v.name.clone()).unwrap_or_else(|| "v1".into());
+            let namespaced = crd.spec.scope == "Namespaced";
+            if !seen.contains(&(group.clone(), kind.clone())) {
+                // Find or create category for this API group
+                if let Some(existing) = result.iter_mut().find(|ng| ng.title == group) {
+                    existing.items.push(NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() });
+                    existing.items.sort_by(|a, b| a.kind.cmp(&b.kind));
+                } else {
+                    result.push(NavGroup { title: group.clone(), items: vec![NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() }] });
+                }
+            }
+            // Always include in Custom Resources top-level list
+            custom_resources.push(NavResource { kind: kind, group, version, namespaced, title: plural });
+        }
+
+        // Sort and add Custom Resources category at the end
+        custom_resources.sort_by(|a, b| a.kind.cmp(&b.kind));
+        result.push(NavGroup { title: "Custom Resources".to_string(), items: custom_resources });
     }
+
+    // Save cache
+    save_cached_nav_structure(&context_name, &result);
 
     Ok(result)
 }
@@ -606,9 +696,6 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
     let summaries = list.into_iter().map(|obj| {
         let name = obj.metadata.name.clone().unwrap_or_default();
         let namespace = obj.metadata.namespace.clone().unwrap_or("-".into());
-        if req.group.contains("crossplane.io") || req.group.contains("upbound.io") {
-             println!("DEBUG: {}/{} -> Namespace: {}", req.kind, name, namespace);
-        }
         
         // Smart Status Extraction: Looks for 'phase', 'state', or 'conditions'
         let status = obj.data.get("status")
@@ -1476,9 +1563,43 @@ pub fn run() {
             clear_discovery_cache,
             ai_local::call_local_llm,
             ai_local::call_local_llm_with_tools,
+            test_connectivity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+async fn test_connectivity(context: String, path: Option<String>) -> Result<String, String> {
+    // 1. Create client options with context
+    let options = KubeConfigOptions {
+        context: Some(context),
+        ..Default::default()
+    };
+    
+    // 2. Load kubeconfig
+    let kubeconfig = if let Some(p) = path {
+        Kubeconfig::read_from(p).map_err(|e| e.to_string())?
+    } else {
+        Kubeconfig::read().map_err(|e| e.to_string())?
+    };
+
+    // 3. Create config with options
+    let config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 4. Set timeout
+    let mut config = config;
+    config.connect_timeout = Some(std::time::Duration::from_secs(5));
+    config.read_timeout = Some(std::time::Duration::from_secs(5));
+
+    let client = Client::try_from(config).map_err(|e| e.to_string())?;
+
+    // 5. Try a lightweight call
+    let _ = client.list_api_groups().await.map_err(|e| format!("Cluster unreachable: {}", e))?;
+
+    Ok("Connected".to_string())
 }
 
 #[tauri::command]

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 // NOTE: For local development, run: npm install @tauri-apps/api
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -36,6 +36,7 @@ import {
   HardDrive,
   Shield,
   Puzzle,
+  RefreshCw,
   Save,
   Loader2,
   Eye,
@@ -198,6 +199,7 @@ function LoadingScreen({ message }: { message: string }) {
 }
 
 // --- Terminal Tab ---
+// --- Terminal Tab ---
 function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: string, podSpec: any }) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
@@ -206,27 +208,43 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
 
   const [selectedContainer, setSelectedContainer] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Extract containers from spec
-  const containers = [
+  const containers = useMemo(() => [
     ...(podSpec?.containers || []).map((c: any) => c.name),
     ...(podSpec?.initContainers || []).map((c: any) => c.name)
-  ];
+  ], [podSpec]);
 
   // Set default container
   useEffect(() => {
     if (containers.length > 0 && !selectedContainer) {
       setSelectedContainer(containers[0]);
     }
-  }, [containers]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [containers, selectedContainer]);
 
-  useEffect(() => {
+  const handleDisconnect = useCallback(async () => {
+    if (xtermRef.current) {
+      xtermRef.current.dispose();
+      xtermRef.current = null;
+    }
+    setIsConnected(false);
+    setIsConnecting(false);
+    // Ideally we should also tell backend to kill the session, 
+    // but the backend `start_exec` might not have a kill command exposed easily yet 
+    // other than dropping the channel. 
+    // For now, we just clean up frontend.
+  }, []);
+
+  const handleConnect = useCallback(() => {
     if (!terminalRef.current || !selectedContainer) return;
+
+    setIsConnecting(true);
 
     // Initialize xterm
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 16,
+      fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       theme: {
         background: '#1e1e1e',
@@ -253,16 +271,20 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    term.writeln(`\x1b[33mConnecting to container '${selectedContainer}'...\x1b[0m`);
+
     // Start Exec Session
     invoke("start_exec", { namespace, name, container: selectedContainer, sessionId })
       .then(() => {
-        term.writeln(`\x1b[32mConnected to container '${selectedContainer}'...\x1b[0m`);
+        term.writeln(`\x1b[32mConnected!\x1b[0m`);
         term.focus();
         setIsConnected(true);
+        setIsConnecting(false);
       })
       .catch(err => {
         term.writeln(`\x1b[31mFailed to connect: ${err} \x1b[0m`);
         setIsConnected(false);
+        setIsConnecting(false);
       });
 
     // Handle Input
@@ -279,42 +301,83 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
     const handleResize = () => fitAddon.fit();
     window.addEventListener("resize", handleResize);
 
+    // Cleanup function for this connection attempt
     return () => {
       unlisten.then(f => f());
-      term.dispose();
       window.removeEventListener("resize", handleResize);
-      setIsConnected(false);
     };
   }, [namespace, name, selectedContainer, sessionId]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (xtermRef.current) {
+        xtermRef.current.dispose();
+      }
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full gap-2">
-      <div className="flex items-center gap-2 shrink-0">
-        <label className="text-[10px] uppercase font-bold text-[#858585]">Container:</label>
-        <div className="relative">
-          <select
-            value={selectedContainer}
-            onChange={(e) => setSelectedContainer(e.target.value)}
-            disabled={isConnected}
-            className="bg-[#252526] border border-[#3e3e42] text-[#cccccc] text-xs rounded pl-2 pr-6 py-1 appearance-none focus:border-[#007acc] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {containers.map((c: string) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[#858585]">
-            <ChevronDown size={10} />
+      <div className="flex items-center gap-2 shrink-0 bg-[#252526] p-1 rounded border border-[#3e3e42]">
+        <div className="flex items-center gap-2 px-2">
+          <label className="text-[10px] uppercase font-bold text-[#858585]">Container:</label>
+          <div className="relative">
+            <select
+              value={selectedContainer}
+              onChange={(e) => setSelectedContainer(e.target.value)}
+              disabled={isConnected || isConnecting}
+              className="bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc] text-xs rounded pl-2 pr-6 py-1 appearance-none focus:border-[#007acc] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed min-w-[150px]"
+            >
+              {containers.map((c: string) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[#858585]">
+              <ChevronDown size={10} />
+            </div>
           </div>
         </div>
+
+        <div className="h-4 w-px bg-[#3e3e42]" />
+
+        {!isConnected ? (
+          <button
+            onClick={handleConnect}
+            disabled={isConnecting || !selectedContainer}
+            className="flex items-center gap-1.5 px-3 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isConnecting ? <Loading size={10} label="" /> : <TerminalIcon size={12} />}
+            Connect
+          </button>
+        ) : (
+          <button
+            onClick={handleDisconnect}
+            className="flex items-center gap-1.5 px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-medium rounded transition-colors"
+          >
+            <X size={12} />
+            Disconnect
+          </button>
+        )}
+
         {isConnected && (
-          <span className="flex items-center gap-1 text-[10px] text-[#4ec9b0]">
-            <Activity size={10} />
-            Connected
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] text-[#4ec9b0] px-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#4ec9b0] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#4ec9b0]"></span>
+            </span>
+            Live Session
           </span>
         )}
       </div>
 
-      <div className="flex-1 bg-[#1e1e1e] p-2 rounded-md border border-[#3e3e42] overflow-hidden">
+      <div className="flex-1 bg-[#1e1e1e] p-2 rounded-md border border-[#3e3e42] overflow-hidden relative">
+        {!isConnected && !isConnecting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 z-10">
+            <TerminalIcon size={48} className="mb-4 opacity-20" />
+            <p className="text-sm">Select a container and click Connect</p>
+          </div>
+        )}
         <div ref={terminalRef} className="h-full w-full" />
       </div>
     </div>
@@ -634,6 +697,7 @@ function LocalTerminalTab() {
 
 function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, onOpenAzure: () => void }) {
   const [customPath, setCustomPath] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: contexts, isLoading } = useQuery({
     queryKey: ["kube_contexts", customPath],
@@ -648,14 +712,47 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
     queryFn: async () => await invoke<string>("get_current_context_name", { customPath }),
   });
 
+  const filteredContexts = useMemo(() => {
+    if (!contexts) return [];
+    if (!searchQuery) return contexts;
+    return contexts.filter(c => c.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [contexts, searchQuery]);
+
   const connectMutation = useMutation({
     mutationFn: async (context: string) => {
+      // 1. Test Connectivity First
+      try {
+        await invoke("test_connectivity", { context, path: customPath });
+      } catch (err: any) {
+        throw new Error(`Failed to connect to context '${context}': ${err}`);
+      }
+
+      // 2. If successful, set config
       await invoke("set_kube_config", { context, path: customPath });
     },
     onSuccess: () => {
       onConnect();
     },
+    onError: (error: Error) => {
+      // We need a way to show this error. 
+      // Since we don't have a global toast system set up in this file yet (or I missed it),
+      // let's add a local error state to display it.
+      console.error(error);
+    }
   });
+
+  // Add error state for connection failures
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // Wrap mutation to handle error state
+  const handleConnect = (ctx: string) => {
+    setConnectionError(null);
+    connectMutation.mutate(ctx, {
+      onError: (err) => {
+        setConnectionError(err.message);
+      }
+    });
+  };
 
   const handleFileSelect = async () => {
     try {
@@ -704,11 +801,30 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
             </button>
           </div>
 
+          {/* Context Search */}
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-2.5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search contexts..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors"
+            />
+          </div>
+
+          {connectionError && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+              <AlertCircle size={16} />
+              {connectionError}
+            </div>
+          )}
+
           <div className="bg-gradient-to-br from-gray-900 to-black rounded-xl border border-gray-800 overflow-hidden shadow-2xl shadow-purple-500/10 max-h-[350px] overflow-y-auto">
-            {contexts?.map(ctx => (
+            {filteredContexts.map(ctx => (
               <button
                 key={ctx}
-                onClick={() => connectMutation.mutate(ctx)}
+                onClick={() => handleConnect(ctx)}
                 disabled={connectMutation.isPending}
                 className={`w-full text-left px-6 py-4 border-b border-gray-800 last:border-0 hover:bg-gray-800 transition-all flex items-center justify-between group ${ctx === currentContext
                   ? "bg-gray-800 border-l-4 border-l-cyan-400"
@@ -726,8 +842,10 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                 )}
               </button>
             ))}
-            {contexts?.length === 0 && (
-              <div className="p-8 text-center text-[#858585]">No contexts found in this file.</div>
+            {filteredContexts.length === 0 && (
+              <div className="p-8 text-center text-[#858585]">
+                {contexts?.length === 0 ? "No contexts found in this file." : "No matching contexts."}
+              </div>
             )}
           </div>
         </div>
@@ -1026,83 +1144,23 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, resourceName }: {
   );
 }
 
-function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[] }) {
-  // Get current context to invalidate cache when context changes
-  const { data: currentContext } = useQuery({
-    queryKey: ["currentContext"],
-    queryFn: async () => await invoke<string>("get_current_context_name"),
-    staleTime: 5000,
-  });
-
+function ClusterOverview({
+  onNavigate,
+  navStructure,
+  vclusters,
+  vclustersLoading,
+  vclustersFetching
+}: {
+  onNavigate: (res: NavResource) => void,
+  navStructure?: NavGroup[],
+  vclusters?: any[],
+  vclustersLoading?: boolean,
+  vclustersFetching?: boolean
+}) {
   const { data: stats, isLoading, isError, error } = useQuery({
     queryKey: ["cluster_stats"],
     queryFn: async () => await invoke<ClusterStats>("get_cluster_stats"),
     refetchInterval: 30000,
-  });
-
-  // Detect vcluster instances using vcluster CLI
-  const { data: vclusters, isLoading: vclustersLoading, isFetching: vclustersFetching } = useQuery({
-    queryKey: ["vclusters", currentContext], // Add currentContext as dependency
-    queryFn: async () => {
-      try {
-        // Get StatefulSets from the current cluster context
-        const statefulsets = await invoke<K8sObject[]>("list_resources", {
-          req: { group: "apps", version: "v1", kind: "StatefulSet", namespace: null }
-        });
-        console.log(`Found ${statefulsets.length} StatefulSets in current context`);
-
-        // Get the list of namespaces in the current cluster
-        const currentNamespaces = new Set(statefulsets.map(s => s.namespace));
-        console.log('Current cluster namespaces:', Array.from(currentNamespaces).join(', '));
-
-        // Now get vcluster list from CLI
-        try {
-          const result = await invoke<string>("list_vclusters");
-          const vclusterList = JSON.parse(result);
-          console.log('All vclusters from CLI:', vclusterList);
-
-          if (vclusterList && vclusterList.length > 0) {
-            // Filter to only show vclusters in namespaces that exist in current cluster
-            const filteredVclusters = vclusterList.filter((vc: any) => {
-              const exists = currentNamespaces.has(vc.Namespace);
-              if (!exists) {
-                console.log(`Filtering out vcluster ${vc.Name} from namespace ${vc.Namespace} (not in current cluster)`);
-              }
-              return exists;
-            });
-
-            console.log(`Showing ${filteredVclusters.length} vclusters from current cluster`);
-
-            // Transform to our format
-            return filteredVclusters.map((vc: any) => ({
-              id: `vcluster-${vc.Name}-${vc.Namespace}`,
-              name: vc.Name,
-              namespace: vc.Namespace,
-              status: vc.Status || 'Unknown',
-              kind: 'VCluster',
-              group: '',
-              version: vc.Version || '',
-              age: '',
-              raw_json: '',
-              vclusterName: vc.Name,
-            }));
-          }
-        } catch (cliError) {
-          console.warn('vcluster CLI failed:', cliError);
-        }
-
-        // Fallback: If vcluster CLI fails, return empty array
-        console.log('No vclusters found via CLI');
-        return [];
-      } catch (e) {
-        console.error('Error fetching vclusters:', e);
-        throw e;
-      }
-    },
-    staleTime: 0,
-    gcTime: 0,
-    retry: false,
-    enabled: !!currentContext,
   });
 
   if (isLoading) return <div className="flex justify-center p-20"><Loading size={32} label="Loading" /></div>;
@@ -1725,6 +1783,60 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
     queryFn: async () => await invoke<string>("get_current_context_name"),
   });
 
+  // Detect vcluster instances using vcluster CLI (Moved to Dashboard for persistence)
+  const { data: vclusters, isLoading: vclustersLoading, isFetching: vclustersFetching } = useQuery({
+    queryKey: ["vclusters", currentContext],
+    queryFn: async () => {
+      try {
+        // Get StatefulSets from the current cluster context
+        const statefulsets = await invoke<K8sObject[]>("list_resources", {
+          req: { group: "apps", version: "v1", kind: "StatefulSet", namespace: null }
+        });
+
+        // Get the list of namespaces in the current cluster
+        const currentNamespaces = new Set(statefulsets.map(s => s.namespace));
+
+        // Now get vcluster list from CLI
+        try {
+          const result = await invoke<string>("list_vclusters");
+          const vclusterList = JSON.parse(result);
+
+          if (vclusterList && vclusterList.length > 0) {
+            // Filter to only show vclusters in namespaces that exist in current cluster
+            const filteredVclusters = vclusterList.filter((vc: any) => {
+              return currentNamespaces.has(vc.Namespace);
+            });
+
+            // Transform to our format
+            return filteredVclusters.map((vc: any) => ({
+              id: `vcluster-${vc.Name}-${vc.Namespace}`,
+              name: vc.Name,
+              namespace: vc.Namespace,
+              status: vc.Status || 'Unknown',
+              kind: 'VCluster',
+              group: '',
+              version: vc.Version || '',
+              age: '',
+              raw_json: '',
+              vclusterName: vc.Name,
+            }));
+          }
+        } catch (cliError) {
+          console.warn('vcluster CLI failed:', cliError);
+        }
+
+        return [];
+      } catch (e) {
+        console.error('Error fetching vclusters:', e);
+        throw e;
+      }
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000,   // 10 minutes
+    retry: false,
+    enabled: !!currentContext,
+  });
+
   // Keyboard Shortcut for Command Palette & Terminal
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -2173,8 +2285,8 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
         </div>
 
         {/* Sidebar Search Bar */}
-        <div className="px-3 pt-3 pb-2">
-          <div className="relative group">
+        <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+          <div className="relative group flex-1">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#858585] group-focus-within:text-[#007acc] transition-colors">
               <Search size={14} />
             </div>
@@ -2194,6 +2306,23 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               </button>
             )}
           </div>
+
+          <button
+            onClick={async () => {
+              try {
+                await invoke("clear_discovery_cache");
+                await queryClient.invalidateQueries({ queryKey: ["nav_structure"] });
+                // Force reload window to ensure fresh state
+                window.location.reload();
+              } catch (e) {
+                console.error("Failed to refresh discovery:", e);
+              }
+            }}
+            className="p-2 bg-[#3c3c3c] border border-[#3e3e42] text-[#858585] hover:text-white rounded-md hover:bg-[#4e4e4e] transition-colors"
+            title="Refresh Discovery Cache"
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
@@ -2503,7 +2632,13 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                   currentContext={currentContext}
                 />
               ) : (
-                <ClusterOverview navStructure={navStructure} onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }} />
+                <ClusterOverview
+                  navStructure={navStructure}
+                  onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                  vclusters={vclusters}
+                  vclustersLoading={vclustersLoading}
+                  vclustersFetching={vclustersFetching}
+                />
               )}
             </div>
           </>
