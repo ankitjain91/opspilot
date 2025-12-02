@@ -118,6 +118,12 @@ Go to the [Releases](https://github.com/ankitjain91/opspilot/releases) page to d
 -   **macOS**: Download the `.dmg` file.
 -   **Windows**: Download the `.exe` or `.msi` file.
 
+> **Note on Security Warnings**:
+> Since this is an open-source project not signed by Apple/Microsoft, you may see a security warning when installing.
+>
+> -   **macOS**: If you see "App cannot be opened because the developer cannot be verified", **Right-Click** the app -> Select **Open** -> Click **Open** again.
+> -   **Windows**: If you see "Windows protected your PC", click **More info** -> **Run anyway**.
+
 ### Build from Source
 
 **Prerequisites:**
