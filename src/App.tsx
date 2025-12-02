@@ -2533,8 +2533,8 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               key={tab.id}
               onClick={() => setActiveTabId(tab.id)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs font-medium transition-all group ${activeTabId === tab.id
-                  ? 'bg-black text-white border-t-2 border-t-cyan-400'
-                  : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                ? 'bg-black text-white border-t-2 border-t-cyan-400'
+                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                 }`}
             >
               <span className="truncate max-w-[120px]">{tab.resource.name}</span>
@@ -3745,12 +3745,12 @@ After the model is available, retry your request.`;
                 type="button"
                 onClick={() => setShowOllamaHelp(v => !v)}
                 className={`text-[10px] px-2 py-0.5 rounded border ${ollamaStatus.state === 'connected'
-                    ? 'bg-green-100 text-green-700 border-green-300'
-                    : ollamaStatus.state === 'model-missing'
-                      ? 'bg-yellow-100 text-yellow-700 border-yellow-300'
-                      : ollamaStatus.state === 'unreachable'
-                        ? 'bg-red-100 text-red-700 border-red-300'
-                        : 'bg-gray-100 text-gray-700 border-gray-300'
+                  ? 'bg-green-100 text-green-700 border-green-300'
+                  : ollamaStatus.state === 'model-missing'
+                    ? 'bg-yellow-100 text-yellow-700 border-yellow-300'
+                    : ollamaStatus.state === 'unreachable'
+                      ? 'bg-red-100 text-red-700 border-red-300'
+                      : 'bg-gray-100 text-gray-700 border-gray-300'
                   }`}
                 title="Ollama status"
               >
@@ -5265,16 +5265,39 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
   };
 
   if (isLoading) return <LoadingScreen message="Fetching Azure Data (this may take a moment)..." />;
-  if (error) return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="bg-[#f48771]/10 p-8 rounded-xl border border-[#f48771]/20 max-w-md backdrop-blur-sm">
-        <AlertCircle size={40} className="text-[#f48771] mx-auto mb-4" />
-        <h3 className="text-base font-bold text-[#cccccc] mb-2">Azure Error</h3>
-        <p className="text-[#858585] text-sm mb-4">{error.message}</p>
-        <button onClick={() => refetch()} className="px-4 py-2 bg-[#3e3e42] hover:bg-[#4a4a4a] rounded text-white text-sm">Retry</button>
+  if (error) {
+    const isLoginError = error.message.toLowerCase().includes("login");
+
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center p-8">
+        <div className="bg-[#f48771]/10 p-8 rounded-xl border border-[#f48771]/20 max-w-md backdrop-blur-sm">
+          <AlertCircle size={40} className="text-[#f48771] mx-auto mb-4" />
+          <h3 className="text-base font-bold text-[#cccccc] mb-2">Azure Error</h3>
+          <p className="text-[#858585] text-sm mb-4">{error.message}</p>
+
+          {isLoginError ? (
+            <button
+              onClick={async () => {
+                try {
+                  await invoke("azure_login");
+                  refetch();
+                } catch (e) {
+                  console.error(e);
+                  // If login fails, just refetch to show error again or maybe show toast
+                  refetch();
+                }
+              }}
+              className="px-4 py-2 bg-[#007acc] hover:bg-[#0063a5] rounded text-white text-sm font-medium shadow-lg shadow-blue-500/20"
+            >
+              Login to Azure
+            </button>
+          ) : (
+            <button onClick={() => refetch()} className="px-4 py-2 bg-[#3e3e42] hover:bg-[#4a4a4a] rounded text-white text-sm">Retry</button>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#1e1e1e]">
@@ -5519,10 +5542,10 @@ function AppContent() {
           <div
             key={t.id}
             className={`px-3 py-2 rounded-md text-sm shadow-lg backdrop-blur bg-opacity-20 border ${t.type === 'success'
-                ? 'bg-green-500/20 border-green-500/40 text-green-300'
-                : t.type === 'error'
-                  ? 'bg-red-500/20 border-red-500/40 text-red-300'
-                  : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
+              ? 'bg-green-500/20 border-green-500/40 text-green-300'
+              : t.type === 'error'
+                ? 'bg-red-500/20 border-red-500/40 text-red-300'
+                : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
               }`}
           >
             {t.message}

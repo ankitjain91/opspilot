@@ -1427,6 +1427,7 @@ pub fn run() {
             list_aks_clusters,
             get_aks_credentials,
             refresh_azure_data,
+            azure_login,
             connect_vcluster,
             list_vclusters,
             get_topology_graph,
@@ -1750,6 +1751,22 @@ async fn refresh_azure_data() -> Result<Vec<AzureSubscription>, String> {
     }
 
     Ok(subscriptions)
+}
+
+#[tauri::command]
+async fn azure_login() -> Result<String, String> {
+    // az login launches a browser. We can just run it.
+    // It blocks until login is complete.
+    let output = std::process::Command::new("az")
+        .arg("login")
+        .output()
+        .map_err(|e| format!("Failed to execute az login: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    
+    Ok("Logged in successfully".to_string())
 }
 
 #[tauri::command]
