@@ -1389,6 +1389,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            {
+                use std::env;
+                let key = "PATH";
+                if let Ok(val) = env::var(key) {
+                    let new_val = format!("{}:/usr/local/bin:/opt/homebrew/bin", val);
+                    env::set_var(key, new_val);
+                } else {
+                    env::set_var(key, "/usr/local/bin:/opt/homebrew/bin");
+                }
+            }
+            Ok(())
+        })
         .manage(AppState {
             kubeconfig_path: Mutex::new(None),
             selected_context: Mutex::new(None),
