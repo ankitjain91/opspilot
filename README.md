@@ -97,8 +97,8 @@ On first successful response the status flips to `Connected` and clears previous
 ## Development Quickstart
 
 ```bash
-git clone https://github.com/ankitjain91/lens-killer.git
-cd lens-killer
+git clone https://github.com/ankitjain91/opspilot.git
+cd opspilot
 npm install
 npm run tauri dev
 ```
@@ -114,7 +114,7 @@ Artifacts appear in `src-tauri/target/release/bundle/`.
 ## Installation
 
 ### Download Binaries
-Go to the [Releases](https://github.com/ankitjain91/lens-killer/releases) page to download the latest installer for your OS:
+Go to the [Releases](https://github.com/ankitjain91/opspilot/releases) page to download the latest installer for your OS:
 -   **macOS**: Download the `.dmg` file.
 -   **Windows**: Download the `.exe` or `.msi` file.
 
@@ -128,8 +128,8 @@ Go to the [Releases](https://github.com/ankitjain91/lens-killer/releases) page t
 **Steps:**
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/ankitjain91/lens-killer.git
-    cd lens-killer
+    git clone https://github.com/ankitjain91/opspilot.git
+    cd opspilot
     ```
 
 2.  Install dependencies:

@@ -1,7 +1,7 @@
 [package]
 name = "opspilot"
 version = "0.0.0"
-description = "A Tauri App"
+description = "Fast Kubernetes IDE with autonomous AI debugging. Tauri + Rust + Ollama for read-only incident analysis."
 authors = ["you"]
 license = "BUSL-1.1"
 edition = "2021"

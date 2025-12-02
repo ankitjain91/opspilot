@@ -1083,7 +1083,7 @@ async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String,
     };
 
     // 5. Apply (Server-Side Apply)
-    let pp = PatchParams::apply("lens-killer").force();
+    let pp = PatchParams::apply("opspilot").force();
     let patched = api.patch(&name, &pp, &Patch::Apply(&data)).await.map_err(|e| e.to_string())?;
 
     // 6. Return Summary

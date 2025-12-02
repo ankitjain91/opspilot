@@ -176,7 +176,7 @@ const queryClient = new QueryClient({
 // Create persister for localStorage
 const persister = createSyncStoragePersister({
   storage: window.localStorage,
-  key: 'lens-killer-cache',
+  key: 'opspilot-cache',
 });
 
 function LoadingScreen({ message }: { message: string }) {
@@ -190,7 +190,7 @@ function LoadingScreen({ message }: { message: string }) {
           <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse" />
           <Loader2 className="animate-spin text-blue-500 relative z-10" size={48} />
         </div>
-        <h2 className="text-2xl font-bold mb-2 tracking-tight">Lens Killer</h2>
+        <h2 className="text-2xl font-bold mb-2 tracking-tight">OpsPilot</h2>
         <p className="text-gray-400 animate-pulse font-medium">{message}</p>
       </div>
     </div>
@@ -2165,7 +2165,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               <Activity size={18} className="text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="text-base font-semibold tracking-tight leading-none bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">{currentContext || "Lens Killer"}</span>
+              <span className="text-base font-semibold tracking-tight leading-none bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">{currentContext || "OpsPilot"}</span>
               <span className="text-xs text-gray-400 font-mono mt-0.5">Cluster Admin</span>
             </div>
           </div>
