@@ -145,12 +145,12 @@ const formatAge = (isoDate: string): string => {
   const now = Date.now();
   const created = new Date(isoDate).getTime();
   const diffMs = now - created;
-  
+
   const seconds = Math.floor(diffMs / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  
+
   if (days > 0) {
     return `${days}d${hours % 24}h`;
   } else if (hours > 0) {
@@ -203,7 +203,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionId = useMemo(() => `session-${Math.random().toString(36).substr(2, 9)}`, []);
-  
+
   const [selectedContainer, setSelectedContainer] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
 
@@ -313,7 +313,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
           </span>
         )}
       </div>
-      
+
       <div className="flex-1 bg-[#1e1e1e] p-2 rounded-md border border-[#3e3e42] overflow-hidden">
         <div ref={terminalRef} className="h-full w-full" />
       </div>
@@ -386,9 +386,9 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
               <span className="text-gray-400 text-xs uppercase font-bold">CPU Usage</span>
             </div>
             {latest.cpu_percent !== undefined && (
-              <div 
+              <div
                 className="px-2 py-1 rounded text-xs font-bold shadow-sm"
-                style={{ 
+                style={{
                   backgroundColor: `${cpuColor}30`,
                   color: cpuColor,
                   border: `1px solid ${cpuColor}60`
@@ -406,9 +406,9 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
           )}
           {latest.cpu_percent !== undefined && (
             <div className="mt-2 h-2 bg-gray-800 rounded overflow-hidden">
-              <div 
+              <div
                 className="h-full transition-all duration-500 shadow-sm"
-                style={{ 
+                style={{
                   width: `${Math.min(latest.cpu_percent, 100)}%`,
                   backgroundColor: cpuColor,
                   boxShadow: `0 0 8px ${cpuColor}80`
@@ -425,9 +425,9 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
               <span className="text-gray-400 text-xs uppercase font-bold">Memory Usage</span>
             </div>
             {latest.memory_percent !== undefined && (
-              <div 
+              <div
                 className="px-2 py-1 rounded text-xs font-bold shadow-sm"
-                style={{ 
+                style={{
                   backgroundColor: `${memoryColor}30`,
                   color: memoryColor,
                   border: `1px solid ${memoryColor}60`
@@ -445,9 +445,9 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
           )}
           {latest.memory_percent !== undefined && (
             <div className="mt-2 h-2 bg-gray-800 rounded overflow-hidden">
-              <div 
+              <div
                 className="h-full transition-all duration-500 shadow-sm"
-                style={{ 
+                style={{
                   width: `${Math.min(latest.memory_percent, 100)}%`,
                   backgroundColor: memoryColor,
                   boxShadow: `0 0 8px ${memoryColor}80`
@@ -468,20 +468,20 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
             <ResponsiveContainer width="100%" height={150}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="#6b7280" 
+                <XAxis
+                  dataKey="time"
+                  stroke="#6b7280"
                   style={{ fontSize: '10px' }}
                   tick={{ fill: '#6b7280' }}
                 />
-                <YAxis 
-                  stroke="#6b7280" 
+                <YAxis
+                  stroke="#6b7280"
                   style={{ fontSize: '10px' }}
                   tick={{ fill: '#6b7280' }}
                 />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#000000', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#000000',
                     border: '1px solid #374151',
                     borderRadius: '8px',
                     fontSize: '12px',
@@ -489,10 +489,10 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
                   }}
                   labelStyle={{ color: '#ffffff' }}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="cpu" 
-                  stroke="#34d399" 
+                <Line
+                  type="monotone"
+                  dataKey="cpu"
+                  stroke="#34d399"
                   strokeWidth={2}
                   dot={false}
                   name="CPU (m)"
@@ -507,20 +507,20 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
             <ResponsiveContainer width="100%" height={150}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="#6b7280" 
+                <XAxis
+                  dataKey="time"
+                  stroke="#6b7280"
                   style={{ fontSize: '10px' }}
                   tick={{ fill: '#6b7280' }}
                 />
-                <YAxis 
-                  stroke="#6b7280" 
+                <YAxis
+                  stroke="#6b7280"
                   style={{ fontSize: '10px' }}
                   tick={{ fill: '#6b7280' }}
                 />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#000000', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#000000',
                     border: '1px solid #374151',
                     borderRadius: '8px',
                     fontSize: '12px',
@@ -528,10 +528,10 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
                   }}
                   labelStyle={{ color: '#ffffff' }}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="memory" 
-                  stroke="#fb923c" 
+                <Line
+                  type="monotone"
+                  dataKey="memory"
+                  stroke="#fb923c"
                   strokeWidth={2}
                   dot={false}
                   name="Memory (Mi)"
@@ -1050,17 +1050,17 @@ function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavRe
           req: { group: "apps", version: "v1", kind: "StatefulSet", namespace: null }
         });
         console.log(`Found ${statefulsets.length} StatefulSets in current context`);
-        
+
         // Get the list of namespaces in the current cluster
         const currentNamespaces = new Set(statefulsets.map(s => s.namespace));
         console.log('Current cluster namespaces:', Array.from(currentNamespaces).join(', '));
-        
+
         // Now get vcluster list from CLI
         try {
           const result = await invoke<string>("list_vclusters");
           const vclusterList = JSON.parse(result);
           console.log('All vclusters from CLI:', vclusterList);
-          
+
           if (vclusterList && vclusterList.length > 0) {
             // Filter to only show vclusters in namespaces that exist in current cluster
             const filteredVclusters = vclusterList.filter((vc: any) => {
@@ -1070,9 +1070,9 @@ function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavRe
               }
               return exists;
             });
-            
+
             console.log(`Showing ${filteredVclusters.length} vclusters from current cluster`);
-            
+
             // Transform to our format
             return filteredVclusters.map((vc: any) => ({
               id: `vcluster-${vc.Name}-${vc.Namespace}`,
@@ -1090,7 +1090,7 @@ function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavRe
         } catch (cliError) {
           console.warn('vcluster CLI failed:', cliError);
         }
-        
+
         // Fallback: If vcluster CLI fails, return empty array
         console.log('No vclusters found via CLI');
         return [];
@@ -1106,7 +1106,7 @@ function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavRe
   });
 
   if (isLoading) return <div className="flex justify-center p-20"><Loading size={32} label="Loading" /></div>;
-  
+
   if (isError) {
     return (
       <div className="flex flex-col items-center justify-center p-20 text-red-400">
@@ -1268,7 +1268,7 @@ function ClusterOverview({ onNavigate, navStructure }: { onNavigate: (res: NavRe
                     </div>
                     <StatusBadge status={vc.status} />
                   </div>
-                  
+
                   <VclusterConnectButton name={vclusterName} namespace={vc.namespace} />
                 </div>
               );
@@ -1288,16 +1288,16 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const qc = useQueryClient();
-    // Handle Reload button: invalidate queries globally when event fires
-    useEffect(() => {
-      const handler = () => {
-        try {
-          qc.invalidateQueries();
-        } catch {}
-      };
-      window.addEventListener("lenskiller:reload", handler);
-      return () => window.removeEventListener("lenskiller:reload", handler);
-    }, [qc]);
+  // Handle Reload button: invalidate queries globally when event fires
+  useEffect(() => {
+    const handler = () => {
+      try {
+        qc.invalidateQueries();
+      } catch { }
+    };
+    window.addEventListener("lenskiller:reload", handler);
+    return () => window.removeEventListener("lenskiller:reload", handler);
+  }, [qc]);
   return (
     <div>
       <button
@@ -1349,7 +1349,7 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
       </button>
       {connected && (
         <div className="mt-2 text-xs flex items-center gap-2 text-green-400">
-          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 10-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/></svg>
+          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 10-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg>
           Connected to {name}. Refreshing data...
         </div>
       )}
@@ -1456,7 +1456,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
 
         // String comparison for text fields
         if (typeof aVal === 'string' && typeof bVal === 'string') {
-          return sortConfig.direction === 'asc' 
+          return sortConfig.direction === 'asc'
             ? aVal.localeCompare(bVal)
             : bVal.localeCompare(aVal);
         }
@@ -1489,19 +1489,19 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
     const isActive = sortConfig?.key === sortKey;
     const direction = sortConfig?.direction;
     return (
-      <div 
+      <div
         onClick={() => handleSort(sortKey)}
         className="flex items-center gap-1 cursor-pointer hover:text-cyan-400 transition-all select-none"
       >
         <span>{label}</span>
         <div className="flex flex-col">
-          <ChevronDown 
-            size={10} 
+          <ChevronDown
+            size={10}
             className={`-mb-1 ${isActive && direction === 'asc' ? 'text-cyan-400' : 'text-gray-700'}`}
             style={{ transform: 'rotate(180deg)' }}
           />
-          <ChevronDown 
-            size={10} 
+          <ChevronDown
+            size={10}
             className={`${isActive && direction === 'desc' ? 'text-cyan-400' : 'text-gray-700'}`}
           />
         </div>
@@ -1546,7 +1546,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
             </span>
           ) : (
             <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-green-400'}`}>
-              <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+              <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
               {isFetching ? 'Live (updating)' : 'Live'}
             </span>
           )}
@@ -1678,11 +1678,11 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
   // Invalidate caches and clear backend cache on app launch
   useEffect(() => {
     (async () => {
-      try { qc.invalidateQueries(); } catch {}
+      try { qc.invalidateQueries(); } catch { }
       try {
         // @ts-ignore
         await invoke("clear_discovery_cache");
-      } catch {}
+      } catch { }
     })();
   }, [qc]);
 
@@ -1691,7 +1691,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
   const handleOpenResource = (obj: K8sObject) => {
     const tabId = `${obj.namespace}-${obj.name}-${obj.kind}`;
     const existingTab = tabs.find(t => t.id === tabId);
-    
+
     if (existingTab) {
       setActiveTabId(tabId);
     } else {
@@ -1707,7 +1707,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
 
   const handleCloseTab = (tabId: string | null) => {
     if (!tabId) return;
-    
+
     setTabs(prev => {
       const filtered = prev.filter(t => t.id !== tabId);
       if (activeTabId === tabId && filtered.length > 0) {
@@ -1785,7 +1785,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
     if (currentContext) {
       try {
         qc.invalidateQueries({ queryKey: ["discovery", currentContext] });
-      } catch {}
+      } catch { }
     }
   }, [currentContext, qc]);
 
@@ -1934,13 +1934,13 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
       groups[groupName] = groups[groupName]
         .map(item => ({ ...item, title: item.title ?? item.kind }))
         .filter(item => {
-        const key = (item.title || '').toLowerCase();
-        if (seen.has(key)) {
-          return false;
-        }
-        seen.add(key);
-        return true;
-      });
+          const key = (item.title || '').toLowerCase();
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
     });
 
     return groups;
@@ -1963,7 +1963,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
           groupName.toLowerCase().includes(query)
         );
       });
-      
+
       if (matchingItems.length > 0) {
         filtered[groupName] = matchingItems;
       }
@@ -2374,12 +2374,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
             // Invalidate all frontend caches
             try {
               qc.invalidateQueries();
-            } catch {}
+            } catch { }
             // Clear backend discovery cache
             try {
               // @ts-ignore invoke from tauri
               await invoke("clear_discovery_cache");
-            } catch {}
+            } catch { }
             // Broadcast reload for any listeners
             window.dispatchEvent(new CustomEvent("lenskiller:reload"));
             // Proceed with disconnect
@@ -2517,7 +2517,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                 if (typeof queryClient !== "undefined") {
                   await queryClient.invalidateQueries();
                 }
-              } catch {}
+              } catch { }
               // Fallback: emit a custom event other components can listen to
               window.dispatchEvent(new CustomEvent("lenskiller:reload"));
             }}
@@ -2532,11 +2532,10 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
             <button
               key={tab.id}
               onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs font-medium transition-all group ${
-                activeTabId === tab.id
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs font-medium transition-all group ${activeTabId === tab.id
                   ? 'bg-black text-white border-t-2 border-t-cyan-400'
                   : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
-              }`}
+                }`}
             >
               <span className="truncate max-w-[120px]">{tab.resource.name}</span>
               <span
@@ -2685,9 +2684,8 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
   return (
     <button
       onClick={onClick}
-      className={`py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-all ${
-        active ? "border-cyan-400 text-white" : "border-transparent text-gray-500 hover:text-gray-300"
-      }`}
+      className={`py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-all ${active ? "border-cyan-400 text-white" : "border-transparent text-gray-500 hover:text-gray-300"
+        }`}
     >
       {icon} {label}
     </button>
@@ -2742,12 +2740,12 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete }: { resou
 
   const sendMessage = async (message: string) => {
     if (!message.trim()) return;
-    
+
     const newUserMessage = { role: 'user' as const, content: message };
     setChatHistory(prev => [...prev, newUserMessage]);
     setUserInput("");
     setLlmLoading(true);
-    
+
     try {
       // Gather comprehensive context upfront to reduce hallucinations
       let recentEvents = '';
@@ -2759,7 +2757,7 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete }: { resou
         });
         const last10 = events.slice(0, 10);
         if (last10.length > 0) {
-          recentEvents = last10.map(e => 
+          recentEvents = last10.map(e =>
             `[${e.type_}] ${e.reason}: ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`
           ).join('\n');
         }
@@ -2768,19 +2766,19 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete }: { resou
       }
 
       // Build comprehensive context
-      const podConditions = resource.kind === 'Pod' && fullObject?.status?.conditions 
+      const podConditions = resource.kind === 'Pod' && fullObject?.status?.conditions
         ? fullObject.status.conditions.map((c: any) => `${c.type}=${c.status} (${c.reason || 'N/A'})${c.message ? ` "${c.message}"` : ''}`).join('\n  ')
         : '';
-      
+
       const podContainerStatuses = resource.kind === 'Pod' && fullObject?.status?.containerStatuses
         ? fullObject.status.containerStatuses.map((cs: any) => {
-            const state = cs.state ? Object.keys(cs.state)[0] : 'unknown';
-            const stateInfo = cs.state?.[state];
-            const restarts = cs.restartCount || 0;
-            const resources = fullObject?.spec?.containers?.find((c: any) => c.name === cs.name)?.resources;
-            const resourceStr = resources ? `\n    Requests: ${JSON.stringify(resources.requests || {})}\n    Limits: ${JSON.stringify(resources.limits || {})}` : '';
-            return `  ${cs.name}:\n    State: ${state}${stateInfo?.reason ? ` (${stateInfo.reason})` : ''}${stateInfo?.exitCode !== undefined ? ` [exit ${stateInfo.exitCode}]` : ''}\n    Restarts: ${restarts}${resourceStr}`;
-          }).join('\n')
+          const state = cs.state ? Object.keys(cs.state)[0] : 'unknown';
+          const stateInfo = cs.state?.[state];
+          const restarts = cs.restartCount || 0;
+          const resources = fullObject?.spec?.containers?.find((c: any) => c.name === cs.name)?.resources;
+          const resourceStr = resources ? `\n    Requests: ${JSON.stringify(resources.requests || {})}\n    Limits: ${JSON.stringify(resources.limits || {})}` : '';
+          return `  ${cs.name}:\n    State: ${state}${stateInfo?.reason ? ` (${stateInfo.reason})` : ''}${stateInfo?.exitCode !== undefined ? ` [exit ${stateInfo.exitCode}]` : ''}\n    Restarts: ${restarts}${resourceStr}`;
+        }).join('\n')
         : '';
 
       const ownerRefs = fullObject?.metadata?.ownerReferences
@@ -2845,7 +2843,7 @@ Available READ-ONLY debugging tools:
 To use a tool, respond with: TOOL: <tool_name> [args]
 You can use multiple tools - list each on a new line.
 `;
-      
+
       const answer = await invoke<string>("call_local_llm_with_tools", {
         prompt: `${context}\n\nUser: ${message}`,
         systemPrompt: `SYSTEM IDENTITY
@@ -3052,26 +3050,26 @@ whose job is to DRIVE the investigation, not just answer questions.`,
       // Enhanced tool execution with multiple tool support
       const toolMatches = answer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
       const tools = Array.from(toolMatches);
-      
+
       // Validate tool names to prevent treating syntax errors as real errors
-      const validTools = ['DESCRIBE', 'EVENTS', 'LOGS', 'LOGS_PREVIOUS', 'RELATED_PODS', 
-                          'PARENT_DETAILS', 'NETWORK_CHECK', 'RESOURCE_USAGE', 'LIST_RESOURCES', 
-                          'DESCRIBE_ANY', 'NODE_INFO', 'STORAGE_CHECK'];
-      
+      const validTools = ['DESCRIBE', 'EVENTS', 'LOGS', 'LOGS_PREVIOUS', 'RELATED_PODS',
+        'PARENT_DETAILS', 'NETWORK_CHECK', 'RESOURCE_USAGE', 'LIST_RESOURCES',
+        'DESCRIBE_ANY', 'NODE_INFO', 'STORAGE_CHECK'];
+
       if (tools.length > 0) {
         let allToolResults: string[] = [];
-        
+
         for (const toolMatch of tools) {
           const toolName = toolMatch[1];
           const toolArgs = toolMatch[2]?.trim();
           let toolResult = '';
           let kubectlCommand = '';
-          
+
           // Validate tool name
           if (!validTools.includes(toolName)) {
             const errorMsg = `⚠️ **TOOL ERROR**: "${toolName}" is not a valid tool.\n\nValid tools: ${validTools.join(', ')}\n\n**This is an AI tool invocation error, NOT a pod/resource error.**`;
-            setChatHistory(prev => [...prev, { 
-              role: 'tool', 
+            setChatHistory(prev => [...prev, {
+              role: 'tool',
               content: errorMsg,
               toolName: 'INVALID_TOOL',
               command: 'N/A'
@@ -3079,7 +3077,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
             allToolResults.push(`## INVALID TOOL: ${toolName}\n${errorMsg}`);
             continue;
           }
-          
+
           try {
             // Show tool execution with kubectl equivalent
             if (toolName === 'DESCRIBE') {
@@ -3094,7 +3092,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
                 name: resource.name
               });
               toolResult = `\`\`\`yaml\n${details.slice(0, 3000)}\n${details.length > 3000 ? '... (truncated, use kubectl for full output)' : ''}\`\`\``;
-            } 
+            }
             else if (toolName === 'EVENTS') {
               kubectlCommand = `kubectl get events -n ${resource.namespace} --field-selector involvedObject.name=${resource.name}`;
               const events = await invoke<any[]>("list_events", {
@@ -3106,12 +3104,12 @@ whose job is to DRIVE the investigation, not just answer questions.`,
               const normal = events.filter(e => e.type_ !== 'Warning');
               toolResult = `**${events.length} total events (${warnings.length} warnings)**\n\n`;
               if (warnings.length > 0) {
-                toolResult += `**⚠️ Warnings:**\n${warnings.slice(0, 15).map(e => 
+                toolResult += `**⚠️ Warnings:**\n${warnings.slice(0, 15).map(e =>
                   `- \`${new Date(e.age).toLocaleString()}\` **${e.reason}**: ${e.message} ${e.count > 1 ? `**(×${e.count})**` : ''}`
                 ).join('\n')}\n\n`;
               }
               if (normal.length > 0) {
-                toolResult += `**✓ Normal:**\n${normal.slice(0, 5).map(e => 
+                toolResult += `**✓ Normal:**\n${normal.slice(0, 5).map(e =>
                   `- ${e.reason}: ${e.message}`
                 ).join('\n')}`;
               }
@@ -3119,7 +3117,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
             else if (toolName === 'LOGS' && resource.kind === 'Pod') {
               // Sanitize container name - remove brackets, quotes, and extra whitespace
               let containerName = toolArgs ? toolArgs.replace(/[\[\]"']/g, '').trim() : null;
-              
+
               // Validate container name
               if (containerName && (/\s/.test(containerName) || containerName.length === 0)) {
                 toolResult = `❌ **TOOL SYNTAX ERROR**: Invalid container name "${toolArgs}"\n\n**Issue:** Container names cannot contain spaces or special characters like [], ", '\n\n**Correct usage:** LOGS container-name\n**Example:** LOGS calico-node\n\n**This is a TOOL SYNTAX ERROR, not a pod error.**`;
@@ -3132,7 +3130,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
                     container: containerName,
                     tailLines: 100
                   });
-                // Sanitize logs - remove any control characters or malformed data
+                  // Sanitize logs - remove any control characters or malformed data
                   // Sanitize logs - remove any control characters or malformed data
                   const sanitizedLogs = logs.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
                   const logLines = sanitizedLogs.split('\n').filter(l => l.trim());
@@ -3140,10 +3138,10 @@ whose job is to DRIVE the investigation, not just answer questions.`,
                   toolResult = `**Pod Logs** (${logLines.length} lines total)${errorLines.length > 0 ? ` - **${errorLines.length} errors found**` : ' - **No errors detected**'}\n\n\`\`\`\n${sanitizedLogs.slice(-2500)}\n\`\`\``;
                 } catch (err) {
                   const containerListFormatted = fullObject?.spec?.containers?.map((c: any) => `- ${c.name}`).join('\n') || 'Unknown';
-                  
+
                   // Check if error is about wrong container name
                   const isWrongContainer = err && err.toString().includes('is not valid for pod');
-                  
+
                   if (isWrongContainer) {
                     toolResult = `❌ **WRONG CONTAINER NAME**\n\n**You tried:** "${containerName}"\n**Error:** This container does not exist in THIS pod.\n\n**Available containers in THIS pod (${resource.name}):**\n${containerListFormatted}\n\n**What went wrong:**\nYou used a container name from a DIFFERENT pod. The context at the top shows the containers for THIS specific pod under "Containers:" section.\n\n**How to fix:**\nUse LOGS with one of the actual container names listed above.\nExample: LOGS ${fullObject?.spec?.containers?.[0]?.name || 'manager'}\n\n**This is NOT a pod error - you just used the wrong container name.**`;
                   } else {
@@ -3155,7 +3153,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
             else if (toolName === 'LOGS_PREVIOUS' && resource.kind === 'Pod') {
               // Sanitize container name - remove brackets, quotes, and extra whitespace
               let containerName = toolArgs ? toolArgs.replace(/[\[\]"']/g, '').trim() : null;
-              
+
               if (containerName && (/\s/.test(containerName) || containerName.length === 0)) {
                 toolResult = `❌ **TOOL SYNTAX ERROR**: Invalid container name "${toolArgs}"\n\n**Issue:** Container names cannot contain spaces or special characters like [], ", '\n\n**Correct usage:** LOGS_PREVIOUS container-name\n**Example:** LOGS_PREVIOUS calico-node\n\n**This is a TOOL SYNTAX ERROR, not a pod error.**`;
               } else {
@@ -3213,7 +3211,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
                 const metrics = await invoke<any>("get_resource_metrics", {
                   resourceKind: resource.kind, namespace: resource.namespace, name: resource.name
                 });
-                toolResult = `**Current usage:**\n${metrics.map((m: any) => 
+                toolResult = `**Current usage:**\n${metrics.map((m: any) =>
                   `- CPU: **${m.cpu}** ${m.cpu_percent ? `(${m.cpu_percent}% of limit)` : ''}\n- Memory: **${m.memory}** ${m.memory_percent ? `(${m.memory_percent}% of limit)` : ''}`
                 ).join('\n')}`;
               }
@@ -3294,18 +3292,18 @@ whose job is to DRIVE the investigation, not just answer questions.`,
             }
 
             // Add tool execution to chat with kubectl command
-            setChatHistory(prev => [...prev, { 
-              role: 'tool', 
+            setChatHistory(prev => [...prev, {
+              role: 'tool',
               content: toolResult,
               toolName: toolName,
               command: kubectlCommand
             }]);
-            
+
             allToolResults.push(`## ${toolName}${toolArgs ? ` ${toolArgs}` : ''}\n${toolResult}`);
           } catch (toolErr) {
             const errorMsg = `⚠️ **TOOL EXECUTION ERROR (not a resource error)**\n\n**Tool:** ${toolName}\n**Error:** ${toolErr}\n\n**Note:** This error occurred while trying to execute the debugging tool, not from the Kubernetes resource itself.\n\nTry the kubectl command manually: \`${kubectlCommand || 'N/A'}\``;
-            setChatHistory(prev => [...prev, { 
-              role: 'tool', 
+            setChatHistory(prev => [...prev, {
+              role: 'tool',
               content: errorMsg,
               toolName: toolName,
               command: kubectlCommand
@@ -3318,12 +3316,12 @@ whose job is to DRIVE the investigation, not just answer questions.`,
         let combinedResults = allToolResults.join('\n\n---\n\n');
         let iterationCount = 0;
         const maxIterations = 3; // Prevent infinite loops
-        
+
         while (iterationCount < maxIterations) {
           const analysisPrompt = iterationCount === 0
             ? `Based on these tool results, provide analysis for: "${message}"\n\n${combinedResults}`
             : `Continue investigation with these new results:\n\n${combinedResults}`;
-            
+
           const analysisAnswer = await invoke<string>("call_local_llm_with_tools", {
             prompt: analysisPrompt,
             systemPrompt: `SYSTEM IDENTITY
@@ -3432,26 +3430,26 @@ Never self-terminate.`,
           // Mark Ollama connected on successful follow-up LLM response
           // Always mark as connected and clear prior detail
           setOllamaStatus({ state: 'connected' });
-          
+
           // Check if AI wants to use more tools
           const nextToolMatches = analysisAnswer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
           const nextTools = Array.from(nextToolMatches);
-          
+
           if (nextTools.length === 0) {
             // No more tools requested - final answer
             setChatHistory(prev => [...prev, { role: 'assistant', content: analysisAnswer }]);
             break;
           }
-          
+
           // AI wants to investigate more - show reasoning
           const reasoningPart = analysisAnswer.split('TOOL:')[0].trim();
           if (reasoningPart) {
-            setChatHistory(prev => [...prev, { 
-              role: 'assistant', 
+            setChatHistory(prev => [...prev, {
+              role: 'assistant',
               content: reasoningPart + '\n\n*🔄 Continuing investigation...*'
             }]);
           }
-          
+
           // Execute next round of tools
           const newToolResults: string[] = [];
           for (const toolMatch of nextTools) {
@@ -3459,12 +3457,12 @@ Never self-terminate.`,
             const toolArgs = toolMatch[2]?.trim();
             let toolResult = '';
             let kubectlCommand = '';
-            
+
             // Validate tool name in iteration
             if (!validTools.includes(toolName)) {
               const errorMsg = `⚠️ **TOOL ERROR**: "${toolName}" is not a valid tool.\n\nValid tools: ${validTools.join(', ')}\n\n**This is an AI tool invocation error, NOT a pod/resource error.**`;
-              setChatHistory(prev => [...prev, { 
-                role: 'tool', 
+              setChatHistory(prev => [...prev, {
+                role: 'tool',
                 content: errorMsg,
                 toolName: 'INVALID_TOOL',
                 command: 'N/A'
@@ -3472,7 +3470,7 @@ Never self-terminate.`,
               newToolResults.push(`## INVALID TOOL: ${toolName}\n${errorMsg}`);
               continue;
             }
-            
+
             try {
               // Execute all available tools in iteration
               if (toolName === 'DESCRIBE') {
@@ -3482,7 +3480,7 @@ Never self-terminate.`,
                   name: resource.name
                 });
                 toolResult = `\`\`\`yaml\n${details.slice(0, 3000)}\n${details.length > 3000 ? '... (truncated, use kubectl for full output)' : ''}\`\`\``;
-              } 
+              }
               else if (toolName === 'EVENTS') {
                 kubectlCommand = `kubectl get events -n ${resource.namespace} --field-selector involvedObject.name=${resource.name}`;
                 const events = await invoke<any[]>("list_events", { namespace: resource.namespace, name: resource.name, uid: resource.id });
@@ -3490,7 +3488,7 @@ Never self-terminate.`,
                 const normal = events.filter(e => e.type_ !== 'Warning');
                 toolResult = `**${events.length} total events (${warnings.length} warnings)**\n\n`;
                 if (warnings.length > 0) {
-                  toolResult += `**⚠️ Warnings:**\n${warnings.slice(0, 15).map(e => 
+                  toolResult += `**⚠️ Warnings:**\n${warnings.slice(0, 15).map(e =>
                     `- \`${new Date(e.age).toLocaleString()}\` **${e.reason}**: ${e.message} ${e.count > 1 ? `**(×${e.count})**` : ''}`
                   ).join('\n')}\n\n`;
                 }
@@ -3501,7 +3499,7 @@ Never self-terminate.`,
               else if (toolName === 'LOGS' && resource.kind === 'Pod') {
                 // Sanitize container name - remove brackets, quotes, and extra whitespace
                 let containerName = toolArgs ? toolArgs.replace(/[\[\]"']/g, '').trim() : null;
-                
+
                 if (containerName && (/\s/.test(containerName) || containerName.length === 0)) {
                   toolResult = `❌ **TOOL SYNTAX ERROR**: Invalid container name "${toolArgs}"\n\n**Issue:** Container names cannot contain spaces or special characters like [], ", '\n\n**Correct usage:** LOGS container-name\n**Example:** LOGS calico-node\n\n**This is a TOOL SYNTAX ERROR, not a pod error.**`;
                 } else {
@@ -3515,7 +3513,7 @@ Never self-terminate.`,
                   } catch (err) {
                     const containerListFormatted = fullObject?.spec?.containers?.map((c: any) => `- ${c.name}`).join('\n') || 'Unknown';
                     const isWrongContainer = err && err.toString().includes('is not valid for pod');
-                    
+
                     if (isWrongContainer) {
                       toolResult = `❌ **WRONG CONTAINER NAME**\n\n**You tried:** "${containerName}"\n**Error:** This container does not exist in THIS pod.\n\n**Available containers in THIS pod (${resource.name}):**\n${containerListFormatted}\n\n**What went wrong:**\nYou used a container name from a DIFFERENT pod. The context at the top shows the containers for THIS specific pod under "Containers:" section.\n\n**How to fix:**\nUse LOGS with one of the actual container names listed above.\nExample: LOGS ${fullObject?.spec?.containers?.[0]?.name || 'manager'}\n\n**This is NOT a pod error - you just used the wrong container name.**`;
                     } else {
@@ -3527,7 +3525,7 @@ Never self-terminate.`,
               else if (toolName === 'LOGS_PREVIOUS' && resource.kind === 'Pod') {
                 // Sanitize container name - remove brackets, quotes, and extra whitespace
                 let containerName = toolArgs ? toolArgs.replace(/[\[\]"']/g, '').trim() : null;
-                
+
                 if (containerName && (/\s/.test(containerName) || containerName.length === 0)) {
                   toolResult = `❌ **TOOL SYNTAX ERROR**: Invalid container name "${toolArgs}"\n\n**Issue:** Container names cannot contain spaces or special characters like [], ", '\n\n**Correct usage:** LOGS_PREVIOUS container-name\n**Example:** LOGS_PREVIOUS calico-node\n\n**This is a TOOL SYNTAX ERROR, not a pod error.**`;
                 } else {
@@ -3538,7 +3536,7 @@ Never self-terminate.`,
               else if (toolName === 'RELATED_PODS') {
                 kubectlCommand = `kubectl get pods -n ${resource.namespace}`;
                 try {
-                  const pods = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Pod", namespace: resource.namespace }});
+                  const pods = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Pod", namespace: resource.namespace } });
                   const failed = pods.filter(p => p.status.includes('Error') || p.status.includes('CrashLoop'));
                   toolResult = `**${pods.length} pods** ${failed.length > 0 ? `**(${failed.length} failing)**` : '**all healthy**'}\n\n${pods.slice(0, 40).map(p => {
                     const icon = p.status.includes('Running') && !p.status.includes('0/') ? '✓' : p.status.includes('Error') || p.status.includes('CrashLoop') ? '❌' : '⚠️';
@@ -3564,11 +3562,11 @@ Never self-terminate.`,
               else if (toolName === 'NETWORK_CHECK') {
                 kubectlCommand = `kubectl get svc,endpoints -n ${resource.namespace}`;
                 if (resource.kind === 'Service') {
-                  const endpoints = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Endpoints", namespace: resource.namespace }});
+                  const endpoints = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Endpoints", namespace: resource.namespace } });
                   const matchingEp = endpoints.find(ep => ep.name === resource.name);
                   toolResult = `**Service:** ${fullObject?.spec?.type}, ClusterIP: ${fullObject?.spec?.clusterIP}\n**Endpoints:** ${matchingEp ? '✓ Found' : '❌ Missing (no pods match selector)'}`;
                 } else if (resource.kind === 'Pod') {
-                  const services = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Service", namespace: resource.namespace }});
+                  const services = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Service", namespace: resource.namespace } });
                   toolResult = `**${services.length} services** in namespace\n${services.slice(0, 10).map(s => `- ${s.name}: ${s.status}`).join('\n')}`;
                 }
               }
@@ -3629,20 +3627,20 @@ Never self-terminate.`,
               }
               else if (toolName === 'STORAGE_CHECK' && resource.kind === 'Pod') {
                 kubectlCommand = `kubectl get pvc -n ${resource.namespace}`;
-                const pvcs = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "PersistentVolumeClaim", namespace: resource.namespace }});
+                const pvcs = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "PersistentVolumeClaim", namespace: resource.namespace } });
                 toolResult = `**${pvcs.length} PVCs** in namespace\n${pvcs.slice(0, 10).map(p => `- ${p.name}: ${p.status}`).join('\n')}`;
               }
               else {
                 toolResult = `Tool ${toolName} not available in iteration mode`;
               }
 
-              setChatHistory(prev => [...prev, { 
-                role: 'tool', 
+              setChatHistory(prev => [...prev, {
+                role: 'tool',
                 content: toolResult,
                 toolName: toolName,
                 command: kubectlCommand
               }]);
-              
+
               newToolResults.push(`## ${toolName}${toolArgs ? ` ${toolArgs}` : ''}\n${toolResult}`);
             } catch (toolErr) {
               const errorMsg = `⚠️ **TOOL EXECUTION ERROR (not a resource error)**\n\n**Tool:** ${toolName}\n**Error:** ${toolErr}\n\n**Note:** This error occurred while trying to execute the debugging tool, not from the Kubernetes resource itself.\n\nTry the kubectl command manually: \`${kubectlCommand || 'N/A'}\``;
@@ -3650,11 +3648,11 @@ Never self-terminate.`,
               newToolResults.push(`## ${toolName} - Tool Execution Error\n${errorMsg}`);
             }
           }
-          
+
           combinedResults = newToolResults.join('\n\n---\n\n');
           iterationCount++;
         }
-        
+
         // Don't add any "investigation complete" messages - let AI continue naturally
       } else {
         setChatHistory(prev => [...prev, { role: 'assistant', content: answer }]);
@@ -3746,15 +3744,14 @@ After the model is available, retry your request.`;
               <button
                 type="button"
                 onClick={() => setShowOllamaHelp(v => !v)}
-                className={`text-[10px] px-2 py-0.5 rounded border ${
-                  ollamaStatus.state === 'connected'
+                className={`text-[10px] px-2 py-0.5 rounded border ${ollamaStatus.state === 'connected'
                     ? 'bg-green-100 text-green-700 border-green-300'
                     : ollamaStatus.state === 'model-missing'
-                    ? 'bg-yellow-100 text-yellow-700 border-yellow-300'
-                    : ollamaStatus.state === 'unreachable'
-                    ? 'bg-red-100 text-red-700 border-red-300'
-                    : 'bg-gray-100 text-gray-700 border-gray-300'
-                }`}
+                      ? 'bg-yellow-100 text-yellow-700 border-yellow-300'
+                      : ollamaStatus.state === 'unreachable'
+                        ? 'bg-red-100 text-red-700 border-red-300'
+                        : 'bg-gray-100 text-gray-700 border-gray-300'
+                  }`}
                 title="Ollama status"
               >
                 {ollamaStatus.state === 'connected' && 'Ollama: Connected'}
@@ -3786,30 +3783,30 @@ After the model is available, retry your request.`;
               <div className="font-semibold mb-1">Ollama Setup (macOS)</div>
               <div className="mb-1">Install/start and pull a model:</div>
               <pre className="bg-[#0d1117] border border-[#3e3e42] rounded p-2 overflow-auto text-[10px] text-[#cccccc]">
-brew install ollama
-ollama serve
-ollama pull llama3.1:8b
+                brew install ollama
+                ollama serve
+                ollama pull llama3.1:8b
               </pre>
               <div className="mt-2">Alternative installer:</div>
               <pre className="bg-[#0d1117] border border-[#3e3e42] rounded p-2 overflow-auto text-[10px] text-[#cccccc]">
-curl -fsSL https://ollama.com/install.sh | sh
+                curl -fsSL https://ollama.com/install.sh | sh
               </pre>
               <div className="mt-2">Verify installation and models:</div>
               <pre className="bg-[#0d1117] border border-[#3e3e42] rounded p-2 overflow-auto text-[10px] text-[#cccccc]">
-ollama list
-ollama run llama3.1:8b
+                ollama list
+                ollama run llama3.1:8b
               </pre>
               <div className="mt-2 text-[#858585]">Status: {ollamaStatus.state} {ollamaStatus.detail ? `– ${ollamaStatus.detail}` : ''}</div>
             </div>
           )}
-          
+
           {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
             {chatHistory.length === 0 && (
               <div className="text-center text-[#858585] text-xs py-8">
                 <div className="text-2xl mb-2">🤖</div>
                 <div className="font-semibold mb-1">AI Kubernetes Debugging Assistant</div>
-                Ask me anything about this {resource.kind}!<br/>
+                Ask me anything about this {resource.kind}!<br />
                 <div className="text-[10px] mt-2 space-y-1">
                   <div>💡 "Why is this pod failing?"</div>
                   <div>💡 "Check the logs for errors"</div>
@@ -3826,7 +3823,7 @@ ollama run llama3.1:8b
                     </div>
                   </div>
                 )}
-                
+
                 {msg.role === 'tool' && (
                   <div className="flex justify-start">
                     <div className="max-w-[90%] rounded border border-cyan-500/30 bg-[#1e1e1e] overflow-hidden">
@@ -3845,7 +3842,7 @@ ollama run llama3.1:8b
                       )}
                       {/* Tool result */}
                       <div className="px-3 py-2">
-                        <div 
+                        <div
                           className="text-[11px] text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none [&_h2]:text-xs [&_h2]:text-white [&_h2]:font-bold [&_h2]:mb-1 [&_h2]:mt-2 [&_h2]:first:mt-0 [&_h3]:text-[11px] [&_h3]:text-white [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1 [&_ul]:space-y-0.5 [&_ul]:text-[10px] [&_li]:text-[#cccccc] [&_p]:my-1 [&_p]:text-[10px] [&_code]:bg-[#2d2d30] [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-cyan-300 [&_code]:text-[9px] [&_pre]:bg-[#0d1117] [&_pre]:p-2 [&_pre]:rounded [&_pre]:border [&_pre]:border-[#3e3e42] [&_pre]:my-1.5 [&_pre]:text-[9px] [&_pre]:max-h-40 [&_pre]:overflow-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[#cccccc] [&_strong]:text-white [&_strong]:font-semibold"
                           dangerouslySetInnerHTML={{
                             __html: msg.content
@@ -3867,11 +3864,11 @@ ollama run llama3.1:8b
                     </div>
                   </div>
                 )}
-                
+
                 {msg.role === 'assistant' && (
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded px-3 py-2 text-xs bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc]">
-                      <div 
+                      <div
                         className="prose prose-invert prose-sm max-w-none [&_h1]:text-sm [&_h1]:text-white [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-3 [&_h1]:first:mt-0 [&_h2]:text-xs [&_h2]:text-white [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-2 [&_h3]:text-xs [&_h3]:text-white [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1.5 [&_ul]:space-y-0.5 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-1.5 [&_ol]:space-y-0.5 [&_li]:text-[#cccccc] [&_li]:text-[11px] [&_p]:my-1.5 [&_p]:text-[11px] [&_p]:leading-relaxed [&_code]:bg-[#2d2d30] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[#ce9178] [&_code]:text-[10px] [&_pre]:bg-[#0d1117] [&_pre]:p-2.5 [&_pre]:rounded [&_pre]:border [&_pre]:border-[#3e3e42] [&_pre]:my-2 [&_pre]:text-[10px] [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[#cccccc] [&_strong]:text-white [&_strong]:font-semibold [&_em]:italic [&_em]:text-purple-300"
                         dangerouslySetInnerHTML={{
                           __html: msg.content
@@ -4136,12 +4133,12 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
         const labels = metadata.labels;
         const matches: string[] = [];
         // Fetch each service detail to inspect selector (limit 20 to avoid spam)
-        for (const name of svcList.slice(0,20)) {
+        for (const name of svcList.slice(0, 20)) {
           try {
             const jsonStr = await invoke<string>("get_resource_details", { req: { group: "", version: "v1", kind: "Service", namespace: null }, name });
             const obj = JSON.parse(jsonStr);
             const selector = obj?.spec?.selector || {};
-            const isMatch = selector && Object.entries(selector).every(([k,v]) => labels[k] === v);
+            const isMatch = selector && Object.entries(selector).every(([k, v]) => labels[k] === v);
             if (isMatch) matches.push(name);
           } catch { /* ignore */ }
         }
@@ -4165,7 +4162,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
               <div>
                 <span className="block text-[#858585] mb-1">Node Selector</span>
                 <div className="flex flex-wrap gap-1">
-                  {spec.nodeSelector ? Object.entries(spec.nodeSelector).map(([k,v]) => (
+                  {spec.nodeSelector ? Object.entries(spec.nodeSelector).map(([k, v]) => (
                     <span key={k} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{k}={String(v)}</span>
                   )) : <span className="text-[#858585] text-[11px] italic">None</span>}
                 </div>
@@ -4263,14 +4260,14 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
                   {(c.livenessProbe || c.readinessProbe || c.startupProbe) && (
                     <div className="text-[11px] space-y-1">
                       <span className="text-[#858585]">Probes:</span>
-                      {['livenessProbe','readinessProbe','startupProbe'].map((pk) => {
+                      {['livenessProbe', 'readinessProbe', 'startupProbe'].map((pk) => {
                         const probe: any = (c as any)[pk];
                         if (!probe) return null;
                         const type = probe.httpGet ? 'HTTP' : probe.tcpSocket ? 'TCP' : probe.exec ? 'Exec' : 'Unknown';
                         const detail = probe.httpGet ? `${probe.httpGet.path || '/'}:${probe.httpGet.port}` : probe.tcpSocket ? probe.tcpSocket.port : probe.exec ? (probe.exec.command || []).join(' ') : '';
                         return (
                           <div key={pk} className="flex flex-wrap items-center gap-2">
-                            <span className="px-1 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{pk.replace('Probe','')}</span>
+                            <span className="px-1 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{pk.replace('Probe', '')}</span>
                             <span className="px-1 py-0.5 bg-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{type}</span>
                             <span className="px-1 py-0.5 bg-[#1e1e1e] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]" title={detail}>{detail || '-'}</span>
                             {typeof probe.initialDelaySeconds === 'number' && <span className="text-[#858585]">delay:{probe.initialDelaySeconds}s</span>}
@@ -4288,18 +4285,18 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
           </div>
 
           {/* Volumes */}
-            <div className="space-y-2">
-              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold">Volumes</h4>
-              <div className="flex flex-wrap gap-1.5">
-                {volumes.map((v: any, i: number) => {
-                  const type = Object.keys(v).find(k => k !== 'name') || 'unknown';
-                  return (
-                    <span key={i} className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]" title={JSON.stringify(v[type] || {})}>{v.name}:{type}</span>
-                  );
-                })}
-                {volumes.length === 0 && <span className="text-[#858585] text-xs italic">No volumes</span>}
-              </div>
+          <div className="space-y-2">
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold">Volumes</h4>
+            <div className="flex flex-wrap gap-1.5">
+              {volumes.map((v: any, i: number) => {
+                const type = Object.keys(v).find(k => k !== 'name') || 'unknown';
+                return (
+                  <span key={i} className="px-2 py-1 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]" title={JSON.stringify(v[type] || {})}>{v.name}:{type}</span>
+                );
+              })}
+              {volumes.length === 0 && <span className="text-[#858585] text-xs italic">No volumes</span>}
             </div>
+          </div>
           {/* Matching Services */}
           <div className="space-y-1">
             <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold">Matching Services</h4>
@@ -4317,7 +4314,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
   if (k === 'deployment') {
     const replicas = spec.replicas;
     const strategy = spec.strategy?.type || 'RollingUpdate';
-    const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k,v]) => `${k}=${v}`).join(', ') : '-';
+    const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k, v]) => `${k}=${v}`).join(', ') : '-';
     const tplContainers = spec.template?.spec?.containers || [];
     return (
       <CollapsibleSection title="Deployment Spec" icon={<Package size={14} />}>
@@ -4343,7 +4340,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 
   if (k === 'replicaset') {
     const replicas = spec.replicas;
-    const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k,v]) => `${k}=${v}`).join(', ') : '-';
+    const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k, v]) => `${k}=${v}`).join(', ') : '-';
     const tplContainers = spec.template?.spec?.containers || [];
     return (
       <CollapsibleSection title="ReplicaSet Spec" icon={<Package size={14} />}>
@@ -4374,13 +4371,13 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
           <div className="grid grid-cols-3 gap-4">
             <div><span className="block text-[#858585] mb-1">Type</span><span className="font-mono text-[#cccccc]">{spec.type || '-'}</span></div>
             <div><span className="block text-[#858585] mb-1">Cluster IP</span><span className="font-mono text-[#cccccc]">{spec.clusterIP || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">External IPs</span><span className="font-mono text-[#cccccc]">{Array.isArray(spec.externalIPs) && spec.externalIPs.length>0 ? spec.externalIPs.join(', ') : '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">External IPs</span><span className="font-mono text-[#cccccc]">{Array.isArray(spec.externalIPs) && spec.externalIPs.length > 0 ? spec.externalIPs.join(', ') : '-'}</span></div>
           </div>
           <div className="grid grid-cols-1 gap-2">
             <div>
               <span className="block text-[#858585] mb-1">Selector</span>
               <div className="flex flex-wrap gap-1">
-                {spec.selector ? Object.entries(spec.selector).map(([k,v]) => (
+                {spec.selector ? Object.entries(spec.selector).map(([k, v]) => (
                   <span key={k} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{k}={String(v)}</span>
                 )) : <span className="text-[#858585] italic text-xs">None</span>}
               </div>
@@ -4469,7 +4466,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
     };
 
     const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text).catch(() => {});
+      navigator.clipboard.writeText(text).catch(() => { });
     };
 
     return (
@@ -4553,7 +4550,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
     };
 
     const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text).catch(() => {});
+      navigator.clipboard.writeText(text).catch(() => { });
     };
 
     return (
@@ -4665,7 +4662,7 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
     return () => {
       unlisten.then((f) => f());
       unlistenEnd.then((f) => f());
-      invoke("stop_log_stream", { sessionId }).catch(() => {});
+      invoke("stop_log_stream", { sessionId }).catch(() => { });
       setIsStreaming(false);
     };
   }, [namespace, name, selectedContainer, sessionId, isPaused]);
@@ -4724,7 +4721,7 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
             <span className="flex items-center gap-1 text-[#f48771]"><AlertCircle size={12} /> Failed</span>
           ) : (
             <span className={`flex items-center gap-1 ${isStreaming && !isPaused ? 'text-[#89d185]' : 'text-[#858585]'}`}>
-              <svg className={`w-2 h-2 ${isStreaming && !isPaused ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+              <svg className={`w-2 h-2 ${isStreaming && !isPaused ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
               {isStreaming && !isPaused ? 'Live' : isPaused ? 'Paused' : 'Idle'}
             </span>
           )}
@@ -4797,7 +4794,7 @@ Resource: ${name} (namespace: ${namespace})
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs">
         <span className={`flex items-center gap-1 ${isFetching ? 'text-[#007acc]' : 'text-[#89d185]'}`}>
-          <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+          <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
           {isFetching ? 'Live (updating)' : 'Live'}
         </span>
       </div>
@@ -4808,7 +4805,7 @@ Resource: ${name} (namespace: ${namespace})
         <div key={i} className="bg-[#1e1e1e] p-3 rounded border border-[#3e3e42]">
           <div className="flex items-center justify-between text-xs">
             <span className={`inline-flex items-center gap-1 ${ev.type_ === 'Warning' ? 'text-[#cca700]' : 'text-[#89d185]'}`}>
-              <svg className="w-1.5 h-1.5" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+              <svg className="w-1.5 h-1.5" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
               {ev.type_}
             </span>
             <span className="text-[10px] text-[#858585]">{new Date(ev.age).toLocaleString()}</span>
@@ -4818,11 +4815,11 @@ Resource: ${name} (namespace: ${namespace})
             {ev.count > 1 && <span className="ml-2 text-[10px] bg-[#3e3e42] px-1.5 py-0.5 rounded text-[#cccccc]">x{ev.count}</span>}
           </div>
           <p className="text-xs text-[#858585] break-words leading-snug mt-1">{ev.message}</p>
-          
+
           {/* Explain button */}
           <div className="mt-2">
             <button
-              onClick={() => expandedExplanations[i] ? setExpandedExplanations(prev => { const n = {...prev}; delete n[i]; return n; }) : explainEvent(i, ev)}
+              onClick={() => expandedExplanations[i] ? setExpandedExplanations(prev => { const n = { ...prev }; delete n[i]; return n; }) : explainEvent(i, ev)}
               disabled={loadingExplanations[i]}
               className="text-xs text-purple-400 hover:text-purple-300 disabled:text-purple-600 flex items-center gap-1"
             >
@@ -5438,24 +5435,7 @@ function AppContent() {
   }, []);
 
   // Check if there's already an active context on mount
-  useQuery({
-    queryKey: ["check_initial_context"],
-    queryFn: async () => {
-      try {
-        const context = await invoke<string>("get_current_context_name", { customPath: null });
-        if (context) {
-          console.log('Found existing context on mount:', context);
-          setIsConnected(true);
-          prevContextRef.current = context;
-        }
-        return context;
-      } catch (e) {
-        console.log('No initial context found');
-        return null;
-      }
-    },
-    staleTime: Infinity, // Only run once
-  });
+
 
   // Watch current context and toast on changes
   const { data: currentCtx } = useQuery({
@@ -5538,13 +5518,12 @@ function AppContent() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`px-3 py-2 rounded-md text-sm shadow-lg backdrop-blur bg-opacity-20 border ${
-              t.type === 'success'
+            className={`px-3 py-2 rounded-md text-sm shadow-lg backdrop-blur bg-opacity-20 border ${t.type === 'success'
                 ? 'bg-green-500/20 border-green-500/40 text-green-300'
                 : t.type === 'error'
-                ? 'bg-red-500/20 border-red-500/40 text-red-300'
-                : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
-            }`}
+                  ? 'bg-red-500/20 border-red-500/40 text-red-300'
+                  : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
+              }`}
           >
             {t.message}
           </div>
