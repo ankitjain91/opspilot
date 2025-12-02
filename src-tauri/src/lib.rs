@@ -1390,16 +1390,37 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            use std::env;
+            let key = "PATH";
+            let current_path = env::var(key).unwrap_or_default();
+            
+            // Common paths that might be missing in GUI environment
+            let mut paths_to_add = Vec::new();
+            
             #[cfg(target_os = "macos")]
             {
-                use std::env;
-                let key = "PATH";
-                if let Ok(val) = env::var(key) {
-                    let new_val = format!("{}:/usr/local/bin:/opt/homebrew/bin", val);
-                    env::set_var(key, new_val);
-                } else {
-                    env::set_var(key, "/usr/local/bin:/opt/homebrew/bin");
+                paths_to_add.push("/usr/local/bin");
+                paths_to_add.push("/opt/homebrew/bin");
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                paths_to_add.push("/usr/local/bin");
+                paths_to_add.push("/snap/bin");
+                paths_to_add.push("/home/linuxbrew/.linuxbrew/bin");
+            }
+
+            if !paths_to_add.is_empty() {
+                // Check if path is already there to avoid duplicates (simple check)
+                let separator = ":"; // Unix separator
+                let mut new_path = current_path.clone();
+                
+                for p in paths_to_add {
+                    if !new_path.contains(p) {
+                        new_path = format!("{}{}{}", new_path, separator, p);
+                    }
                 }
+                env::set_var(key, new_path);
             }
             Ok(())
         })
