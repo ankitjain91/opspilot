@@ -113,6 +113,12 @@ Artifacts appear in `src-tauri/target/release/bundle/`.
 
 ## Installation
 
+### NPM (Experimental)
+```bash
+npm install -g opspilot
+opspilot
+```
+
 ### Download Binaries
 Go to the [Releases](https://github.com/ankitjain91/opspilot/releases) page to download the latest installer for your OS:
 -   **macOS**: Download the `.dmg` file.

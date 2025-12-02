@@ -1,0 +1,26 @@
+{
+    "name": "opspilot",
+    "version": "0.1.0",
+    "description": "OpsPilot - Fast Kubernetes IDE (Installer)",
+    "bin": {
+        "opspilot": "./bin/opspilot"
+    },
+    "scripts": {
+        "postinstall": "node install.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ankitjain91/opspilot.git"
+    },
+    "author": "Ankit Jain",
+    "license": "BSL-1.1",
+    "os": [
+        "darwin",
+        "linux",
+        "win32"
+    ],
+    "cpu": [
+        "x64",
+        "arm64"
+    ]
+}
