@@ -25,7 +25,7 @@
     "active": true,
     "targets": [
       "nsis",
-      "app",
+      "dmg",
       "updater"
     ],
     "icon": [
