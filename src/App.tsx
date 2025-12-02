@@ -1843,6 +1843,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
     "Config": false,
     "Storage": false,
     "Access Control": false,
+    "Crossplane": true,
     "Custom Resources": false
   });
 
@@ -2327,8 +2328,20 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
             />
           )}
 
+          {!navStructure || isDiscovering ? null : filteredGroupedResources["Crossplane"] && (
+            <SidebarGroup
+              title="Crossplane"
+              icon={Cloud}
+              items={filteredGroupedResources["Crossplane"]}
+              activeRes={activeRes}
+              onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+              isOpen={expandedGroups["Crossplane"]}
+              onToggle={() => toggleGroup("Crossplane")}
+            />
+          )}
+
           {/* Custom Resources Section */}
-          {!navStructure || isDiscovering ? null : Object.keys(filteredGroupedResources).some(g => ["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control"].includes(g) === false) && (
+          {!navStructure || isDiscovering ? null : Object.keys(filteredGroupedResources).some(g => ["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "Crossplane"].includes(g) === false) && (
             <SidebarSection
               title="Custom Resources"
               icon={Puzzle}
@@ -2336,13 +2349,13 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               onToggle={() => toggleGroup("Custom Resources")}
             >
               {/* Clearer loading label; hide once any CRD group appears */}
-              {isCrdLoading && Object.keys(filteredGroupedResources).filter(g => !["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control"].includes(g)).length === 0 && (
+              {isCrdLoading && Object.keys(filteredGroupedResources).filter(g => !["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "Crossplane"].includes(g)).length === 0 && (
                 <div className="px-3 py-2">
                   <Loading size={14} label="Loading Custom Resources…" />
                 </div>
               )}
               {Object.keys(filteredGroupedResources)
-                .filter(g => !["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control"].includes(g))
+                .filter(g => !["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "Crossplane"].includes(g))
                 .sort()
                 .map(groupTitle => (
                   <SidebarGroup
@@ -3961,6 +3974,94 @@ After the model is available, retry your request.`;
         </div>
       </CollapsibleSection>
 
+      {/* Crossplane Details */}
+      {(resource.group.includes('crossplane.io') || resource.group.includes('upbound.io')) && (
+        <CollapsibleSection title="Crossplane Details" icon={<Cloud size={14} />}>
+          <div className="space-y-6">
+            {/* Conditions Table */}
+            {fullObject?.status?.conditions && (
+              <div>
+                <span className="block text-[#858585] text-xs mb-2 font-medium uppercase tracking-wider">Conditions</span>
+                <div className="bg-[#1e1e1e] rounded border border-[#3e3e42] overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#252526] text-[#858585] font-medium border-b border-[#3e3e42]">
+                      <tr>
+                        <th className="px-3 py-2">Type</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Reason</th>
+                        <th className="px-3 py-2">Message</th>
+                        <th className="px-3 py-2">Last Transition</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#3e3e42]">
+                      {fullObject.status.conditions.map((c: any, i: number) => (
+                        <tr key={i} className="hover:bg-[#2d2d30]">
+                          <td className="px-3 py-2 font-medium text-white">{c.type}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${c.status === 'True' ? 'bg-green-500/20 text-green-400' :
+                              c.status === 'False' ? 'bg-red-500/20 text-red-400' :
+                                'bg-gray-500/20 text-gray-400'
+                              }`}>
+                              {c.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-[#cccccc]">{c.reason}</td>
+                          <td className="px-3 py-2 text-[#858585] max-w-[200px] truncate" title={c.message}>{c.message}</td>
+                          <td className="px-3 py-2 text-[#858585] whitespace-nowrap">{formatAge(c.lastTransitionTime)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Provider Config Ref */}
+            {fullObject?.spec?.providerConfigRef && (
+              <div>
+                <span className="block text-[#858585] text-xs mb-1 font-medium uppercase tracking-wider">Provider Config</span>
+                <div className="flex items-center gap-2 text-sm text-[#cccccc]">
+                  <span className="font-mono bg-[#1e1e1e] px-2 py-1 rounded border border-[#3e3e42]">
+                    {fullObject.spec.providerConfigRef.name}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Connection Secret */}
+            {fullObject?.spec?.writeConnectionSecretToRef && (
+              <div>
+                <span className="block text-[#858585] text-xs mb-1 font-medium uppercase tracking-wider">Connection Secret</span>
+                <div className="flex items-center gap-2 text-sm text-[#cccccc]">
+                  <span className="text-[#858585]">Secret:</span>
+                  <span className="font-mono bg-[#1e1e1e] px-2 py-1 rounded border border-[#3e3e42]">
+                    {fullObject.spec.writeConnectionSecretToRef.name}
+                  </span>
+                  <span className="text-[#858585] ml-2">Namespace:</span>
+                  <span className="font-mono bg-[#1e1e1e] px-2 py-1 rounded border border-[#3e3e42]">
+                    {fullObject.spec.writeConnectionSecretToRef.namespace}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Connection Details */}
+            {fullObject?.status?.connectionDetails && (
+              <div>
+                <span className="block text-[#858585] text-xs mb-1 font-medium uppercase tracking-wider">Published Connection Details</span>
+                <div className="flex flex-wrap gap-2">
+                  {Object.keys(fullObject.status.connectionDetails).map(key => (
+                    <span key={key} className="px-2 py-1 bg-purple-500/10 text-purple-400 text-xs rounded border border-purple-500/20 font-mono">
+                      {key}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+      )}
+
       {/* Resource Metrics */}
       {showMetrics && (
         <CollapsibleSection title="Resource Metrics" icon={<Activity size={14} />}>
@@ -4849,6 +4950,9 @@ Resource: ${name} (namespace: ${namespace})
 function YamlTab({ resource }: { resource: K8sObject }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const editorRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
   const qc = useQueryClient();
 
   // Fetch full resource details on-demand
@@ -4878,6 +4982,44 @@ function YamlTab({ resource }: { resource: K8sObject }) {
     }
   }, [yamlContent]);
 
+  // Search Logic
+  useEffect(() => {
+    if (!editorRef.current) return;
+
+    const editor = editorRef.current;
+    const model = editor.getModel();
+
+    if (!searchQuery) {
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      return;
+    }
+
+    const matches = model.findMatches(searchQuery, false, false, false, null, true);
+
+    if (matches.length > 0) {
+      // Highlight all matches
+      const newDecorations = matches.map((match: any) => ({
+        range: match.range,
+        options: {
+          isWholeLine: false,
+          className: 'myContentClass', // We'll rely on inline styles or global css if needed, but monaco supports inlineClassName
+          inlineClassName: 'bg-yellow-500/40 text-white font-bold'
+        }
+      }));
+
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
+
+      // Scroll to first match
+      editor.revealRangeInCenter(matches[0].range);
+    } else {
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+    }
+  }, [searchQuery]);
+
+  const handleEditorDidMount = (editor: any) => {
+    editorRef.current = editor;
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -4885,15 +5027,6 @@ function YamlTab({ resource }: { resource: K8sObject }) {
       </div>
     );
   }
-  // The plan said "Editable YAML". 
-  // Let's assume the user is okay with JSON for now since `resource.raw_json` is JSON.
-  // OR, we can try to parse it. 
-  // Wait, `resource.raw_json` comes from `serde_json::to_string_pretty`.
-  // So it is JSON.
-  // If I want YAML, I should have returned YAML from backend.
-  // But `apply_yaml` backend expects YAML (or JSON, since YAML is a superset).
-  // Let's use JSON for now to avoid 'js-yaml' dependency, but call it "Editor".
-  // Monaco supports JSON highlighting perfectly.
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -4920,7 +5053,19 @@ function YamlTab({ resource }: { resource: K8sObject }) {
   return (
     <div className="flex flex-col h-full bg-[#1e1e1e] border border-[#3e3e42] rounded overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 bg-[#252526] border-b border-[#3e3e42]">
-        <span className="text-xs text-[#858585]">Edits are applied via Server-Side Apply</span>
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-[#858585]">Edits are applied via Server-Side Apply</span>
+          <div className="relative">
+            <Search size={12} className="absolute left-2 top-1.5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search in YAML..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-[#1e1e1e] border border-[#3e3e42] rounded pl-7 pr-2 py-1 text-xs text-[#cccccc] focus:outline-none focus:border-[#007acc]"
+            />
+          </div>
+        </div>
         <div className="flex gap-2">
           <button
             onClick={() => setContent(yamlContent || "")}
@@ -4952,6 +5097,7 @@ function YamlTab({ resource }: { resource: K8sObject }) {
           defaultLanguage="json"
           value={content}
           onChange={(val) => setContent(val || "")}
+          onMount={handleEditorDidMount}
           theme="vs-dark"
           options={{
             minimap: { enabled: false },
