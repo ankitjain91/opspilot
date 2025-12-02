@@ -1395,7 +1395,7 @@ pub fn run() {
             let current_path = env::var(key).unwrap_or_default();
             
             // Common paths that might be missing in GUI environment
-            let mut paths_to_add = Vec::new();
+            let mut paths_to_add: Vec<&str> = Vec::new();
             
             #[cfg(target_os = "macos")]
             {
