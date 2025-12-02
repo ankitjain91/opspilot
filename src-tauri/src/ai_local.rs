@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
 
@@ -32,11 +32,7 @@ struct ChatResponse {
     choices: Vec<ChatChoice>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ToolCall {
-    pub name: String,
-    pub arguments: serde_json::Value,
-}
+
 
 #[tauri::command]
 pub async fn call_local_llm_with_tools(
