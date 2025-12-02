@@ -394,6 +394,8 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
             // 1. Check if it's a standard resource
             let category = if let Some(cat) = standard_categories.get(ar.kind.as_str()) {
                 cat.to_string()
+            } else if ar.group.contains("crossplane.io") || ar.group.contains("upbound.io") {
+                "Crossplane".to_string()
             } else {
                 // 2. If not standard, use the API Group as the category
                 // This ensures NOTHING is hidden.
@@ -420,7 +422,7 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
 
     // Sort categories logic
     // We want standard categories first, then alphabetical for the rest
-    let standard_order = vec!["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control"];
+    let standard_order = vec!["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "Crossplane"];
     let mut result = Vec::new();
 
     // 1. Add Standard Categories
@@ -604,6 +606,9 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
     let summaries = list.into_iter().map(|obj| {
         let name = obj.metadata.name.clone().unwrap_or_default();
         let namespace = obj.metadata.namespace.clone().unwrap_or("-".into());
+        if req.group.contains("crossplane.io") || req.group.contains("upbound.io") {
+             println!("DEBUG: {}/{} -> Namespace: {}", req.kind, name, namespace);
+        }
         
         // Smart Status Extraction: Looks for 'phase', 'state', or 'conditions'
         let status = obj.data.get("status")
