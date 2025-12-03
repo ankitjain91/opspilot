@@ -1969,8 +1969,8 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   const { data: cockpit, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["cluster_cockpit", currentContext],
     queryFn: async () => await invoke<ClusterCockpitData>("get_cluster_cockpit"),
-    staleTime: 15000,
-    refetchInterval: 30000,
+    staleTime: 30000, // Increased to 30s to avoid refetch while initial_data is fresh
+    refetchInterval: 60000, // Increased to 60s - cockpit data doesn't change that fast
   });
 
   // Fetch vclusters for this cluster - only on host clusters, not inside vclusters
@@ -1996,7 +1996,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
         return [];
       }
     },
-    staleTime: 60000,
+    staleTime: 1000 * 60 * 2, // 2 minutes - vclusters don't change often
     // Only fetch vclusters when on host cluster, not inside a vcluster
     enabled: !!currentContext && !isInsideVcluster,
   });
@@ -4542,8 +4542,8 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
     queryKey: ["discovery", currentContext],
     queryFn: async () => await invoke<NavGroup[]>("discover_api_resources"),
     enabled: !!currentContext,
-    staleTime: 60000, // Cache discovery for 60s - backend has disk cache too
-    gcTime: 1000 * 60 * 10, // Keep in memory for 10 minutes
+    staleTime: 1000 * 60 * 5, // 5 minutes - API resources rarely change
+    gcTime: 1000 * 60 * 30, // Keep in memory for 30 minutes
   });
 
   // 1b. Fetch initial cluster data in parallel - this populates caches for instant navigation
@@ -4604,7 +4604,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
       }
     },
     enabled: !!currentContext,
-    staleTime: 30000,
+    staleTime: 1000 * 60 * 5, // 5 minutes - CRDs rarely change
   });
 
   // Force re-discovery when global reload occurs
@@ -4792,7 +4792,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
         return [] as string[];
       }
     },
-    staleTime: 60000, // Increased to 60s since we get fresh data from initial fetch
+    staleTime: 1000 * 60 * 2, // 2 minutes - namespaces rarely change
     initialData: initialData?.namespaces?.sort(), // Use cached data from initial fetch
   });
 
