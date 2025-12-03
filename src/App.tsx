@@ -309,7 +309,7 @@ const getCategoryIcon = (title: string) => {
     case "Config": return <FileCode size={18} />;
     case "Access Control": return <Shield size={18} />;
     case "Cluster": return <Server size={18} />;
-    default: return <Layers size={18} />;
+    default: return <img src="/icon.png" alt="icon" className="w-[18px] h-[18px]" />;
   }
 };
 
@@ -373,7 +373,10 @@ function LoadingScreen({ message }: { message: string }) {
           <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse" />
           <Loader2 className="animate-spin text-blue-500 relative z-10" size={48} />
         </div>
-        <h2 className="text-2xl font-bold mb-2 tracking-tight">OpsPilot</h2>
+        <div className="flex items-center gap-3 mb-2">
+          <img src="/icon.png" alt="OpsPilot" className="w-8 h-8" />
+          <h2 className="text-2xl font-bold tracking-tight">OpsPilot</h2>
+        </div>
         <p className="text-gray-400 animate-pulse font-medium">{message}</p>
       </div>
     </div>
@@ -1058,11 +1061,8 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
           </div>
 
           <div className="w-24 h-24 mx-auto mb-6 relative group">
-            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl blur-xl opacity-50 group-hover:opacity-75 transition-all duration-700 group-hover:scale-110" />
-            <div className="absolute inset-0 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-3xl opacity-20 animate-ping" style={{ animationDuration: '3s' }} />
-            <div className="relative w-full h-full bg-gradient-to-br from-cyan-500 via-blue-500 to-blue-600 rounded-3xl flex items-center justify-center shadow-2xl border border-white/20">
-              <Layers className="text-white drop-shadow-lg" size={48} />
-            </div>
+            <div className="absolute inset-0 bg-blue-600/20 rounded-3xl blur-xl opacity-50 group-hover:opacity-75 transition-all duration-700 group-hover:scale-110" />
+            <img src="/icon.png" alt="OpsPilot" className="relative w-full h-full rounded-3xl shadow-2xl border border-white/10" />
           </div>
 
           <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
@@ -1181,22 +1181,20 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                     {connectionLogs.map((log, i) => (
                       <div key={i} className="flex items-start gap-2 py-1 animate-in fade-in slide-in-from-left-2">
                         <span className="text-zinc-600 shrink-0">{log.time}</span>
-                        <span className={`shrink-0 ${
-                          log.status === 'success' ? 'text-green-400' :
+                        <span className={`shrink-0 ${log.status === 'success' ? 'text-green-400' :
                           log.status === 'error' ? 'text-red-400' :
-                          log.status === 'pending' ? 'text-yellow-400' :
-                          'text-zinc-400'
-                        }`}>
+                            log.status === 'pending' ? 'text-yellow-400' :
+                              'text-zinc-400'
+                          }`}>
                           {log.status === 'success' ? '✓' :
-                           log.status === 'error' ? '✗' :
-                           log.status === 'pending' ? '○' : '→'}
+                            log.status === 'error' ? '✗' :
+                              log.status === 'pending' ? '○' : '→'}
                         </span>
-                        <span className={`${
-                          log.status === 'success' ? 'text-green-300' :
+                        <span className={`${log.status === 'success' ? 'text-green-300' :
                           log.status === 'error' ? 'text-red-300' :
-                          log.status === 'pending' ? 'text-yellow-200' :
-                          'text-zinc-300'
-                        }`}>{log.message}</span>
+                            log.status === 'pending' ? 'text-yellow-200' :
+                              'text-zinc-300'
+                          }`}>{log.message}</span>
                       </div>
                     ))}
                     {connectionLogs.length > 0 && (
@@ -2040,16 +2038,16 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   // Status indicator
   const StatusIndicator = ({ status, count, label }: { status: 'healthy' | 'warning' | 'critical', count: number, label: string }) => (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${status === 'critical' ? 'bg-red-500/10 border-red-500/30' :
-        status === 'warning' ? 'bg-yellow-500/10 border-yellow-500/30' :
-          'bg-green-500/10 border-green-500/30'
+      status === 'warning' ? 'bg-yellow-500/10 border-yellow-500/30' :
+        'bg-green-500/10 border-green-500/30'
       }`}>
       <div className={`w-2 h-2 rounded-full ${status === 'critical' ? 'bg-red-500 animate-pulse' :
-          status === 'warning' ? 'bg-yellow-500' :
-            'bg-green-500'
+        status === 'warning' ? 'bg-yellow-500' :
+          'bg-green-500'
         }`} />
       <span className={`text-sm font-medium ${status === 'critical' ? 'text-red-400' :
-          status === 'warning' ? 'text-yellow-400' :
-            'text-green-400'
+        status === 'warning' ? 'text-yellow-400' :
+          'text-green-400'
         }`}>{count}</span>
       <span className="text-xs text-zinc-500">{label}</span>
     </div>
@@ -2510,11 +2508,10 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                       }
                     }}
                     disabled={connectingVcluster !== null}
-                    className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${
-                      connectingVcluster !== null
-                        ? 'bg-purple-800/50 cursor-not-allowed'
-                        : 'bg-purple-600/80 hover:bg-purple-500'
-                    }`}
+                    className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${connectingVcluster !== null
+                      ? 'bg-purple-800/50 cursor-not-allowed'
+                      : 'bg-purple-600/80 hover:bg-purple-500'
+                      }`}
                   >
                     <Plug size={14} />
                     Connect
@@ -2638,11 +2635,10 @@ function OllamaSetupInstructions({ status, onRetry }: { status: OllamaStatus | n
           <button
             key={p}
             onClick={() => setSelectedPlatform(p)}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
-              selectedPlatform === p
-                ? 'bg-purple-500/20 border border-purple-500/50 text-purple-300'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-transparent'
-            }`}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${selectedPlatform === p
+              ? 'bg-purple-500/20 border border-purple-500/50 text-purple-300'
+              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-transparent'
+              }`}
           >
             <span className="mr-1">{platforms[p].icon}</span>
             {platforms[p].name}
@@ -3353,7 +3349,7 @@ function useResourceWatch(
       unlistenWatch.then(fn => fn());
       unlistenSync.then(fn => fn());
       unlistenEnd.then(fn => fn());
-      invoke("stop_resource_watch", { watchId }).catch(() => {});
+      invoke("stop_resource_watch", { watchId }).catch(() => { });
       setIsWatching(false);
       setSyncComplete(false);
     };
@@ -4298,9 +4294,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
         {/* Sidebar Header */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-white/5 backdrop-blur-sm">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 shrink-0">
-              <Layers className="text-white" size={18} />
-            </div>
+            <img src="/icon.png" alt="OpsPilot" className="w-8 h-8 rounded-lg shadow-lg shadow-cyan-500/20 shrink-0" />
             <div className="flex flex-col min-w-0">
               <span className="font-bold text-sm tracking-tight text-white truncate">OpsPilot</span>
               <div className="flex items-center gap-1.5">
@@ -6570,8 +6564,8 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
             <div>
               <span className="block text-[#858585] mb-1">QoS Class</span>
               <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${qosClass === 'Guaranteed' ? 'bg-[#89d185]/10 text-[#89d185]' :
-                  qosClass === 'Burstable' ? 'bg-[#cca700]/10 text-[#cca700]' :
-                    'bg-[#858585]/10 text-[#858585]'
+                qosClass === 'Burstable' ? 'bg-[#cca700]/10 text-[#cca700]' :
+                  'bg-[#858585]/10 text-[#858585]'
                 }`}>{qosClass}</span>
             </div>
             <div><span className="block text-[#858585] mb-1">DNS Policy</span><span className="font-mono text-[#cccccc]">{dnsPolicy}</span></div>
@@ -7264,9 +7258,9 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
               <div className="flex flex-wrap gap-1.5">
                 {taints.map((t: any, i: number) => (
                   <span key={i} className={`px-2 py-1 rounded text-[10px] font-mono border ${t.effect === 'NoSchedule' ? 'bg-[#f48771]/10 text-[#f48771] border-[#f48771]/30' :
-                      t.effect === 'NoExecute' ? 'bg-[#f48771]/20 text-[#f48771] border-[#f48771]/40' :
-                        t.effect === 'PreferNoSchedule' ? 'bg-[#cca700]/10 text-[#cca700] border-[#cca700]/30' :
-                          'bg-[#252526] text-[#cccccc] border-[#3e3e42]'
+                    t.effect === 'NoExecute' ? 'bg-[#f48771]/20 text-[#f48771] border-[#f48771]/40' :
+                      t.effect === 'PreferNoSchedule' ? 'bg-[#cca700]/10 text-[#cca700] border-[#cca700]/30' :
+                        'bg-[#252526] text-[#cccccc] border-[#3e3e42]'
                     }`} title={`Effect: ${t.effect}${t.value ? `, Value: ${t.value}` : ''}`}>
                     {t.key}={t.value || ''}:{t.effect}
                   </span>
@@ -8625,15 +8619,15 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
                           <div
                             key={cluster.id}
                             className={`group relative rounded-xl border p-5 transition-all duration-300 ${isRunning
-                                ? 'bg-gradient-to-br from-emerald-500/5 to-transparent border-emerald-500/20 hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10'
-                                : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+                              ? 'bg-gradient-to-br from-emerald-500/5 to-transparent border-emerald-500/20 hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10'
+                              : 'bg-white/[0.02] border-white/10 hover:border-white/20'
                               }`}
                           >
                             {/* Status Badge */}
                             <div className="absolute top-4 right-4">
                               <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${isRunning
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
                                 }`}>
                                 <div className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
                                 {isRunning ? 'Running' : 'Stopped'}
@@ -8660,8 +8654,8 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
                               onClick={() => connectMutation.mutate({ subId: sub.id, cluster })}
                               disabled={connectMutation.isPending || !isRunning}
                               className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${isRunning
-                                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 disabled:opacity-50'
-                                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 disabled:opacity-50'
+                                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                                 }`}
                             >
                               {isConnecting ? (

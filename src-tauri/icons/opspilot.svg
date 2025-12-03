@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6"/>
+      <stop offset="100%" style="stop-color:#6366F1"/>
+    </linearGradient>
+    <linearGradient id="kubeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#22D3EE"/>
+      <stop offset="100%" style="stop-color:#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="pilotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F472B6"/>
+      <stop offset="100%" style="stop-color:#EC4899"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="url(#bgGrad)"/>
+
+  <!-- Kubernetes helm wheel - stylized -->
+  <g transform="translate(256, 256)">
+    <!-- Outer ring -->
+    <circle cx="0" cy="0" r="140" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="24"/>
+
+    <!-- Helm spokes -->
+    <g fill="url(#kubeGrad)">
+      <!-- Top spoke -->
+      <path d="M-18,-50 L0,-140 L18,-50 Z"/>
+      <!-- Top-right spoke -->
+      <path d="M35,-35 L99,-99 L50,-18 Z" transform="rotate(0)"/>
+      <!-- Right spoke -->
+      <path d="M50,-18 L140,0 L50,18 Z"/>
+      <!-- Bottom-right spoke -->
+      <path d="M50,18 L99,99 L35,35 Z"/>
+      <!-- Bottom spoke -->
+      <path d="M18,50 L0,140 L-18,50 Z"/>
+      <!-- Bottom-left spoke -->
+      <path d="M-35,35 L-99,99 L-50,18 Z"/>
+      <!-- Left spoke -->
+      <path d="M-50,18 L-140,0 L-50,-18 Z"/>
+      <!-- Top-left spoke -->
+      <path d="M-50,-18 L-99,-99 L-35,-35 Z"/>
+    </g>
+
+    <!-- Center hub -->
+    <circle cx="0" cy="0" r="50" fill="url(#kubeGrad)"/>
+
+    <!-- Inner hub ring -->
+    <circle cx="0" cy="0" r="35" fill="url(#bgGrad)"/>
+
+    <!-- Pilot compass/crosshair in center -->
+    <g stroke="white" stroke-width="4" fill="none">
+      <line x1="0" y1="-22" x2="0" y2="22"/>
+      <line x1="-22" y1="0" x2="22" y2="0"/>
+    </g>
+
+    <!-- Center dot -->
+    <circle cx="0" cy="0" r="6" fill="white"/>
+
+    <!-- Pilot wings accent -->
+    <g fill="url(#pilotGrad)" opacity="0.9">
+      <path d="M-120,0 Q-80,-30 -50,0 Q-80,30 -120,0" transform="rotate(-30)"/>
+      <path d="M120,0 Q80,-30 50,0 Q80,30 120,0" transform="rotate(-30)"/>
+    </g>
+  </g>
+</svg>
