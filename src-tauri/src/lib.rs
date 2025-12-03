@@ -3487,24 +3487,29 @@ async fn connect_vcluster(
     if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
         *cache = None;
     }
+    if let Ok(mut cache) = state.client_cache.try_lock() {
+        *cache = None;
+    }
 
     // Execute vcluster connect command with timeout
+    // Use --driver=helm to avoid platform-specific features that require vcluster platform login
+    // The --background-proxy flag is default and handles kubeconfig updates automatically
     let connect_result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(45),
         tokio::process::Command::new("vcluster")
-            .args(&["connect", &name, "-n", &namespace, "--update-current=true"])
+            .args(&["connect", &name, "-n", &namespace, "--driver=helm"])
             .output()
     ).await;
 
     let output = match connect_result {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => return Err(format!("Failed to execute vcluster connect: {}", e)),
-        Err(_) => return Err(format!("vcluster connect timed out after 30 seconds. The vcluster '{}' may not be running or accessible.", name)),
+        Err(_) => return Err(format!("vcluster connect timed out after 45 seconds. The vcluster '{}' may not be running or accessible.", name)),
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let _stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         // Provide helpful error messages
         if stderr.contains("not found") || stderr.contains("NotFound") {
@@ -3513,8 +3518,25 @@ async fn connect_vcluster(
             return Err(format!("Connection refused to vcluster '{}'. The vcluster may not be running.", name));
         } else if stderr.contains("unauthorized") || stderr.contains("Unauthorized") {
             return Err(format!("Unauthorized access to vcluster '{}'. Check your permissions.", name));
+        } else if stderr.contains("management-cluster") || stderr.contains("platform") {
+            // Try again without any driver flag - let vcluster auto-detect
+            let retry_result = tokio::time::timeout(
+                std::time::Duration::from_secs(45),
+                tokio::process::Command::new("vcluster")
+                    .args(&["connect", &name, "-n", &namespace])
+                    .output()
+            ).await;
+
+            match retry_result {
+                Ok(Ok(retry_output)) if retry_output.status.success() => {
+                    // Success on retry, continue with the flow
+                }
+                _ => {
+                    return Err(format!("vcluster connect failed. If using vcluster platform, please run 'vcluster login' first. Error: {}", stderr.trim()));
+                }
+            }
         } else {
-            return Err(format!("vcluster connect failed: {}\n{}", stderr, stdout));
+            return Err(format!("vcluster connect failed: {}", stderr.trim()));
         }
     }
 
