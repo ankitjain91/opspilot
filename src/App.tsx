@@ -1134,25 +1134,27 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
         addLog('Backend reset skipped (non-critical)', 'info');
       }
 
-      // Try to set the context with a timeout
+      // Try to set the context and validate connection
+      addLog('Loading kubeconfig...', 'pending');
+      await new Promise(r => setTimeout(r, 200));
+      addLog('Connecting to cluster...', 'pending');
+
       try {
-        addLog('Loading kubeconfig...', 'pending');
-        await new Promise(r => setTimeout(r, 300)); // Small delay for visual feedback
-        addLog('Setting Kubernetes context...', 'pending');
-        await Promise.race([
-          invoke("set_kube_config", { context, path: customPath }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout")), 5000)
+        const result = await Promise.race([
+          invoke<string>("set_kube_config", { context, path: customPath }),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("Connection timeout after 15 seconds")), 15000)
           )
         ]);
-        addLog('Context configured successfully', 'success');
-      } catch (err) {
-        addLog(`Context setup warning: ${err}`, 'info');
+        addLog(result || 'Connected successfully', 'success');
+      } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+        addLog(`Connection failed: ${errorMsg}`, 'error');
+        throw new Error(errorMsg);
       }
 
-      addLog('Validating cluster connection...', 'pending');
-      await new Promise(r => setTimeout(r, 200));
       addLog('Preparing API discovery...', 'pending');
+      await new Promise(r => setTimeout(r, 200));
 
       return Promise.resolve();
     },
@@ -2181,7 +2183,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   };
 
   // Simple ring gauge for compact display
-  const Gauge = ({ value, max, label, color, size = 120 }: { value: number, max: number, label: string, color: string, size?: number }) => {
+  const Gauge = ({ value, max, label, color, size = 120, isHealthMetric = true }: { value: number, max: number, label: string, color: string, size?: number, isHealthMetric?: boolean }) => {
     const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
     const strokeWidth = 8;
     const radius = (size - strokeWidth) / 2;
@@ -2189,9 +2191,17 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
     const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
     const getColor = () => {
-      if (percentage >= 90) return COLORS.critical;
-      if (percentage >= 75) return COLORS.warning;
-      return color;
+      if (isHealthMetric) {
+        // For health metrics: higher is better (green), lower is worse (red)
+        if (percentage >= 90) return COLORS.healthy;
+        if (percentage >= 70) return COLORS.warning;
+        return COLORS.critical;
+      } else {
+        // For utilization metrics: higher is worse (red), lower is better (green)
+        if (percentage >= 90) return COLORS.critical;
+        if (percentage >= 75) return COLORS.warning;
+        return color;
+      }
     };
 
     return (

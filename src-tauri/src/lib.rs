@@ -434,6 +434,9 @@ struct AppState {
     cluster_stats_cache: Arc<Mutex<Option<(std::time::Instant, ClusterStats)>>>,
     // Cache pod limits to avoid refetching pods for metrics (30s TTL)
     pod_limits_cache: Arc<Mutex<Option<(std::time::Instant, HashMap<String, (Option<u64>, Option<u64>)>)>>>,
+    // Cache Kubernetes client to avoid re-creating connections (2 minute TTL)
+    // Key is (kubeconfig_path, context) to ensure cache invalidation on context switch
+    client_cache: Arc<Mutex<Option<(std::time::Instant, String, Client)>>>,
 }
 
 // --- Logic ---
@@ -505,10 +508,13 @@ async fn clear_all_caches(state: State<'_, AppState>) -> Result<(), String> {
     if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
         *cache = None;
     }
+    if let Ok(mut cache) = state.client_cache.try_lock() {
+        *cache = None;
+    }
     Ok(())
 }
 
-// Helper to create a client based on current state
+// Helper to create a client based on current state - uses caching for performance
 async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
     let (path, context) = {
         // Use try_lock with retry to avoid deadlocks
@@ -533,21 +539,47 @@ async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
         (path_val.flatten(), context_val.flatten())
     };
 
+    // Create cache key from path and context
+    let cache_key = format!("{}:{}", path.as_deref().unwrap_or("default"), context.as_deref().unwrap_or("default"));
+
+    // Check if we have a cached client (2 minute TTL)
+    {
+        if let Ok(cache) = state.client_cache.try_lock() {
+            if let Some((created_at, key, client)) = cache.as_ref() {
+                if key == &cache_key && created_at.elapsed() < std::time::Duration::from_secs(120) {
+                    return Ok(client.clone());
+                }
+            }
+        }
+    }
+
     let kubeconfig = if let Some(p) = &path {
-        Kubeconfig::read_from(p).map_err(|e| e.to_string())?
+        Kubeconfig::read_from(p).map_err(|e| format!("Failed to read kubeconfig from {}: {}", p, e))?
     } else {
-        Kubeconfig::read().map_err(|e| e.to_string())?
+        Kubeconfig::read().map_err(|e| format!("Failed to read default kubeconfig: {}", e))?
     };
 
-    let config = kube::Config::from_custom_kubeconfig(
-        kubeconfig, 
+    let mut config = kube::Config::from_custom_kubeconfig(
+        kubeconfig,
         &KubeConfigOptions {
-            context: context,
+            context: context.clone(),
             ..Default::default()
         }
-    ).await.map_err(|e| e.to_string())?;
+    ).await.map_err(|e| format!("Failed to create config for context {:?}: {}", context, e))?;
 
-    Client::try_from(config).map_err(|e| e.to_string())
+    // Set reasonable timeouts for better responsiveness
+    config.connect_timeout = Some(std::time::Duration::from_secs(10));
+    config.read_timeout = Some(std::time::Duration::from_secs(30));
+    config.write_timeout = Some(std::time::Duration::from_secs(30));
+
+    let client = Client::try_from(config).map_err(|e| format!("Failed to create Kubernetes client: {}", e))?;
+
+    // Cache the client for reuse
+    if let Ok(mut cache) = state.client_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), cache_key, client.clone()));
+    }
+
+    Ok(client)
 }
 
 #[tauri::command]
@@ -686,10 +718,27 @@ async fn set_kube_config(
     state: State<'_, AppState>,
     path: Option<String>,
     context: Option<String>
-) -> Result<(), String> {
+) -> Result<String, String> {
+    // Clear all caches first to prevent stale data
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.client_cache.try_lock() {
+        *cache = None;
+    }
+
     // Use try_lock to avoid deadlocks in async context
     // Retry a few times with small delays if lock is held
-    for _ in 0..10 {
+    for attempt in 0..10 {
         let path_ok = if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
             *path_guard = path.clone();
             true
@@ -705,15 +754,68 @@ async fn set_kube_config(
         };
 
         if path_ok && context_ok {
-            return Ok(());
+            break;
+        }
+
+        if attempt == 9 {
+            return Err("Failed to acquire state lock - please try again".to_string());
         }
 
         // Small delay before retry
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     }
 
-    // Even if we couldn't set, don't fail - the app can still work
-    Ok(())
+    // Verify the connection by creating a client and making a simple API call
+    let context_name = context.clone().unwrap_or_else(|| "default".to_string());
+
+    // Load kubeconfig and create client
+    let kubeconfig = if let Some(p) = &path {
+        Kubeconfig::read_from(p).map_err(|e| format!("Cannot read kubeconfig from {}: {}", p, e))?
+    } else {
+        Kubeconfig::read().map_err(|e| format!("Cannot read default kubeconfig: {}", e))?
+    };
+
+    let mut config = kube::Config::from_custom_kubeconfig(
+        kubeconfig,
+        &KubeConfigOptions {
+            context: context.clone(),
+            ..Default::default()
+        }
+    ).await.map_err(|e| format!("Invalid context '{}': {}", context_name, e))?;
+
+    // Set aggressive timeouts for connection test
+    config.connect_timeout = Some(std::time::Duration::from_secs(5));
+    config.read_timeout = Some(std::time::Duration::from_secs(5));
+
+    let client = Client::try_from(config).map_err(|e| format!("Failed to create client: {}", e))?;
+
+    // Verify connection with a lightweight API call (with timeout)
+    let api_check = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        client.list_api_groups()
+    ).await;
+
+    match api_check {
+        Ok(Ok(_)) => Ok(format!("Connected to {}", context_name)),
+        Ok(Err(e)) => {
+            // Check for common error patterns
+            let err_str = e.to_string();
+            if err_str.contains("certificate") || err_str.contains("tls") {
+                Err(format!("TLS/Certificate error for '{}': {}. Check if the cluster certificate is valid.", context_name, err_str))
+            } else if err_str.contains("connection refused") {
+                Err(format!("Connection refused for '{}': The cluster API server is not reachable. Is the cluster running?", context_name))
+            } else if err_str.contains("timeout") || err_str.contains("timed out") {
+                Err(format!("Connection timeout for '{}': The cluster is not responding. Check network connectivity.", context_name))
+            } else if err_str.contains("401") || err_str.contains("Unauthorized") {
+                Err(format!("Authentication failed for '{}': Your credentials may have expired. Try re-authenticating.", context_name))
+            } else if err_str.contains("403") || err_str.contains("Forbidden") {
+                Err(format!("Access denied for '{}': You don't have permission to access this cluster.", context_name))
+            } else {
+                Err(format!("Failed to connect to '{}': {}", context_name, err_str))
+            }
+        }
+        Err(_) => Err(format!("Connection timeout: Cluster '{}' is not responding. Check if the cluster is running and accessible.", context_name))
+    }
 }
 
 #[tauri::command]
@@ -2131,6 +2233,7 @@ pub fn run() {
             vcluster_cache: Arc::new(Mutex::new(None)),
             cluster_stats_cache: Arc::new(Mutex::new(None)),
             pod_limits_cache: Arc::new(Mutex::new(None)),
+            client_cache: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             discover_api_resources, 
@@ -3358,40 +3461,20 @@ async fn connect_vcluster(
     name: String,
     namespace: String,
 ) -> Result<String, String> {
+    // First, check if vcluster CLI is available
+    let version_check = tokio::process::Command::new("vcluster")
+        .arg("version")
+        .output()
+        .await;
+
+    if version_check.is_err() {
+        return Err("vcluster CLI not found. Please install it: https://www.vcluster.com/docs/getting-started/setup".to_string());
+    }
+
     // Get the current host context before connecting
     let host_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
 
-    // Execute vcluster connect command
-    let output = tokio::process::Command::new("vcluster")
-        .args(&["connect", &name, "-n", &namespace])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute vcluster command: {}. Make sure vcluster CLI is installed.", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("vcluster connect failed: {}", stderr));
-    }
-
-    // Give the background proxy a moment to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-
-    // vcluster connect updates the kubeconfig, so we need to reload it
-    // The context name will be something like "vcluster_<name>_<namespace>_<original-context>"
-    let new_context = format!("vcluster_{}_{}_", name, namespace) + &host_context;
-
-    // Update selected context
-    if let Ok(mut context_guard) = state.selected_context.try_lock() {
-        *context_guard = Some(new_context.clone());
-    }
-
-    // Clear kubeconfig path since vcluster writes to default kubeconfig (~/.kube/config)
-    // This ensures create_client reads from the updated default kubeconfig
-    if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
-        *path_guard = None;
-    }
-
-    // Clear all caches since we're switching to a different cluster context
+    // Clear all caches first
     if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
         *cache = None;
     }
@@ -3405,38 +3488,124 @@ async fn connect_vcluster(
         *cache = None;
     }
 
-    // Verify connectivity by making a simple API call with retries
-    for attempt in 0..3 {
-        match kube::Client::try_default().await {
-            Ok(client) => {
-                // Try to list namespaces to verify connection
-                use kube::api::Api;
-                use k8s_openapi::api::core::v1::Namespace;
-                let ns_api: Api<Namespace> = Api::all(client);
-                match ns_api.list(&Default::default()).await {
-                    Ok(_) => {
-                        return Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context));
-                    }
-                    Err(e) => {
-                        if attempt < 2 {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                            continue;
-                        }
-                        return Err(format!("Connected but API not ready: {}", e));
-                    }
-                }
-            }
+    // Execute vcluster connect command with timeout
+    let connect_result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::process::Command::new("vcluster")
+            .args(&["connect", &name, "-n", &namespace, "--update-current=true"])
+            .output()
+    ).await;
+
+    let output = match connect_result {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => return Err(format!("Failed to execute vcluster connect: {}", e)),
+        Err(_) => return Err(format!("vcluster connect timed out after 30 seconds. The vcluster '{}' may not be running or accessible.", name)),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // Provide helpful error messages
+        if stderr.contains("not found") || stderr.contains("NotFound") {
+            return Err(format!("vcluster '{}' not found in namespace '{}'. Check if the vcluster exists and is running.", name, namespace));
+        } else if stderr.contains("connection refused") {
+            return Err(format!("Connection refused to vcluster '{}'. The vcluster may not be running.", name));
+        } else if stderr.contains("unauthorized") || stderr.contains("Unauthorized") {
+            return Err(format!("Unauthorized access to vcluster '{}'. Check your permissions.", name));
+        } else {
+            return Err(format!("vcluster connect failed: {}\n{}", stderr, stdout));
+        }
+    }
+
+    // Give the background proxy a moment to fully start
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
+    // vcluster connect updates the kubeconfig, so we need to reload it
+    // The context name will be something like "vcluster_<name>_<namespace>_<original-context>"
+    let new_context = format!("vcluster_{}_{}_", name, namespace) + &host_context;
+
+    // Update selected context
+    if let Ok(mut context_guard) = state.selected_context.try_lock() {
+        *context_guard = Some(new_context.clone());
+    }
+
+    // Clear kubeconfig path since vcluster writes to default kubeconfig (~/.kube/config)
+    if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
+        *path_guard = None;
+    }
+
+    // Verify connectivity with retries and better error handling
+    for attempt in 0..5 {
+        // Read fresh kubeconfig each attempt
+        let kubeconfig = match Kubeconfig::read() {
+            Ok(kc) => kc,
             Err(e) => {
-                if attempt < 2 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                if attempt < 4 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    continue;
+                }
+                return Err(format!("Failed to read kubeconfig after vcluster connect: {}", e));
+            }
+        };
+
+        // Try to create client with the new context
+        let config = match kube::Config::from_custom_kubeconfig(
+            kubeconfig,
+            &KubeConfigOptions {
+                context: Some(new_context.clone()),
+                ..Default::default()
+            }
+        ).await {
+            Ok(c) => c,
+            Err(e) => {
+                if attempt < 4 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    continue;
+                }
+                return Err(format!("Failed to configure vcluster context '{}': {}", new_context, e));
+            }
+        };
+
+        let client = match Client::try_from(config) {
+            Ok(c) => c,
+            Err(e) => {
+                if attempt < 4 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     continue;
                 }
                 return Err(format!("Failed to create client for vcluster: {}", e));
             }
+        };
+
+        // Try to list namespaces to verify connection
+        let ns_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            ns_api.list(&Default::default())
+        ).await {
+            Ok(Ok(_)) => {
+                return Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context));
+            }
+            Ok(Err(e)) => {
+                if attempt < 4 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+                    continue;
+                }
+                return Err(format!("vcluster API not responding: {}", e));
+            }
+            Err(_) => {
+                if attempt < 4 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+                    continue;
+                }
+                return Err("vcluster API timed out. The vcluster proxy may not be running correctly.".to_string());
+            }
         }
     }
 
-    Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context))
+    // Should not reach here, but just in case
+    Err("Failed to verify vcluster connection after multiple attempts".to_string())
 }
 
 #[tauri::command]
