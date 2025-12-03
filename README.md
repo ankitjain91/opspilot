@@ -1,3 +1,5 @@
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/a3604bf0-2510-424e-bc65-4260fee2f938" />
+
 # OpsPilot
 
 A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeScript. Designed to be a faster, cleaner alternative to existing tools.
