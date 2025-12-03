@@ -93,6 +93,23 @@ jobs:
         run: |
           Compress-Archive -Path src-tauri/target/release/opspilot.exe -DestinationPath opspilot-x86_64-pc-windows-msvc.zip
 
+      - name: Rename artifacts (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg OpsPilot_macOS_universal_${{ github.ref_name }}.dmg
+
+      - name: Rename artifacts (Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          mv src-tauri/target/release/bundle/deb/*.deb OpsPilot_Linux_x64_${{ github.ref_name }}.deb
+          mv src-tauri/target/release/bundle/appimage/*.AppImage OpsPilot_Linux_x64_${{ github.ref_name }}.AppImage
+
+      - name: Rename artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          mv src-tauri/target/release/bundle/nsis/*.exe OpsPilot_Windows_x64_${{ github.ref_name }}.exe
+
       - name: Upload binaries
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -101,7 +118,7 @@ jobs:
             opspilot-*.tar.gz
             opspilot-*.zip
             src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/appimage/*.AppImage
+            OpsPilot_macOS_*.dmg
+            OpsPilot_Windows_*.exe
+            OpsPilot_Linux_*.deb
+            OpsPilot_Linux_*.AppImage
