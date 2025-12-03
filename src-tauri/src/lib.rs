@@ -181,6 +181,76 @@ struct ClusterCockpitData {
     metrics_available: bool,
 }
 
+// Cluster-wide health summary for AI chat
+#[derive(Serialize, Clone)]
+struct ClusterHealthSummary {
+    // Node health
+    total_nodes: usize,
+    ready_nodes: usize,
+    not_ready_nodes: Vec<String>,
+
+    // Pod health
+    total_pods: usize,
+    running_pods: usize,
+    pending_pods: usize,
+    failed_pods: usize,
+    crashloop_pods: Vec<PodIssue>,
+
+    // Deployment health
+    total_deployments: usize,
+    healthy_deployments: usize,
+    unhealthy_deployments: Vec<DeploymentIssue>,
+
+    // Resource usage
+    cluster_cpu_percent: f64,
+    cluster_memory_percent: f64,
+
+    // Critical issues (prioritized)
+    critical_issues: Vec<ClusterIssue>,
+    warnings: Vec<ClusterIssue>,
+}
+
+#[derive(Serialize, Clone)]
+struct PodIssue {
+    name: String,
+    namespace: String,
+    status: String,
+    restart_count: u32,
+    reason: String,
+    message: String,
+}
+
+#[derive(Serialize, Clone)]
+struct DeploymentIssue {
+    name: String,
+    namespace: String,
+    desired: u32,
+    ready: u32,
+    available: u32,
+    reason: String,
+}
+
+#[derive(Serialize, Clone)]
+struct ClusterIssue {
+    severity: String, // "critical" or "warning"
+    resource_kind: String,
+    resource_name: String,
+    namespace: String,
+    message: String,
+}
+
+#[derive(Serialize, Clone)]
+struct ClusterEventSummary {
+    namespace: String,
+    name: String,
+    kind: String,
+    reason: String,
+    message: String,
+    count: u32,
+    last_seen: String,
+    event_type: String, // "Normal" or "Warning"
+}
+
 // Combined initial data for faster first load
 #[derive(Serialize, Clone)]
 struct InitialClusterData {
@@ -2042,6 +2112,8 @@ pub fn run() {
             resize_shell,
             get_cluster_stats,
             get_cluster_cockpit,
+            get_cluster_health_summary,
+            get_cluster_events_summary,
             get_initial_cluster_data,
             list_azure_subscriptions,
             list_aks_clusters,
@@ -2058,6 +2130,7 @@ pub fn run() {
             reset_state,
             ai_local::call_local_llm,
             ai_local::call_local_llm_with_tools,
+            ai_local::check_ollama_status,
             test_connectivity,
         ])
         .run(tauri::generate_context!())
@@ -2581,6 +2654,288 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
         critical_count,
         metrics_available: has_real_metrics,
     })
+}
+
+// Cluster-wide health summary for AI chat
+#[tauri::command]
+async fn get_cluster_health_summary(state: State<'_, AppState>) -> Result<ClusterHealthSummary, String> {
+    let client = create_client(state.clone()).await?;
+
+    let nodes_api: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
+    let pods_api: Api<k8s_openapi::api::core::v1::Pod> = Api::all(client.clone());
+    let deployments_api: Api<k8s_openapi::api::apps::v1::Deployment> = Api::all(client.clone());
+
+    let lp = ListParams::default();
+
+    let (nodes_res, pods_res, deployments_res) = tokio::join!(
+        nodes_api.list(&lp),
+        pods_api.list(&lp),
+        deployments_api.list(&lp)
+    );
+
+    let nodes = nodes_res.map_err(|e| format!("Failed to list nodes: {}", e))?;
+    let pods = pods_res.map_err(|e| format!("Failed to list pods: {}", e))?;
+    let deployments = deployments_res.map_err(|e| format!("Failed to list deployments: {}", e))?;
+
+    // Process nodes
+    let mut ready_nodes = 0;
+    let mut not_ready_nodes = Vec::new();
+    let mut total_cpu_capacity: u64 = 0;
+    let mut total_cpu_usage: u64 = 0;
+    let mut total_memory_capacity: u64 = 0;
+    let mut total_memory_usage: u64 = 0;
+    let mut critical_issues: Vec<ClusterIssue> = Vec::new();
+    let mut warnings: Vec<ClusterIssue> = Vec::new();
+
+    for node in &nodes.items {
+        let name = node.metadata.name.clone().unwrap_or_default();
+        let is_ready = node.status.as_ref()
+            .and_then(|s| s.conditions.as_ref())
+            .and_then(|conds| conds.iter().find(|c| c.type_ == "Ready"))
+            .map(|c| c.status == "True")
+            .unwrap_or(false);
+
+        if is_ready {
+            ready_nodes += 1;
+        } else {
+            not_ready_nodes.push(name.clone());
+            critical_issues.push(ClusterIssue {
+                severity: "critical".to_string(),
+                resource_kind: "Node".to_string(),
+                resource_name: name.clone(),
+                namespace: "".to_string(),
+                message: "Node is not ready".to_string(),
+            });
+        }
+
+        // Get capacity
+        if let Some(status) = &node.status {
+            if let Some(capacity) = &status.capacity {
+                if let Some(cpu) = capacity.get("cpu") {
+                    total_cpu_capacity += parse_cpu_to_milli(&cpu.0);
+                }
+                if let Some(mem) = capacity.get("memory") {
+                    total_memory_capacity += parse_memory_to_bytes(&mem.0);
+                }
+            }
+        }
+    }
+
+    // Process pods
+    let mut running_pods = 0;
+    let mut pending_pods = 0;
+    let mut failed_pods = 0;
+    let mut crashloop_pods: Vec<PodIssue> = Vec::new();
+
+    for pod in &pods.items {
+        let name = pod.metadata.name.clone().unwrap_or_default();
+        let namespace = pod.metadata.namespace.clone().unwrap_or_default();
+        let phase = pod.status.as_ref()
+            .and_then(|s| s.phase.as_ref())
+            .map(|s| s.as_str())
+            .unwrap_or("Unknown");
+
+        match phase {
+            "Running" => running_pods += 1,
+            "Pending" => {
+                pending_pods += 1;
+                // Check if pending for too long or has issues
+                if let Some(status) = &pod.status {
+                    if let Some(conditions) = &status.conditions {
+                        for cond in conditions {
+                            if cond.type_ == "PodScheduled" && cond.status == "False" {
+                                warnings.push(ClusterIssue {
+                                    severity: "warning".to_string(),
+                                    resource_kind: "Pod".to_string(),
+                                    resource_name: name.clone(),
+                                    namespace: namespace.clone(),
+                                    message: cond.message.clone().unwrap_or_else(|| "Pod cannot be scheduled".to_string()),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            "Failed" => {
+                failed_pods += 1;
+                critical_issues.push(ClusterIssue {
+                    severity: "critical".to_string(),
+                    resource_kind: "Pod".to_string(),
+                    resource_name: name.clone(),
+                    namespace: namespace.clone(),
+                    message: "Pod has failed".to_string(),
+                });
+            }
+            _ => {}
+        }
+
+        // Check for crashloop
+        if let Some(status) = &pod.status {
+            if let Some(container_statuses) = &status.container_statuses {
+                for cs in container_statuses {
+                    let restart_count = cs.restart_count as u32;
+                    if restart_count > 5 {
+                        let (reason, message) = if let Some(waiting) = &cs.state.as_ref().and_then(|s| s.waiting.as_ref()) {
+                            (
+                                waiting.reason.clone().unwrap_or_default(),
+                                waiting.message.clone().unwrap_or_default()
+                            )
+                        } else {
+                            ("Unknown".to_string(), "".to_string())
+                        };
+
+                        crashloop_pods.push(PodIssue {
+                            name: name.clone(),
+                            namespace: namespace.clone(),
+                            status: phase.to_string(),
+                            restart_count,
+                            reason: reason.clone(),
+                            message: message.clone(),
+                        });
+
+                        critical_issues.push(ClusterIssue {
+                            severity: "critical".to_string(),
+                            resource_kind: "Pod".to_string(),
+                            resource_name: name.clone(),
+                            namespace: namespace.clone(),
+                            message: format!("Container {} has restarted {} times. Reason: {}", cs.name, restart_count, reason),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Estimate resource usage from requests
+        if let Some(spec) = &pod.spec {
+            if phase == "Running" {
+                for container in &spec.containers {
+                    if let Some(resources) = &container.resources {
+                        if let Some(requests) = &resources.requests {
+                            if let Some(cpu) = requests.get("cpu") {
+                                total_cpu_usage += parse_cpu_to_milli(&cpu.0);
+                            }
+                            if let Some(mem) = requests.get("memory") {
+                                total_memory_usage += parse_memory_to_bytes(&mem.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Process deployments
+    let mut healthy_deployments = 0;
+    let mut unhealthy_deps: Vec<DeploymentIssue> = Vec::new();
+
+    for dep in &deployments.items {
+        let name = dep.metadata.name.clone().unwrap_or_default();
+        let namespace = dep.metadata.namespace.clone().unwrap_or_default();
+        let desired = dep.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1) as u32;
+        let ready = dep.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0) as u32;
+        let available = dep.status.as_ref().and_then(|s| s.available_replicas).unwrap_or(0) as u32;
+
+        if ready >= desired && available >= desired {
+            healthy_deployments += 1;
+        } else {
+            let reason = if ready < desired {
+                format!("Only {}/{} replicas ready", ready, desired)
+            } else {
+                format!("Only {}/{} replicas available", available, desired)
+            };
+
+            unhealthy_deps.push(DeploymentIssue {
+                name: name.clone(),
+                namespace: namespace.clone(),
+                desired,
+                ready,
+                available,
+                reason: reason.clone(),
+            });
+
+            warnings.push(ClusterIssue {
+                severity: "warning".to_string(),
+                resource_kind: "Deployment".to_string(),
+                resource_name: name,
+                namespace,
+                message: reason,
+            });
+        }
+    }
+
+    // Calculate percentages
+    let cluster_cpu_percent = if total_cpu_capacity > 0 {
+        (total_cpu_usage as f64 / total_cpu_capacity as f64) * 100.0
+    } else {
+        0.0
+    };
+    let cluster_memory_percent = if total_memory_capacity > 0 {
+        (total_memory_usage as f64 / total_memory_capacity as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    // Sort issues by severity
+    critical_issues.truncate(20); // Limit to top 20
+    warnings.truncate(20);
+
+    Ok(ClusterHealthSummary {
+        total_nodes: nodes.items.len(),
+        ready_nodes,
+        not_ready_nodes,
+        total_pods: pods.items.len(),
+        running_pods,
+        pending_pods,
+        failed_pods,
+        crashloop_pods,
+        total_deployments: deployments.items.len(),
+        healthy_deployments,
+        unhealthy_deployments: unhealthy_deps,
+        cluster_cpu_percent,
+        cluster_memory_percent,
+        critical_issues,
+        warnings,
+    })
+}
+
+// Get cluster-wide events for AI chat
+#[tauri::command]
+async fn get_cluster_events_summary(
+    state: State<'_, AppState>,
+    namespace: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ClusterEventSummary>, String> {
+    let client = create_client(state.clone()).await?;
+
+    let events_api: Api<k8s_openapi::api::core::v1::Event> = if let Some(ns) = &namespace {
+        Api::namespaced(client, ns)
+    } else {
+        Api::all(client)
+    };
+
+    let lp = ListParams::default();
+    let events = events_api.list(&lp).await.map_err(|e| format!("Failed to list events: {}", e))?;
+
+    let limit = limit.unwrap_or(50) as usize;
+    let mut summaries: Vec<ClusterEventSummary> = events.items.iter()
+        .filter(|e| e.type_.as_ref().map(|t| t == "Warning").unwrap_or(false) || e.count.unwrap_or(1) > 1)
+        .take(limit)
+        .map(|e| ClusterEventSummary {
+            namespace: e.metadata.namespace.clone().unwrap_or_default(),
+            name: e.involved_object.name.clone().unwrap_or_default(),
+            kind: e.involved_object.kind.clone().unwrap_or_default(),
+            reason: e.reason.clone().unwrap_or_default(),
+            message: e.message.clone().unwrap_or_default(),
+            count: e.count.unwrap_or(1) as u32,
+            last_seen: e.last_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+            event_type: e.type_.clone().unwrap_or_else(|| "Normal".to_string()),
+        })
+        .collect();
+
+    // Sort by count (most frequent first) then by time
+    summaries.sort_by(|a, b| b.count.cmp(&a.count));
+
+    Ok(summaries)
 }
 
 fn parse_cpu_to_milli(cpu: &str) -> u64 {

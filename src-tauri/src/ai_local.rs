@@ -1,7 +1,88 @@
 use serde::{Deserialize, Serialize};
 
-
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434/v1";
+const OLLAMA_API_URL: &str = "http://127.0.0.1:11434/api";
+const DEFAULT_MODEL: &str = "llama3.1:8b";
+
+#[derive(Serialize, Deserialize)]
+pub struct OllamaStatus {
+    pub ollama_running: bool,
+    pub model_available: bool,
+    pub model_name: String,
+    pub available_models: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OllamaTagsResponse {
+    models: Option<Vec<OllamaModel>>,
+}
+
+#[derive(Deserialize)]
+struct OllamaModel {
+    name: String,
+}
+
+#[tauri::command]
+pub async fn check_ollama_status() -> Result<OllamaStatus, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Check if Ollama is running by hitting the tags endpoint
+    let tags_result = client
+        .get(format!("{}/tags", OLLAMA_API_URL))
+        .send()
+        .await;
+
+    match tags_result {
+        Ok(resp) if resp.status().is_success() => {
+            let tags: OllamaTagsResponse = resp.json().await.unwrap_or(OllamaTagsResponse { models: None });
+            let available_models: Vec<String> = tags.models
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| m.name)
+                .collect();
+
+            let model_available = available_models.iter().any(|m| m.starts_with("llama3.1"));
+
+            Ok(OllamaStatus {
+                ollama_running: true,
+                model_available,
+                model_name: DEFAULT_MODEL.to_string(),
+                available_models,
+                error: None,
+            })
+        }
+        Ok(resp) => {
+            Ok(OllamaStatus {
+                ollama_running: false,
+                model_available: false,
+                model_name: DEFAULT_MODEL.to_string(),
+                available_models: vec![],
+                error: Some(format!("Ollama returned status: {}", resp.status())),
+            })
+        }
+        Err(e) => {
+            let error_msg = if e.is_connect() {
+                "Ollama is not running. Please start Ollama first.".to_string()
+            } else if e.is_timeout() {
+                "Connection to Ollama timed out.".to_string()
+            } else {
+                format!("Failed to connect to Ollama: {}", e)
+            };
+
+            Ok(OllamaStatus {
+                ollama_running: false,
+                model_available: false,
+                model_name: DEFAULT_MODEL.to_string(),
+                available_models: vec![],
+                error: Some(error_msg),
+            })
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct ChatMessage {

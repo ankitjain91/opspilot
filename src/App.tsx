@@ -65,7 +65,9 @@ import {
   Gauge,
   Zap,
   Clock,
-  ArrowUpDown
+  ArrowUpDown,
+  MessageSquare,
+  Send
 } from "lucide-react";
 // Topology view removed per user request
 import Loading from './components/Loading';
@@ -184,6 +186,71 @@ interface ClusterCockpitData {
   warning_count: number;
   critical_count: number;
   metrics_available: boolean;
+}
+
+// Cluster-wide health summary for AI chat
+interface ClusterHealthSummary {
+  total_nodes: number;
+  ready_nodes: number;
+  not_ready_nodes: string[];
+  total_pods: number;
+  running_pods: number;
+  pending_pods: number;
+  failed_pods: number;
+  crashloop_pods: PodIssue[];
+  total_deployments: number;
+  healthy_deployments: number;
+  unhealthy_deployments: DeploymentIssue[];
+  cluster_cpu_percent: number;
+  cluster_memory_percent: number;
+  critical_issues: ClusterIssue[];
+  warnings: ClusterIssue[];
+}
+
+interface PodIssue {
+  name: string;
+  namespace: string;
+  status: string;
+  restart_count: number;
+  reason: string;
+  message: string;
+}
+
+interface DeploymentIssue {
+  name: string;
+  namespace: string;
+  desired: number;
+  ready: number;
+  available: number;
+  reason: string;
+}
+
+interface ClusterIssue {
+  severity: string;
+  resource_kind: string;
+  resource_name: string;
+  namespace: string;
+  message: string;
+}
+
+interface ClusterEventSummary {
+  namespace: string;
+  name: string;
+  kind: string;
+  reason: string;
+  message: string;
+  count: number;
+  last_seen: string;
+  event_type: string;
+}
+
+// Ollama AI status
+interface OllamaStatus {
+  ollama_running: boolean;
+  model_available: boolean;
+  model_name: string;
+  available_models: string[];
+  error: string | null;
 }
 
 // Combined initial data for faster first load
@@ -2466,6 +2533,668 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Ollama Setup Instructions Component
+interface InstallStep {
+  label: string;
+  command?: string;
+  link?: string;
+}
+
+interface PlatformConfig {
+  name: string;
+  icon: string;
+  installSteps: InstallStep[];
+  startCommand: string;
+  pullCommand: string;
+}
+
+function OllamaSetupInstructions({ status, onRetry }: { status: OllamaStatus | null, onRetry: () => void }) {
+  const [selectedPlatform, setSelectedPlatform] = useState<'macos' | 'windows' | 'linux'>('macos');
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCommand(id);
+    setTimeout(() => setCopiedCommand(null), 2000);
+  };
+
+  const platforms: Record<'macos' | 'windows' | 'linux', PlatformConfig> = {
+    macos: {
+      name: 'macOS',
+      icon: '🍎',
+      installSteps: [
+        { label: 'Install via Homebrew', command: 'brew install ollama' },
+        { label: 'Or download from', link: 'https://ollama.com/download/mac' },
+      ],
+      startCommand: 'ollama serve',
+      pullCommand: 'ollama pull llama3.1:8b',
+    },
+    windows: {
+      name: 'Windows',
+      icon: '🪟',
+      installSteps: [
+        { label: 'Download installer from', link: 'https://ollama.com/download/windows' },
+        { label: 'Or via winget', command: 'winget install Ollama.Ollama' },
+      ],
+      startCommand: 'ollama serve',
+      pullCommand: 'ollama pull llama3.1:8b',
+    },
+    linux: {
+      name: 'Linux',
+      icon: '🐧',
+      installSteps: [
+        { label: 'Install script', command: 'curl -fsSL https://ollama.com/install.sh | sh' },
+      ],
+      startCommand: 'ollama serve',
+      pullCommand: 'ollama pull llama3.1:8b',
+    },
+  };
+
+  const platform = platforms[selectedPlatform];
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Header */}
+      <div className="text-center">
+        <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center border border-orange-500/30">
+          <Sparkles size={32} className="text-orange-400" />
+        </div>
+        <h3 className="text-lg font-semibold text-white mb-1">AI Setup Required</h3>
+        <p className="text-sm text-zinc-400">
+          OpsPilot uses Ollama for local AI. Let's get you set up!
+        </p>
+      </div>
+
+      {/* Status Indicators */}
+      <div className="bg-zinc-800/50 rounded-lg p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${status?.ollama_running ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="text-sm text-zinc-300">Ollama Service</span>
+          <span className={`text-xs ml-auto ${status?.ollama_running ? 'text-green-400' : 'text-red-400'}`}>
+            {status?.ollama_running ? 'Running' : 'Not Running'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${status?.model_available ? 'bg-green-500' : 'bg-yellow-500'}`} />
+          <span className="text-sm text-zinc-300">llama3.1:8b Model</span>
+          <span className={`text-xs ml-auto ${status?.model_available ? 'text-green-400' : 'text-yellow-400'}`}>
+            {status?.model_available ? 'Available' : 'Not Installed'}
+          </span>
+        </div>
+        {status?.available_models && status.available_models.length > 0 && (
+          <div className="text-xs text-zinc-500 pt-1 border-t border-zinc-700">
+            Installed models: {status.available_models.join(', ')}
+          </div>
+        )}
+      </div>
+
+      {/* Platform Selector */}
+      <div className="flex gap-2">
+        {(Object.keys(platforms) as Array<'macos' | 'windows' | 'linux'>).map(p => (
+          <button
+            key={p}
+            onClick={() => setSelectedPlatform(p)}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+              selectedPlatform === p
+                ? 'bg-purple-500/20 border border-purple-500/50 text-purple-300'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-transparent'
+            }`}
+          >
+            <span className="mr-1">{platforms[p].icon}</span>
+            {platforms[p].name}
+          </button>
+        ))}
+      </div>
+
+      {/* Installation Steps */}
+      <div className="space-y-3">
+        {/* Step 1: Install Ollama */}
+        {!status?.ollama_running && (
+          <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">1</span>
+              <span className="text-sm font-medium text-white">Install Ollama</span>
+            </div>
+            {platform.installSteps.map((step, i) => (
+              <div key={i} className="ml-7 mb-2 last:mb-0">
+                {step.command ? (
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs bg-black/40 px-2 py-1.5 rounded text-cyan-300 font-mono">{step.command}</code>
+                    <button
+                      onClick={() => copyToClipboard(step.command!, `install-${i}`)}
+                      className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
+                      {copiedCommand === `install-${i}` ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                ) : (
+                  <a
+                    href={step.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                  >
+                    {step.label} <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Step 2: Start Ollama */}
+        {!status?.ollama_running && (
+          <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">2</span>
+              <span className="text-sm font-medium text-white">Start Ollama</span>
+            </div>
+            <div className="ml-7 flex items-center gap-2">
+              <code className="flex-1 text-xs bg-black/40 px-2 py-1.5 rounded text-cyan-300 font-mono">{platform.startCommand}</code>
+              <button
+                onClick={() => copyToClipboard(platform.startCommand, 'start')}
+                className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+              >
+                {copiedCommand === 'start' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+            <p className="ml-7 mt-1 text-xs text-zinc-500">
+              Or launch the Ollama app (it runs in the background)
+            </p>
+          </div>
+        )}
+
+        {/* Step 3: Pull Model */}
+        {status?.ollama_running && !status?.model_available && (
+          <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-5 h-5 rounded-full bg-green-500/20 text-green-400 text-xs flex items-center justify-center font-bold">✓</span>
+              <span className="text-sm font-medium text-white">Ollama is running!</span>
+            </div>
+            <div className="flex items-center gap-2 mb-2 mt-3">
+              <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">2</span>
+              <span className="text-sm font-medium text-white">Pull the AI model</span>
+            </div>
+            <div className="ml-7 flex items-center gap-2">
+              <code className="flex-1 text-xs bg-black/40 px-2 py-1.5 rounded text-cyan-300 font-mono">{platform.pullCommand}</code>
+              <button
+                onClick={() => copyToClipboard(platform.pullCommand, 'pull')}
+                className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+              >
+                {copiedCommand === 'pull' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+            <p className="ml-7 mt-1 text-xs text-zinc-500">
+              This downloads ~4.7GB model (one-time setup)
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Retry Button */}
+      <button
+        onClick={onRetry}
+        className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 text-white font-medium text-sm transition-all flex items-center justify-center gap-2"
+      >
+        <RefreshCw size={16} />
+        Check Again
+      </button>
+
+      {/* Help Link */}
+      <p className="text-center text-xs text-zinc-500">
+        Need help? Visit{' '}
+        <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">
+          ollama.com
+        </a>
+      </p>
+    </div>
+  );
+}
+
+// Cluster-wide AI Chat Panel component - Global floating chat
+function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { onClose: () => void, isMinimized: boolean, onToggleMinimize: () => void }) {
+  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string }>>([]);
+  const [userInput, setUserInput] = useState("");
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [checkingOllama, setCheckingOllama] = useState(true);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Check Ollama status on mount
+  useEffect(() => {
+    checkOllamaStatus();
+  }, []);
+
+  const checkOllamaStatus = async () => {
+    setCheckingOllama(true);
+    try {
+      const status = await invoke<OllamaStatus>("check_ollama_status");
+      setOllamaStatus(status);
+    } catch (err) {
+      setOllamaStatus({
+        ollama_running: false,
+        model_available: false,
+        model_name: 'llama3.1:8b',
+        available_models: [],
+        error: String(err),
+      });
+    } finally {
+      setCheckingOllama(false);
+    }
+  };
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [chatHistory]);
+
+  const sendMessage = async (message: string) => {
+    if (!message.trim() || llmLoading) return;
+
+    setChatHistory(prev => [...prev, { role: 'user', content: message }]);
+    setUserInput("");
+    setLlmLoading(true);
+
+    try {
+      // Get cluster health summary for context
+      const healthSummary = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
+
+      // Build comprehensive context
+      const context = `
+CLUSTER OVERVIEW:
+- Nodes: ${healthSummary.total_nodes} total, ${healthSummary.ready_nodes} ready${healthSummary.not_ready_nodes.length > 0 ? `, NOT READY: ${healthSummary.not_ready_nodes.join(', ')}` : ''}
+- Pods: ${healthSummary.total_pods} total, ${healthSummary.running_pods} running, ${healthSummary.pending_pods} pending, ${healthSummary.failed_pods} failed
+- Deployments: ${healthSummary.total_deployments} total, ${healthSummary.healthy_deployments} healthy
+- Resource Usage: CPU ${healthSummary.cluster_cpu_percent.toFixed(1)}%, Memory ${healthSummary.cluster_memory_percent.toFixed(1)}%
+
+${healthSummary.critical_issues.length > 0 ? `CRITICAL ISSUES (${healthSummary.critical_issues.length}):
+${healthSummary.critical_issues.slice(0, 10).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No critical issues.'}
+
+${healthSummary.warnings.length > 0 ? `WARNINGS (${healthSummary.warnings.length}):
+${healthSummary.warnings.slice(0, 10).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No warnings.'}
+
+${healthSummary.crashloop_pods.length > 0 ? `CRASHLOOPING PODS (${healthSummary.crashloop_pods.length}):
+${healthSummary.crashloop_pods.slice(0, 5).map(p => `- ${p.namespace}/${p.name}: ${p.restart_count} restarts, reason: ${p.reason}`).join('\n')}` : ''}
+
+${healthSummary.unhealthy_deployments.length > 0 ? `UNHEALTHY DEPLOYMENTS (${healthSummary.unhealthy_deployments.length}):
+${healthSummary.unhealthy_deployments.slice(0, 5).map(d => `- ${d.namespace}/${d.name}: ${d.ready}/${d.desired} ready - ${d.reason}`).join('\n')}` : ''}
+
+AVAILABLE READ-ONLY TOOLS:
+1. CLUSTER_HEALTH - Refresh cluster health summary
+2. GET_EVENTS [namespace] - Get cluster events (optionally filter by namespace)
+3. LIST_PODS [namespace] - List pods (optionally filter by namespace)
+4. LIST_DEPLOYMENTS [namespace] - List deployments
+5. LIST_SERVICES [namespace] - List services
+6. DESCRIBE <kind> <namespace> <name> - Get detailed YAML of a resource
+7. GET_LOGS <namespace> <pod> [container] - Get pod logs
+8. TOP_PODS [namespace] - Show pod resource usage
+9. FIND_ISSUES - Find all problematic resources
+
+To use a tool, respond with: TOOL: <tool_name> [args]
+Multiple tools: List each on a new line
+`;
+
+      const systemPrompt = `SYSTEM IDENTITY
+You are a Cluster-Wide SRE AI Assistant with visibility across the ENTIRE Kubernetes cluster.
+You operate as an AUTONOMOUS, READ-ONLY CLUSTER INVESTIGATOR.
+
+SCOPE
+- All namespaces and resources
+- Cross-resource relationships (Service → Endpoints → Pods, Deployment → ReplicaSet → Pods)
+- Cluster health, resource usage, and issues
+
+CAPABILITIES
+1. Cluster Health Analysis - Identify unhealthy nodes, pods, deployments
+2. Troubleshooting - Start from symptoms, drill down to root cause
+3. Optimization Suggestions - Over/under-provisioned workloads
+4. Security Analysis - Privileged containers, missing limits, exposed secrets
+
+HARD SAFETY RULES (READ ONLY)
+You MUST NOT:
+- Generate kubectl commands that modify state (apply, patch, delete, scale)
+- Generate YAML patches or manifests to apply
+- Suggest direct mutations
+
+You MAY:
+- Suggest READ-ONLY commands for users to run
+- Use tools to gather more information
+- Explain findings and provide recommendations
+
+OUTPUT FORMAT (EVERY TURN)
+1. SUMMARY - 2-3 sentences describing the situation
+2. FINDINGS - Key observations with severity indicators [CRITICAL]/[WARNING]/[INFO]
+3. RECOMMENDATIONS - What should be done (but not how to mutate)
+4. NEXT INVESTIGATION STEPS - If you need more data, use TOOL: commands
+
+Keep responses concise and actionable. Focus on the most important issues.`;
+
+      const answer = await invoke<string>("call_local_llm_with_tools", {
+        prompt: `${context}\n\nUser: ${message}`,
+        systemPrompt,
+        conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
+      });
+
+      // Check for tool usage
+      const toolMatches = answer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
+      const tools = Array.from(toolMatches);
+
+      const validTools = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_PODS', 'LIST_DEPLOYMENTS',
+        'LIST_SERVICES', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES'];
+
+      if (tools.length > 0) {
+        let allToolResults: string[] = [];
+
+        for (const toolMatch of tools) {
+          const toolName = toolMatch[1];
+          const toolArgs = toolMatch[2]?.trim();
+          let toolResult = '';
+          let kubectlCommand = '';
+
+          if (!validTools.includes(toolName)) {
+            toolResult = `⚠️ Invalid tool: ${toolName}. Valid tools: ${validTools.join(', ')}`;
+            setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName: 'INVALID', command: 'N/A' }]);
+            continue;
+          }
+
+          try {
+            if (toolName === 'CLUSTER_HEALTH') {
+              kubectlCommand = 'kubectl get nodes,pods --all-namespaces';
+              const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
+              toolResult = `## Cluster Health Summary
+**Nodes:** ${health.ready_nodes}/${health.total_nodes} ready
+**Pods:** ${health.running_pods}/${health.total_pods} running (${health.pending_pods} pending, ${health.failed_pods} failed)
+**Deployments:** ${health.healthy_deployments}/${health.total_deployments} healthy
+**Resources:** CPU ${health.cluster_cpu_percent.toFixed(1)}%, Memory ${health.cluster_memory_percent.toFixed(1)}%
+${health.critical_issues.length > 0 ? `\n**Critical Issues:** ${health.critical_issues.length}` : ''}
+${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}`;
+            } else if (toolName === 'GET_EVENTS') {
+              const namespace = toolArgs || undefined;
+              kubectlCommand = namespace ? `kubectl get events -n ${namespace}` : 'kubectl get events --all-namespaces';
+              const events = await invoke<ClusterEventSummary[]>("get_cluster_events_summary", { namespace, limit: 20 });
+              if (events.length === 0) {
+                toolResult = 'No warning events found.';
+              } else {
+                toolResult = `## Recent Events (${events.length})\n${events.slice(0, 15).map(e =>
+                  `- [${e.event_type}] ${e.namespace}/${e.name} (${e.kind}): ${e.reason} - ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`
+                ).join('\n')}`;
+              }
+            } else if (toolName === 'LIST_PODS') {
+              const namespace = toolArgs || undefined;
+              kubectlCommand = namespace ? `kubectl get pods -n ${namespace}` : 'kubectl get pods --all-namespaces';
+              const pods = await invoke<any[]>("list_resources", {
+                req: { group: "", version: "v1", kind: "Pod", namespace: namespace || null }
+              });
+              const summary = pods.slice(0, 20).map(p => `- ${p.namespace}/${p.name}: ${p.status}`).join('\n');
+              toolResult = `## Pods (${pods.length} total)\n${summary}${pods.length > 20 ? `\n... and ${pods.length - 20} more` : ''}`;
+            } else if (toolName === 'LIST_DEPLOYMENTS') {
+              const namespace = toolArgs || undefined;
+              kubectlCommand = namespace ? `kubectl get deployments -n ${namespace}` : 'kubectl get deployments --all-namespaces';
+              const deps = await invoke<any[]>("list_resources", {
+                req: { group: "apps", version: "v1", kind: "Deployment", namespace: namespace || null }
+              });
+              const summary = deps.slice(0, 20).map(d => `- ${d.namespace}/${d.name}: ${d.ready || '?'}/${d.replicas || '?'} ready`).join('\n');
+              toolResult = `## Deployments (${deps.length} total)\n${summary}`;
+            } else if (toolName === 'LIST_SERVICES') {
+              const namespace = toolArgs || undefined;
+              kubectlCommand = namespace ? `kubectl get services -n ${namespace}` : 'kubectl get services --all-namespaces';
+              const svcs = await invoke<any[]>("list_resources", {
+                req: { group: "", version: "v1", kind: "Service", namespace: namespace || null }
+              });
+              const summary = svcs.slice(0, 20).map(s => `- ${s.namespace}/${s.name}: ${s.status}`).join('\n');
+              toolResult = `## Services (${svcs.length} total)\n${summary}`;
+            } else if (toolName === 'DESCRIBE') {
+              const [kind, ns, name] = (toolArgs || '').split(/\s+/);
+              if (!kind || !ns || !name) {
+                toolResult = '⚠️ Usage: DESCRIBE <kind> <namespace> <name>';
+              } else {
+                kubectlCommand = `kubectl describe ${kind.toLowerCase()} -n ${ns} ${name}`;
+                const details = await invoke<string>("get_resource_details", {
+                  req: { group: kind === 'Deployment' ? 'apps' : '', version: 'v1', kind, namespace: ns },
+                  name
+                });
+                const parsed = JSON.parse(details);
+                toolResult = `## ${kind}: ${ns}/${name}\n\`\`\`yaml\n${JSON.stringify(parsed, null, 2).slice(0, 2000)}\n\`\`\``;
+              }
+            } else if (toolName === 'GET_LOGS') {
+              const parts = (toolArgs || '').split(/\s+/);
+              const [ns, pod, container] = parts;
+              if (!ns || !pod) {
+                toolResult = '⚠️ Usage: GET_LOGS <namespace> <pod> [container]';
+              } else {
+                kubectlCommand = container ? `kubectl logs -n ${ns} ${pod} -c ${container}` : `kubectl logs -n ${ns} ${pod}`;
+                const logs = await invoke<string>("get_pod_logs", { namespace: ns, name: pod, container: container || null, lines: 100 });
+                toolResult = `## Logs: ${ns}/${pod}${container ? ` (${container})` : ''}\n\`\`\`\n${logs.slice(-2000)}\n\`\`\``;
+              }
+            } else if (toolName === 'TOP_PODS') {
+              kubectlCommand = 'kubectl top pods --all-namespaces';
+              toolResult = '⚠️ Metrics API required. Check if metrics-server is installed.';
+            } else if (toolName === 'FIND_ISSUES') {
+              kubectlCommand = 'kubectl get pods --all-namespaces --field-selector=status.phase!=Running';
+              const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
+              const issues = [...health.critical_issues, ...health.warnings].slice(0, 20);
+              if (issues.length === 0) {
+                toolResult = '✅ No issues found in the cluster.';
+              } else {
+                toolResult = `## Issues Found (${issues.length})\n${issues.map(i =>
+                  `- [${i.severity.toUpperCase()}] ${i.resource_kind} ${i.namespace}/${i.resource_name}: ${i.message}`
+                ).join('\n')}`;
+              }
+            }
+          } catch (err) {
+            toolResult = `❌ Tool error: ${err}`;
+          }
+
+          setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName, command: kubectlCommand }]);
+          allToolResults.push(`## ${toolName}\n${toolResult}`);
+        }
+
+        // Get follow-up analysis with tool results
+        const followUp = await invoke<string>("call_local_llm_with_tools", {
+          prompt: `Tool results:\n${allToolResults.join('\n\n')}\n\nAnalyze these results and provide your assessment.`,
+          systemPrompt: "You are analyzing Kubernetes cluster data. Summarize findings, identify issues, and provide recommendations. Be concise.",
+          conversationHistory: [],
+        });
+
+        setChatHistory(prev => [...prev, { role: 'assistant', content: followUp }]);
+      } else {
+        setChatHistory(prev => [...prev, { role: 'assistant', content: answer }]);
+      }
+    } catch (err) {
+      setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Make sure Ollama is running with llama3.1:8b model.` }]);
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  // If minimized, show just a small pill
+  if (isMinimized) {
+    return (
+      <div
+        onClick={onToggleMinimize}
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 cursor-pointer transition-all group"
+      >
+        <MessageSquare size={18} className="text-white" />
+        <span className="text-white font-medium text-sm">AI Chat</span>
+        {chatHistory.length > 0 && (
+          <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/20 text-white">{chatHistory.filter(m => m.role === 'assistant').length}</span>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="ml-1 p-0.5 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[500px] h-[600px]'} z-50 flex flex-col bg-[#1a1a1d] border border-purple-500/30 rounded-xl shadow-2xl transition-all duration-300`}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-purple-500/30 bg-gradient-to-r from-purple-500/10 to-cyan-500/10">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-purple-500/20">
+            <MessageSquare size={16} className="text-purple-400" />
+          </div>
+          <span className="font-semibold text-white">Cluster AI Assistant</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">Beta</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleMinimize}
+            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            title="Minimize"
+          >
+            <Minimize2 size={16} />
+          </button>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            title={isExpanded ? "Restore" : "Expand"}
+          >
+            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            title="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Loading state while checking Ollama */}
+        {checkingOllama && chatHistory.length === 0 && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+        )}
+
+        {/* Show setup instructions if Ollama not ready */}
+        {!checkingOllama && (!ollamaStatus?.ollama_running || !ollamaStatus?.model_available) && chatHistory.length === 0 && (
+          <OllamaSetupInstructions status={ollamaStatus} onRetry={checkOllamaStatus} />
+        )}
+
+        {/* Normal chat welcome screen - only show when Ollama is ready */}
+        {!checkingOllama && ollamaStatus?.ollama_running && ollamaStatus?.model_available && chatHistory.length === 0 && (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center">
+              <MessageSquare size={32} className="text-purple-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">Cluster AI Assistant</h3>
+            <p className="text-sm text-zinc-400 mb-4">Ask me anything about your cluster's health, resources, or issues.</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {['What issues are in my cluster?', 'Show crashlooping pods', 'Check cluster health'].map(q => (
+                <button
+                  key={q}
+                  onClick={() => sendMessage(q)}
+                  className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {chatHistory.map((msg, i) => (
+          <div key={i}>
+            {msg.role === 'user' && (
+              <div className="flex justify-end">
+                <div className="max-w-[80%] rounded-lg px-3 py-2 bg-purple-500/20 border border-purple-500/30 text-white text-sm">
+                  {msg.content}
+                </div>
+              </div>
+            )}
+            {msg.role === 'tool' && (
+              <div className="bg-zinc-800/50 rounded-lg border border-zinc-700 overflow-hidden">
+                <div className="px-3 py-2 bg-zinc-800 border-b border-zinc-700 flex items-center gap-2">
+                  <TerminalIcon size={14} className="text-cyan-400" />
+                  <span className="text-xs font-medium text-cyan-300">{msg.toolName}</span>
+                  {msg.command && <code className="text-xs text-zinc-500 ml-auto">{msg.command}</code>}
+                </div>
+                <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1">{children}</p>,
+                      code: ({ children }) => <code className="text-xs bg-zinc-900 px-1 rounded text-cyan-300">{children}</code>,
+                      pre: ({ children }) => <pre className="text-xs bg-zinc-900 p-2 rounded overflow-x-auto my-2">{children}</pre>,
+                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1">{children}</ul>,
+                      li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-2 mb-1">{children}</h2>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+            {msg.role === 'assistant' && (
+              <div className="flex justify-start">
+                <div className="max-w-[85%] rounded-lg px-3 py-2 bg-zinc-800 border border-zinc-700 prose prose-invert prose-sm max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1.5">{children}</p>,
+                      strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                      code: ({ children }) => <code className="text-xs bg-zinc-900 px-1 rounded text-cyan-300">{children}</code>,
+                      pre: ({ children }) => <pre className="text-xs bg-zinc-900 p-2 rounded overflow-x-auto my-2">{children}</pre>,
+                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="text-xs list-decimal ml-4 my-1">{children}</ol>,
+                      li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-2 mb-1">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-2 mb-1">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-xs font-semibold text-white mt-1.5 mb-0.5">{children}</h3>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {llmLoading && (
+          <div className="flex justify-start">
+            <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin text-purple-400" />
+              <span>Analyzing cluster...</span>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input */}
+      <div className="border-t border-purple-500/30 p-3 bg-zinc-900/50">
+        <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex gap-2">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            disabled={llmLoading}
+            placeholder="Ask about your cluster..."
+            className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+          />
+          <button
+            type="submit"
+            disabled={llmLoading || !userInput.trim()}
+            className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium transition-colors"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -7969,6 +8698,10 @@ function AppContent() {
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; type?: 'success' | 'error' | 'info' }>>([]);
   const prevContextRef = useRef<string | null>(null);
 
+  // Global cluster chat state
+  const [showClusterChat, setShowClusterChat] = useState(false);
+  const [isClusterChatMinimized, setIsClusterChatMinimized] = useState(false);
+
   // Observe current context name globally
   const { data: globalCurrentContext } = useQuery({
     queryKey: ["current_context_boot"],
@@ -8204,6 +8937,26 @@ function AppContent() {
         }}
       />
       <PortForwardList />
+
+      {/* Global Floating AI Chat Button */}
+      {!showClusterChat && (
+        <button
+          onClick={() => { setShowClusterChat(true); setIsClusterChatMinimized(false); }}
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 text-white font-medium transition-all hover:scale-105"
+        >
+          <MessageSquare size={20} />
+          <span>AI Chat</span>
+        </button>
+      )}
+
+      {/* Global Cluster Chat Panel */}
+      {showClusterChat && (
+        <ClusterChatPanel
+          onClose={() => setShowClusterChat(false)}
+          isMinimized={isClusterChatMinimized}
+          onToggleMinimize={() => setIsClusterChatMinimized(!isClusterChatMinimized)}
+        />
+      )}
     </>
   );
 }
