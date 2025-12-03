@@ -2136,14 +2136,14 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
         <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
           <SpeedometerGauge
             value={cockpit.total_cpu_usage}
-            max={cockpit.total_cpu_capacity}
+            max={cockpit.total_cpu_allocatable}
             label="CPU UTILIZATION"
             color={COLORS.cpu}
             unit={formatCpu(cockpit.total_cpu_usage)}
             size={180}
           />
           <div className="flex-1 space-y-3">
-            <GradientProgress value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="Used" sublabel={`${formatCpu(cockpit.total_cpu_usage)} of ${formatCpu(cockpit.total_cpu_capacity)}`} />
+            <GradientProgress value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="Used" sublabel={`${formatCpu(cockpit.total_cpu_usage)} of ${formatCpu(cockpit.total_cpu_allocatable)} Allocatable`} />
             <GradientProgress value={cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable} max={cockpit.total_cpu_capacity} label="Reserved" sublabel={`${formatCpu(cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable)} reserved by system`} />
             <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
               <div>
@@ -2162,14 +2162,14 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
         <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
           <SpeedometerGauge
             value={cockpit.total_memory_usage}
-            max={cockpit.total_memory_capacity}
+            max={cockpit.total_memory_allocatable}
             label="MEMORY UTILIZATION"
             color={COLORS.memory}
             unit={formatBytes(cockpit.total_memory_usage)}
             size={180}
           />
           <div className="flex-1 space-y-3">
-            <GradientProgress value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Used" sublabel={`${formatBytes(cockpit.total_memory_usage)} of ${formatBytes(cockpit.total_memory_capacity)}`} />
+            <GradientProgress value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Used" sublabel={`${formatBytes(cockpit.total_memory_usage)} of ${formatBytes(cockpit.total_memory_allocatable)} Allocatable`} />
             <GradientProgress value={cockpit.total_memory_capacity - cockpit.total_memory_allocatable} max={cockpit.total_memory_capacity} label="Reserved" sublabel={`${formatBytes(cockpit.total_memory_capacity - cockpit.total_memory_allocatable)} reserved by system`} />
             <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
               <div>
@@ -2192,8 +2192,8 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
           Cluster Capacity Overview
         </h3>
         <div className="flex justify-around items-end">
-          <VerticalMeter value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="CPU" color={COLORS.cpu} icon={Cpu} />
-          <VerticalMeter value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Memory" color={COLORS.memory} icon={HardDrive} />
+          <VerticalMeter value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="CPU" color={COLORS.cpu} icon={Cpu} />
+          <VerticalMeter value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Memory" color={COLORS.memory} icon={HardDrive} />
           <VerticalMeter value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} icon={Layers} />
           <VerticalMeter value={cockpit.total_nodes - cockpit.healthy_nodes} max={cockpit.total_nodes} label="Unhealthy" color={COLORS.critical} icon={AlertCircle} />
 
