@@ -29,22 +29,30 @@ import {
   Terminal as TerminalIcon,
   Trash2,
   X,
-  Server,
-  PieChart,
+  Check,
+  ServerOff,
+  FileCode,
+  Loader2,
+  Cloud,
   FileCog,
   Network,
   HardDrive,
   Shield,
+  PieChart,
+  Server,
   Puzzle,
   RefreshCw,
-  Save,
-  Loader2,
+  LogOut as LogOutIcon,
+  Maximize2,
+  Minimize2,
+  Cpu,
   Eye,
   List,
-  FileCode,
-  Cpu,
   Tags,
-  Cloud
+  Save,
+  LayoutDashboard,
+  Globe,
+  Sparkles
 } from "lucide-react";
 // Topology view removed per user request
 import Loading from './components/Loading';
@@ -94,6 +102,16 @@ interface ClusterStats {
   deployments: number;
   services: number;
   namespaces: number;
+}
+
+// Combined initial data for faster first load
+interface InitialClusterData {
+  stats: ClusterStats;
+  namespaces: string[];
+  pods: K8sObject[];
+  nodes: K8sObject[];
+  deployments: K8sObject[];
+  services: K8sObject[];
 }
 
 interface ResourceMetrics {
@@ -638,7 +656,15 @@ function LocalTerminalTab() {
     term.loadAddon(webglAddon);
 
     term.open(terminalRef.current);
-    fitAddon.fit();
+
+    // Wait for terminal to be fully rendered before fitting
+    setTimeout(() => {
+      try {
+        fitAddon.fit();
+      } catch (e) {
+        console.warn("Failed to fit terminal on initial load:", e);
+      }
+    }, 50);
 
     // Handle WebGL context loss
     webglAddon.onContextLoss(() => {
@@ -670,16 +696,20 @@ function LocalTerminalTab() {
 
     // Handle Resize
     const handleResize = () => {
-      fitAddon.fit();
-      if (xtermRef.current) {
-        const { cols, rows } = xtermRef.current;
-        invoke("resize_shell", { sessionId, rows, cols }).catch(console.error);
+      try {
+        if (fitAddonRef.current && xtermRef.current) {
+          fitAddonRef.current.fit();
+          const { cols, rows } = xtermRef.current;
+          invoke("resize_shell", { sessionId, rows, cols }).catch(console.error);
+        }
+      } catch (e) {
+        console.warn("Failed to resize terminal:", e);
       }
     };
     window.addEventListener("resize", handleResize);
 
-    // Initial resize
-    setTimeout(handleResize, 100);
+    // Initial resize with delay
+    setTimeout(handleResize, 150);
 
     return () => {
       unlisten.then(f => f());
@@ -698,6 +728,8 @@ function LocalTerminalTab() {
 function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, onOpenAzure: () => void }) {
   const [customPath, setCustomPath] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<"local" | "azure">("local");
+  const qc = useQueryClient();
 
   const { data: contexts, isLoading } = useQuery({
     queryKey: ["kube_contexts", customPath],
@@ -720,24 +752,58 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
 
   const connectMutation = useMutation({
     mutationFn: async (context: string) => {
-      // 1. Test Connectivity First
+      console.log("Starting connection to:", context);
+
+      // Reset all state and release locks first
       try {
-        await invoke("test_connectivity", { context, path: customPath });
-      } catch (err: any) {
-        throw new Error(`Failed to connect to context '${context}': ${err}`);
+        console.log("Resetting backend state...");
+        await Promise.race([
+          invoke("reset_state"),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Reset timeout")), 1000)
+          )
+        ]);
+        console.log("Backend state reset");
+      } catch (err) {
+        console.warn("Failed to reset state (continuing anyway):", err);
       }
 
-      // 2. If successful, set config
-      await invoke("set_kube_config", { context, path: customPath });
+      // Try to set the context with a timeout
+      try {
+        console.log("Setting context...");
+        await Promise.race([
+          invoke("set_kube_config", { context, path: customPath }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), 5000)
+          )
+        ]);
+        console.log("Context set successfully");
+      } catch (err) {
+        console.warn("Failed to set context (will use current):", err);
+        // Continue anyway - the app will use the current context
+      }
+
+      return Promise.resolve();
     },
     onSuccess: () => {
+      console.log("Connection successful, calling onConnect");
+      // Invalidate ALL cached data to prevent showing stale data from previous cluster
+      qc.invalidateQueries({ queryKey: ["current_context"] });
+      qc.invalidateQueries({ queryKey: ["current_context_boot"] });
+      qc.invalidateQueries({ queryKey: ["current_context_global"] });
+      qc.invalidateQueries({ queryKey: ["discovery"] });
+      qc.invalidateQueries({ queryKey: ["namespaces"] });
+      qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+      qc.invalidateQueries({ queryKey: ["vclusters"] });
+      qc.invalidateQueries({ queryKey: ["list_resources"] });
+      qc.invalidateQueries({ queryKey: ["resource"] });
+      qc.invalidateQueries({ queryKey: ["crd-groups"] });
+      // Clear all queries to be safe
+      qc.clear();
       onConnect();
     },
     onError: (error: Error) => {
-      // We need a way to show this error. 
-      // Since we don't have a global toast system set up in this file yet (or I missed it),
-      // let's add a local error state to display it.
-      console.error(error);
+      console.error("Connection error:", error);
     }
   });
 
@@ -775,97 +841,220 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
   if (isLoading) return <LoadingScreen message="Loading Kubeconfig..." />;
 
   return (
-    <div className="h-screen bg-black flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-2xl shadow-purple-500/30">
-            <Server size={40} className="text-white" />
+    <div className="h-screen w-full bg-[#09090b] flex items-center justify-center relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute top-[-30%] left-[-20%] w-[70%] h-[70%] bg-gradient-to-br from-purple-600/20 via-purple-900/10 to-transparent rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '8s' }} />
+        <div className="absolute bottom-[-30%] right-[-20%] w-[70%] h-[70%] bg-gradient-to-tl from-cyan-600/20 via-blue-900/10 to-transparent rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '10s' }} />
+        <div className="absolute top-[20%] right-[10%] w-[40%] h-[40%] bg-gradient-to-bl from-blue-600/10 to-transparent rounded-full blur-[80px] animate-pulse" style={{ animationDuration: '12s' }} />
+      </div>
+
+      {/* Grid Pattern Overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,black_40%,transparent_100%)]" />
+
+      <div className="w-full max-w-2xl z-10 animate-in fade-in zoom-in-95 duration-700 px-4">
+        {/* Hero Section */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 mb-6">
+            <Sparkles size={14} className="text-cyan-400" />
+            <span className="text-xs font-medium text-cyan-300">Kubernetes Management Made Simple</span>
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Select Cluster</h1>
-          <p className="text-[#858585]">Choose a context from your kubeconfig to get started.</p>
+
+          <div className="w-24 h-24 mx-auto mb-6 relative group">
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl blur-xl opacity-50 group-hover:opacity-75 transition-all duration-700 group-hover:scale-110" />
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-3xl opacity-20 animate-ping" style={{ animationDuration: '3s' }} />
+            <div className="relative w-full h-full bg-gradient-to-br from-cyan-500 via-blue-500 to-blue-600 rounded-3xl flex items-center justify-center shadow-2xl border border-white/20">
+              <Layers className="text-white drop-shadow-lg" size={48} />
+            </div>
+          </div>
+
+          <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
+            Welcome to <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">OpsPilot</span>
+          </h1>
+          <p className="text-zinc-400 text-base max-w-md mx-auto">
+            Connect to your Kubernetes clusters and manage resources with ease
+          </p>
         </div>
 
-        <div className="space-y-4">
-          {/* File Selector */}
-          <div className="flex gap-2">
-            <div className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white truncate flex items-center">
-              <span className="text-gray-500 mr-2">Config:</span>
-              {customPath || "Default (~/.kube/config)"}
-            </div>
+        {/* Connection Options Card */}
+        <div className="glass-panel border border-white/10 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl bg-black/40">
+          {/* Tab Selector */}
+          <div className="flex border-b border-white/5">
             <button
-              onClick={handleFileSelect}
-              className="bg-gray-900 hover:bg-gray-800 text-white p-2 rounded border border-gray-700 transition-all"
-              title="Load Kubeconfig File"
+              onClick={() => setActiveTab("local")}
+              className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${activeTab === "local" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
             >
-              <FolderOpen size={18} />
+              <div className="flex items-center justify-center gap-2">
+                <FileCode size={18} />
+                <span>Local Kubeconfig</span>
+              </div>
+              {activeTab === "local" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-500 to-blue-500" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("azure")}
+              className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${activeTab === "azure" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Cloud size={18} />
+                <span>Azure AKS</span>
+              </div>
+              {activeTab === "azure" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500" />
+              )}
             </button>
           </div>
 
-          {/* Context Search */}
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-2.5 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search contexts..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors"
-            />
-          </div>
+          {activeTab === "local" ? (
+            <div className="p-6 space-y-5">
+              {/* Kubeconfig Path */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+                  <FileCode size={12} />
+                  Kubeconfig File
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1 bg-zinc-900/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-300 truncate flex items-center hover:border-white/20 transition-colors group">
+                    <span className="truncate opacity-70 group-hover:opacity-100 transition-opacity">{customPath || "~/.kube/config"}</span>
+                  </div>
+                  <button
+                    onClick={handleFileSelect}
+                    className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-xl border border-white/10 transition-all hover:shadow-lg hover:shadow-cyan-500/10 active:scale-95 flex items-center gap-2"
+                    title="Browse for kubeconfig file"
+                  >
+                    <FolderOpen size={18} />
+                    <span className="text-sm font-medium">Browse</span>
+                  </button>
+                </div>
+              </div>
 
-          {connectionError && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-              <AlertCircle size={16} />
-              {connectionError}
+              {/* Search */}
+              <div className="relative">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  placeholder="Search contexts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-zinc-900/50 border border-white/10 rounded-xl pl-11 pr-4 py-3 text-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50 transition-all placeholder:text-zinc-600"
+                />
+                {contexts && (
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-600">
+                    {filteredContexts.length} context{filteredContexts.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {/* Error Message */}
+              {connectionError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                  <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{connectionError}</span>
+                </div>
+              )}
+
+              {/* Context List */}
+              <div className="bg-zinc-900/30 rounded-xl border border-white/5 overflow-hidden">
+                <div className="max-h-[280px] overflow-y-auto custom-scrollbar p-2 space-y-1">
+                  {filteredContexts.map(ctx => (
+                    <button
+                      key={ctx}
+                      onClick={() => handleConnect(ctx)}
+                      disabled={connectMutation.isPending}
+                      className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all border group relative overflow-hidden
+                        ${connectMutation.isPending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5 active:scale-[0.99]'}
+                        ${ctx === currentContext ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/30' : 'border-transparent hover:border-white/10'}
+                      `}
+                    >
+                      <div className="flex items-center justify-between relative z-10">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all ${ctx === currentContext ? 'bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.6)]' : 'bg-zinc-600 group-hover:bg-zinc-400'}`} />
+                          <span className={`font-medium truncate ${ctx === currentContext ? 'text-cyan-100' : 'text-zinc-300 group-hover:text-white'}`}>
+                            {ctx}
+                          </span>
+                          {ctx === currentContext && (
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        {connectMutation.isPending && connectMutation.variables === ctx ? (
+                          <Loader2 size={18} className="animate-spin text-cyan-400" />
+                        ) : (
+                          <ChevronRight size={16} className={`transition-all ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
+                        )}
+                      </div>
+                    </button>
+                  ))}
+
+                  {filteredContexts.length === 0 && (
+                    <div className="py-12 flex flex-col items-center justify-center text-zinc-500 gap-3">
+                      <ServerOff size={32} className="opacity-40" />
+                      <div className="text-center">
+                        <p className="text-sm font-medium">No contexts found</p>
+                        <p className="text-xs text-zinc-600 mt-1">Try a different kubeconfig file</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Azure Tab Content */
+            <div className="p-8">
+              <div className="text-center">
+                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center">
+                  <Cloud size={40} className="text-blue-400" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-2">Connect to Azure AKS</h3>
+                <p className="text-zinc-400 text-sm mb-6 max-w-sm mx-auto">
+                  Browse and connect to your Azure Kubernetes Service clusters directly from your subscriptions
+                </p>
+                <button
+                  onClick={onOpenAzure}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <Globe size={18} />
+                  Open Azure Explorer
+                </button>
+
+                <div className="mt-8 pt-6 border-t border-white/5">
+                  <p className="text-xs text-zinc-600 mb-4">Features</p>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="p-3 rounded-lg bg-white/5">
+                      <div className="text-blue-400 mb-1">
+                        <Server size={20} className="mx-auto" />
+                      </div>
+                      <p className="text-xs text-zinc-400">Multi-subscription</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5">
+                      <div className="text-green-400 mb-1">
+                        <Check size={20} className="mx-auto" />
+                      </div>
+                      <p className="text-xs text-zinc-400">Auto-credentials</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white/5">
+                      <div className="text-purple-400 mb-1">
+                        <Layers size={20} className="mx-auto" />
+                      </div>
+                      <p className="text-xs text-zinc-400">Resource groups</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
-          <div className="bg-gradient-to-br from-gray-900 to-black rounded-xl border border-gray-800 overflow-hidden shadow-2xl shadow-purple-500/10 max-h-[350px] overflow-y-auto">
-            {filteredContexts.map(ctx => (
-              <button
-                key={ctx}
-                onClick={() => handleConnect(ctx)}
-                disabled={connectMutation.isPending}
-                className={`w-full text-left px-6 py-4 border-b border-gray-800 last:border-0 hover:bg-gray-800 transition-all flex items-center justify-between group ${ctx === currentContext
-                  ? "bg-gray-800 border-l-4 border-l-cyan-400"
-                  : "border-l-4 border-l-transparent"
-                  }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${ctx === currentContext ? "bg-green-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" : "bg-gray-600"}`} />
-                  <span className={`font-medium ${ctx === currentContext ? "text-white" : "text-gray-300 group-hover:text-white"}`}>{ctx}</span>
-                </div>
-                {connectMutation.isPending && ctx === connectMutation.variables ? (
-                  <Loader2 className="animate-spin text-cyan-400" size={18} />
-                ) : (
-                  <ChevronRight size={18} className="text-[#505050] group-hover:text-[#cccccc] transition-colors" />
-                )}
-              </button>
-            ))}
-            {filteredContexts.length === 0 && (
-              <div className="p-8 text-center text-[#858585]">
-                {contexts?.length === 0 ? "No contexts found in this file." : "No matching contexts."}
-              </div>
-            )}
+          {/* Footer */}
+          <div className="px-6 py-3 bg-zinc-900/50 border-t border-white/5 flex items-center justify-between">
+            <p className="text-[10px] text-zinc-600 font-mono">OpsPilot v1.0.0</p>
+            <div className="flex items-center gap-1.5 text-[10px] text-zinc-600">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Ready
+            </div>
           </div>
         </div>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-gray-800" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-black px-2 text-gray-500">Or connect via</span>
-          </div>
-        </div>
-
-        <button
-          onClick={onOpenAzure}
-          className="w-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/50 text-blue-400 hover:text-blue-300 font-medium py-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20"
-        >
-          <Cloud size={18} />
-          Open Azure Explorer
-        </button>
       </div>
     </div>
   );
@@ -1149,21 +1338,22 @@ function ClusterOverview({
   navStructure,
   vclusters,
   vclustersLoading,
-  vclustersFetching
+  vclustersFetching,
+  isDiscovering
 }: {
   onNavigate: (res: NavResource) => void,
   navStructure?: NavGroup[],
   vclusters?: any[],
   vclustersLoading?: boolean,
-  vclustersFetching?: boolean
+  vclustersFetching?: boolean,
+  isDiscovering?: boolean
 }) {
   const { data: stats, isLoading, isError, error } = useQuery({
     queryKey: ["cluster_stats"],
     queryFn: async () => await invoke<ClusterStats>("get_cluster_stats"),
-    refetchInterval: 30000,
+    staleTime: 30000, // Cache for 30 seconds
+    refetchInterval: 60000, // Refetch every 60 seconds (reduced from 30)
   });
-
-  if (isLoading) return <div className="flex justify-center p-20"><Loading size={32} label="Loading" /></div>;
 
   if (isError) {
     return (
@@ -1191,103 +1381,64 @@ function ClusterOverview({
     return null;
   };
 
+  // Stat card component with loading state
+  const StatCard = ({ kind, label, value, color, icon: Icon }: {
+    kind: string, label: string, value?: number, color: string, icon: any
+  }) => {
+    const colorClasses: Record<string, { border: string, text: string, bg: string, hover: string }> = {
+      blue: { border: 'hover:border-blue-500', text: 'text-blue-400', bg: 'bg-blue-500/10', hover: 'group-hover:text-blue-300' },
+      green: { border: 'hover:border-green-500', text: 'text-green-400', bg: 'bg-green-500/10', hover: 'group-hover:text-green-300' },
+      purple: { border: 'hover:border-purple-500', text: 'text-purple-400', bg: 'bg-purple-500/10', hover: 'group-hover:text-purple-300' },
+      orange: { border: 'hover:border-orange-500', text: 'text-orange-400', bg: 'bg-orange-500/10', hover: 'group-hover:text-orange-300' },
+      yellow: { border: 'hover:border-yellow-500', text: 'text-yellow-400', bg: 'bg-yellow-500/10', hover: 'group-hover:text-yellow-300' },
+    };
+    const c = colorClasses[color];
+
+    return (
+      <button
+        onClick={() => {
+          const resourceType = findResourceType(kind);
+          if (resourceType) onNavigate(resourceType);
+        }}
+        disabled={isDiscovering}
+        className={`bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between ${c.border} hover:shadow-lg transition-all cursor-pointer group disabled:opacity-70 disabled:cursor-wait`}
+      >
+        <div className="text-left">
+          <h3 className={`text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 ${c.hover} transition-colors`}>{label}</h3>
+          {isLoading ? (
+            <div className="h-9 w-16 bg-gray-800 rounded animate-pulse" />
+          ) : (
+            <span className={`text-3xl font-bold ${c.text} ${c.hover} transition-colors`}>{value ?? 0}</span>
+          )}
+        </div>
+        <div className={`p-3 rounded-full ${c.bg} group-hover:scale-105 transition-all`}>
+          <Icon className={`${c.text} w-8 h-8 group-hover:scale-110 transition-transform`} />
+        </div>
+      </button>
+    );
+  };
+
   return (
-    <div className="p-8 space-y-8 animate-in fade-in duration-500 overflow-y-auto h-full">
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-2">Cluster Overview</h1>
-        <p className="text-gray-400">High-level summary of your cluster resources.</p>
+    <div className="p-8 space-y-8 animate-in fade-in duration-300 overflow-y-auto h-full">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-2">Cluster Overview</h1>
+          <p className="text-gray-400">High-level summary of your cluster resources.</p>
+        </div>
+        {isDiscovering && (
+          <div className="flex items-center gap-2 text-sm text-cyan-400">
+            <Loader2 size={16} className="animate-spin" />
+            <span>Discovering resources...</span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Nodes */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const nodeType = findResourceType('Node');
-            if (nodeType) {
-              onNavigate(nodeType);
-            }
-          }}
-          className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/30 transition-all cursor-pointer group"
-        >
-          <div className="text-left">
-            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 group-hover:text-blue-300 transition-colors">Nodes</h3>
-            <span className="text-3xl font-bold text-blue-400 group-hover:text-blue-300 transition-colors">{stats?.nodes || 0}</span>
-          </div>
-          <div className="p-3 rounded-full bg-blue-500/10 group-hover:bg-blue-500/20 transition-all">
-            <Server className="text-blue-400 w-8 h-8 group-hover:scale-110 transition-transform" />
-          </div>
-        </button>
-
-        {/* Pods */}
-        <button
-          onClick={() => {
-            const podType = findResourceType('Pod');
-            if (podType) onNavigate(podType);
-          }}
-          className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between hover:border-green-500 hover:shadow-lg hover:shadow-green-500/30 transition-all cursor-pointer group"
-        >
-          <div className="text-left">
-            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 group-hover:text-green-300 transition-colors">Pods</h3>
-            <span className="text-3xl font-bold text-green-400 group-hover:text-green-300 transition-colors">{stats?.pods || 0}</span>
-          </div>
-          <div className="p-3 rounded-full bg-green-500/10 group-hover:bg-green-500/20 transition-all">
-            <Layers className="text-green-400 w-8 h-8 group-hover:scale-110 transition-transform" />
-          </div>
-        </button>
-
-        {/* Deployments */}
-        <button
-          onClick={() => {
-            const deploymentType = findResourceType('Deployment');
-            if (deploymentType) onNavigate(deploymentType);
-          }}
-          className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between hover:border-purple-500 hover:shadow-lg hover:shadow-purple-500/30 transition-all cursor-pointer group"
-        >
-          <div className="text-left">
-            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 group-hover:text-purple-300 transition-colors">Deployments</h3>
-            <span className="text-3xl font-bold text-purple-400 group-hover:text-purple-300 transition-colors">{stats?.deployments || 0}</span>
-          </div>
-          <div className="p-3 rounded-full bg-purple-500/10 group-hover:bg-purple-500/20 transition-all">
-            <Package className="text-purple-400 w-8 h-8 group-hover:scale-110 transition-transform" />
-          </div>
-        </button>
-
-        {/* Services */}
-        <button
-          onClick={() => {
-            const serviceType = findResourceType('Service');
-            if (serviceType) onNavigate(serviceType);
-          }}
-          className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between hover:border-orange-500 hover:shadow-lg hover:shadow-orange-500/30 transition-all cursor-pointer group"
-        >
-          <div className="text-left">
-            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 group-hover:text-orange-300 transition-colors">Services</h3>
-            <span className="text-3xl font-bold text-orange-400 group-hover:text-orange-300 transition-colors">{stats?.services || 0}</span>
-          </div>
-          <div className="p-3 rounded-full bg-orange-500/10 group-hover:bg-orange-500/20 transition-all">
-            <Network className="text-orange-400 w-8 h-8 group-hover:scale-110 transition-transform" />
-          </div>
-        </button>
-
-        {/* Namespaces */}
-        <button
-          onClick={() => {
-            const namespaceType = findResourceType('Namespace');
-            if (namespaceType) onNavigate(namespaceType);
-          }}
-          className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between hover:border-yellow-500 hover:shadow-lg hover:shadow-yellow-500/30 transition-all cursor-pointer group"
-        >
-          <div className="text-left">
-            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 group-hover:text-yellow-300 transition-colors">Namespaces</h3>
-            <span className="text-3xl font-bold text-yellow-400 group-hover:text-yellow-300 transition-colors">{stats?.namespaces || 0}</span>
-          </div>
-          <div className="p-3 rounded-full bg-yellow-500/10 group-hover:bg-yellow-500/20 transition-all">
-            <FolderOpen className="text-yellow-400 w-8 h-8 group-hover:scale-110 transition-transform" />
-          </div>
-        </button>
+        <StatCard kind="Node" label="Nodes" value={stats?.nodes} color="blue" icon={Server} />
+        <StatCard kind="Pod" label="Pods" value={stats?.pods} color="green" icon={Layers} />
+        <StatCard kind="Deployment" label="Deployments" value={stats?.deployments} color="purple" icon={Package} />
+        <StatCard kind="Service" label="Services" value={stats?.services} color="orange" icon={Network} />
+        <StatCard kind="Namespace" label="Namespaces" value={stats?.namespaces} color="yellow" icon={FolderOpen} />
       </div>
 
       {/* Virtual Clusters (vcluster) */}
@@ -1431,9 +1582,10 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
         namespace: namespaceFilter === "All Namespaces" ? null : namespaceFilter
       }
     }),
-    staleTime: 5000, // Consider data fresh for 5 seconds
-    refetchInterval: 15000, // Refetch every 15 seconds
-    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    staleTime: 10000, // Consider data fresh for 10 seconds
+    gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
+    refetchInterval: 30000, // Refetch every 30 seconds (reduced frequency)
+    refetchOnWindowFocus: false,
   });
 
   // Listen for global reloads and refetch
@@ -1471,7 +1623,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
   const metricsMap = useMemo(() => {
     const map = new Map<string, ResourceMetrics>();
     if (metricsData) {
-      metricsData.forEach(m => map.set(`${m.namespace}/${m.name}`, m));
+      metricsData.forEach(m => map.set(`${m.namespace || ''}/${m.name}`, m));
     }
     return map;
   }, [metricsData]);
@@ -1506,8 +1658,11 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
           aVal = aTotal > 0 ? aReady / aTotal : 0;
           bVal = bTotal > 0 ? bReady / bTotal : 0;
         } else if (sortConfig.key === 'cpu' || sortConfig.key === 'memory') {
-          const aMetrics = metricsMap.get(`${a.namespace}/${a.name}`);
-          const bMetrics = metricsMap.get(`${b.namespace}/${b.name}`);
+          // For nodes, namespace is "-" in resource list but "" in metrics
+          const aNs = a.namespace === '-' ? '' : (a.namespace || '');
+          const bNs = b.namespace === '-' ? '' : (b.namespace || '');
+          const aMetrics = metricsMap.get(`${aNs}/${a.name}`);
+          const bMetrics = metricsMap.get(`${bNs}/${b.name}`);
           aVal = sortConfig.key === 'cpu' ? (aMetrics?.cpu_nano ?? 0) : (aMetrics?.memory_bytes ?? 0);
           bVal = sortConfig.key === 'cpu' ? (bMetrics?.cpu_nano ?? 0) : (bMetrics?.memory_bytes ?? 0);
         }
@@ -1589,10 +1744,10 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
   }
 
   return (
-    <div className="h-full flex flex-col bg-black">
+    <div className="h-full flex flex-col bg-[#09090b]">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-2 border-b border-gray-800 bg-black text-xs">
-        <div className="flex items-center gap-2 text-gray-500">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-zinc-900/30 backdrop-blur-md text-xs sticky top-0 z-10">
+        <div className="flex items-center gap-2 text-zinc-500">
           <span className="uppercase tracking-wider font-semibold">{resourceType.kind}</span>
           {isListLoading ? (
             <span className="flex items-center gap-1 text-cyan-400">
@@ -1603,15 +1758,15 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
               <AlertCircle size={12} /> Failed
             </span>
           ) : (
-            <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-green-400'}`}>
-              <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
+            <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-emerald-400'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${isFetching ? 'bg-cyan-400 animate-pulse' : 'bg-emerald-400'}`} />
               {isFetching ? 'Live (updating)' : 'Live'}
             </span>
           )}
         </div>
       </div>
       {isPod ? (
-        <div className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 bg-black border-b border-gray-800 text-xs uppercase text-gray-500 font-semibold tracking-wider shrink-0">
+        <div className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Namespace" sortKey="namespace" />
           <SortableHeader label="Ready" sortKey="ready" />
@@ -1623,7 +1778,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
           <SortableHeader label="Age" sortKey="age" />
         </div>
       ) : isNode ? (
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 bg-black border-b border-gray-800 text-xs uppercase text-gray-500 font-semibold tracking-wider shrink-0">
+        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Status" sortKey="status" />
           <SortableHeader label="CPU" sortKey="cpu" />
@@ -1631,7 +1786,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
           <SortableHeader label="Age" sortKey="age" />
         </div>
       ) : (
-        <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 bg-black border-b border-gray-800 text-xs uppercase text-gray-500 font-semibold tracking-wider shrink-0">
+        <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Namespace" sortKey="namespace" />
           <SortableHeader label="Status" sortKey="status" />
@@ -1644,15 +1799,15 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
         {isListLoading ? (
           <div className="p-4 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-10 bg-gradient-to-r from-gray-900 to-gray-800 rounded animate-pulse" />
+              <div key={i} className="h-10 bg-white/5 rounded animate-pulse" />
             ))}
           </div>
         ) : filteredResources.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-gray-500">
-            <div className="w-16 h-16 bg-gradient-to-br from-gray-900 to-black rounded-full flex items-center justify-center mb-4 border border-gray-800">
-              <Layers size={32} className="opacity-40 text-purple-400" />
+          <div className="h-full flex flex-col items-center justify-center text-zinc-500">
+            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
+              <Layers size={32} className="opacity-40 text-zinc-400" />
             </div>
-            <p className="text-base font-medium text-white">No resources found</p>
+            <p className="text-base font-medium text-zinc-300">No resources found</p>
             <p className="text-sm opacity-60 mt-2">
               {searchQuery ? `No matches for "${searchQuery}"` : `There are no ${resourceType.kind}s in ${namespaceFilter}`}
             </p>
@@ -1662,42 +1817,44 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
             style={{ height: "100%" }}
             data={filteredResources}
             itemContent={(_, obj) => {
-              const metrics = metricsMap.get(`${obj.namespace}/${obj.name}`);
+              // For nodes, namespace is "-" in resource list but "" in metrics
+              const metricsNs = obj.namespace === '-' ? '' : (obj.namespace || '');
+              const metrics = metricsMap.get(`${metricsNs}/${obj.name}`);
               return isPod ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 text-sm border-b border-gray-800/50 cursor-pointer transition-all items-center hover:bg-gray-900/50 hover:border-purple-500/30"
+                  className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
-                  <div className="font-medium text-white truncate" title={obj.name}>{obj.name}</div>
-                  <div className="text-gray-400 truncate" title={obj.namespace}>{obj.namespace}</div>
+                  <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
+                  <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
                   <div className="text-cyan-400 font-mono text-xs font-semibold">{obj.ready || '0/0'}</div>
                   <div><StatusBadge status={obj.status} /></div>
                   <div className="text-yellow-400 font-mono text-xs font-semibold">{obj.restarts ?? 0}</div>
-                  <div className="text-green-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
+                  <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
-                  <div className="text-gray-400 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>
-                  <div className="text-gray-500 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <div className="text-zinc-500 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>
+                  <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                 </div>
               ) : isNode ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-gray-800/50 cursor-pointer transition-all items-center hover:bg-gray-900/50 hover:border-blue-500/30"
+                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
-                  <div className="font-medium text-white truncate" title={obj.name}>{obj.name}</div>
+                  <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div><StatusBadge status={obj.status} /></div>
-                  <div className="text-green-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
+                  <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
-                  <div className="text-gray-500 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                 </div>
               ) : (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-gray-800/50 cursor-pointer transition-all items-center hover:bg-gray-900/50 hover:border-cyan-500/30"
+                  className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
-                  <div className="font-medium text-white truncate" title={obj.name}>{obj.name}</div>
-                  <div className="text-gray-400 truncate" title={obj.namespace}>{obj.namespace}</div>
+                  <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
+                  <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
                   <div><StatusBadge status={obj.status} /></div>
-                  <div className="text-gray-500 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                 </div>
               );
             }}
@@ -1714,7 +1871,7 @@ interface Tab {
   kind: string;
 }
 
-function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
+function Dashboard({ onDisconnect, isConnected, setIsConnected }: { onDisconnect: () => void, isConnected: boolean, setIsConnected: (v: boolean) => void }) {
   const [activeRes, setActiveRes] = useState<NavResource | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -1733,7 +1890,9 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
   const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false); // Command Palette State
   const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
   const qc = useQueryClient();
-  // Invalidate caches and clear backend cache on app launch
+  // Don't clear cache on mount - it blocks the UI and causes slow loading
+  // The cache will be cleared when needed (e.g., on disconnect)
+  /*
   useEffect(() => {
     (async () => {
       try { qc.invalidateQueries(); } catch { }
@@ -1743,6 +1902,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
       } catch { }
     })();
   }, [qc]);
+  */
 
   const selectedObj = tabs.find(t => t.id === activeTabId)?.resource || null;
 
@@ -1784,28 +1944,26 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
   });
 
   // Detect vcluster instances using vcluster CLI (Moved to Dashboard for persistence)
+  // Note: We no longer fetch namespaces here - we reuse cached data from initial fetch
   const { data: vclusters, isLoading: vclustersLoading, isFetching: vclustersFetching } = useQuery({
     queryKey: ["vclusters", currentContext],
     queryFn: async () => {
       try {
-        // Get StatefulSets from the current cluster context
-        const statefulsets = await invoke<K8sObject[]>("list_resources", {
-          req: { group: "apps", version: "v1", kind: "StatefulSet", namespace: null }
-        });
+        // Only fetch vcluster list - namespaces come from initial data fetch or cache
+        const vclusterResult = await invoke<string>("list_vclusters").catch(() => "[]");
 
-        // Get the list of namespaces in the current cluster
-        const currentNamespaces = new Set(statefulsets.map(s => s.namespace));
+        // Try to get namespaces from React Query cache (populated by initial fetch)
+        const cachedNamespaces = qc.getQueryData<string[]>(["namespaces", currentContext]);
 
-        // Now get vcluster list from CLI
         try {
-          const result = await invoke<string>("list_vclusters");
-          const vclusterList = JSON.parse(result);
+          const vclusterList = JSON.parse(vclusterResult);
 
           if (vclusterList && vclusterList.length > 0) {
-            // Filter to only show vclusters in namespaces that exist in current cluster
-            const filteredVclusters = vclusterList.filter((vc: any) => {
-              return currentNamespaces.has(vc.Namespace);
-            });
+            // If we have cached namespaces, filter vclusters; otherwise show all
+            const currentNamespaces = cachedNamespaces ? new Set(cachedNamespaces) : null;
+            const filteredVclusters = currentNamespaces
+              ? vclusterList.filter((vc: any) => currentNamespaces.has(vc.Namespace))
+              : vclusterList;
 
             // Transform to our format
             return filteredVclusters.map((vc: any) => ({
@@ -1821,18 +1979,18 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               vclusterName: vc.Name,
             }));
           }
-        } catch (cliError) {
-          console.warn('vcluster CLI failed:', cliError);
+        } catch (parseError) {
+          console.warn('vcluster CLI parse failed:', parseError);
         }
 
         return [];
       } catch (e) {
         console.error('Error fetching vclusters:', e);
-        throw e;
+        return [];
       }
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000,   // 10 minutes
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    gcTime: 5 * 60 * 1000,    // 5 minutes
     retry: false,
     enabled: !!currentContext,
   });
@@ -1888,8 +2046,30 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
     queryKey: ["discovery", currentContext],
     queryFn: async () => await invoke<NavGroup[]>("discover_api_resources"),
     enabled: !!currentContext,
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 60000, // Cache discovery for 60s - backend has disk cache too
+    gcTime: 1000 * 60 * 10, // Keep in memory for 10 minutes
+  });
+
+  // 1b. Fetch initial cluster data in parallel - this populates caches for instant navigation
+  const { data: initialData } = useQuery({
+    queryKey: ["initial_cluster_data", currentContext],
+    queryFn: async () => {
+      const data = await invoke<InitialClusterData>("get_initial_cluster_data");
+
+      // Pre-populate React Query caches with the fetched data for instant navigation
+      // This means when user clicks Pods, Nodes, etc., data is already available
+      qc.setQueryData(["cluster_stats"], data.stats);
+      qc.setQueryData(["namespaces", currentContext], data.namespaces);
+      qc.setQueryData(["list_resources", currentContext, "", "v1", "Pod", "All Namespaces"], data.pods);
+      qc.setQueryData(["list_resources", currentContext, "", "v1", "Node", "All Namespaces"], data.nodes);
+      qc.setQueryData(["list_resources", currentContext, "apps", "v1", "Deployment", "All Namespaces"], data.deployments);
+      qc.setQueryData(["list_resources", currentContext, "", "v1", "Service", "All Namespaces"], data.services);
+
+      return data;
+    },
+    enabled: !!currentContext,
+    staleTime: 30000, // 30 seconds
+    gcTime: 1000 * 60 * 5, // 5 minutes
   });
 
   // Invalidate discovery on context change to force loading state
@@ -2086,6 +2266,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
   }, [groupedResources, sidebarSearchQuery]);
 
   // 2. Fetch Namespaces for Filter (scoped to current context)
+  // Note: initialData comes from get_initial_cluster_data which pre-populates the cache
   const { data: namespaces } = useQuery({
     queryKey: ["namespaces", currentContext],
     queryFn: async () => {
@@ -2100,7 +2281,8 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
         return [] as string[];
       }
     },
-    staleTime: 30000,
+    staleTime: 60000, // Increased to 60s since we get fresh data from initial fetch
+    initialData: initialData?.namespaces?.sort(), // Use cached data from initial fetch
   });
 
   // Set default active resource to Cluster Overview
@@ -2112,38 +2294,58 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
 
   // 2.5 Background Prefetching (Performance Optimization)
   useEffect(() => {
-    if (!navStructure) return;
+    if (!navStructure || !currentContext) return;
 
     const prefetch = async () => {
       console.log("Starting background prefetch...");
-      for (const group of navStructure) {
-        for (const item of group.items) {
-          // Prefetch for "All Namespaces" (namespace: null)
-          // This ensures that when the user clicks a resource, the data is likely already there.
-          // We use a slightly longer staleTime for background fetches to avoid thrashing.
-          await qc.prefetchQuery({
-            queryKey: ["resource", item.kind, item.group, "All Namespaces"],
-            queryFn: async () => {
-              return await invoke<K8sObject[]>("list_resources", {
-                req: {
-                  group: item.group,
-                  version: item.version,
-                  kind: item.kind,
-                  namespace: null // Fetch all namespaces
-                }
-              });
-            },
-            staleTime: 30000, // Keep background data fresh for 30s
-          });
-        }
+
+      // Collect all items to prefetch
+      const allItems = navStructure.flatMap(group => group.items);
+
+      // Skip resources already fetched by initial data (Pod, Node, Deployment, Service)
+      const alreadyFetched = ["Pod", "Node", "Deployment", "Service"];
+
+      // Prioritize common resources - load these first for snappier UX
+      const priorityKinds = ["ConfigMap", "Secret", "Ingress", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob"];
+      const priorityItems = allItems.filter(item =>
+        priorityKinds.includes(item.kind) && !alreadyFetched.includes(item.kind)
+      );
+      const otherItems = allItems.filter(item =>
+        !priorityKinds.includes(item.kind) && !alreadyFetched.includes(item.kind)
+      );
+      const sortedItems = [...priorityItems, ...otherItems];
+
+      // Prefetch in parallel batches of 10 to avoid overwhelming the backend
+      const batchSize = 10;
+      for (let i = 0; i < sortedItems.length; i += batchSize) {
+        const batch = sortedItems.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(item =>
+            qc.prefetchQuery({
+              // Use same query key format as ResourceList for cache hit
+              queryKey: ["list_resources", currentContext, item.group || "", item.version || "", item.kind || "", "All Namespaces"],
+              queryFn: async () => {
+                return await invoke<K8sObject[]>("list_resources", {
+                  req: {
+                    group: item.group,
+                    version: item.version,
+                    kind: item.kind,
+                    namespace: null
+                  }
+                });
+              },
+              staleTime: 30000,
+            })
+          )
+        );
       }
       console.log("Background prefetch complete.");
     };
 
     // Small delay to allow initial render to settle
-    const timer = setTimeout(prefetch, 1000);
+    const timer = setTimeout(prefetch, 500);
     return () => clearTimeout(timer);
-  }, [navStructure, qc]);
+  }, [navStructure, currentContext, qc]);
 
 
 
@@ -2167,29 +2369,9 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
 
 
 
-  if (isDiscovering) {
-    return (
-      <div className="h-screen bg-[#0f0f12] text-white flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
-
-        <div className="z-10 flex flex-col items-center max-w-md text-center">
-          <div className="relative mb-8">
-            <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse" />
-            <Loader2 className="animate-spin text-blue-500 relative z-10" size={48} />
-          </div>
-          <h2 className="text-2xl font-bold mb-2 tracking-tight">Discovering Cluster Resources</h2>
-          <p className="text-gray-400 font-medium mb-4">Scanning API groups and custom resources...</p>
-          <div className="text-sm text-gray-500 space-y-1">
-            <p>• Querying Kubernetes API server</p>
-            <p>• Discovering available resource types</p>
-            <p>• Building navigation structure</p>
-          </div>
-          <p className="text-xs text-gray-600 mt-6">This may take a moment for large clusters with many CRDs</p>
-        </div>
-      </div>
-    );
-  }
+  // Note: We no longer block the entire UI during discovery.
+  // ClusterOverview shows immediately with skeleton loading for stats,
+  // and the sidebar shows a skeleton while discovery is in progress.
 
   if (isDiscoveryError) {
     return (
@@ -2263,23 +2445,21 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
 
       {/* Sidebar */}
       <aside
-        className="bg-black/95 backdrop-blur-xl border-r border-gray-800 flex flex-col shrink-0 select-none z-30 relative"
+        className="fixed top-0 bottom-0 left-0 z-30 flex flex-col glass-panel border-r border-white/5 transition-all duration-300 ease-in-out"
         style={{ width: sidebarWidth }}
       >
-        {/* Resize Handle */}
-        <div
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-gradient-to-b hover:from-purple-500 hover:via-blue-500 hover:to-cyan-500 transition-all z-50"
-          onMouseDown={() => setIsResizingSidebar(true)}
-        />
-
-        <div className="h-14 flex items-center px-4 font-medium text-white tracking-wide border-b border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 via-blue-500 to-cyan-500 rounded-lg shadow-lg shadow-blue-500/30 flex items-center justify-center">
-              <Activity size={18} className="text-white" />
+        {/* Sidebar Header */}
+        <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-white/5 backdrop-blur-sm">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 shrink-0">
+              <Layers className="text-white" size={18} />
             </div>
-            <div className="flex flex-col">
-              <span className="text-base font-semibold tracking-tight leading-none bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">{currentContext || "OpsPilot"}</span>
-              <span className="text-xs text-gray-400 font-mono mt-0.5">Cluster Admin</span>
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-sm tracking-tight text-white truncate">OpsPilot</span>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
+                <span className="text-[10px] text-zinc-400 truncate font-medium">{currentContext || "Unknown"}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2287,7 +2467,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
         {/* Sidebar Search Bar */}
         <div className="px-3 pt-3 pb-2 flex items-center gap-2">
           <div className="relative group flex-1">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#858585] group-focus-within:text-[#007acc] transition-colors">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
               <Search size={14} />
             </div>
             <input
@@ -2295,12 +2475,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               placeholder="Search resources..."
               value={sidebarSearchQuery}
               onChange={(e) => setSidebarSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-[#3c3c3c] border border-[#3e3e42] text-white text-sm rounded-md focus:outline-none focus:ring-1 focus:ring-[#007acc] focus:border-[#007acc] placeholder:text-[#858585] transition-all"
+              className="w-full pl-9 pr-3 py-2 bg-zinc-900/50 border border-white/5 text-zinc-200 text-sm rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 placeholder:text-zinc-600 transition-all"
             />
             {sidebarSearchQuery && (
               <button
                 onClick={() => setSidebarSearchQuery("")}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#858585] hover:text-white transition-colors"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-500 hover:text-white transition-colors"
               >
                 <X size={14} />
               </button>
@@ -2312,20 +2492,22 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
               try {
                 await invoke("clear_discovery_cache");
                 await queryClient.invalidateQueries({ queryKey: ["nav_structure"] });
-                // Force reload window to ensure fresh state
                 window.location.reload();
               } catch (e) {
                 console.error("Failed to refresh discovery:", e);
               }
             }}
-            className="p-2 bg-[#3c3c3c] border border-[#3e3e42] text-[#858585] hover:text-white rounded-md hover:bg-[#4e4e4e] transition-colors"
+            className="p-2 bg-zinc-900/50 border border-white/5 text-zinc-500 hover:text-white rounded-md hover:bg-white/10 transition-colors"
             title="Refresh Discovery Cache"
           >
             <RefreshCw size={14} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
+
+        {/* Topology button removed */}
+
+        <div className="flex-1 overflow-y-auto py-2 px-3 space-y-6 custom-scrollbar">
           {/* Cluster Overview Button */}
           {(!sidebarSearchQuery || "cluster".includes(sidebarSearchQuery.toLowerCase()) || "overview".includes(sidebarSearchQuery.toLowerCase()) || "dashboard".includes(sidebarSearchQuery.toLowerCase())) && (
             <div className="mb-1">
@@ -2335,38 +2517,17 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                   setActiveTabId(null);
                   setSearchQuery("");
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-base font-medium rounded-md transition-all group ${!activeRes && !activeTabId ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-gray-300 hover:text-white hover:bg-gray-800"}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes === null ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
               >
                 <div className="flex items-center gap-2.5">
-                  <PieChart size={18} className={!activeRes && !activeTabId ? "text-white" : "text-cyan-400 group-hover:text-cyan-300"} />
+                  <LayoutDashboard size={18} className={activeRes === null ? "text-white" : "text-cyan-400 group-hover:text-cyan-300"} />
                   <span>Cluster Overview</span>
                 </div>
               </button>
             </div>
           )}
 
-          {/* Show Azure button only if no search or if "azure" matches */}
-          {(!sidebarSearchQuery || "azure".includes(sidebarSearchQuery.toLowerCase()) || "cloud".includes(sidebarSearchQuery.toLowerCase())) && (
-            <div className="mb-1">
-              <button
-                onClick={() => {
-                  setActiveRes({ kind: "Azure", group: "azure", version: "v1", namespaced: false, title: "Azure" });
-                  setActiveTabId(null);
-                  setSearchQuery("");
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-base font-medium rounded-md transition-all group ${activeRes?.kind === "Azure" ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-lg shadow-blue-500/30" : "text-gray-300 hover:text-white hover:bg-gray-800"}`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Cloud size={18} className={activeRes?.kind === "Azure" ? "text-white" : "text-blue-400 group-hover:text-blue-300"} />
-                  <span>Azure</span>
-                </div>
-              </button>
-            </div>
-          )}
-
-          {/* Topology button removed */}
-
-          {/* Show Helm button only if no search or if "helm" or "release" matches */}
+          {/* Helm Releases Button */}
           {(!sidebarSearchQuery || "helm".includes(sidebarSearchQuery.toLowerCase()) || "release".includes(sidebarSearchQuery.toLowerCase())) && (
             <div className="mb-1">
               <button
@@ -2375,13 +2536,32 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                   setActiveTabId(null);
                   setSearchQuery("");
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-base font-medium rounded-md transition-all group ${activeRes?.kind === "HelmReleases" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30" : "text-gray-300 hover:text-white hover:bg-gray-800"}`}
+                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "HelmReleases" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
               >
                 <div className="flex items-center gap-2.5">
                   <Package size={18} className={activeRes?.kind === "HelmReleases" ? "text-white" : "text-purple-400 group-hover:text-purple-300"} />
                   <span>Helm Releases</span>
                 </div>
               </button>
+            </div>
+          )}
+
+          {/* Sidebar Skeleton while discovering */}
+          {isDiscovering && (
+            <div className="space-y-4 animate-pulse">
+              {["Cluster", "Workloads", "Config", "Network", "Storage"].map((title) => (
+                <div key={title} className="space-y-1.5">
+                  <div className="flex items-center gap-2 px-2 py-1.5">
+                    <div className="w-4 h-4 bg-zinc-800 rounded" />
+                    <div className="h-3 bg-zinc-800 rounded w-20" />
+                  </div>
+                  <div className="pl-6 space-y-1">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-7 bg-zinc-900/50 rounded mx-2" />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -2500,7 +2680,6 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                 ))}
             </SidebarSection>
           )}
-
         </div>
 
         {/* User Profile / Context */}
@@ -2513,74 +2692,97 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
             <span>Terminal</span>
           </button>
           <button onClick={async () => {
-            // Invalidate all frontend caches
-            try {
-              qc.invalidateQueries();
-            } catch { }
-            // Clear backend discovery cache
-            try {
-              // @ts-ignore invoke from tauri
-              await invoke("clear_discovery_cache");
-            } catch { }
-            // Broadcast reload for any listeners
-            window.dispatchEvent(new CustomEvent("lenskiller:reload"));
-            // Proceed with disconnect
+            console.log("Disconnect button clicked");
+
+            // Proceed with disconnect immediately
+            console.log("Calling onDisconnect...");
             onDisconnect();
+            console.log("Disconnect complete");
+
+            // Do cleanup in background (don't wait)
+            setTimeout(async () => {
+              try {
+                console.log("Invalidating queries...");
+                qc.invalidateQueries();
+              } catch (e) {
+                console.error("Failed to invalidate queries:", e);
+              }
+
+              try {
+                console.log("Clearing discovery cache...");
+                // @ts-ignore invoke from tauri
+                await Promise.race([
+                  invoke("clear_discovery_cache"),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
+                ]);
+                console.log("Discovery cache cleared");
+              } catch (e) {
+                console.error("Failed to clear discovery cache:", e);
+              }
+
+              console.log("Broadcasting reload event...");
+              window.dispatchEvent(new CustomEvent("lenskiller:reload"));
+            }, 0);
           }} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-base text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-all">
-            <LogOutIcon />
+            <LogOutIcon size={18} />
             <span>Disconnect</span>
           </button>
         </div>
-      </aside>
+      </aside >
 
       {/* Local Terminal Drawer */}
-      {isTerminalOpen && (
-        <div
-          className="absolute bottom-0 left-0 right-0 bg-black border-t border-gray-800 z-40 flex flex-col shadow-2xl shadow-green-500/10 animate-in slide-in-from-bottom-10"
-          style={{ height: terminalHeight, left: sidebarWidth }}
-        >
-          {/* Resize Handle */}
+      {
+        isTerminalOpen && (
           <div
-            className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-gradient-to-r hover:from-green-500 hover:to-emerald-500 transition-all z-50"
-            onMouseDown={() => setIsResizingTerminal(true)}
-          />
+            className="absolute bottom-0 left-0 right-0 bg-black border-t border-gray-800 z-40 flex flex-col shadow-2xl shadow-green-500/10 animate-in slide-in-from-bottom-10"
+            style={{ height: terminalHeight, left: sidebarWidth }}
+          >
+            {/* Resize Handle */}
+            <div
+              className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-gradient-to-r hover:from-green-500 hover:to-emerald-500 transition-all z-50"
+              onMouseDown={() => setIsResizingTerminal(true)}
+            />
 
-          <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
-            <span className="text-sm font-bold text-[#cccccc] flex items-center gap-2">
-              <TerminalIcon size={16} />
-              Local Terminal
-            </span>
-            <button onClick={() => setIsTerminalOpen(false)} className="text-[#858585] hover:text-white">
-              <X size={16} />
-            </button>
+            <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
+              <span className="text-sm font-bold text-[#cccccc] flex items-center gap-2">
+                <TerminalIcon size={16} />
+                Local Terminal
+              </span>
+              <button onClick={() => setIsTerminalOpen(false)} className="text-[#858585] hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden p-2">
+              <LocalTerminalTab />
+            </div>
           </div>
-          <div className="flex-1 overflow-hidden p-2">
-            <LocalTerminalTab />
-          </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 bg-black relative">
+      <main
+        className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative transition-all duration-300 ease-in-out"
+        style={{ marginLeft: sidebarWidth }}
+      >
         {activeRes?.kind === "HelmReleases" ? (
           <HelmReleases />
         ) : (
           <>
             {/* Header */}
-            <header className="h-14 border-b border-gray-800 flex items-center justify-between px-6 bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/60 sticky top-0 z-20">
+            <header className="h-14 glass-header flex items-center justify-between px-6 sticky top-0 z-20">
               <div className="flex items-center gap-4">
                 {/* Breadcrumbs */}
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-500">{activeRes?.group || "Core"}</span>
-                  <span className="text-gray-700">/</span>
-                  <span className="font-semibold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">{activeRes?.title}</span>
+                  <span className="text-zinc-500 font-medium">{activeRes?.group || "Core"}</span>
+                  <ChevronRight size={14} className="text-zinc-700" />
+                  <span className="font-semibold text-zinc-100 tracking-tight">{activeRes?.title}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 {/* Search Input */}
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500 group-focus-within:text-purple-400 transition-colors">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
                     <Search size={14} />
                   </div>
                   <input
@@ -2588,26 +2790,26 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
                     placeholder="Filter resources..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-gray-900 border border-gray-700 text-white text-xs rounded-full focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 block w-48 pl-9 p-2 placeholder-gray-500 focus:outline-none transition-all focus:w-64"
+                    className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-48 pl-9 p-2 placeholder:text-zinc-600 focus:outline-none transition-all focus:w-64"
                   />
                 </div>
 
                 {/* Namespace Filter */}
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
                     <Filter size={14} />
                   </div>
                   <select
                     value={selectedNamespace}
                     onChange={(e) => setSelectedNamespace(e.target.value)}
-                    className="bg-gray-900 border border-gray-700 text-white text-xs rounded-full focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 block w-48 pl-9 p-2 appearance-none cursor-pointer hover:border-gray-600 transition-all"
+                    className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-40 pl-9 pr-8 p-2 appearance-none focus:outline-none cursor-pointer hover:bg-zinc-800 transition-all"
                   >
-                    <option value="All Namespaces">All Namespaces</option>
+                    <option value="">All Namespaces</option>
                     {namespaces?.map(ns => (
                       <option key={ns} value={ns}>{ns}</option>
                     ))}
                   </select>
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-500">
+                  <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-zinc-500">
                     <ChevronDown size={14} />
                   </div>
                 </div>
@@ -2616,28 +2818,32 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
 
             {/* Content */}
             <div className="flex-1 overflow-hidden relative">
-              {/* Gate main content until discovery completes to avoid showing cluster before data is ready */}
-              {!navStructure || isDiscovering ? (
-                <div className="h-full flex items-center justify-center"><Loading size={32} label="Loading" /></div>
-              ) : activeRes?.kind === "Azure" ? (
+              {activeRes?.kind === "Azure" ? (
                 <AzurePage onConnect={() => setActiveRes(null)} />
               ) : activeRes?.kind === "HelmReleases" ? (
                 <HelmReleases />
               ) : activeRes ? (
-                <ResourceList
-                  resourceType={activeRes}
-                  onSelect={handleOpenResource}
-                  namespaceFilter={selectedNamespace}
-                  searchQuery={searchQuery}
-                  currentContext={currentContext}
-                />
+                /* Gate resource list until discovery completes - it needs navStructure */
+                !navStructure || isDiscovering ? (
+                  <div className="h-full flex items-center justify-center"><Loading size={32} label="Loading resources..." /></div>
+                ) : (
+                  <ResourceList
+                    resourceType={activeRes}
+                    onSelect={handleOpenResource}
+                    namespaceFilter={selectedNamespace}
+                    searchQuery={searchQuery}
+                    currentContext={currentContext}
+                  />
+                )
               ) : (
+                /* ClusterOverview can render immediately - stats load independently */
                 <ClusterOverview
                   navStructure={navStructure}
                   onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
                   vclusters={vclusters}
                   vclustersLoading={vclustersLoading}
                   vclustersFetching={vclustersFetching}
+                  isDiscovering={isDiscovering}
                 />
               )}
             </div>
@@ -2646,68 +2852,70 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void }) {
       </main>
 
       {/* Tabs Bar */}
-      {tabs.length > 0 && (
-        <div className="absolute top-14 left-0 right-0 h-10 bg-gray-900 border-b border-gray-800 flex items-center px-2 gap-1 overflow-x-auto z-10" style={{ marginLeft: sidebarWidth }}>
-          {/* Reload button to clear backend discovery cache and refresh */}
-          <button
-            onClick={async () => {
-              try {
-                // Clear Tauri backend discovery cache if available
-                // @ts-ignore invoke is provided by tauri
-                await invoke("clear_discovery_cache");
-              } catch (e) {
-                // no-op if command not present
-              }
-              // Trigger UI data reloads
-              try {
-                // If using React Query, globally invalidate
-                // @ts-ignore queryClient in scope? fallback to window event
-                if (typeof queryClient !== "undefined") {
-                  await queryClient.invalidateQueries();
-                }
-              } catch { }
-              // Fallback: emit a custom event other components can listen to
-              window.dispatchEvent(new CustomEvent("lenskiller:reload"));
-            }}
-            className="flex items-center gap-2 px-2 py-1 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 transition-all mr-2"
-            title="Reload (clear cache and refetch)"
-          >
-            <span className="inline-flex items-center gap-1">
-              Reload
-            </span>
-          </button>
-          {tabs.map(tab => (
+      {
+        tabs.length > 0 && (
+          <div className="absolute top-14 left-0 right-0 h-10 bg-gray-900 border-b border-gray-800 flex items-center px-2 gap-1 overflow-x-auto z-10" style={{ marginLeft: sidebarWidth }}>
+            {/* Reload button to clear backend discovery cache and refresh */}
             <button
-              key={tab.id}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs font-medium transition-all group ${activeTabId === tab.id
-                ? 'bg-black text-white border-t-2 border-t-cyan-400'
-                : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
-                }`}
-            >
-              <span className="truncate max-w-[120px]">{tab.resource.name}</span>
-              <span
-                role="button"
-                aria-label="Close tab"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCloseTab(tab.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.stopPropagation();
-                    handleCloseTab(tab.id);
+              onClick={async () => {
+                try {
+                  // Clear Tauri backend discovery cache if available
+                  // @ts-ignore invoke is provided by tauri
+                  await invoke("clear_discovery_cache");
+                } catch (e) {
+                  // no-op if command not present
+                }
+                // Trigger UI data reloads
+                try {
+                  // If using React Query, globally invalidate
+                  // @ts-ignore queryClient in scope? fallback to window event
+                  if (typeof queryClient !== "undefined") {
+                    await queryClient.invalidateQueries();
                   }
-                }}
-                className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
-              >
-                <X size={12} />
+                } catch { }
+                // Fallback: emit a custom event other components can listen to
+                window.dispatchEvent(new CustomEvent("lenskiller:reload"));
+              }}
+              className="flex items-center gap-2 px-2 py-1 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700 transition-all mr-2"
+              title="Reload (clear cache and refetch)"
+            >
+              <span className="inline-flex items-center gap-1">
+                Reload
               </span>
             </button>
-          ))}
-        </div>
-      )}
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs font-medium transition-all group ${activeTabId === tab.id
+                  ? 'bg-black text-white border-t-2 border-t-cyan-400'
+                  : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                  }`}
+              >
+                <span className="truncate max-w-[120px]">{tab.resource.name}</span>
+                <span
+                  role="button"
+                  aria-label="Close tab"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseTab(tab.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      handleCloseTab(tab.id);
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity"
+                >
+                  <X size={12} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )
+      }
 
       {/* Deep Dive Drawer */}
       {
@@ -4381,6 +4589,45 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
         setMatchedServices(matches);
       })();
     }, [svcList, metadata.labels]);
+    // Calculate QoS class
+    const getQoSClass = () => {
+      const allContainers = [...containers, ...initContainers];
+      if (allContainers.length === 0) return 'BestEffort';
+
+      let allGuaranteed = true;
+      let anyRequestOrLimit = false;
+
+      for (const c of allContainers) {
+        const requests = c.resources?.requests || {};
+        const limits = c.resources?.limits || {};
+
+        const hasCpuRequest = !!requests.cpu;
+        const hasMemRequest = !!requests.memory;
+        const hasCpuLimit = !!limits.cpu;
+        const hasMemLimit = !!limits.memory;
+
+        if (hasCpuRequest || hasMemRequest || hasCpuLimit || hasMemLimit) {
+          anyRequestOrLimit = true;
+        }
+
+        // For Guaranteed: must have both CPU and memory limits equal to requests
+        if (!(hasCpuLimit && hasMemLimit && hasCpuRequest && hasMemRequest &&
+              requests.cpu === limits.cpu && requests.memory === limits.memory)) {
+          allGuaranteed = false;
+        }
+      }
+
+      if (!anyRequestOrLimit) return 'BestEffort';
+      if (allGuaranteed) return 'Guaranteed';
+      return 'Burstable';
+    };
+
+    const qosClass = status?.qosClass || getQoSClass();
+    const securityContext = spec?.securityContext || {};
+    const dnsPolicy = spec?.dnsPolicy || 'ClusterFirst';
+    const priorityClassName = spec?.priorityClassName;
+    const priority = spec?.priority;
+
     return (
       <CollapsibleSection title="Pod Details" icon={<Layers size={14} />}>
         <div className="space-y-6">
@@ -4390,7 +4637,71 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
             <div><span className="block text-[#858585] mb-1">Pod IP</span><span className="font-mono text-[#cccccc]">{status?.podIP || '-'}</span></div>
             <div><span className="block text-[#858585] mb-1">ServiceAccount</span><span className="font-mono text-[#cccccc]">{spec?.serviceAccountName || '-'}</span></div>
             <div><span className="block text-[#858585] mb-1">Restart Policy</span><span className="font-mono text-[#cccccc]">{spec?.restartPolicy || '-'}</span></div>
+            <div>
+              <span className="block text-[#858585] mb-1">QoS Class</span>
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${
+                qosClass === 'Guaranteed' ? 'bg-[#89d185]/10 text-[#89d185]' :
+                qosClass === 'Burstable' ? 'bg-[#cca700]/10 text-[#cca700]' :
+                'bg-[#858585]/10 text-[#858585]'
+              }`}>{qosClass}</span>
+            </div>
+            <div><span className="block text-[#858585] mb-1">DNS Policy</span><span className="font-mono text-[#cccccc]">{dnsPolicy}</span></div>
+            {priorityClassName && (
+              <div><span className="block text-[#858585] mb-1">Priority Class</span><span className="font-mono text-[#cccccc]">{priorityClassName}</span></div>
+            )}
+            {priority !== undefined && (
+              <div><span className="block text-[#858585] mb-1">Priority</span><span className="font-mono text-[#cccccc]">{priority}</span></div>
+            )}
           </div>
+
+          {/* Security Context */}
+          {Object.keys(securityContext).length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold">Security Context</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {securityContext.runAsUser !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#858585]">runAsUser:</span>
+                    <span className="font-mono text-[#cccccc]">{securityContext.runAsUser}</span>
+                  </div>
+                )}
+                {securityContext.runAsGroup !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#858585]">runAsGroup:</span>
+                    <span className="font-mono text-[#cccccc]">{securityContext.runAsGroup}</span>
+                  </div>
+                )}
+                {securityContext.fsGroup !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#858585]">fsGroup:</span>
+                    <span className="font-mono text-[#cccccc]">{securityContext.fsGroup}</span>
+                  </div>
+                )}
+                {securityContext.runAsNonRoot !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#858585]">runAsNonRoot:</span>
+                    <span className={`font-mono ${securityContext.runAsNonRoot ? 'text-[#89d185]' : 'text-[#f48771]'}`}>
+                      {String(securityContext.runAsNonRoot)}
+                    </span>
+                  </div>
+                )}
+                {securityContext.readOnlyRootFilesystem !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#858585]">readOnlyRootFilesystem:</span>
+                    <span className={`font-mono ${securityContext.readOnlyRootFilesystem ? 'text-[#89d185]' : 'text-[#cca700]'}`}>
+                      {String(securityContext.readOnlyRootFilesystem)}
+                    </span>
+                  </div>
+                )}
+                {securityContext.seccompProfile && (
+                  <div className="flex items-center gap-2 col-span-2">
+                    <span className="text-[#858585]">seccompProfile:</span>
+                    <span className="font-mono text-[#cccccc]">{securityContext.seccompProfile.type}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Scheduling */}
           {(spec.nodeSelector || spec.tolerations) && (
@@ -4548,27 +4859,204 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
   }
 
   if (k === 'deployment') {
-    const replicas = spec.replicas;
+    const replicas = spec.replicas ?? 1;
     const strategy = spec.strategy?.type || 'RollingUpdate';
+    const rollingUpdate = spec.strategy?.rollingUpdate;
     const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k, v]) => `${k}=${v}`).join(', ') : '-';
     const tplContainers = spec.template?.spec?.containers || [];
+    const initContainers = spec.template?.spec?.initContainers || [];
+
+    // Status info
+    const readyReplicas = status.readyReplicas || 0;
+    const availableReplicas = status.availableReplicas || 0;
+    const updatedReplicas = status.updatedReplicas || 0;
+    const unavailableReplicas = status.unavailableReplicas || 0;
+    const conditions = status.conditions || [];
+
+    // Determine rollout status
+    const getRolloutStatus = () => {
+      if (unavailableReplicas > 0) return { status: 'Progressing', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
+      if (updatedReplicas < replicas) return { status: 'Updating', color: 'text-blue-400', bg: 'bg-blue-500/20' };
+      if (readyReplicas === replicas && availableReplicas === replicas) return { status: 'Complete', color: 'text-green-400', bg: 'bg-green-500/20' };
+      if (readyReplicas < replicas) return { status: 'Scaling', color: 'text-orange-400', bg: 'bg-orange-500/20' };
+      return { status: 'Unknown', color: 'text-[#858585]', bg: 'bg-[#3e3e42]' };
+    };
+    const rolloutStatus = getRolloutStatus();
+
+    // Calculate resource totals
+    const getResourceTotals = () => {
+      let cpuRequest = 0, cpuLimit = 0, memRequest = 0, memLimit = 0;
+      tplContainers.forEach((c: any) => {
+        const req = c.resources?.requests || {};
+        const lim = c.resources?.limits || {};
+        if (req.cpu) cpuRequest += parseCpu(req.cpu);
+        if (lim.cpu) cpuLimit += parseCpu(lim.cpu);
+        if (req.memory) memRequest += parseMemory(req.memory);
+        if (lim.memory) memLimit += parseMemory(lim.memory);
+      });
+      return { cpuRequest, cpuLimit, memRequest, memLimit };
+    };
+    const parseCpu = (cpu: string) => {
+      if (cpu.endsWith('m')) return parseInt(cpu) / 1000;
+      return parseFloat(cpu);
+    };
+    const parseMemory = (mem: string) => {
+      const num = parseFloat(mem);
+      if (mem.endsWith('Ki')) return num * 1024;
+      if (mem.endsWith('Mi')) return num * 1024 * 1024;
+      if (mem.endsWith('Gi')) return num * 1024 * 1024 * 1024;
+      if (mem.endsWith('Ti')) return num * 1024 * 1024 * 1024 * 1024;
+      return num;
+    };
+    const formatMemory = (bytes: number) => {
+      if (bytes === 0) return '-';
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ki`;
+      if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} Mi`;
+      return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} Gi`;
+    };
+    const resources = getResourceTotals();
+
     return (
       <CollapsibleSection title="Deployment Spec" icon={<Package size={14} />}>
-        <div className="space-y-3 text-xs">
-          <div className="grid grid-cols-2 gap-4">
-            <div><span className="block text-[#858585] mb-1">Replicas</span><span className="font-mono text-[#cccccc]">{replicas ?? '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">Strategy</span><span className="font-mono text-[#cccccc]">{strategy}</span></div>
-            <div className="col-span-2"><span className="block text-[#858585] mb-1">Selector</span><span className="font-mono text-[#cccccc] break-all">{selector}</span></div>
+        <div className="space-y-4 text-xs">
+          {/* Rollout Status */}
+          <div className="flex flex-wrap gap-3">
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Rollout: </span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] ${rolloutStatus.bg} ${rolloutStatus.color}`}>{rolloutStatus.status}</span>
+            </div>
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Strategy: </span>
+              <span className="font-mono text-[#cccccc]">{strategy}</span>
+              {rollingUpdate && (
+                <span className="text-[#585858] ml-1">
+                  (max surge: {rollingUpdate.maxSurge || '25%'}, max unavail: {rollingUpdate.maxUnavailable || '25%'})
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Replica Status */}
           <div>
-            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Template Containers</h4>
-            <div className="flex flex-wrap gap-1.5">
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Replica Status</h4>
+            <div className="grid grid-cols-4 gap-2">
+              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
+                <div className="text-lg font-mono text-[#cccccc]">{replicas}</div>
+                <div className="text-[9px] text-[#858585]">Desired</div>
+              </div>
+              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
+                <div className={`text-lg font-mono ${readyReplicas === replicas ? 'text-green-400' : 'text-yellow-400'}`}>{readyReplicas}</div>
+                <div className="text-[9px] text-[#858585]">Ready</div>
+              </div>
+              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
+                <div className={`text-lg font-mono ${updatedReplicas === replicas ? 'text-green-400' : 'text-blue-400'}`}>{updatedReplicas}</div>
+                <div className="text-[9px] text-[#858585]">Updated</div>
+              </div>
+              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
+                <div className={`text-lg font-mono ${availableReplicas === replicas ? 'text-green-400' : 'text-orange-400'}`}>{availableReplicas}</div>
+                <div className="text-[9px] text-[#858585]">Available</div>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-2 h-1.5 bg-[#3e3e42] rounded overflow-hidden">
+              <div
+                className={`h-full transition-all ${readyReplicas === replicas ? 'bg-green-500' : 'bg-yellow-500'}`}
+                style={{ width: `${(readyReplicas / replicas) * 100}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Conditions */}
+          {conditions.length > 0 && (
+            <div>
+              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Conditions</h4>
+              <div className="flex flex-wrap gap-2">
+                {conditions.map((cond: any, i: number) => {
+                  const isTrue = cond.status === 'True';
+                  return (
+                    <div key={i} className="px-2 py-1 bg-[#1e1e1e] border border-[#3e3e42] rounded flex items-center gap-1.5" title={cond.message || cond.reason}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isTrue ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <span className="text-[10px] text-[#cccccc]">{cond.type}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Resource Totals (per replica) */}
+          {(resources.cpuRequest > 0 || resources.memRequest > 0) && (
+            <div>
+              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Resources Per Replica</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="text-[9px] text-[#858585] mb-1">CPU</div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-[#858585]">Request:</span>
+                    <span className="font-mono text-cyan-400">{resources.cpuRequest > 0 ? `${(resources.cpuRequest * 1000).toFixed(0)}m` : '-'}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-[#858585]">Limit:</span>
+                    <span className="font-mono text-orange-400">{resources.cpuLimit > 0 ? `${(resources.cpuLimit * 1000).toFixed(0)}m` : '-'}</span>
+                  </div>
+                </div>
+                <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="text-[9px] text-[#858585] mb-1">Memory</div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-[#858585]">Request:</span>
+                    <span className="font-mono text-cyan-400">{formatMemory(resources.memRequest)}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-[#858585]">Limit:</span>
+                    <span className="font-mono text-orange-400">{formatMemory(resources.memLimit)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Selector */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Selector</h4>
+            <div className="flex flex-wrap gap-1">
+              {spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k, v]) => (
+                <span key={k} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{k}={String(v)}</span>
+              )) : <span className="text-[#858585] italic">None</span>}
+            </div>
+          </div>
+
+          {/* Template Containers */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Containers ({tplContainers.length})</h4>
+            <div className="space-y-1.5">
               {tplContainers.map((c: any, i: number) => (
-                <span key={i} className="px-1.5 py-0.5 bg-[#1e1e1e] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]" title={c.image}>{c.name}</span>
+                <div key={i} className="px-2 py-1.5 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] text-[#cccccc] font-bold">{c.name}</span>
+                    <div className="flex items-center gap-1">
+                      {c.ports?.map((p: any, pi: number) => (
+                        <span key={pi} className="px-1 py-0.5 bg-[#3e3e42] rounded text-[9px] text-[#858585]">{p.containerPort}/{p.protocol || 'TCP'}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-[#585858] truncate mt-0.5" title={c.image}>{c.image}</div>
+                </div>
               ))}
               {tplContainers.length === 0 && <span className="text-[#858585] italic">No containers</span>}
             </div>
           </div>
+
+          {/* Init Containers */}
+          {initContainers.length > 0 && (
+            <div>
+              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Init Containers ({initContainers.length})</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {initContainers.map((c: any, i: number) => (
+                  <span key={i} className="px-1.5 py-0.5 bg-[#1e1e1e] border border-[#3e3e42] rounded text-[10px] font-mono text-purple-400" title={c.image}>{c.name}</span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </CollapsibleSection>
     );
@@ -4601,33 +5089,149 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 
   if (k === 'service') {
     const ports = spec.ports || [];
+    const serviceType = spec.type || 'ClusterIP';
+    const sessionAffinity = spec.sessionAffinity || 'None';
+    const loadBalancerIP = spec.loadBalancerIP;
+    const loadBalancerStatus = status.loadBalancer || {};
+    const externalTrafficPolicy = spec.externalTrafficPolicy;
+    const internalTrafficPolicy = spec.internalTrafficPolicy;
+    const healthCheckNodePort = spec.healthCheckNodePort;
+
+    // Service type colors
+    const getServiceTypeInfo = (type: string) => {
+      switch (type) {
+        case 'LoadBalancer': return { color: 'text-green-400', bg: 'bg-green-500/20' };
+        case 'NodePort': return { color: 'text-blue-400', bg: 'bg-blue-500/20' };
+        case 'ExternalName': return { color: 'text-purple-400', bg: 'bg-purple-500/20' };
+        case 'ClusterIP': return { color: 'text-cyan-400', bg: 'bg-cyan-500/20' };
+        default: return { color: 'text-[#858585]', bg: 'bg-[#3e3e42]' };
+      }
+    };
+    const typeInfo = getServiceTypeInfo(serviceType);
+
+    // Get load balancer ingress IPs
+    const lbIngress = loadBalancerStatus.ingress || [];
+
     return (
       <CollapsibleSection title="Service Spec" icon={<Network size={14} />}>
-        <div className="space-y-3 text-xs">
-          <div className="grid grid-cols-3 gap-4">
-            <div><span className="block text-[#858585] mb-1">Type</span><span className="font-mono text-[#cccccc]">{spec.type || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">Cluster IP</span><span className="font-mono text-[#cccccc]">{spec.clusterIP || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">External IPs</span><span className="font-mono text-[#cccccc]">{Array.isArray(spec.externalIPs) && spec.externalIPs.length > 0 ? spec.externalIPs.join(', ') : '-'}</span></div>
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <div>
-              <span className="block text-[#858585] mb-1">Selector</span>
-              <div className="flex flex-wrap gap-1">
-                {spec.selector ? Object.entries(spec.selector).map(([k, v]) => (
-                  <span key={k} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{k}={String(v)}</span>
-                )) : <span className="text-[#858585] italic text-xs">None</span>}
+        <div className="space-y-4 text-xs">
+          {/* Service Type Badge & Stats */}
+          <div className="flex flex-wrap gap-3">
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Type: </span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] ${typeInfo.bg} ${typeInfo.color}`}>{serviceType}</span>
+            </div>
+            {sessionAffinity !== 'None' && (
+              <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+                <span className="text-[#858585]">Session Affinity: </span>
+                <span className="font-mono text-orange-400">{sessionAffinity}</span>
               </div>
-            </div>
+            )}
+            {externalTrafficPolicy && (
+              <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+                <span className="text-[#858585]">External Traffic: </span>
+                <span className={`font-mono ${externalTrafficPolicy === 'Local' ? 'text-yellow-400' : 'text-[#cccccc]'}`}>{externalTrafficPolicy}</span>
+              </div>
+            )}
           </div>
+
+          {/* IP Addresses */}
           <div>
-            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Ports</h4>
-            <div className="flex flex-wrap gap-1.5">
-              {ports.map((p: any, i: number) => (
-                <span key={i} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]" title={p.name || ''}>{p.port}{'->'}{p.targetPort || p.port}/{p.protocol || 'TCP'}</span>
-              ))}
-              {ports.length === 0 && <span className="text-[#858585] italic">No ports</span>}
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">IP Addresses</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                <div className="text-[9px] text-[#858585] mb-1">Cluster IP</div>
+                <div className="font-mono text-[11px] text-cyan-400">{spec.clusterIP === 'None' ? <span className="text-[#858585] italic">Headless</span> : spec.clusterIP || '-'}</div>
+              </div>
+              {serviceType === 'LoadBalancer' && (
+                <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="text-[9px] text-[#858585] mb-1">Load Balancer IP</div>
+                  {lbIngress.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {lbIngress.map((ing: any, i: number) => (
+                        <div key={i} className="font-mono text-[11px] text-green-400">{ing.ip || ing.hostname || '-'}</div>
+                      ))}
+                    </div>
+                  ) : loadBalancerIP ? (
+                    <div className="font-mono text-[11px] text-yellow-400">{loadBalancerIP} <span className="text-[9px] text-[#585858]">(pending)</span></div>
+                  ) : (
+                    <div className="text-[#858585] italic text-[11px]">Pending...</div>
+                  )}
+                </div>
+              )}
+              {serviceType === 'ExternalName' && spec.externalName && (
+                <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="text-[9px] text-[#858585] mb-1">External Name</div>
+                  <div className="font-mono text-[11px] text-purple-400 break-all">{spec.externalName}</div>
+                </div>
+              )}
+              {spec.externalIPs && spec.externalIPs.length > 0 && (
+                <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <div className="text-[9px] text-[#858585] mb-1">External IPs</div>
+                  <div className="font-mono text-[11px] text-orange-400">{spec.externalIPs.join(', ')}</div>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Ports */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Ports ({ports.length})</h4>
+            {ports.length === 0 ? (
+              <span className="text-[#858585] italic">No ports</span>
+            ) : (
+              <div className="space-y-1.5">
+                {ports.map((p: any, i: number) => (
+                  <div key={i} className="px-2 py-1.5 bg-[#1e1e1e] border border-[#3e3e42] rounded flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {p.name && <span className="font-mono text-[10px] text-[#cccccc] font-bold">{p.name}</span>}
+                      <span className="px-1.5 py-0.5 bg-[#3e3e42] rounded text-[9px] text-[#858585]">{p.protocol || 'TCP'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono text-[10px]">
+                      <span className="text-cyan-400">{p.port}</span>
+                      <span className="text-[#585858]">→</span>
+                      <span className="text-green-400">{p.targetPort || p.port}</span>
+                      {p.nodePort && (
+                        <>
+                          <span className="text-[#585858]">:</span>
+                          <span className="text-orange-400">{p.nodePort}</span>
+                          <span className="text-[9px] text-[#585858]">(node)</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Selector */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Selector</h4>
+            <div className="flex flex-wrap gap-1">
+              {spec.selector ? Object.entries(spec.selector).map(([k, v]) => (
+                <span key={k} className="px-1.5 py-0.5 bg-[#252526] border border-[#3e3e42] rounded text-[10px] font-mono text-[#cccccc]">{k}={String(v)}</span>
+              )) : <span className="text-[#858585] italic text-xs">None (headless or external)</span>}
+            </div>
+          </div>
+
+          {/* Additional Info */}
+          {(healthCheckNodePort || internalTrafficPolicy) && (
+            <div className="flex flex-wrap gap-3 text-[10px]">
+              {healthCheckNodePort && (
+                <div className="px-2 py-1 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <span className="text-[#858585]">Health Check Port: </span>
+                  <span className="font-mono text-[#cccccc]">{healthCheckNodePort}</span>
+                </div>
+              )}
+              {internalTrafficPolicy && (
+                <div className="px-2 py-1 bg-[#1e1e1e] border border-[#3e3e42] rounded">
+                  <span className="text-[#858585]">Internal Traffic: </span>
+                  <span className="font-mono text-[#cccccc]">{internalTrafficPolicy}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </CollapsibleSection>
     );
@@ -4637,15 +5241,113 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
     const capacity = status.capacity || {};
     const alloc = status.allocatable || {};
     const addresses = status.addresses || [];
+    const taints = spec.taints || [];
+    const conditions = status.conditions || [];
+    const nodeInfo = status.nodeInfo || {};
+
+    // Parse CPU and memory for percentage calculation
+    const parseCpu = (val: string) => {
+      if (!val) return 0;
+      if (val.endsWith('m')) return parseInt(val) / 1000;
+      if (val.endsWith('n')) return parseInt(val) / 1000000000;
+      return parseFloat(val);
+    };
+    const parseMem = (val: string) => {
+      if (!val) return 0;
+      const units: Record<string, number> = { Ki: 1024, Mi: 1024**2, Gi: 1024**3, Ti: 1024**4, K: 1000, M: 1000**2, G: 1000**3, T: 1000**4 };
+      for (const [suffix, mult] of Object.entries(units)) {
+        if (val.endsWith(suffix)) return parseInt(val) * mult;
+      }
+      return parseInt(val);
+    };
+
+    const cpuCapacity = parseCpu(capacity.cpu);
+    const cpuAllocatable = parseCpu(alloc.cpu);
+    const memCapacity = parseMem(capacity.memory);
+    const memAllocatable = parseMem(alloc.memory);
+    const podsCapacity = parseInt(capacity.pods) || 0;
+    const podsAllocatable = parseInt(alloc.pods) || 0;
+
+    const cpuReservedPct = cpuCapacity > 0 ? Math.round(((cpuCapacity - cpuAllocatable) / cpuCapacity) * 100) : 0;
+    const memReservedPct = memCapacity > 0 ? Math.round(((memCapacity - memAllocatable) / memCapacity) * 100) : 0;
+
+    // Get condition statuses
+    const getConditionStatus = (type: string) => {
+      const cond = conditions.find((c: any) => c.type === type);
+      return cond ? { status: cond.status, message: cond.message } : null;
+    };
+
+    const ready = getConditionStatus('Ready');
+    const memPressure = getConditionStatus('MemoryPressure');
+    const diskPressure = getConditionStatus('DiskPressure');
+    const pidPressure = getConditionStatus('PIDPressure');
+    const networkUnavail = getConditionStatus('NetworkUnavailable');
+
     return (
       <CollapsibleSection title="Node Info" icon={<Server size={14} />}>
         <div className="space-y-4 text-xs">
+          {/* System Info */}
           <div className="grid grid-cols-2 gap-4">
-            <div><span className="block text-[#858585] mb-1">OS Image</span><span className="font-mono text-[#cccccc] break-all">{status.nodeInfo?.osImage || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">Kubelet</span><span className="font-mono text-[#cccccc]">{status.nodeInfo?.kubeletVersion || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">Container Runtime</span><span className="font-mono text-[#cccccc]">{status.nodeInfo?.containerRuntimeVersion || '-'}</span></div>
-            <div><span className="block text-[#858585] mb-1">Kernel</span><span className="font-mono text-[#cccccc]">{status.nodeInfo?.kernelVersion || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">OS Image</span><span className="font-mono text-[#cccccc] break-all">{nodeInfo.osImage || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">Kubelet</span><span className="font-mono text-[#cccccc]">{nodeInfo.kubeletVersion || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">Container Runtime</span><span className="font-mono text-[#cccccc]">{nodeInfo.containerRuntimeVersion || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">Kernel</span><span className="font-mono text-[#cccccc]">{nodeInfo.kernelVersion || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">Architecture</span><span className="font-mono text-[#cccccc]">{nodeInfo.architecture || '-'}</span></div>
+            <div><span className="block text-[#858585] mb-1">Machine ID</span><span className="font-mono text-[#cccccc] text-[10px] break-all">{nodeInfo.machineID || '-'}</span></div>
           </div>
+
+          {/* Node Conditions */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Health Status</h4>
+            <div className="flex flex-wrap gap-2">
+              {ready && (
+                <span className={`px-2 py-1 rounded text-[11px] font-mono ${ready.status === 'True' ? 'bg-[#89d185]/10 text-[#89d185]' : 'bg-[#f48771]/10 text-[#f48771]'}`} title={ready.message}>
+                  Ready: {ready.status}
+                </span>
+              )}
+              {memPressure && (
+                <span className={`px-2 py-1 rounded text-[11px] font-mono ${memPressure.status === 'False' ? 'bg-[#89d185]/10 text-[#89d185]' : 'bg-[#f48771]/10 text-[#f48771]'}`} title={memPressure.message}>
+                  MemoryPressure: {memPressure.status}
+                </span>
+              )}
+              {diskPressure && (
+                <span className={`px-2 py-1 rounded text-[11px] font-mono ${diskPressure.status === 'False' ? 'bg-[#89d185]/10 text-[#89d185]' : 'bg-[#f48771]/10 text-[#f48771]'}`} title={diskPressure.message}>
+                  DiskPressure: {diskPressure.status}
+                </span>
+              )}
+              {pidPressure && (
+                <span className={`px-2 py-1 rounded text-[11px] font-mono ${pidPressure.status === 'False' ? 'bg-[#89d185]/10 text-[#89d185]' : 'bg-[#f48771]/10 text-[#f48771]'}`} title={pidPressure.message}>
+                  PIDPressure: {pidPressure.status}
+                </span>
+              )}
+              {networkUnavail && (
+                <span className={`px-2 py-1 rounded text-[11px] font-mono ${networkUnavail.status === 'False' ? 'bg-[#89d185]/10 text-[#89d185]' : 'bg-[#f48771]/10 text-[#f48771]'}`} title={networkUnavail.message}>
+                  NetworkUnavailable: {networkUnavail.status}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Taints */}
+          {taints.length > 0 && (
+            <div>
+              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Taints</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {taints.map((t: any, i: number) => (
+                  <span key={i} className={`px-2 py-1 rounded text-[10px] font-mono border ${
+                    t.effect === 'NoSchedule' ? 'bg-[#f48771]/10 text-[#f48771] border-[#f48771]/30' :
+                    t.effect === 'NoExecute' ? 'bg-[#f48771]/20 text-[#f48771] border-[#f48771]/40' :
+                    t.effect === 'PreferNoSchedule' ? 'bg-[#cca700]/10 text-[#cca700] border-[#cca700]/30' :
+                    'bg-[#252526] text-[#cccccc] border-[#3e3e42]'
+                  }`} title={`Effect: ${t.effect}${t.value ? `, Value: ${t.value}` : ''}`}>
+                    {t.key}={t.value || ''}:{t.effect}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Addresses */}
           <div>
             <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Addresses</h4>
             <div className="flex flex-wrap gap-1.5">
@@ -4655,14 +5357,45 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
               {addresses.length === 0 && <span className="text-[#858585] italic">No addresses</span>}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Capacity</h4>
-              <div className="space-y-0.5">{renderKV(capacity)}</div>
-            </div>
-            <div>
-              <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Allocatable</h4>
-              <div className="space-y-0.5">{renderKV(alloc)}</div>
+
+          {/* Capacity vs Allocatable with Progress Bars */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Resources</h4>
+            <div className="space-y-3">
+              {/* CPU */}
+              <div>
+                <div className="flex justify-between text-[11px] mb-1">
+                  <span className="text-[#858585]">CPU</span>
+                  <span className="font-mono text-[#cccccc]">{alloc.cpu} / {capacity.cpu} <span className="text-[#858585]">({cpuReservedPct}% reserved)</span></span>
+                </div>
+                <div className="h-2 bg-[#252526] rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-cyan-500 to-blue-500" style={{ width: `${100 - cpuReservedPct}%` }} />
+                </div>
+              </div>
+              {/* Memory */}
+              <div>
+                <div className="flex justify-between text-[11px] mb-1">
+                  <span className="text-[#858585]">Memory</span>
+                  <span className="font-mono text-[#cccccc]">{alloc.memory} / {capacity.memory} <span className="text-[#858585]">({memReservedPct}% reserved)</span></span>
+                </div>
+                <div className="h-2 bg-[#252526] rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${100 - memReservedPct}%` }} />
+                </div>
+              </div>
+              {/* Pods */}
+              <div>
+                <div className="flex justify-between text-[11px] mb-1">
+                  <span className="text-[#858585]">Pods</span>
+                  <span className="font-mono text-[#cccccc]">{podsAllocatable} / {podsCapacity} allocatable</span>
+                </div>
+              </div>
+              {/* Ephemeral Storage */}
+              {capacity['ephemeral-storage'] && (
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-[#858585]">Ephemeral Storage</span>
+                  <span className="font-mono text-[#cccccc]">{alloc['ephemeral-storage']} / {capacity['ephemeral-storage']}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -4686,8 +5419,19 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 
   if (k === 'configmap') {
     const configData = fullObject.data || {};
+    const binaryData = fullObject.binaryData || {};
     const keys = Object.keys(configData);
+    const binaryKeys = Object.keys(binaryData);
     const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+
+    // Calculate total size
+    const totalSize = keys.reduce((acc, key) => acc + (configData[key]?.length || 0), 0);
+    const binarySize = binaryKeys.reduce((acc, key) => acc + (binaryData[key]?.length || 0), 0);
+    const formatSize = (bytes: number) => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     const toggleVisibility = (key: string) => {
       setVisibleKeys(prev => {
@@ -4705,18 +5449,54 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
       navigator.clipboard.writeText(text).catch(() => { });
     };
 
+    // Detect file type from key name
+    const getFileType = (key: string) => {
+      if (key.endsWith('.yaml') || key.endsWith('.yml')) return 'yaml';
+      if (key.endsWith('.json')) return 'json';
+      if (key.endsWith('.properties')) return 'properties';
+      if (key.endsWith('.conf') || key.endsWith('.cfg')) return 'config';
+      if (key.endsWith('.sh')) return 'shell';
+      if (key.endsWith('.xml')) return 'xml';
+      if (key.endsWith('.env')) return 'env';
+      return 'text';
+    };
+
     return (
       <CollapsibleSection title="ConfigMap Data" icon={<FileCog size={14} />}>
-        <div className="space-y-2">
-          {keys.length === 0 && <span className="text-[#858585] italic text-xs">No keys</span>}
+        <div className="space-y-3">
+          {/* Stats */}
+          <div className="flex flex-wrap gap-3 text-xs">
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Keys: </span>
+              <span className="font-mono text-cyan-400">{keys.length}</span>
+            </div>
+            {binaryKeys.length > 0 && (
+              <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+                <span className="text-[#858585]">Binary Keys: </span>
+                <span className="font-mono text-purple-400">{binaryKeys.length}</span>
+              </div>
+            )}
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Total Size: </span>
+              <span className="font-mono text-[#cccccc]">{formatSize(totalSize + binarySize)}</span>
+            </div>
+          </div>
+
+          {keys.length === 0 && binaryKeys.length === 0 && <span className="text-[#858585] italic text-xs">No data</span>}
           {keys.map(key => {
             const isVisible = visibleKeys.has(key);
             const value = configData[key];
             const preview = typeof value === 'string' ? value.substring(0, 100) : String(value).substring(0, 100);
+            const fileType = getFileType(key);
+            const lineCount = (value?.match(/\n/g) || []).length + 1;
             return (
               <div key={key} className="bg-[#1e1e1e] border border-[#3e3e42] rounded p-2">
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-mono text-[11px] text-[#cccccc] font-bold">{key}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-[#cccccc] font-bold">{key}</span>
+                    <span className="px-1.5 py-0.5 bg-[#3e3e42] rounded text-[9px] text-[#858585]">{fileType}</span>
+                    <span className="text-[9px] text-[#858585]">{formatSize(value?.length || 0)} • {lineCount} lines</span>
+                  </div>
                   <div className="flex items-center gap-1">
                     {isVisible && (
                       <button
@@ -4742,12 +5522,22 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
                   </div>
                 ) : (
                   <div className="bg-[#252526] p-2 rounded border border-[#3e3e42] font-mono text-[10px] text-[#858585] break-all">
-                    {preview}{value.length > 100 ? '...' : ''}
+                    {preview}{value?.length > 100 ? '...' : ''}
                   </div>
                 )}
               </div>
             );
           })}
+          {/* Binary data */}
+          {binaryKeys.map(key => (
+            <div key={key} className="bg-[#1e1e1e] border border-[#3e3e42] rounded p-2">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] text-[#cccccc] font-bold">{key}</span>
+                <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[9px]">binary</span>
+                <span className="text-[9px] text-[#858585]">{formatSize(binaryData[key]?.length || 0)}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </CollapsibleSection>
     );
@@ -4755,9 +5545,27 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 
   if (k === 'secret') {
     const secretData = fullObject.data || {};
+    const secretType = fullObject.type || 'Opaque';
     const keys = Object.keys(secretData);
     const [decodedValues, setDecodedValues] = useState<Record<string, string>>({});
     const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
+
+    // Calculate decoded sizes
+    const getDecodedSize = (encoded: string) => {
+      try {
+        return atob(encoded).length;
+      } catch {
+        return 0;
+      }
+    };
+    const totalEncodedSize = keys.reduce((acc, key) => acc + (secretData[key]?.length || 0), 0);
+    const totalDecodedSize = keys.reduce((acc, key) => acc + getDecodedSize(secretData[key] || ''), 0);
+
+    const formatSize = (bytes: number) => {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     const decodeBase64 = (encoded: string): string => {
       try {
@@ -4789,17 +5597,65 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
       navigator.clipboard.writeText(text).catch(() => { });
     };
 
+    // Detect common key types
+    const getKeyType = (key: string) => {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes('password') || lowerKey.includes('passwd')) return { type: 'password', color: 'text-red-400' };
+      if (lowerKey.includes('token') || lowerKey.includes('bearer')) return { type: 'token', color: 'text-orange-400' };
+      if (lowerKey.includes('key') || lowerKey.includes('secret')) return { type: 'key', color: 'text-yellow-400' };
+      if (lowerKey.includes('cert') || lowerKey.includes('crt') || lowerKey.includes('pem')) return { type: 'cert', color: 'text-blue-400' };
+      if (lowerKey.includes('ca')) return { type: 'ca', color: 'text-blue-400' };
+      if (lowerKey.includes('user') || lowerKey.includes('username')) return { type: 'user', color: 'text-green-400' };
+      if (lowerKey.includes('host') || lowerKey.includes('endpoint') || lowerKey.includes('url')) return { type: 'endpoint', color: 'text-cyan-400' };
+      return { type: 'data', color: 'text-[#858585]' };
+    };
+
+    // Get secret type color and label
+    const getSecretTypeInfo = (type: string) => {
+      if (type === 'kubernetes.io/tls') return { label: 'TLS', color: 'bg-blue-500/20 text-blue-400' };
+      if (type === 'kubernetes.io/dockerconfigjson') return { label: 'Docker', color: 'bg-purple-500/20 text-purple-400' };
+      if (type === 'kubernetes.io/service-account-token') return { label: 'SA Token', color: 'bg-orange-500/20 text-orange-400' };
+      if (type === 'kubernetes.io/basic-auth') return { label: 'Basic Auth', color: 'bg-yellow-500/20 text-yellow-400' };
+      if (type === 'kubernetes.io/ssh-auth') return { label: 'SSH', color: 'bg-green-500/20 text-green-400' };
+      return { label: 'Opaque', color: 'bg-[#3e3e42] text-[#858585]' };
+    };
+
+    const typeInfo = getSecretTypeInfo(secretType);
+
     return (
       <CollapsibleSection title="Secret Data" icon={<Shield size={14} />}>
-        <div className="space-y-2">
+        <div className="space-y-3">
+          {/* Stats */}
+          <div className="flex flex-wrap gap-3 text-xs">
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Type: </span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] ${typeInfo.color}`}>{typeInfo.label}</span>
+            </div>
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Keys: </span>
+              <span className="font-mono text-cyan-400">{keys.length}</span>
+            </div>
+            <div className="px-2 py-1 bg-[#252526] rounded border border-[#3e3e42]">
+              <span className="text-[#858585]">Size: </span>
+              <span className="font-mono text-[#cccccc]">{formatSize(totalDecodedSize)}</span>
+              <span className="text-[#585858] ml-1">(decoded)</span>
+            </div>
+          </div>
+
           {keys.length === 0 && <span className="text-[#858585] italic text-xs">No keys</span>}
           {keys.map(key => {
             const isVisible = visibleKeys.has(key);
             const decodedValue = decodedValues[key];
+            const keyType = getKeyType(key);
+            const decodedSize = getDecodedSize(secretData[key] || '');
             return (
               <div key={key} className="bg-[#1e1e1e] border border-[#3e3e42] rounded p-2">
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="font-mono text-[11px] text-[#cccccc] font-bold">{key}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-[#cccccc] font-bold">{key}</span>
+                    <span className={`px-1.5 py-0.5 bg-[#3e3e42] rounded text-[9px] ${keyType.color}`}>{keyType.type}</span>
+                    <span className="text-[9px] text-[#858585]">{formatSize(decodedSize)}</span>
+                  </div>
                   <div className="flex items-center gap-1">
                     {isVisible && (
                       <button
@@ -4825,7 +5681,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
                   </div>
                 ) : (
                   <div className="bg-[#252526] p-2 rounded border border-[#3e3e42] font-mono text-[10px] text-[#858585] break-all">
-                    {secretData[key].substring(0, 50)}...
+                    ••••••••••••••••
                   </div>
                 )}
               </div>
@@ -5397,13 +6253,7 @@ function PortForwardList() {
   );
 }
 
-const LogOutIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-    <polyline points="16 17 21 12 16 7"></polyline>
-    <line x1="21" y1="12" x2="9" y2="12"></line>
-  </svg>
-);
+
 
 // --- Helm Integration ---
 
@@ -5487,11 +6337,11 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
   const { data: subscriptions, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ["azure_data"],
     queryFn: async () => await invoke<AzureSubscription[]>("refresh_azure_data"),
-    staleTime: Infinity, // Data is never considered stale
-    gcTime: Infinity, // Keep in cache forever (until manual invalidation/refresh)
-    refetchOnMount: false, // Do not refetch when component mounts
-    refetchOnWindowFocus: false, // Do not refetch when window gains focus
-    retry: false, // Don't retry on error
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 
   const connectMutation = useMutation({
@@ -5514,11 +6364,9 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
 
     const lowerQuery = searchQuery.toLowerCase();
     return subscriptions.map(sub => {
-      // Check if sub matches
       if (sub.name.toLowerCase().includes(lowerQuery) || sub.id.toLowerCase().includes(lowerQuery)) {
         return sub;
       }
-      // Check if any cluster matches
       const matchingClusters = sub.clusters.filter(c =>
         c.name.toLowerCase().includes(lowerQuery) ||
         c.resourceGroup.toLowerCase().includes(lowerQuery)
@@ -5545,16 +6393,24 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
     setExpandedSubs(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // Calculate totals
+  const totalClusters = subscriptions?.reduce((acc, sub) => acc + sub.clusters.length, 0) || 0;
+  const runningClusters = subscriptions?.reduce((acc, sub) =>
+    acc + sub.clusters.filter(c => c.powerState.code === 'Running').length, 0) || 0;
+
   if (isLoading) return <LoadingScreen message="Fetching Azure Data (this may take a moment)..." />;
+
   if (error) {
     const isLoginError = error.message.toLowerCase().includes("login");
 
     return (
-      <div className="h-full flex flex-col items-center justify-center text-center p-8">
-        <div className="bg-[#f48771]/10 p-8 rounded-xl border border-[#f48771]/20 max-w-md backdrop-blur-sm">
-          <AlertCircle size={40} className="text-[#f48771] mx-auto mb-4" />
-          <h3 className="text-base font-bold text-[#cccccc] mb-2">Azure Error</h3>
-          <p className="text-[#858585] text-sm mb-4">{error.message}</p>
+      <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-zinc-900 to-zinc-950">
+        <div className="bg-gradient-to-br from-red-500/10 to-orange-500/5 p-10 rounded-2xl border border-red-500/20 max-w-md backdrop-blur-xl shadow-2xl">
+          <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-500/20 to-orange-500/20 flex items-center justify-center border border-red-500/30">
+            <AlertCircle size={32} className="text-red-400" />
+          </div>
+          <h3 className="text-xl font-bold text-white mb-3">Azure Connection Error</h3>
+          <p className="text-zinc-400 text-sm mb-6 leading-relaxed">{error.message}</p>
 
           {isLoginError ? (
             <button
@@ -5564,16 +6420,22 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
                   refetch();
                 } catch (e) {
                   console.error(e);
-                  // If login fails, just refetch to show error again or maybe show toast
                   refetch();
                 }
               }}
-              className="px-4 py-2 bg-[#007acc] hover:bg-[#0063a5] rounded text-white text-sm font-medium shadow-lg shadow-blue-500/20"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 rounded-xl text-white font-medium shadow-lg shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
-              Login to Azure
+              <Cloud size={18} />
+              Sign in to Azure
             </button>
           ) : (
-            <button onClick={() => refetch()} className="px-4 py-2 bg-[#3e3e42] hover:bg-[#4a4a4a] rounded text-white text-sm">Retry</button>
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-white font-medium transition-all"
+            >
+              <RefreshCw size={16} />
+              Try Again
+            </button>
           )}
         </div>
       </div>
@@ -5581,96 +6443,193 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#1e1e1e]">
-      {/* Header / Toolbar */}
-      <div className="h-14 border-b border-[#3e3e42] flex items-center justify-between px-4 bg-[#252526] shrink-0 gap-4">
-        <div className="flex items-center gap-2">
-          <Cloud className="text-[#007acc]" size={20} />
-          <h2 className="font-semibold text-white">Azure Explorer</h2>
-        </div>
+    <div className="flex flex-col h-full bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950">
+      {/* Header */}
+      <div className="border-b border-white/5 bg-black/20 backdrop-blur-xl shrink-0">
+        <div className="px-6 py-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/25">
+                <Cloud className="text-white" size={24} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Azure Kubernetes Service</h2>
+                <p className="text-sm text-zinc-500">Select a cluster to connect</p>
+              </div>
+            </div>
 
-        <div className="flex-1 max-w-xl relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#858585]" size={14} />
-          <input
-            type="text"
-            placeholder="Search subscriptions, resource groups, or clusters..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#1e1e1e] border border-[#3e3e42] rounded-md pl-9 pr-4 py-1.5 text-sm text-[#cccccc] focus:border-[#007acc] focus:outline-none focus:ring-1 focus:ring-[#007acc]"
-          />
-        </div>
+            <div className="flex items-center gap-3">
+              {/* Stats Pills */}
+              <div className="hidden md:flex items-center gap-2">
+                <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2">
+                  <Server size={14} className="text-blue-400" />
+                  <span className="text-xs font-medium text-zinc-300">{totalClusters} Clusters</span>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-medium text-emerald-300">{runningClusters} Running</span>
+                </div>
+              </div>
 
-        <button
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="p-2 text-[#cccccc] hover:text-white hover:bg-[#3e3e42] rounded transition-colors disabled:opacity-50"
-          title="Refresh Azure Data"
-        >
-          <div className={isRefetching ? "animate-spin" : ""}>
-            <Activity size={18} />
+              <button
+                onClick={() => refetch()}
+                disabled={isRefetching}
+                className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-xl transition-all disabled:opacity-50 border border-transparent hover:border-white/10"
+                title="Refresh Azure Data"
+              >
+                <RefreshCw size={18} className={isRefetching ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
-        </button>
+
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+            <input
+              type="text"
+              placeholder="Search subscriptions, clusters, or resource groups..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-all"
+            />
+            {subscriptions && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-zinc-600">
+                {filteredSubs.length} subscription{filteredSubs.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Tree View */}
-      <div className="flex-1 overflow-auto p-4 space-y-2">
+      {/* Subscription List */}
+      <div className="flex-1 overflow-auto p-6 space-y-4">
         {filteredSubs.length === 0 ? (
-          <div className="text-center text-[#858585] mt-20">
-            {searchQuery ? "No matches found." : "No subscriptions found."}
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center mb-4">
+              <Search size={28} className="text-zinc-600" />
+            </div>
+            <p className="text-zinc-400 font-medium">
+              {searchQuery ? "No matches found" : "No subscriptions available"}
+            </p>
+            <p className="text-sm text-zinc-600 mt-1">
+              {searchQuery ? "Try a different search term" : "Make sure you're logged in to Azure"}
+            </p>
           </div>
         ) : (
           filteredSubs.map(sub => (
-            <div key={sub.id} className="border border-[#3e3e42] rounded bg-[#252526] overflow-hidden">
+            <div
+              key={sub.id}
+              className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden backdrop-blur-sm hover:border-white/20 transition-all"
+            >
+              {/* Subscription Header */}
               <button
                 onClick={() => toggleSub(sub.id)}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#2a2d2e] transition-colors"
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  {expandedSubs[sub.id] ? <ChevronDown size={16} className="text-[#858585]" /> : <ChevronRight size={16} className="text-[#858585]" />}
+                <div className="flex items-center gap-4">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${expandedSubs[sub.id] ? 'bg-blue-500/20' : 'bg-white/5'}`}>
+                    {expandedSubs[sub.id] ? (
+                      <ChevronDown size={18} className="text-blue-400" />
+                    ) : (
+                      <ChevronRight size={18} className="text-zinc-500" />
+                    )}
+                  </div>
                   <div className="flex flex-col items-start">
-                    <span className="font-medium text-[#cccccc] text-sm">{sub.name}</span>
-                    <span className="text-[10px] text-[#858585] font-mono">{sub.id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">{sub.name}</span>
+                      {sub.isDefault && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-zinc-600 font-mono">{sub.id}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-[#858585]">{sub.clusters.length} clusters</span>
-                  {sub.isDefault && <span className="text-[10px] bg-[#007acc] px-1.5 py-0.5 rounded text-white">Default</span>}
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Server size={14} className="text-zinc-600" />
+                    <span className="text-sm text-zinc-400">{sub.clusters.length} cluster{sub.clusters.length !== 1 ? 's' : ''}</span>
+                  </div>
                 </div>
               </button>
 
+              {/* Clusters Grid */}
               {expandedSubs[sub.id] && (
-                <div className="border-t border-[#3e3e42] bg-[#1e1e1e]">
+                <div className="border-t border-white/5 bg-black/20 p-5">
                   {sub.clusters.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-[#858585] italic">No clusters found in this subscription.</div>
+                    <div className="text-center py-8">
+                      <Server size={24} className="text-zinc-700 mx-auto mb-2" />
+                      <p className="text-sm text-zinc-600">No clusters in this subscription</p>
+                    </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                      {sub.clusters.map(cluster => (
-                        <div key={cluster.id} className="bg-[#252526] border border-[#3e3e42] rounded p-4 flex flex-col gap-3 hover:border-[#505050] transition-colors group">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full ${cluster.powerState.code === 'Running' ? 'bg-[#89d185]' : 'bg-[#858585]'}`} />
-                              <h3 className="font-bold text-[#cccccc] text-sm">{cluster.name}</h3>
-                            </div>
-                            <span className="text-[10px] text-[#858585] bg-[#3e3e42] px-1.5 py-0.5 rounded">{cluster.location}</span>
-                          </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {sub.clusters.map(cluster => {
+                        const isRunning = cluster.powerState.code === 'Running';
+                        const isConnecting = connectMutation.isPending &&
+                          connectMutation.variables?.cluster.id === cluster.id;
 
-                          <div className="text-xs text-[#858585]">
-                            <div className="flex gap-1">
-                              <span className="font-medium">RG:</span>
-                              <span className="truncate" title={cluster.resourceGroup}>{cluster.resourceGroup}</span>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => connectMutation.mutate({ subId: sub.id, cluster })}
-                            disabled={connectMutation.isPending}
-                            className="mt-auto w-full py-1.5 bg-[#3e3e42] hover:bg-[#007acc] text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-50 group-hover:bg-[#007acc]"
+                        return (
+                          <div
+                            key={cluster.id}
+                            className={`group relative rounded-xl border p-5 transition-all duration-300 ${
+                              isRunning
+                                ? 'bg-gradient-to-br from-emerald-500/5 to-transparent border-emerald-500/20 hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10'
+                                : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+                            }`}
                           >
-                            {connectMutation.isPending ? <Loader2 className="animate-spin" size={12} /> : <Plug size={12} />}
-                            Connect
-                          </button>
-                        </div>
-                      ))}
+                            {/* Status Badge */}
+                            <div className="absolute top-4 right-4">
+                              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${
+                                isRunning
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                              }`}>
+                                <div className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
+                                {isRunning ? 'Running' : 'Stopped'}
+                              </div>
+                            </div>
+
+                            {/* Cluster Info */}
+                            <div className="mb-4">
+                              <h3 className="font-bold text-white text-lg mb-1 pr-20">{cluster.name}</h3>
+                              <div className="flex flex-wrap gap-2 mt-3">
+                                <span className="inline-flex items-center gap-1 text-xs text-zinc-500 bg-white/5 px-2 py-1 rounded-md">
+                                  <Globe size={12} />
+                                  {cluster.location}
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-xs text-zinc-500 bg-white/5 px-2 py-1 rounded-md truncate max-w-[180px]" title={cluster.resourceGroup}>
+                                  <Layers size={12} />
+                                  {cluster.resourceGroup}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Connect Button */}
+                            <button
+                              onClick={() => connectMutation.mutate({ subId: sub.id, cluster })}
+                              disabled={connectMutation.isPending || !isRunning}
+                              className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                                isRunning
+                                  ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 disabled:opacity-50'
+                                  : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {isConnecting ? (
+                                <>
+                                  <Loader2 className="animate-spin" size={16} />
+                                  Connecting...
+                                </>
+                              ) : (
+                                <>
+                                  <Plug size={16} />
+                                  {isRunning ? 'Connect to Cluster' : 'Cluster Stopped'}
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -5748,6 +6707,17 @@ function AppContent() {
     refetchInterval: 5000,
   });
 
+  // Auto-connect if backend has a context on mount (e.g. after refresh)
+  const [hasCheckedInitialContext, setHasCheckedInitialContext] = useState(false);
+  useEffect(() => {
+    if (!hasCheckedInitialContext && globalCurrentContext !== undefined) {
+      if (globalCurrentContext) {
+        setIsConnected(true);
+      }
+      setHasCheckedInitialContext(true);
+    }
+  }, [globalCurrentContext, hasCheckedInitialContext]);
+
   useEffect(() => {
     if (typeof currentCtx === 'string') {
       if (prevContextRef.current && prevContextRef.current !== currentCtx) {
@@ -5793,23 +6763,82 @@ function AppContent() {
     return <LoadingScreen message={`Loading cluster '${globalCurrentContext}'...`} />;
   }
   if (isConnected && (!!globalCurrentContext) && bootError) {
+    const errorMessage = (bootErr as any)?.message || "Unknown error";
+    const isConnectionError = errorMessage.toLowerCase().includes("connect") ||
+                              errorMessage.toLowerCase().includes("unreachable") ||
+                              errorMessage.toLowerCase().includes("timeout");
+    const isAuthError = errorMessage.toLowerCase().includes("unauthorized") ||
+                        errorMessage.toLowerCase().includes("forbidden") ||
+                        errorMessage.toLowerCase().includes("certificate");
+
     return (
-      <div className="h-screen bg-black text-[#f48771] flex flex-col items-center justify-center p-8 text-center">
-        <h1 className="text-2xl font-bold mb-2">Failed to load cluster details</h1>
-        <p className="text-sm mb-4">{(bootErr as any)?.message || "Unknown error"}</p>
-        <div className="flex gap-3">
-          <button
-            onClick={() => bootRefetch()}
-            className="px-4 py-2 rounded bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30"
-          >
-            Retry
-          </button>
-          <button
-            onClick={() => setIsConnected(false)}
-            className="px-4 py-2 rounded bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700"
-          >
-            Back to Connections
-          </button>
+      <div className="h-screen bg-gradient-to-br from-zinc-900 to-zinc-950 flex flex-col items-center justify-center p-8">
+        <div className="max-w-lg w-full">
+          <div className="bg-gradient-to-br from-red-500/10 to-orange-500/5 rounded-2xl border border-red-500/20 p-8 backdrop-blur-xl shadow-2xl">
+            <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-500/20 to-orange-500/20 flex items-center justify-center border border-red-500/30">
+              <AlertCircle size={32} className="text-red-400" />
+            </div>
+
+            <h1 className="text-2xl font-bold text-white text-center mb-2">
+              {isConnectionError ? "Cluster Unreachable" : isAuthError ? "Authentication Failed" : "Connection Error"}
+            </h1>
+
+            <p className="text-zinc-400 text-center text-sm mb-6">
+              {isConnectionError
+                ? "Unable to connect to the Kubernetes API server"
+                : isAuthError
+                  ? "Your credentials may have expired or are invalid"
+                  : "Failed to load cluster details"}
+            </p>
+
+            <div className="bg-black/30 rounded-lg p-4 mb-6 border border-white/5">
+              <p className="text-xs font-mono text-red-300 break-all">{errorMessage}</p>
+            </div>
+
+            {isConnectionError && (
+              <div className="bg-blue-500/10 rounded-lg p-4 mb-6 border border-blue-500/20">
+                <p className="text-xs text-blue-300 font-medium mb-2">Troubleshooting tips:</p>
+                <ul className="text-xs text-blue-200/70 space-y-1 list-disc list-inside">
+                  <li>Check if the cluster is running</li>
+                  <li>Verify VPN connection if required</li>
+                  <li>Check network/firewall settings</li>
+                  <li>Try: <code className="bg-black/30 px-1 rounded">kubectl cluster-info</code></li>
+                </ul>
+              </div>
+            )}
+
+            {isAuthError && (
+              <div className="bg-yellow-500/10 rounded-lg p-4 mb-6 border border-yellow-500/20">
+                <p className="text-xs text-yellow-300 font-medium mb-2">Authentication tips:</p>
+                <ul className="text-xs text-yellow-200/70 space-y-1 list-disc list-inside">
+                  <li>Re-authenticate with your cloud provider</li>
+                  <li>For AKS: <code className="bg-black/30 px-1 rounded">az aks get-credentials</code></li>
+                  <li>For EKS: <code className="bg-black/30 px-1 rounded">aws eks update-kubeconfig</code></li>
+                  <li>For GKE: <code className="bg-black/30 px-1 rounded">gcloud container clusters get-credentials</code></li>
+                </ul>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => bootRefetch()}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium shadow-lg shadow-blue-500/20 transition-all"
+              >
+                <RefreshCw size={16} />
+                Retry Connection
+              </button>
+              <button
+                onClick={() => setIsConnected(false)}
+                className="flex-1 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 font-medium transition-all"
+              >
+                Change Cluster
+              </button>
+            </div>
+          </div>
+
+          <p className="text-center text-xs text-zinc-600 mt-4">
+            Context: <span className="font-mono text-zinc-500">{globalCurrentContext}</span>
+          </p>
         </div>
       </div>
     );
@@ -5833,10 +6862,14 @@ function AppContent() {
           </div>
         ))}
       </div>
-      <Dashboard onDisconnect={() => {
-        (window as any).showToast?.('Disconnected from cluster', 'info');
-        setIsConnected(false);
-      }} />
+      <Dashboard
+        isConnected={isConnected}
+        setIsConnected={setIsConnected}
+        onDisconnect={() => {
+          (window as any).showToast?.('Disconnected from cluster', 'info');
+          setIsConnected(false);
+        }}
+      />
       <PortForwardList />
     </>
   );

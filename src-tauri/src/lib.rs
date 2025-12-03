@@ -41,7 +41,7 @@ struct ResourceRequest {
     namespace: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ResourceSummary {
     id: String,
     name: String,
@@ -79,13 +79,24 @@ struct K8sEvent {
     count: i32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ClusterStats {
     nodes: usize,
     pods: usize,
     deployments: usize,
     services: usize,
     namespaces: usize,
+}
+
+// Combined initial data for faster first load
+#[derive(Serialize, Clone)]
+struct InitialClusterData {
+    stats: ClusterStats,
+    namespaces: Vec<String>,
+    pods: Vec<ResourceSummary>,
+    nodes: Vec<ResourceSummary>,
+    deployments: Vec<ResourceSummary>,
+    services: Vec<ResourceSummary>,
 }
 
 #[derive(Serialize, Clone)]
@@ -256,46 +267,52 @@ struct AppState {
     shell_sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
     port_forwards: Arc<Mutex<HashMap<String, PortForwardSession>>>,
     discovery_cache: Arc<Mutex<Option<(std::time::Instant, Arc<Discovery>)>>>,
+    vcluster_cache: Arc<Mutex<Option<(std::time::Instant, String)>>>,
+    cluster_stats_cache: Arc<Mutex<Option<(std::time::Instant, ClusterStats)>>>,
+    // Cache pod limits to avoid refetching pods for metrics (30s TTL)
+    pod_limits_cache: Arc<Mutex<Option<(std::time::Instant, HashMap<String, (Option<u64>, Option<u64>)>)>>>,
 }
 
 // --- Logic ---
 
 async fn get_cached_discovery(state: &State<'_, AppState>, client: Client) -> Result<Arc<Discovery>, String> {
-    // Check cache
+    // Check cache using try_lock to avoid deadlocks
     let cached = {
-        let cache = state.discovery_cache.lock().unwrap();
-        if let Some((timestamp, discovery)) = &*cache {
-            if timestamp.elapsed().as_secs() < 60 {
-                Some(discovery.clone())
+        if let Ok(cache) = state.discovery_cache.try_lock() {
+            if let Some((timestamp, discovery)) = &*cache {
+                if timestamp.elapsed().as_secs() < 60 {
+                    Some(discovery.clone())
+                } else {
+                    None
+                }
             } else {
                 None
             }
         } else {
-            None
+            None // Lock held, skip cache check
         }
-    }; // Lock dropped here
-    
+    };
+
     if let Some(discovery) = cached {
         return Ok(discovery);
     }
-    
+
     // Refresh cache
     let discovery = Arc::new(Discovery::new(client).run().await.map_err(|e| e.to_string())?);
-    
-    // Update cache
-    {
-        let mut cache = state.discovery_cache.lock().unwrap();
+
+    // Update cache using try_lock
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
         *cache = Some((std::time::Instant::now(), discovery.clone()));
-    } // Lock dropped here
-    
+    }
+
     Ok(discovery)
 }
 
 // Utility: Clear discovery cache so new CRDs/groups appear immediately
 #[tauri::command]
 async fn clear_discovery_cache(state: State<'_, AppState>) -> Result<(), String> {
-    {
-        let mut cache = state.discovery_cache.lock().map_err(|e| e.to_string())?;
+    // Use try_lock to avoid deadlocks in async context
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
         *cache = None;
     }
 
@@ -303,7 +320,7 @@ async fn clear_discovery_cache(state: State<'_, AppState>) -> Result<(), String>
     let context_name = get_current_context_name(state.clone(), None).await.unwrap_or("default".to_string());
     if let Some(path) = get_discovery_cache_path(&context_name) {
         if path.exists() {
-            fs::remove_file(path).map_err(|e| format!("Failed to delete cache file: {}", e))?;
+            let _ = fs::remove_file(path); // Ignore errors - cache will refresh anyway
         }
     }
 
@@ -313,9 +330,26 @@ async fn clear_discovery_cache(state: State<'_, AppState>) -> Result<(), String>
 // Helper to create a client based on current state
 async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
     let (path, context) = {
-        let path_guard = state.kubeconfig_path.lock().map_err(|e| e.to_string())?;
-        let context_guard = state.selected_context.lock().map_err(|e| e.to_string())?;
-        (path_guard.clone(), context_guard.clone())
+        // Use try_lock with retry to avoid deadlocks
+        let mut path_val = None;
+        let mut context_val = None;
+        for _ in 0..20 {
+            if path_val.is_none() {
+                if let Ok(guard) = state.kubeconfig_path.try_lock() {
+                    path_val = Some(guard.clone());
+                }
+            }
+            if context_val.is_none() {
+                if let Ok(guard) = state.selected_context.try_lock() {
+                    context_val = Some(guard.clone());
+                }
+            }
+            if path_val.is_some() && context_val.is_some() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+        }
+        (path_val.flatten(), context_val.flatten())
     };
 
     let kubeconfig = if let Some(p) = &path {
@@ -357,15 +391,63 @@ async fn list_contexts(custom_path: Option<String>) -> Result<Vec<KubeContext>, 
 
 #[tauri::command]
 async fn set_kube_config(
-    state: State<'_, AppState>, 
-    path: Option<String>, 
+    state: State<'_, AppState>,
+    path: Option<String>,
     context: Option<String>
 ) -> Result<(), String> {
-    let mut path_guard = state.kubeconfig_path.lock().map_err(|e| e.to_string())?;
-    let mut context_guard = state.selected_context.lock().map_err(|e| e.to_string())?;
+    // Use try_lock to avoid deadlocks in async context
+    // Retry a few times with small delays if lock is held
+    for _ in 0..10 {
+        let path_ok = if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
+            *path_guard = path.clone();
+            true
+        } else {
+            false
+        };
 
-    *path_guard = path;
-    *context_guard = context;
+        let context_ok = if let Ok(mut context_guard) = state.selected_context.try_lock() {
+            *context_guard = context.clone();
+            true
+        } else {
+            false
+        };
+
+        if path_ok && context_ok {
+            return Ok(());
+        }
+
+        // Small delay before retry
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+
+    // Even if we couldn't set, don't fail - the app can still work
+    Ok(())
+}
+
+#[tauri::command]
+async fn reset_state(state: State<'_, AppState>) -> Result<(), String> {
+    // Clear ALL caches when switching contexts to prevent stale data from previous cluster
+    // Use try_lock to avoid deadlocks
+
+    // Clear discovery cache
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
+        *cache = None;
+    }
+
+    // Clear vcluster cache
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+        *cache = None;
+    }
+
+    // Clear cluster stats cache
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = None;
+    }
+
+    // Clear pod limits cache
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+        *cache = None;
+    }
 
     Ok(())
 }
@@ -1282,63 +1364,92 @@ async fn get_resource_metrics(
     let list = api.list(&ListParams::default())
         .await
         .map_err(|e| format!("Metrics API error: {}. Ensure metrics-server is installed.", e))?;
-    
-    // Get pod specs to extract resource limits (only for pods)
+
+    // Get pod specs to extract resource limits (only for pods) - with caching
     let pod_limits: HashMap<String, (Option<u64>, Option<u64>)> = if kind == "Pod" {
-        let pod_api: Api<DynamicObject> = if let Some(ref ns) = namespace {
-            Api::namespaced_with(client.clone(), ns, &kube::discovery::ApiResource {
-                group: "".to_string(),
-                version: "v1".to_string(),
-                api_version: "v1".to_string(),
-                kind: "Pod".to_string(),
-                plural: "pods".to_string(),
-            })
-        } else {
-            Api::all_with(client.clone(), &kube::discovery::ApiResource {
-                group: "".to_string(),
-                version: "v1".to_string(),
-                api_version: "v1".to_string(),
-                kind: "Pod".to_string(),
-                plural: "pods".to_string(),
-            })
+        // Check cache first (30 second TTL)
+        let cached = {
+            if let Ok(cache) = state.pod_limits_cache.try_lock() {
+                if let Some((timestamp, limits)) = &*cache {
+                    if timestamp.elapsed().as_secs() < 30 {
+                        Some(limits.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         };
-        
-        if let Ok(pods) = pod_api.list(&ListParams::default()).await {
-            pods.into_iter().filter_map(|pod| {
-                let name = pod.metadata.name.clone()?;
-                let spec = pod.data.get("spec")?;
-                let containers = spec.get("containers")?.as_array()?;
-                
-                let mut total_cpu_limit = 0u64;
-                let mut total_memory_limit = 0u64;
-                let mut has_cpu = false;
-                let mut has_memory = false;
-                
-                for container in containers {
-                    if let Some(resources) = container.get("resources") {
-                        if let Some(limits) = resources.get("limits") {
-                            if let Some(cpu) = limits.get("cpu").and_then(|v| v.as_str()) {
-                                total_cpu_limit += parse_cpu_to_nano(cpu);
-                                has_cpu = true;
-                            }
-                            if let Some(memory) = limits.get("memory").and_then(|v| v.as_str()) {
-                                total_memory_limit += parse_memory_to_bytes(memory);
-                                has_memory = true;
+
+        if let Some(limits) = cached {
+            limits
+        } else {
+            // Fetch fresh pod limits
+            let pod_api: Api<DynamicObject> = if let Some(ref ns) = namespace {
+                Api::namespaced_with(client.clone(), ns, &kube::discovery::ApiResource {
+                    group: "".to_string(),
+                    version: "v1".to_string(),
+                    api_version: "v1".to_string(),
+                    kind: "Pod".to_string(),
+                    plural: "pods".to_string(),
+                })
+            } else {
+                Api::all_with(client.clone(), &kube::discovery::ApiResource {
+                    group: "".to_string(),
+                    version: "v1".to_string(),
+                    api_version: "v1".to_string(),
+                    kind: "Pod".to_string(),
+                    plural: "pods".to_string(),
+                })
+            };
+
+            let limits = if let Ok(pods) = pod_api.list(&ListParams::default()).await {
+                pods.into_iter().filter_map(|pod| {
+                    let name = pod.metadata.name.clone()?;
+                    let spec = pod.data.get("spec")?;
+                    let containers = spec.get("containers")?.as_array()?;
+
+                    let mut total_cpu_limit = 0u64;
+                    let mut total_memory_limit = 0u64;
+                    let mut has_cpu = false;
+                    let mut has_memory = false;
+
+                    for container in containers {
+                        if let Some(resources) = container.get("resources") {
+                            if let Some(limits) = resources.get("limits") {
+                                if let Some(cpu) = limits.get("cpu").and_then(|v| v.as_str()) {
+                                    total_cpu_limit += parse_cpu_to_nano(cpu);
+                                    has_cpu = true;
+                                }
+                                if let Some(memory) = limits.get("memory").and_then(|v| v.as_str()) {
+                                    total_memory_limit += parse_memory_to_bytes(memory);
+                                    has_memory = true;
+                                }
                             }
                         }
                     }
-                }
-                
-                Some((
-                    name,
-                    (
-                        if has_cpu { Some(total_cpu_limit) } else { None },
-                        if has_memory { Some(total_memory_limit) } else { None }
-                    )
-                ))
-            }).collect()
-        } else {
-            HashMap::new()
+
+                    Some((
+                        name,
+                        (
+                            if has_cpu { Some(total_cpu_limit) } else { None },
+                            if has_memory { Some(total_memory_limit) } else { None }
+                        )
+                    ))
+                }).collect()
+            } else {
+                HashMap::new()
+            };
+
+            // Update cache
+            if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+                *cache = Some((std::time::Instant::now(), limits.clone()));
+            }
+
+            limits
         }
     } else {
         HashMap::new()
@@ -1523,6 +1634,9 @@ pub fn run() {
             shell_sessions: Arc::new(Mutex::new(HashMap::new())),
             port_forwards: Arc::new(Mutex::new(HashMap::new())),
             discovery_cache: Arc::new(Mutex::new(None)),
+            vcluster_cache: Arc::new(Mutex::new(None)),
+            cluster_stats_cache: Arc::new(Mutex::new(None)),
+            pod_limits_cache: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             discover_api_resources, 
@@ -1550,6 +1664,7 @@ pub fn run() {
             send_shell_input,
             resize_shell,
             get_cluster_stats,
+            get_initial_cluster_data,
             list_azure_subscriptions,
             list_aks_clusters,
             get_aks_credentials,
@@ -1561,6 +1676,7 @@ pub fn run() {
             get_topology_graph_opts,
             list_crds,
             clear_discovery_cache,
+            reset_state,
             ai_local::call_local_llm,
             ai_local::call_local_llm_with_tools,
             test_connectivity,
@@ -1589,15 +1705,22 @@ async fn test_connectivity(context: String, path: Option<String>) -> Result<Stri
         .await
         .map_err(|e| e.to_string())?;
 
-    // 4. Set timeout
+    // 4. Set aggressive timeout for quick feedback
     let mut config = config;
-    config.connect_timeout = Some(std::time::Duration::from_secs(5));
-    config.read_timeout = Some(std::time::Duration::from_secs(5));
+    config.connect_timeout = Some(std::time::Duration::from_secs(2));
+    config.read_timeout = Some(std::time::Duration::from_secs(2));
+    config.write_timeout = Some(std::time::Duration::from_secs(2));
 
     let client = Client::try_from(config).map_err(|e| e.to_string())?;
 
-    // 5. Try a lightweight call
-    let _ = client.list_api_groups().await.map_err(|e| format!("Cluster unreachable: {}", e))?;
+    // 5. Try a lightweight call with tokio timeout wrapper
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        client.list_api_groups()
+    )
+    .await
+    .map_err(|_| "Connection timeout - cluster may be unreachable".to_string())?
+    .map_err(|e| format!("Cluster unreachable: {}", e))?;
 
     Ok("Connected".to_string())
 }
@@ -1610,14 +1733,21 @@ async fn get_current_context_name(state: State<'_, AppState>, custom_path: Optio
         return Ok(kubeconfig.current_context.unwrap_or_else(|| "default".to_string()));
     }
 
-    let context_guard = state.selected_context.lock().map_err(|e| e.to_string())?;
-    if let Some(ctx) = &*context_guard {
-        return Ok(ctx.clone());
+    // Use try_lock to avoid deadlocks
+    if let Ok(context_guard) = state.selected_context.try_lock() {
+        if let Some(ctx) = &*context_guard {
+            return Ok(ctx.clone());
+        }
     }
 
     // Fallback to loading from kubeconfig if not set in state
-    let path_guard = state.kubeconfig_path.lock().map_err(|e| e.to_string())?;
-    let kubeconfig = if let Some(p) = &*path_guard {
+    let path = if let Ok(path_guard) = state.kubeconfig_path.try_lock() {
+        path_guard.clone()
+    } else {
+        None
+    };
+
+    let kubeconfig = if let Some(p) = &path {
         Kubeconfig::read_from(p).map_err(|e| e.to_string())?
     } else {
         Kubeconfig::read().map_err(|e| e.to_string())?
@@ -1717,8 +1847,17 @@ async fn resize_shell(
 
 #[tauri::command]
 async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, String> {
-    let client = create_client(state).await?;
-    
+    // Check cache first (15 second TTL for stats)
+    if let Ok(cache) = state.cluster_stats_cache.try_lock() {
+        if let Some((timestamp, cached_stats)) = &*cache {
+            if timestamp.elapsed().as_secs() < 15 {
+                return Ok(cached_stats.clone());
+            }
+        }
+    }
+
+    let client = create_client(state.clone()).await?;
+
     let nodes: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::all(client.clone());
     let deployments: Api<k8s_openapi::api::apps::v1::Deployment> = Api::all(client.clone());
@@ -1726,37 +1865,44 @@ async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, S
     let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client.clone());
 
     let lp = ListParams::default();
-    
-    // Fetch each resource individually and handle permission errors gracefully
-    // Fetch each resource individually
+
+    // Parallel Execution
+    let (nodes_res, pods_res, deployments_res, services_res, namespaces_res) = tokio::join!(
+        nodes.list(&lp),
+        pods.list(&lp),
+        deployments.list(&lp),
+        services.list(&lp),
+        namespaces.list(&lp)
+    );
+
     // Critical: If nodes fail, the cluster is likely unreachable. Propagate error.
-    let nodes_count = nodes.list(&lp).await.map_err(|e| format!("Cluster unreachable: {}", e))?.items.len();
-    
-    let pods_count = match pods.list(&lp).await {
+    let nodes_count = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?.items.len();
+
+    let pods_count = match pods_res {
         Ok(list) => list.items.len(),
         Err(e) => {
             eprintln!("Warning: Cannot list pods: {}", e);
             0
         }
     };
-    
-    let deployments_count = match deployments.list(&lp).await {
+
+    let deployments_count = match deployments_res {
         Ok(list) => list.items.len(),
         Err(e) => {
             eprintln!("Warning: Cannot list deployments: {}", e);
             0
         }
     };
-    
-    let services_count = match services.list(&lp).await {
+
+    let services_count = match services_res {
         Ok(list) => list.items.len(),
         Err(e) => {
             eprintln!("Warning: Cannot list services: {}", e);
             0
         }
     };
-    
-    let namespaces_count = match namespaces.list(&lp).await {
+
+    let namespaces_count = match namespaces_res {
         Ok(list) => list.items.len(),
         Err(e) => {
             eprintln!("Warning: Cannot list namespaces: {}", e);
@@ -1764,12 +1910,180 @@ async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, S
         }
     };
 
-    Ok(ClusterStats {
+    let stats = ClusterStats {
         nodes: nodes_count,
         pods: pods_count,
         deployments: deployments_count,
         services: services_count,
         namespaces: namespaces_count,
+    };
+
+    // Update cache
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), stats.clone()));
+    }
+
+    Ok(stats)
+}
+
+// Fast initial cluster data fetch - gets all commonly needed data in one call
+#[tauri::command]
+async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialClusterData, String> {
+    let client = create_client(state.clone()).await?;
+
+    let nodes_api: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
+    let pods_api: Api<k8s_openapi::api::core::v1::Pod> = Api::all(client.clone());
+    let deployments_api: Api<k8s_openapi::api::apps::v1::Deployment> = Api::all(client.clone());
+    let services_api: Api<k8s_openapi::api::core::v1::Service> = Api::all(client.clone());
+    let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client.clone());
+
+    let lp = ListParams::default();
+
+    // Parallel Execution - fetch all resources at once
+    let (nodes_res, pods_res, deployments_res, services_res, namespaces_res) = tokio::join!(
+        nodes_api.list(&lp),
+        pods_api.list(&lp),
+        deployments_api.list(&lp),
+        services_api.list(&lp),
+        namespaces_api.list(&lp)
+    );
+
+    // Process nodes - this is required, fail if unavailable
+    let nodes_list = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?;
+    let nodes: Vec<ResourceSummary> = nodes_list.items.iter().map(|node| {
+        let name = node.metadata.name.clone().unwrap_or_default();
+        let status = node.status.as_ref()
+            .and_then(|s| s.conditions.as_ref())
+            .and_then(|conds| conds.iter().find(|c| c.type_ == "Ready"))
+            .map(|c| if c.status == "True" { "Ready" } else { "NotReady" })
+            .unwrap_or("Unknown")
+            .to_string();
+        ResourceSummary {
+            id: node.metadata.uid.clone().unwrap_or_default(),
+            name,
+            namespace: "-".to_string(),
+            kind: "Node".to_string(),
+            group: "".to_string(),
+            version: "v1".to_string(),
+            age: node.metadata.creation_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+            status,
+            raw_json: String::new(),
+            ready: None, restarts: None, node: None, ip: None,
+        }
+    }).collect();
+
+    // Process pods - gracefully handle errors
+    let pods: Vec<ResourceSummary> = match pods_res {
+        Ok(list) => list.items.iter().map(|pod| {
+            let name = pod.metadata.name.clone().unwrap_or_default();
+            let namespace = pod.metadata.namespace.clone().unwrap_or("-".into());
+            let status = pod.status.as_ref()
+                .and_then(|s| s.phase.clone())
+                .unwrap_or("Unknown".to_string());
+            let ready_str = pod.status.as_ref()
+                .and_then(|s| s.container_statuses.as_ref())
+                .map(|cs| {
+                    let ready_count = cs.iter().filter(|c| c.ready).count();
+                    format!("{}/{}", ready_count, cs.len())
+                });
+            let restart_count = pod.status.as_ref()
+                .and_then(|s| s.container_statuses.as_ref())
+                .map(|cs| cs.iter().map(|c| c.restart_count).sum::<i32>());
+            let node_name = pod.spec.as_ref().and_then(|s| s.node_name.clone());
+            let pod_ip = pod.status.as_ref().and_then(|s| s.pod_ip.clone());
+            ResourceSummary {
+                id: pod.metadata.uid.clone().unwrap_or_default(),
+                name,
+                namespace,
+                kind: "Pod".to_string(),
+                group: "".to_string(),
+                version: "v1".to_string(),
+                age: pod.metadata.creation_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+                status,
+                raw_json: String::new(),
+                ready: ready_str,
+                restarts: restart_count,
+                node: node_name,
+                ip: pod_ip,
+            }
+        }).collect(),
+        Err(_) => Vec::new(),
+    };
+
+    // Process deployments - gracefully handle errors
+    let deployments: Vec<ResourceSummary> = match deployments_res {
+        Ok(list) => list.items.iter().map(|dep| {
+            let name = dep.metadata.name.clone().unwrap_or_default();
+            let namespace = dep.metadata.namespace.clone().unwrap_or("-".into());
+            let ready = dep.status.as_ref()
+                .map(|s| format!("{}/{}", s.ready_replicas.unwrap_or(0), s.replicas.unwrap_or(0)));
+            ResourceSummary {
+                id: dep.metadata.uid.clone().unwrap_or_default(),
+                name,
+                namespace,
+                kind: "Deployment".to_string(),
+                group: "apps".to_string(),
+                version: "v1".to_string(),
+                age: dep.metadata.creation_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+                status: "Active".to_string(),
+                raw_json: String::new(),
+                ready,
+                restarts: None, node: None, ip: None,
+            }
+        }).collect(),
+        Err(_) => Vec::new(),
+    };
+
+    // Process services - gracefully handle errors
+    let services: Vec<ResourceSummary> = match services_res {
+        Ok(list) => list.items.iter().map(|svc| {
+            let name = svc.metadata.name.clone().unwrap_or_default();
+            let namespace = svc.metadata.namespace.clone().unwrap_or("-".into());
+            let svc_type = svc.spec.as_ref().and_then(|s| s.type_.clone()).unwrap_or("ClusterIP".into());
+            ResourceSummary {
+                id: svc.metadata.uid.clone().unwrap_or_default(),
+                name,
+                namespace,
+                kind: "Service".to_string(),
+                group: "".to_string(),
+                version: "v1".to_string(),
+                age: svc.metadata.creation_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+                status: svc_type,
+                raw_json: String::new(),
+                ready: None, restarts: None, node: None, ip: None,
+            }
+        }).collect(),
+        Err(_) => Vec::new(),
+    };
+
+    // Process namespaces - gracefully handle errors
+    let namespace_names: Vec<String> = match namespaces_res {
+        Ok(list) => list.items.iter()
+            .filter_map(|ns| ns.metadata.name.clone())
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+
+    let stats = ClusterStats {
+        nodes: nodes.len(),
+        pods: pods.len(),
+        deployments: deployments.len(),
+        services: services.len(),
+        namespaces: namespace_names.len(),
+    };
+
+    // Update stats cache
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), stats.clone()));
+    }
+
+    Ok(InitialClusterData {
+        stats,
+        namespaces: namespace_names,
+        pods,
+        nodes,
+        deployments,
+        services,
     })
 }
 
@@ -1844,7 +2158,7 @@ async fn get_aks_credentials(state: State<'_, AppState>, subscription_id: String
 
     // Step 4: Set the new context in state so the app auto-connects on reload
     if let Some(ctx) = new_context {
-        if let Ok(mut context_guard) = state.selected_context.lock() {
+        if let Ok(mut context_guard) = state.selected_context.try_lock() {
             *context_guard = Some(ctx);
         }
     }
@@ -1949,15 +2263,25 @@ async fn connect_vcluster(
     let original_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
     let new_context = format!("vcluster_{}_{}_", name, namespace) + &original_context;
 
-    
-    let mut context_guard = state.selected_context.lock().map_err(|e| e.to_string())?;
-    *context_guard = Some(new_context.clone());
-    
+    // Use try_lock to avoid deadlocks
+    if let Ok(mut context_guard) = state.selected_context.try_lock() {
+        *context_guard = Some(new_context.clone());
+    }
+
     Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context))
 }
 
 #[tauri::command]
-async fn list_vclusters() -> Result<String, String> {
+async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
+    // Check cache first (30 second TTL)
+    if let Ok(cache) = state.vcluster_cache.try_lock() {
+        if let Some((timestamp, cached_result)) = &*cache {
+            if timestamp.elapsed().as_secs() < 30 {
+                return Ok(cached_result.clone());
+            }
+        }
+    }
+
     // Use vcluster CLI to list all vclusters
     let output = tokio::process::Command::new("vcluster")
         .args(&["list", "--output", "json"])
@@ -1970,8 +2294,14 @@ async fn list_vclusters() -> Result<String, String> {
         return Err(format!("vcluster list failed: {}", stderr));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(stdout.to_string())
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Update cache
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), stdout.clone()));
+    }
+
+    Ok(stdout)
 }
 // (Removed stray extra closing brace)
 
