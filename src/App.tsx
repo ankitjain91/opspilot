@@ -1158,9 +1158,17 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
 
       return Promise.resolve();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       addLog('Connection established!', 'success');
       addLog('Clearing cached data...', 'pending');
+
+      // Clear backend caches first
+      try {
+        await invoke("clear_all_caches");
+      } catch (e) {
+        console.warn("Failed to clear backend caches:", e);
+      }
+
       // Invalidate ALL cached data to prevent showing stale data from previous cluster
       qc.invalidateQueries({ queryKey: ["current_context"] });
       qc.invalidateQueries({ queryKey: ["current_context_boot"] });
@@ -1168,10 +1176,14 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
       qc.invalidateQueries({ queryKey: ["discovery"] });
       qc.invalidateQueries({ queryKey: ["namespaces"] });
       qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+      qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
+      qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
       qc.invalidateQueries({ queryKey: ["vclusters"] });
       qc.invalidateQueries({ queryKey: ["list_resources"] });
-      qc.invalidateQueries({ queryKey: ["list_resources"] });
       qc.invalidateQueries({ queryKey: ["crd-groups"] });
+      qc.invalidateQueries({ queryKey: ["metrics"] });
+      qc.invalidateQueries({ queryKey: ["pod_metrics"] });
+      qc.invalidateQueries({ queryKey: ["node_metrics"] });
       qc.clear();
       addLog('Loading cluster dashboard...', 'success');
       setTimeout(() => onConnect(), 500);
@@ -3875,12 +3887,18 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
             if ((window as any).showToast) {
               (window as any).showToast(`Connected to vcluster '${name}' in namespace '${namespace}'`, 'success');
             }
-            // Soft refresh: invalidate relevant queries so UI reflects new context
+            // Clear all caches - backend caches are already cleared in connect_vcluster
+            // Clear frontend React Query caches
+            qc.clear();
             await qc.invalidateQueries({ queryKey: ["current_context"] });
             await qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+            await qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
+            await qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
             await qc.invalidateQueries({ queryKey: ["vclusters"] });
             await qc.invalidateQueries({ queryKey: ["discovery"] });
             await qc.invalidateQueries({ queryKey: ["namespaces"] });
+            await qc.invalidateQueries({ queryKey: ["crd-groups"] });
+            await qc.invalidateQueries({ queryKey: ["metrics"] });
             // Also refetch any resource lists that depend on context
             await qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes("list_resources") });
           } catch (err) {
