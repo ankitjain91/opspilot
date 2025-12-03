@@ -84,10 +84,20 @@ jobs:
             ```
 
             ### Windows Users 🪟
-            Download the `.exe` file. You may need to click "More info" > "Run anyway" if SmartScreen appears.
+            **"Windows protected your PC" Warning?**
+            This is Microsoft Defender SmartScreen. To run the app:
+            1. Click **More info**.
+            2. Click **Run anyway**.
 
             ### Linux Users 🐧
-            Download the `.deb` or `.AppImage` file.
+            **AppImage**:
+            1. Right-click the `.AppImage` file.
+            2. Go to **Properties** > **Permissions**.
+            3. Check **Allow executing file as program**.
+            4. Double-click to run.
+
+            **Debian/Ubuntu**:
+            Install with: `sudo dpkg -i OpsPilot_Linux_x64_*.deb`
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
