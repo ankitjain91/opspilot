@@ -1,9 +1,11 @@
 use kube::{
     api::{Api, ListParams, DynamicObject, GroupVersionKind, DeleteParams, LogParams, AttachParams, Patch, PatchParams},
+    runtime::watcher::{watcher, Config as WatcherConfig, Event as WatcherEvent},
     Client, Discovery,
     config::{KubeConfigOptions, Kubeconfig},
 };
 use kube::discovery::Scope;
+use futures::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -61,6 +63,12 @@ struct ResourceSummary {
     node: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ip: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct ResourceWatchEvent {
+    event_type: String, // "ADDED", "MODIFIED", "DELETED", "RESTARTED"
+    resource: ResourceSummary,
 }
 
 #[derive(Serialize)]
@@ -167,6 +175,10 @@ struct ClusterCockpitData {
     // Warnings/Alerts
     warning_count: usize,
     critical_count: usize,
+
+    // Flag to indicate if real metrics are available (from metrics-server)
+    // If false, resource usage is estimated from pod requests
+    metrics_available: bool,
 }
 
 // Combined initial data for faster first load
@@ -1045,6 +1057,157 @@ async fn stop_log_stream(_session_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// 4b. RESOURCE WATCH STREAM - Real-time updates via Kubernetes watch API
+#[tauri::command]
+async fn start_resource_watch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    req: ResourceRequest,
+    watch_id: String,
+) -> Result<(), String> {
+    let client = create_client(state.clone()).await?;
+    let gvk = GroupVersionKind::gvk(&req.group, &req.version, &req.kind);
+    let discovery = get_cached_discovery(&state, client.clone()).await?;
+
+    // Resolve the GVK to an API Resource
+    let ar = if let Some((res, _caps)) = discovery.resolve_gvk(&gvk) {
+        res
+    } else {
+        // Fallback: find any ApiResource matching group+kind
+        let mut found: Option<kube::discovery::ApiResource> = None;
+        for group in discovery.groups() {
+            for (res, _caps) in group.recommended_resources() {
+                if res.group == req.group && res.kind == req.kind {
+                    found = Some(res.clone());
+                    break;
+                }
+            }
+            if found.is_some() { break; }
+        }
+        found.ok_or_else(|| format!("Resource kind not found: {}/{}/{}", req.group, req.version, req.kind))?
+    };
+
+    let ns_opt = req.namespace.clone();
+    let api: Api<DynamicObject> = if let Some(ns) = ns_opt.clone() {
+        Api::namespaced_with(client.clone(), &ns, &ar)
+    } else {
+        Api::all_with(client.clone(), &ar)
+    };
+
+    let kind = req.kind.clone();
+    let group = req.group.clone();
+    let version = ar.version.clone();
+
+    // Helper function to convert DynamicObject to ResourceSummary
+    let to_summary = move |obj: DynamicObject| -> ResourceSummary {
+        let name = obj.metadata.name.clone().unwrap_or_default();
+        let namespace = obj.metadata.namespace.clone().unwrap_or("-".into());
+
+        let status = obj.data.get("status")
+            .and_then(|s| s.get("phase").or(s.get("state")))
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| {
+                obj.data.get("status")
+                    .and_then(|s| s.get("conditions"))
+                    .and_then(|c| c.as_array())
+                    .and_then(|arr| arr.last())
+                    .and_then(|cond| cond.get("type"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("Active")
+            })
+            .to_string();
+
+        // Pod-specific extras
+        let (ready, restarts, node, ip) = if kind.to_lowercase() == "pod" {
+            let status_obj = obj.data.get("status");
+            let ready_str = if let Some(container_statuses) = status_obj.and_then(|s| s.get("containerStatuses")).and_then(|cs| cs.as_array()) {
+                let ready_count = container_statuses.iter().filter(|c| c.get("ready").and_then(|r| r.as_bool()).unwrap_or(false)).count();
+                let total_count = container_statuses.len();
+                Some(format!("{}/{}", ready_count, total_count))
+            } else { Some("0/0".to_string()) };
+            let restart_count = if let Some(container_statuses) = status_obj.and_then(|s| s.get("containerStatuses")).and_then(|cs| cs.as_array()) {
+                Some(container_statuses.iter()
+                    .filter_map(|c| c.get("restartCount").and_then(|r| r.as_i64()).map(|r| r as i32))
+                    .sum::<i32>())
+            } else { Some(0) };
+            let node_name = obj.data.get("spec").and_then(|spec| spec.get("nodeName")).and_then(|n| n.as_str()).map(|s| s.to_string());
+            let pod_ip = status_obj.and_then(|s| s.get("podIP")).and_then(|ip| ip.as_str()).map(|s| s.to_string());
+            (ready_str, restart_count, node_name, pod_ip)
+        } else { (None, None, None, None) };
+
+        ResourceSummary {
+            id: obj.metadata.uid.clone().unwrap_or_default(),
+            name,
+            namespace,
+            kind: kind.clone(),
+            group: group.clone(),
+            version: version.clone(),
+            age: obj.metadata.creation_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
+            status,
+            raw_json: String::new(),
+            ready,
+            restarts,
+            node,
+            ip,
+        }
+    };
+
+    // Start the watcher in a background task
+    let watch_id_clone = watch_id.clone();
+    tokio::spawn(async move {
+        let watcher_config = WatcherConfig::default();
+        let mut stream = watcher(api, watcher_config).boxed();
+
+        while let Ok(Some(event)) = stream.try_next().await {
+            let watch_event = match event {
+                WatcherEvent::Apply(obj) => {
+                    // Apply is used for both ADDED and MODIFIED in kube-runtime
+                    ResourceWatchEvent {
+                        event_type: "MODIFIED".to_string(),
+                        resource: to_summary(obj),
+                    }
+                }
+                WatcherEvent::Delete(obj) => {
+                    ResourceWatchEvent {
+                        event_type: "DELETED".to_string(),
+                        resource: to_summary(obj),
+                    }
+                }
+                WatcherEvent::Init => {
+                    // Initial sync starting - could emit a "SYNC_START" event
+                    continue;
+                }
+                WatcherEvent::InitApply(obj) => {
+                    // Initial list of existing resources
+                    ResourceWatchEvent {
+                        event_type: "ADDED".to_string(),
+                        resource: to_summary(obj),
+                    }
+                }
+                WatcherEvent::InitDone => {
+                    // Initial sync complete - emit a marker event
+                    let _ = app.emit(&format!("resource_watch_sync:{}", watch_id_clone), "SYNC_COMPLETE");
+                    continue;
+                }
+            };
+
+            let _ = app.emit(&format!("resource_watch:{}", watch_id_clone), watch_event);
+        }
+
+        // Stream ended - notify frontend
+        let _ = app.emit(&format!("resource_watch_end:{}", watch_id_clone), ());
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_resource_watch(_watch_id: String) -> Result<(), String> {
+    // Watch streams auto-close when the task is dropped
+    // For explicit control, we'd need to track JoinHandles in AppState
+    Ok(())
+}
+
 // 5. EVENTS FETCHER (core/v1 + events.k8s.io/v1 merged)
 #[tauri::command]
 async fn list_events(state: State<'_, AppState>, namespace: String, name: String, uid: Option<String>) -> Result<Vec<K8sEvent>, String> {
@@ -1749,6 +1912,8 @@ pub fn run() {
             get_pod_logs,
             start_log_stream,
             stop_log_stream,
+            start_resource_watch,
+            stop_resource_watch,
             list_events,
             start_exec,
             send_exec_input,
@@ -2080,13 +2245,39 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
         })
         .unwrap_or_default();
 
-    // Count pods per node
+    // Count pods per node and calculate resource usage from pod requests (fallback when metrics unavailable)
     let mut pods_per_node: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut pod_resources_per_node: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new(); // (cpu_milli, memory_bytes)
+
     for pod in &pods_items {
-        if let Some(node_name) = pod.spec.as_ref().and_then(|s| s.node_name.as_ref()) {
-            *pods_per_node.entry(node_name.clone()).or_insert(0) += 1;
+        if let Some(spec) = pod.spec.as_ref() {
+            if let Some(node_name) = spec.node_name.as_ref() {
+                *pods_per_node.entry(node_name.clone()).or_insert(0) += 1;
+
+                // Only count running pods for resource usage estimation
+                let phase = pod.status.as_ref().and_then(|s| s.phase.as_ref()).map(|s| s.as_str()).unwrap_or("");
+                if phase == "Running" {
+                    // Sum up container resource requests
+                    let entry = pod_resources_per_node.entry(node_name.clone()).or_insert((0, 0));
+                    for container in &spec.containers {
+                        if let Some(resources) = &container.resources {
+                            if let Some(requests) = &resources.requests {
+                                if let Some(cpu) = requests.get("cpu") {
+                                    entry.0 += parse_cpu_to_milli(&cpu.0);
+                                }
+                                if let Some(mem) = requests.get("memory") {
+                                    entry.1 += parse_memory_to_bytes(&mem.0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+
+    // Determine if we have real metrics (if any node has metrics data)
+    let has_real_metrics = !node_metrics_map.is_empty();
 
     // Process pod status breakdown
     let mut pod_status = PodStatusBreakdown {
@@ -2177,9 +2368,14 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
         let memory_allocatable = allocatable.and_then(|a| a.get("memory")).map(|q| parse_memory_to_bytes(&q.0)).unwrap_or(0);
         let pods_capacity = capacity.and_then(|c| c.get("pods")).map(|q| q.0.parse::<u32>().unwrap_or(0)).unwrap_or(0);
 
-        // Get usage from metrics
-        let (cpu_usage_nano, memory_usage) = node_metrics_map.get(&name).cloned().unwrap_or((0, 0));
-        let cpu_usage = cpu_usage_nano / 1_000_000; // Convert nano to milli
+        // Get usage from metrics, or fall back to pod requests if metrics unavailable
+        let (cpu_usage, memory_usage) = if has_real_metrics {
+            let (cpu_usage_nano, mem) = node_metrics_map.get(&name).cloned().unwrap_or((0, 0));
+            (cpu_usage_nano / 1_000_000, mem) // Convert nano to milli
+        } else {
+            // Fallback: use sum of pod resource requests as an approximation
+            pod_resources_per_node.get(&name).cloned().unwrap_or((0, 0))
+        };
 
         // Update totals
         total_cpu_capacity += cpu_capacity;
@@ -2271,6 +2467,7 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
         top_namespaces,
         warning_count,
         critical_count,
+        metrics_available: has_real_metrics,
     })
 }
 

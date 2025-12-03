@@ -52,7 +52,19 @@ import {
   LayoutDashboard,
   Globe,
   Sparkles,
-  Box
+  Box,
+  MoreVertical,
+  Copy,
+  ExternalLink,
+  Play,
+  Square,
+  Maximize2,
+  Minimize2,
+  GripVertical,
+  Gauge,
+  Zap,
+  Clock,
+  ArrowUpDown
 } from "lucide-react";
 // Topology view removed per user request
 import Loading from './components/Loading';
@@ -170,6 +182,7 @@ interface ClusterCockpitData {
   top_namespaces: NamespaceUsage[];
   warning_count: number;
   critical_count: number;
+  metrics_available: boolean;
 }
 
 // Combined initial data for faster first load
@@ -194,6 +207,11 @@ interface ResourceMetrics {
   cpu_percent?: number;
   memory_percent?: number;
   timestamp: number;
+}
+
+interface ResourceWatchEvent {
+  event_type: "ADDED" | "MODIFIED" | "DELETED";
+  resource: K8sObject;
 }
 
 interface AzureSubscription {
@@ -248,6 +266,16 @@ const formatAge = (isoDate: string): string => {
     return `${seconds}s`;
   }
 };
+
+// Hook to trigger periodic re-renders for live age updates
+function useLiveAge(intervalMs: number = 1000): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return tick;
+}
 
 // Create a client
 const queryClient = new QueryClient({
@@ -1396,6 +1424,92 @@ const SidebarSection = ({ title, icon: Icon, isOpen, onToggle, children }: any) 
   );
 }
 
+// --- Resource Context Menu (Actions Dropdown) ---
+function ResourceContextMenu({
+  resource,
+  onViewDetails,
+  onDelete,
+  isPod = false
+}: {
+  resource: K8sObject,
+  onViewDetails: () => void,
+  onDelete: () => void,
+  isPod?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    (window as any).showToast?.(`Copied ${label} to clipboard`, 'success');
+    setIsOpen(false);
+  };
+
+  const menuItems = [
+    { label: 'View Details', icon: <Eye size={14} />, action: () => { onViewDetails(); setIsOpen(false); } },
+    { label: 'Copy Name', icon: <Copy size={14} />, action: () => copyToClipboard(resource.name, 'name') },
+    { label: 'Copy Full Name', icon: <Copy size={14} />, action: () => copyToClipboard(`${resource.namespace}/${resource.name}`, 'full name') },
+    ...(isPod ? [
+      { label: 'Copy Pod IP', icon: <Copy size={14} />, action: () => copyToClipboard(resource.ip || '', 'Pod IP'), disabled: !resource.ip },
+    ] : []),
+    { divider: true },
+    { label: 'Delete', icon: <Trash2 size={14} />, action: () => { onDelete(); setIsOpen(false); }, danger: true },
+  ];
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-all opacity-0 group-hover:opacity-100"
+        title="Actions"
+      >
+        <MoreVertical size={16} />
+      </button>
+
+      {isOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 w-48 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 py-1 animate-in fade-in slide-in-from-top-2 duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {menuItems.map((item, idx) =>
+            'divider' in item ? (
+              <div key={idx} className="my-1 border-t border-zinc-700" />
+            ) : (
+              <button
+                key={idx}
+                onClick={item.action}
+                disabled={'disabled' in item && item.disabled}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-all
+                  ${'danger' in item && item.danger
+                    ? 'text-red-400 hover:bg-red-500/10 hover:text-red-300'
+                    : 'text-zinc-300 hover:bg-white/5 hover:text-white'}
+                  ${'disabled' in item && item.disabled ? 'opacity-40 cursor-not-allowed' : ''}
+                `}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Delete Confirmation Modal ---
 function DeleteConfirmationModal({ isOpen, onClose, onConfirm, resourceName }: { isOpen: boolean, onClose: () => void, onConfirm: () => void, resourceName: string }) {
   const [inputValue, setInputValue] = useState("");
@@ -1545,7 +1659,173 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
     critical: '#ef4444',
   };
 
-  // Gauge component
+  // Analog Speedometer Gauge - like a car speedometer
+  const SpeedometerGauge = ({ value, max, label, color, unit, size = 160 }: { value: number, max: number, label: string, color: string, unit?: string, size?: number }) => {
+    const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+    const startAngle = -225; // Start from bottom-left
+    const endAngle = 45; // End at bottom-right
+    const angleRange = endAngle - startAngle;
+    const currentAngle = startAngle + (percentage / 100) * angleRange;
+
+    const getColor = () => {
+      if (percentage >= 90) return COLORS.critical;
+      if (percentage >= 75) return COLORS.warning;
+      return color;
+    };
+
+    // Create tick marks
+    const ticks = [];
+    for (let i = 0; i <= 10; i++) {
+      const tickAngle = startAngle + (i / 10) * angleRange;
+      const rad = (tickAngle * Math.PI) / 180;
+      const outerR = size / 2 - 8;
+      const innerR = i % 2 === 0 ? outerR - 12 : outerR - 6;
+      const x1 = size / 2 + Math.cos(rad) * outerR;
+      const y1 = size / 2 + Math.sin(rad) * outerR;
+      const x2 = size / 2 + Math.cos(rad) * innerR;
+      const y2 = size / 2 + Math.sin(rad) * innerR;
+      ticks.push(
+        <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={i >= 8 ? COLORS.critical : i >= 7 ? COLORS.warning : '#52525b'} strokeWidth={i % 2 === 0 ? 2 : 1} />
+      );
+      if (i % 2 === 0) {
+        const labelR = innerR - 12;
+        const lx = size / 2 + Math.cos(rad) * labelR;
+        const ly = size / 2 + Math.sin(rad) * labelR;
+        ticks.push(
+          <text key={`label-${i}`} x={lx} y={ly} fill="#71717a" fontSize="9" textAnchor="middle" dominantBaseline="middle">
+            {i * 10}
+          </text>
+        );
+      }
+    }
+
+    // Needle
+    const needleRad = (currentAngle * Math.PI) / 180;
+    const needleLength = size / 2 - 30;
+    const needleX = size / 2 + Math.cos(needleRad) * needleLength;
+    const needleY = size / 2 + Math.sin(needleRad) * needleLength;
+
+    return (
+      <div className="flex flex-col items-center relative">
+        <svg width={size} height={size * 0.7} viewBox={`0 0 ${size} ${size * 0.85}`}>
+          {/* Background arc */}
+          <path
+            d={`M ${size / 2 + Math.cos((startAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((startAngle * Math.PI) / 180) * (size / 2 - 15)}
+               A ${size / 2 - 15} ${size / 2 - 15} 0 1 1 ${size / 2 + Math.cos((endAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((endAngle * Math.PI) / 180) * (size / 2 - 15)}`}
+            fill="none"
+            stroke="#27272a"
+            strokeWidth={6}
+            strokeLinecap="round"
+          />
+          {/* Value arc */}
+          <path
+            d={`M ${size / 2 + Math.cos((startAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((startAngle * Math.PI) / 180) * (size / 2 - 15)}
+               A ${size / 2 - 15} ${size / 2 - 15} 0 ${percentage > 50 ? 1 : 0} 1 ${size / 2 + Math.cos((currentAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((currentAngle * Math.PI) / 180) * (size / 2 - 15)}`}
+            fill="none"
+            stroke={getColor()}
+            strokeWidth={6}
+            strokeLinecap="round"
+            className="transition-all duration-500"
+            style={{ filter: `drop-shadow(0 0 6px ${getColor()})` }}
+          />
+          {/* Tick marks */}
+          {ticks}
+          {/* Needle */}
+          <line
+            x1={size / 2}
+            y1={size / 2}
+            x2={needleX}
+            y2={needleY}
+            stroke={getColor()}
+            strokeWidth={3}
+            strokeLinecap="round"
+            className="transition-all duration-500"
+            style={{ filter: `drop-shadow(0 0 4px ${getColor()})` }}
+          />
+          {/* Center dot */}
+          <circle cx={size / 2} cy={size / 2} r={6} fill={getColor()} />
+          <circle cx={size / 2} cy={size / 2} r={3} fill="#18181b" />
+        </svg>
+        <div className="text-center -mt-2">
+          <div className="text-xl font-bold text-white">{percentage.toFixed(0)}%</div>
+          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}</div>
+          {unit && <div className="text-xs text-zinc-600">{unit}</div>}
+        </div>
+      </div>
+    );
+  };
+
+  // Vertical Bar Meter - like an audio VU meter
+  const VerticalMeter = ({ value, max, label, color, icon: Icon }: { value: number, max: number, label: string, color: string, icon?: React.ComponentType<{ size?: number, className?: string }> }) => {
+    const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+    const getColor = () => {
+      if (percentage >= 90) return COLORS.critical;
+      if (percentage >= 75) return COLORS.warning;
+      return color;
+    };
+
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <div className="relative w-8 h-32 bg-zinc-900 rounded-full border border-zinc-800 overflow-hidden">
+          {/* Scale markers */}
+          {[0, 25, 50, 75, 100].map(mark => (
+            <div key={mark} className="absolute left-0 right-0 h-px bg-zinc-700" style={{ bottom: `${mark}%` }} />
+          ))}
+          {/* Fill */}
+          <div
+            className="absolute bottom-0 left-0 right-0 transition-all duration-500 rounded-b-full"
+            style={{
+              height: `${percentage}%`,
+              background: `linear-gradient(to top, ${getColor()}, ${getColor()}88)`,
+              boxShadow: `0 0 20px ${getColor()}66`
+            }}
+          />
+          {/* Glow effect at top */}
+          <div
+            className="absolute left-1 right-1 h-2 rounded-full transition-all duration-500"
+            style={{
+              bottom: `calc(${percentage}% - 4px)`,
+              background: getColor(),
+              boxShadow: `0 0 8px ${getColor()}`
+            }}
+          />
+        </div>
+        <div className="text-center">
+          {Icon && <span style={{ color: getColor() }}><Icon size={16} className="mx-auto mb-1" /></span>}
+          <div className="text-sm font-bold text-white">{percentage.toFixed(0)}%</div>
+          <div className="text-[10px] text-zinc-500">{label}</div>
+        </div>
+      </div>
+    );
+  };
+
+  // Horizontal Progress with gradient
+  const GradientProgress = ({ value, max, label, sublabel }: { value: number, max: number, label: string, sublabel?: string }) => {
+    const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+    const getGradient = () => {
+      if (percentage >= 90) return 'from-red-600 to-red-400';
+      if (percentage >= 75) return 'from-yellow-600 to-yellow-400';
+      return 'from-cyan-600 to-cyan-400';
+    };
+
+    return (
+      <div className="w-full">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-xs text-zinc-400">{label}</span>
+          <span className="text-xs font-mono text-zinc-300">{percentage.toFixed(1)}%</span>
+        </div>
+        <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+          <div
+            className={`h-full bg-gradient-to-r ${getGradient()} rounded-full transition-all duration-500`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+        {sublabel && <div className="text-[10px] text-zinc-600 mt-0.5">{sublabel}</div>}
+      </div>
+    );
+  };
+
+  // Simple ring gauge for compact display
   const Gauge = ({ value, max, label, color, size = 120 }: { value: number, max: number, label: string, color: string, size?: number }) => {
     const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
     const strokeWidth = 8;
@@ -1581,6 +1861,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             className="transition-all duration-500"
+            style={{ filter: `drop-shadow(0 0 4px ${getColor()})` }}
           />
         </svg>
         <div className="absolute flex flex-col items-center justify-center" style={{ width: size, height: size }}>
@@ -1662,9 +1943,22 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
             <Activity className="w-7 h-7 text-cyan-400" />
             Cluster Cockpit
           </h1>
-          <p className="text-zinc-500 mt-1">Real-time cluster health and resource monitoring</p>
+          <p className="text-zinc-500 mt-1">
+            Real-time cluster health and resource monitoring
+            {!cockpit.metrics_available && (
+              <span className="ml-2 text-yellow-500 text-xs">
+                (Resource usage estimated from pod requests - metrics-server not available)
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-3">
+          {!cockpit.metrics_available && (
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/30">
+              <AlertCircle size={14} className="text-yellow-500" />
+              <span className="text-xs text-yellow-400">Estimated</span>
+            </div>
+          )}
           <StatusIndicator status={cockpit.critical_count > 0 ? 'critical' : 'healthy'} count={cockpit.critical_count} label="Critical" />
           <StatusIndicator status={cockpit.warning_count > 0 ? 'warning' : 'healthy'} count={cockpit.warning_count} label="Warnings" />
           <button onClick={() => refetch()} className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors">
@@ -1673,45 +1967,93 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
         </div>
       </div>
 
-      {/* Main Gauges Row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {/* CPU Gauge */}
-        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
-          <Gauge value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="CPU" color={COLORS.cpu} size={140} />
-          <div className="mt-4 text-center">
-            <div className="text-sm text-zinc-400">{formatCpu(cockpit.total_cpu_usage)} / {formatCpu(cockpit.total_cpu_capacity)}</div>
-            <div className="text-xs text-zinc-600 mt-1">Allocatable: {formatCpu(cockpit.total_cpu_allocatable)}</div>
-          </div>
-        </div>
-
-        {/* Memory Gauge */}
-        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
-          <Gauge value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Memory" color={COLORS.memory} size={140} />
-          <div className="mt-4 text-center">
-            <div className="text-sm text-zinc-400">{formatBytes(cockpit.total_memory_usage)} / {formatBytes(cockpit.total_memory_capacity)}</div>
-            <div className="text-xs text-zinc-600 mt-1">Allocatable: {formatBytes(cockpit.total_memory_allocatable)}</div>
-          </div>
-        </div>
-
-        {/* Pods Gauge */}
-        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
-          <Gauge value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} size={140} />
-          <div className="mt-4 text-center">
-            <div className="text-sm text-zinc-400">{cockpit.total_pods} / {cockpit.total_pods_capacity}</div>
-            <div className="text-xs text-zinc-600 mt-1">Running: {cockpit.pod_status.running}</div>
-          </div>
-        </div>
-
-        {/* Nodes Status */}
-        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
-          <Gauge value={cockpit.healthy_nodes} max={cockpit.total_nodes} label="Nodes" color={COLORS.healthy} size={140} />
-          <div className="mt-4 text-center">
-            <div className="text-sm text-zinc-400">{cockpit.healthy_nodes} / {cockpit.total_nodes} Healthy</div>
-            <div className="text-xs text-zinc-600 mt-1">
-              {cockpit.total_nodes - cockpit.healthy_nodes > 0 && (
-                <span className="text-red-400">{cockpit.total_nodes - cockpit.healthy_nodes} unhealthy</span>
-              )}
+      {/* Main Speedometer Gauges Row */}
+      <div className="grid grid-cols-2 gap-6 mb-6">
+        {/* CPU Speedometer */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
+          <SpeedometerGauge
+            value={cockpit.total_cpu_usage}
+            max={cockpit.total_cpu_capacity}
+            label="CPU UTILIZATION"
+            color={COLORS.cpu}
+            unit={formatCpu(cockpit.total_cpu_usage)}
+            size={180}
+          />
+          <div className="flex-1 space-y-3">
+            <GradientProgress value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="Used" sublabel={`${formatCpu(cockpit.total_cpu_usage)} of ${formatCpu(cockpit.total_cpu_capacity)}`} />
+            <GradientProgress value={cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable} max={cockpit.total_cpu_capacity} label="Reserved" sublabel={`${formatCpu(cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable)} reserved by system`} />
+            <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-zinc-500">Allocatable</span>
+                <div className="text-cyan-400 font-mono font-semibold">{formatCpu(cockpit.total_cpu_allocatable)}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500">Available</span>
+                <div className="text-green-400 font-mono font-semibold">{formatCpu(Math.max(0, cockpit.total_cpu_allocatable - cockpit.total_cpu_usage))}</div>
+              </div>
             </div>
+          </div>
+        </div>
+
+        {/* Memory Speedometer */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
+          <SpeedometerGauge
+            value={cockpit.total_memory_usage}
+            max={cockpit.total_memory_capacity}
+            label="MEMORY UTILIZATION"
+            color={COLORS.memory}
+            unit={formatBytes(cockpit.total_memory_usage)}
+            size={180}
+          />
+          <div className="flex-1 space-y-3">
+            <GradientProgress value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Used" sublabel={`${formatBytes(cockpit.total_memory_usage)} of ${formatBytes(cockpit.total_memory_capacity)}`} />
+            <GradientProgress value={cockpit.total_memory_capacity - cockpit.total_memory_allocatable} max={cockpit.total_memory_capacity} label="Reserved" sublabel={`${formatBytes(cockpit.total_memory_capacity - cockpit.total_memory_allocatable)} reserved by system`} />
+            <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-zinc-500">Allocatable</span>
+                <div className="text-purple-400 font-mono font-semibold">{formatBytes(cockpit.total_memory_allocatable)}</div>
+              </div>
+              <div>
+                <span className="text-zinc-500">Available</span>
+                <div className="text-green-400 font-mono font-semibold">{formatBytes(Math.max(0, cockpit.total_memory_allocatable - cockpit.total_memory_usage))}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Vertical Meters Row */}
+      <div className="bg-gradient-to-r from-zinc-900/80 to-zinc-950/80 rounded-xl p-6 border border-zinc-800 mb-6">
+        <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+          <Zap className="w-4 h-4 text-yellow-400" />
+          Cluster Capacity Overview
+        </h3>
+        <div className="flex justify-around items-end">
+          <VerticalMeter value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="CPU" color={COLORS.cpu} icon={Cpu} />
+          <VerticalMeter value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Memory" color={COLORS.memory} icon={HardDrive} />
+          <VerticalMeter value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} icon={Layers} />
+          <VerticalMeter value={cockpit.total_nodes - cockpit.healthy_nodes} max={cockpit.total_nodes} label="Unhealthy" color={COLORS.critical} icon={AlertCircle} />
+
+          {/* Ring gauges for compact metrics */}
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Gauge value={cockpit.healthy_nodes} max={cockpit.total_nodes} label="Nodes" color={COLORS.healthy} size={100} />
+            </div>
+            <div className="text-[10px] text-zinc-500">{cockpit.healthy_nodes}/{cockpit.total_nodes} healthy</div>
+          </div>
+
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Gauge value={cockpit.pod_status.running} max={cockpit.total_pods} label="Running" color={COLORS.running} size={100} />
+            </div>
+            <div className="text-[10px] text-zinc-500">{cockpit.pod_status.running}/{cockpit.total_pods} running</div>
+          </div>
+
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Gauge value={cockpit.total_deployments - (cockpit.warning_count || 0)} max={cockpit.total_deployments} label="Healthy" color={COLORS.healthy} size={100} />
+            </div>
+            <div className="text-[10px] text-zinc-500">{cockpit.total_deployments} deployments</div>
           </div>
         </div>
       </div>
@@ -2103,12 +2445,143 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
   );
 }
 
+// Custom hook for real-time resource watching via Kubernetes watch API
+function useResourceWatch(
+  resourceType: NavResource | null,
+  namespace: string | null,
+  currentContext: string | undefined,
+  enabled: boolean = true
+) {
+  const qc = useQueryClient();
+  const [isWatching, setIsWatching] = useState(false);
+  const [syncComplete, setSyncComplete] = useState(false);
+  const watchIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !resourceType || !resourceType.kind || !currentContext) {
+      return;
+    }
+
+    const watchId = `watch_${resourceType.group}_${resourceType.version}_${resourceType.kind}_${namespace || 'all'}_${Date.now()}`;
+    watchIdRef.current = watchId;
+    setIsWatching(true);
+    setSyncComplete(false);
+
+    const queryKey = ["list_resources", currentContext, resourceType.group || "", resourceType.version || "", resourceType.kind || "", namespace === null ? "All Namespaces" : namespace];
+
+    // Start the watch
+    invoke("start_resource_watch", {
+      req: {
+        group: resourceType.group,
+        version: resourceType.version,
+        kind: resourceType.kind,
+        namespace: namespace
+      },
+      watchId
+    }).catch(err => {
+      console.error("Failed to start resource watch:", err);
+      setIsWatching(false);
+    });
+
+    // Listen for watch events
+    const unlistenWatch = listen<ResourceWatchEvent>(`resource_watch:${watchId}`, (event) => {
+      const watchEvent = event.payload;
+
+      qc.setQueryData(queryKey, (oldData: K8sObject[] | undefined) => {
+        if (!oldData) return [watchEvent.resource];
+
+        switch (watchEvent.event_type) {
+          case "ADDED":
+            // Check if already exists (might be from initial sync)
+            if (oldData.some(r => r.id === watchEvent.resource.id)) {
+              return oldData.map(r => r.id === watchEvent.resource.id ? watchEvent.resource : r);
+            }
+            return [...oldData, watchEvent.resource];
+
+          case "MODIFIED":
+            return oldData.map(r => r.id === watchEvent.resource.id ? watchEvent.resource : r);
+
+          case "DELETED":
+            return oldData.filter(r => r.id !== watchEvent.resource.id);
+
+          default:
+            return oldData;
+        }
+      });
+    });
+
+    // Listen for sync complete
+    const unlistenSync = listen(`resource_watch_sync:${watchId}`, () => {
+      setSyncComplete(true);
+    });
+
+    // Listen for watch end
+    const unlistenEnd = listen(`resource_watch_end:${watchId}`, () => {
+      setIsWatching(false);
+      setSyncComplete(false);
+    });
+
+    // Cleanup
+    return () => {
+      unlistenWatch.then(fn => fn());
+      unlistenSync.then(fn => fn());
+      unlistenEnd.then(fn => fn());
+      invoke("stop_resource_watch", { watchId }).catch(() => {});
+      setIsWatching(false);
+      setSyncComplete(false);
+    };
+  }, [resourceType?.group, resourceType?.version, resourceType?.kind, namespace, currentContext, enabled, qc]);
+
+  return { isWatching, syncComplete };
+}
+
 // Resource list component - shows all resources of a given type
 function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, currentContext }: { resourceType: NavResource, onSelect: (obj: K8sObject) => void, namespaceFilter: string, searchQuery: string, currentContext?: string }) {
   // Defensive guard: ensure resourceType is valid
   if (!resourceType || !resourceType.kind) {
     return <div className="h-full flex items-center justify-center"><Loading size={24} label="Loading" /></div>;
   }
+
+  const qc = useQueryClient();
+
+  // Delete modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [resourceToDelete, setResourceToDelete] = useState<K8sObject | null>(null);
+
+  const handleDeleteRequest = (resource: K8sObject) => {
+    setResourceToDelete(resource);
+    setDeleteModalOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!resourceToDelete) return;
+    try {
+      await invoke("delete_resource", {
+        req: {
+          group: resourceType.group,
+          version: resourceType.version,
+          kind: resourceType.kind,
+          namespace: resourceToDelete.namespace === '-' ? null : resourceToDelete.namespace
+        },
+        name: resourceToDelete.name
+      });
+      (window as any).showToast?.(`Deleted ${resourceType.kind} '${resourceToDelete.name}'`, 'success');
+      // Invalidate the query to refresh the list
+      qc.invalidateQueries({ queryKey: ["list_resources"] });
+    } catch (err) {
+      (window as any).showToast?.(`Failed to delete: ${err}`, 'error');
+    }
+    setDeleteModalOpen(false);
+    setResourceToDelete(null);
+  };
+
+  // Enable real-time watching via Kubernetes watch API
+  const watchNamespace = namespaceFilter === "All Namespaces" ? null : namespaceFilter;
+  const { isWatching, syncComplete } = useResourceWatch(resourceType, watchNamespace, currentContext, true);
+
+  // Live age ticker - updates every second for real-time age display
+  const _ageTick = useLiveAge(1000);
+
   const { data: resources, isLoading: isListLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["list_resources", currentContext, resourceType.group || "", resourceType.version || "", resourceType.kind || "", namespaceFilter],
     queryFn: async () => await invoke<K8sObject[]>("list_resources", {
@@ -2119,9 +2592,9 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
         namespace: namespaceFilter === "All Namespaces" ? null : namespaceFilter
       }
     }),
-    staleTime: 10000, // Consider data fresh for 10 seconds
+    staleTime: isWatching ? Infinity : 10000, // Don't consider stale if watching
     gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
-    refetchInterval: 30000, // Refetch every 30 seconds (reduced frequency)
+    refetchInterval: isWatching ? false : 30000, // Disable polling when watching
     refetchOnWindowFocus: false,
   });
 
@@ -2286,7 +2759,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
       <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-zinc-900/30 backdrop-blur-md text-xs sticky top-0 z-10">
         <div className="flex items-center gap-2 text-zinc-500">
           <span className="uppercase tracking-wider font-semibold">{resourceType.kind}</span>
-          {isListLoading ? (
+          {isListLoading && !syncComplete ? (
             <span className="flex items-center gap-1 text-cyan-400">
               <Loading size={12} label="Loading" />
             </span>
@@ -2294,16 +2767,25 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
             <span className="flex items-center gap-1 text-red-400">
               <AlertCircle size={12} /> Failed
             </span>
+          ) : isWatching ? (
+            <span className="flex items-center gap-1 text-emerald-400" title="Real-time updates via Kubernetes watch API">
+              <div className="relative">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <div className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping opacity-75" />
+              </div>
+              <Activity size={12} className="ml-0.5" />
+              Real-time
+            </span>
           ) : (
-            <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-emerald-400'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${isFetching ? 'bg-cyan-400 animate-pulse' : 'bg-emerald-400'}`} />
-              {isFetching ? 'Live (updating)' : 'Live'}
+            <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-zinc-500'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${isFetching ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-500'}`} />
+              {isFetching ? 'Updating...' : 'Polling'}
             </span>
           )}
         </div>
       </div>
       {isPod ? (
-        <div className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
+        <div className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Namespace" sortKey="namespace" />
           <SortableHeader label="Ready" sortKey="ready" />
@@ -2313,21 +2795,24 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
           <SortableHeader label="Memory" sortKey="memory" />
           <SortableHeader label="Node" sortKey="node" />
           <SortableHeader label="Age" sortKey="age" />
+          <div />
         </div>
       ) : isNode ? (
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
+        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Status" sortKey="status" />
           <SortableHeader label="CPU" sortKey="cpu" />
           <SortableHeader label="Memory" sortKey="memory" />
           <SortableHeader label="Age" sortKey="age" />
+          <div />
         </div>
       ) : (
-        <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
+        <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
           <SortableHeader label="Name" sortKey="name" />
           <SortableHeader label="Namespace" sortKey="namespace" />
           <SortableHeader label="Status" sortKey="status" />
           <SortableHeader label="Age" sortKey="age" />
+          <div />
         </div>
       )}
 
@@ -2360,7 +2845,7 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
               return isPod ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
@@ -2371,33 +2856,57 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
                   <div className="text-zinc-500 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>
                   <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <ResourceContextMenu
+                    resource={obj}
+                    onViewDetails={() => onSelect(obj)}
+                    onDelete={() => handleDeleteRequest(obj)}
+                    isPod={true}
+                  />
                 </div>
               ) : isNode ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div><StatusBadge status={obj.status} /></div>
                   <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
                   <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <ResourceContextMenu
+                    resource={obj}
+                    onViewDetails={() => onSelect(obj)}
+                    onDelete={() => handleDeleteRequest(obj)}
+                  />
                 </div>
               ) : (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_1fr_1fr] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className="grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
                   <div><StatusBadge status={obj.status} /></div>
                   <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
+                  <ResourceContextMenu
+                    resource={obj}
+                    onViewDetails={() => onSelect(obj)}
+                    onDelete={() => handleDeleteRequest(obj)}
+                  />
                 </div>
               );
             }}
           />
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteModalOpen}
+        onClose={() => { setDeleteModalOpen(false); setResourceToDelete(null); }}
+        onConfirm={handleDeleteConfirm}
+        resourceName={resourceToDelete?.name || ''}
+      />
     </div>
   );
 }
@@ -3451,8 +3960,27 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
 
 function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sObject, kind: string, onClose: () => void, onDelete: () => void }) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [drawerWidth, setDrawerWidth] = useState(800);
+  const [isResizing, setIsResizing] = useState(false);
+  const minWidth = 500;
+  const maxWidth = typeof window !== 'undefined' ? window.innerWidth - 100 : 1600;
 
-
+  // Handle resize drag
+  useEffect(() => {
+    if (!isResizing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      setDrawerWidth(Math.max(minWidth, Math.min(maxWidth, newWidth)));
+    };
+    const handleMouseUp = () => setIsResizing(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, maxWidth]);
 
   const [isPFOpen, setIsPFOpen] = useState(false);
   // Fetched full details (handles empty raw_json from list)
@@ -3478,7 +4006,22 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
   const podSpec = useMemo(() => fullObject?.spec || {}, [fullObject]);
 
   return (
-    <aside className="w-[800px] bg-black border-l border-gray-800 flex flex-col shadow-2xl shadow-purple-500/10 z-30 transition-all duration-300 h-full absolute right-0 top-0">
+    <aside
+      className={`bg-black border-l border-gray-800 flex flex-col shadow-2xl shadow-purple-500/10 z-30 h-full absolute right-0 top-0 ${isResizing ? '' : 'transition-all duration-300'}`}
+      style={{ width: isExpanded ? '100%' : drawerWidth }}
+    >
+      {/* Resize Handle */}
+      {!isExpanded && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-cyan-500/50 transition-colors group z-50"
+          onMouseDown={() => setIsResizing(true)}
+        >
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-8 bg-zinc-800 border border-zinc-700 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <GripVertical size={10} className="text-zinc-500" />
+          </div>
+        </div>
+      )}
+
       <PortForwardModal
         isOpen={isPFOpen}
         onClose={() => setIsPFOpen(false)}
@@ -3503,6 +4046,13 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
               <span className="text-xs font-medium">Forward</span>
             </button>
           )}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-all"
+            title={isExpanded ? "Minimize panel" : "Maximize panel"}
+          >
+            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
           <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-all">
             <X size={16} />
           </button>
@@ -3577,6 +4127,9 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete }: { resou
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string }>>([]);
   const [userInput, setUserInput] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Live age ticker - updates every second for real-time age display
+  const _ageTick = useLiveAge(1000);
 
   const metadata = fullObject?.metadata || {};
 
@@ -6204,6 +6757,9 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [autoFollow, setAutoFollow] = useState(true);
+  const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [wrapLines, setWrapLines] = useState(false);
+  const [fontSize, setFontSize] = useState<'xs' | 'sm' | 'base'>('xs');
   const [error, setError] = useState<string | null>(null);
   const sessionId = useMemo(() => `log-${Math.random().toString(36).substr(2, 9)}`, [namespace, name, selectedContainer]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -6258,14 +6814,41 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
     }
   }, [logs, autoFollow]);
 
-  const filteredLogs = useMemo(() => {
-    if (!searchQuery) return logs;
-    return logs.split('\n').filter(line => line.toLowerCase().includes(searchQuery.toLowerCase())).join('\n');
+  const filteredLogLines = useMemo(() => {
+    const lines = logs.split('\n');
+    if (!searchQuery) return lines;
+    return lines.filter(line => line.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [logs, searchQuery]);
+
+  const logLineCount = logs.split('\n').length;
+  const matchCount = searchQuery ? filteredLogLines.length : 0;
+
+  // Highlight search matches in log line
+  const highlightMatches = (line: string) => {
+    if (!searchQuery) return line;
+    const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = line.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part) ? <mark key={i} className="bg-yellow-500/40 text-yellow-200 px-0.5 rounded">{part}</mark> : part
+    );
+  };
+
+  // Color code log levels
+  const getLineColor = (line: string) => {
+    const lower = line.toLowerCase();
+    if (lower.includes('error') || lower.includes('fatal') || lower.includes('panic')) return 'text-red-400';
+    if (lower.includes('warn')) return 'text-yellow-400';
+    if (lower.includes('info')) return 'text-blue-400';
+    if (lower.includes('debug')) return 'text-zinc-500';
+    return 'text-[#cccccc]';
+  };
+
+  const fontSizeClass = fontSize === 'xs' ? 'text-xs' : fontSize === 'sm' ? 'text-sm' : 'text-base';
 
   return (
     <div className="flex flex-col h-full gap-2">
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Top toolbar */}
+      <div className="flex items-center gap-2 shrink-0 flex-wrap">
         <label className="text-[10px] uppercase font-bold text-[#858585]">Container:</label>
         <div className="relative">
           <select
@@ -6282,13 +6865,16 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
           </div>
         </div>
 
+        <div className="h-4 w-px bg-zinc-700" />
+
         {/* Controls */}
         <button
           onClick={() => setIsPaused(!isPaused)}
-          className={`px-2 py-1 text-xs rounded border transition-colors ${isPaused ? 'bg-yellow-600/10 border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/20' : 'bg-green-600/10 border-green-600/50 text-green-400 hover:bg-green-600/20'}`}
+          className={`px-2 py-1 text-xs rounded border transition-colors flex items-center gap-1 ${isPaused ? 'bg-yellow-600/10 border-yellow-600/50 text-yellow-400 hover:bg-yellow-600/20' : 'bg-green-600/10 border-green-600/50 text-green-400 hover:bg-green-600/20'}`}
           title={isPaused ? 'Resume streaming' : 'Pause streaming'}
         >
-          {isPaused ? 'Paused' : 'Streaming'}
+          {isPaused ? <Play size={10} /> : <Square size={10} />}
+          {isPaused ? 'Resume' : 'Streaming'}
         </button>
 
         <button
@@ -6296,19 +6882,54 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
           className={`px-2 py-1 text-xs rounded border transition-colors ${autoFollow ? 'bg-blue-600/10 border-blue-600/50 text-blue-400 hover:bg-blue-600/20' : 'bg-gray-600/10 border-gray-600/50 text-gray-400 hover:bg-gray-600/20'}`}
           title={autoFollow ? 'Disable auto-scroll' : 'Enable auto-scroll'}
         >
-          {autoFollow ? 'Following' : 'Follow Off'}
+          {autoFollow ? '↓ Follow' : 'Follow Off'}
         </button>
 
+        <div className="h-4 w-px bg-zinc-700" />
+
+        {/* View options */}
+        <button
+          onClick={() => setShowLineNumbers(!showLineNumbers)}
+          className={`px-2 py-1 text-xs rounded border transition-colors ${showLineNumbers ? 'bg-purple-600/10 border-purple-600/50 text-purple-400' : 'bg-gray-600/10 border-gray-600/50 text-gray-400'}`}
+          title="Toggle line numbers"
+        >
+          #
+        </button>
+
+        <button
+          onClick={() => setWrapLines(!wrapLines)}
+          className={`px-2 py-1 text-xs rounded border transition-colors ${wrapLines ? 'bg-purple-600/10 border-purple-600/50 text-purple-400' : 'bg-gray-600/10 border-gray-600/50 text-gray-400'}`}
+          title="Toggle line wrap"
+        >
+          ↵
+        </button>
+
+        <select
+          value={fontSize}
+          onChange={(e) => setFontSize(e.target.value as 'xs' | 'sm' | 'base')}
+          className="bg-[#252526] border border-[#3e3e42] text-[#cccccc] text-xs rounded px-2 py-1 appearance-none focus:border-[#007acc] focus:outline-none"
+          title="Font size"
+        >
+          <option value="xs">Small</option>
+          <option value="sm">Medium</option>
+          <option value="base">Large</option>
+        </select>
+
         {/* Live status */}
-        <div className="ml-2 text-xs flex items-center gap-1">
+        <div className="text-xs flex items-center gap-1">
           {error ? (
-            <span className="flex items-center gap-1 text-[#f48771]"><AlertCircle size={12} /> Failed</span>
+            <span className="flex items-center gap-1 text-red-400"><AlertCircle size={12} /> Error</span>
           ) : (
-            <span className={`flex items-center gap-1 ${isStreaming && !isPaused ? 'text-[#89d185]' : 'text-[#858585]'}`}>
-              <svg className={`w-2 h-2 ${isStreaming && !isPaused ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
+            <span className={`flex items-center gap-1 ${isStreaming && !isPaused ? 'text-green-400' : 'text-zinc-500'}`}>
+              <div className={`w-2 h-2 rounded-full ${isStreaming && !isPaused ? 'bg-green-400 animate-pulse' : 'bg-zinc-600'}`} />
               {isStreaming && !isPaused ? 'Live' : isPaused ? 'Paused' : 'Idle'}
             </span>
           )}
+        </div>
+
+        {/* Line count */}
+        <div className="text-xs text-zinc-500">
+          {logLineCount.toLocaleString()} lines
         </div>
 
         {/* Search Input */}
@@ -6321,13 +6942,69 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-[#252526] border border-[#3e3e42] rounded pl-8 pr-2 py-1 text-xs text-[#cccccc] focus:border-[#007acc] focus:outline-none"
           />
+          {searchQuery && (
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500">
+              {matchCount} matches
+            </span>
+          )}
         </div>
+
+        {/* Clear logs */}
+        <button
+          onClick={() => setLogs("")}
+          className="px-2 py-1 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+          title="Clear logs"
+        >
+          Clear
+        </button>
+
+        {/* Download logs */}
+        <button
+          onClick={() => {
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${name}-${selectedContainer}-logs.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          className="px-2 py-1 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
+          title="Download logs"
+        >
+          <Save size={12} />
+        </button>
       </div>
 
-      {error && <div className="text-[#f48771] p-4 text-xs bg-red-500/10 border border-red-500/30 rounded">Failed to stream logs: {error}</div>}
+      {error && <div className="text-red-400 p-4 text-xs bg-red-500/10 border border-red-500/30 rounded">Failed to stream logs: {error}</div>}
 
-      <div className="bg-[#1e1e1e] p-3 rounded border border-[#3e3e42] text-sm font-mono text-[#cccccc] flex-1 overflow-auto whitespace-pre leading-relaxed" ref={scrollRef}>
-        {filteredLogs || (isStreaming ? "Waiting for logs..." : "No logs available.")}
+      {/* Log viewer */}
+      <div
+        ref={scrollRef}
+        className={`bg-[#0d0d0d] rounded border border-[#3e3e42] font-mono flex-1 overflow-auto ${fontSizeClass} ${wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
+      >
+        {filteredLogLines.length === 0 ? (
+          <div className="p-4 text-zinc-500 text-center">
+            {isStreaming ? "Waiting for logs..." : logs ? "No matches found" : "No logs available."}
+          </div>
+        ) : (
+          <table className="w-full">
+            <tbody>
+              {filteredLogLines.map((line, i) => (
+                <tr key={i} className="hover:bg-white/5 group">
+                  {showLineNumbers && (
+                    <td className="px-2 py-0.5 text-right text-zinc-600 select-none border-r border-zinc-800 sticky left-0 bg-[#0d0d0d] group-hover:bg-zinc-900/50 w-12">
+                      {i + 1}
+                    </td>
+                  )}
+                  <td className={`px-3 py-0.5 ${getLineColor(line)} leading-relaxed`}>
+                    {highlightMatches(line)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
