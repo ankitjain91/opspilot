@@ -501,6 +501,117 @@ async fn list_contexts(custom_path: Option<String>) -> Result<Vec<KubeContext>, 
 }
 
 #[tauri::command]
+async fn delete_context(context_name: String, custom_path: Option<String>) -> Result<(), String> {
+    use std::fs;
+    use std::io::Write;
+
+    // Get the kubeconfig path
+    let kubeconfig_path = if let Some(ref path) = custom_path {
+        std::path::PathBuf::from(path)
+    } else {
+        // Default kubeconfig path
+        let home = std::env::var("HOME").map_err(|_| "Could not find HOME directory")?;
+        std::path::PathBuf::from(home).join(".kube").join("config")
+    };
+
+    // Read the current kubeconfig
+    let content = fs::read_to_string(&kubeconfig_path)
+        .map_err(|e| format!("Failed to read kubeconfig: {}", e))?;
+
+    // Parse as YAML
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
+        .map_err(|e| format!("Failed to parse kubeconfig: {}", e))?;
+
+    // Get the context to find its cluster and user
+    let contexts = config.get("contexts")
+        .and_then(|c| c.as_sequence())
+        .ok_or("No contexts found in kubeconfig")?;
+
+    let context_to_delete = contexts.iter()
+        .find(|c| c.get("name").and_then(|n| n.as_str()) == Some(&context_name))
+        .ok_or(format!("Context '{}' not found", context_name))?;
+
+    let cluster_name = context_to_delete
+        .get("context")
+        .and_then(|c| c.get("cluster"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+
+    let user_name = context_to_delete
+        .get("context")
+        .and_then(|c| c.get("user"))
+        .and_then(|u| u.as_str())
+        .map(|s| s.to_string());
+
+    // Remove the context
+    if let Some(contexts) = config.get_mut("contexts").and_then(|c| c.as_sequence_mut()) {
+        contexts.retain(|c| c.get("name").and_then(|n| n.as_str()) != Some(&context_name));
+    }
+
+    // Check if the cluster is still used by other contexts
+    let cluster_still_used = cluster_name.as_ref().map(|cn| {
+        config.get("contexts")
+            .and_then(|c| c.as_sequence())
+            .map(|contexts| {
+                contexts.iter().any(|c| {
+                    c.get("context")
+                        .and_then(|ctx| ctx.get("cluster"))
+                        .and_then(|cl| cl.as_str()) == Some(cn)
+                })
+            })
+            .unwrap_or(false)
+    }).unwrap_or(true);
+
+    // Remove cluster if not used by other contexts
+    if !cluster_still_used {
+        if let Some(cluster_name) = &cluster_name {
+            if let Some(clusters) = config.get_mut("clusters").and_then(|c| c.as_sequence_mut()) {
+                clusters.retain(|c| c.get("name").and_then(|n| n.as_str()) != Some(cluster_name));
+            }
+        }
+    }
+
+    // Check if the user is still used by other contexts
+    let user_still_used = user_name.as_ref().map(|un| {
+        config.get("contexts")
+            .and_then(|c| c.as_sequence())
+            .map(|contexts| {
+                contexts.iter().any(|c| {
+                    c.get("context")
+                        .and_then(|ctx| ctx.get("user"))
+                        .and_then(|u| u.as_str()) == Some(un)
+                })
+            })
+            .unwrap_or(false)
+    }).unwrap_or(true);
+
+    // Remove user if not used by other contexts
+    if !user_still_used {
+        if let Some(user_name) = &user_name {
+            if let Some(users) = config.get_mut("users").and_then(|c| c.as_sequence_mut()) {
+                users.retain(|u| u.get("name").and_then(|n| n.as_str()) != Some(user_name));
+            }
+        }
+    }
+
+    // If current-context was the deleted one, clear it
+    if config.get("current-context").and_then(|c| c.as_str()) == Some(&context_name) {
+        config["current-context"] = serde_yaml::Value::String(String::new());
+    }
+
+    // Write back to file
+    let new_content = serde_yaml::to_string(&config)
+        .map_err(|e| format!("Failed to serialize kubeconfig: {}", e))?;
+
+    let mut file = fs::File::create(&kubeconfig_path)
+        .map_err(|e| format!("Failed to write kubeconfig: {}", e))?;
+    file.write_all(new_content.as_bytes())
+        .map_err(|e| format!("Failed to write kubeconfig: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn set_kube_config(
     state: State<'_, AppState>,
     path: Option<String>,
@@ -1908,6 +2019,7 @@ pub fn run() {
             get_resource_metrics,
             delete_resource,
             list_contexts,
+            delete_context,
             set_kube_config,
             get_pod_logs,
             start_log_stream,

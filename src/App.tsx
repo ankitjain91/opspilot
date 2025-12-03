@@ -921,6 +921,20 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
   // Add error state for connection failures
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
+  // Delete context state
+  const [contextToDelete, setContextToDelete] = useState<string | null>(null);
+
+  // Delete context mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (contextName: string) => {
+      await invoke("delete_context", { contextName, customPath });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["kube_contexts"] });
+      setContextToDelete(null);
+    },
+  });
+
   // Wrap mutation to handle error state
   const handleConnect = (ctx: string) => {
     setConnectionError(null);
@@ -929,6 +943,11 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
         setConnectionError(err.message);
       }
     });
+  };
+
+  const handleDeleteContext = (ctx: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering connect
+    setContextToDelete(ctx);
   };
 
   const handleFileSelect = async () => {
@@ -1128,16 +1147,18 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
               <div className="bg-zinc-900/30 rounded-xl border border-white/5 overflow-hidden">
                 <div className="max-h-[280px] overflow-y-auto custom-scrollbar p-2 space-y-1">
                   {filteredContexts.map(ctx => (
-                    <button
+                    <div
                       key={ctx}
-                      onClick={() => handleConnect(ctx)}
-                      disabled={connectMutation.isPending}
-                      className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all border group relative overflow-hidden
-                        ${connectMutation.isPending ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5 active:scale-[0.99]'}
+                      className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all border group relative overflow-hidden flex items-center
+                        ${connectMutation.isPending ? 'opacity-50' : 'hover:bg-white/5'}
                         ${ctx === currentContext ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/30' : 'border-transparent hover:border-white/10'}
                       `}
                     >
-                      <div className="flex items-center justify-between relative z-10">
+                      <button
+                        onClick={() => handleConnect(ctx)}
+                        disabled={connectMutation.isPending}
+                        className="flex-1 flex items-center justify-between relative z-10 cursor-pointer"
+                      >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all ${ctx === currentContext ? 'bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.6)]' : 'bg-zinc-600 group-hover:bg-zinc-400'}`} />
                           <span className={`font-medium truncate ${ctx === currentContext ? 'text-cyan-100' : 'text-zinc-300 group-hover:text-white'}`}>
@@ -1154,8 +1175,20 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                         ) : (
                           <ChevronRight size={16} className={`transition-all ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
                         )}
-                      </div>
-                    </button>
+                      </button>
+                      {/* Delete button */}
+                      <button
+                        onClick={(e) => handleDeleteContext(ctx, e)}
+                        disabled={ctx === currentContext || deleteMutation.isPending}
+                        className={`ml-2 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100
+                          ${ctx === currentContext
+                            ? 'text-zinc-600 cursor-not-allowed'
+                            : 'text-zinc-500 hover:text-red-400 hover:bg-red-500/10'}`}
+                        title={ctx === currentContext ? "Cannot delete active context" : "Delete context"}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   ))}
 
                   {filteredContexts.length === 0 && (
@@ -1226,6 +1259,70 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
           </div>
         </div>
       </div>
+
+      {/* Delete Context Confirmation Modal */}
+      {contextToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-md w-full mx-4 animate-in zoom-in-95 duration-200">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/30">
+                  <AlertCircle className="w-6 h-6 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Delete Context</h3>
+                  <p className="text-sm text-zinc-400">This action cannot be undone</p>
+                </div>
+              </div>
+
+              <div className="bg-zinc-800/50 rounded-lg p-4 mb-4 border border-zinc-700">
+                <p className="text-sm text-zinc-300 mb-2">Are you sure you want to delete this context?</p>
+                <code className="text-sm font-mono text-cyan-400 bg-zinc-800 px-2 py-1 rounded break-all">
+                  {contextToDelete}
+                </code>
+                <p className="text-xs text-zinc-500 mt-3">
+                  This will remove the context from your kubeconfig file. If the cluster and user credentials are not used by other contexts, they will also be removed.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setContextToDelete(null)}
+                  disabled={deleteMutation.isPending}
+                  className="px-4 py-2 text-sm font-medium text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteMutation.mutate(contextToDelete)}
+                  disabled={deleteMutation.isPending}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {deleteMutation.isPending ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      Delete Context
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {deleteMutation.isError && (
+                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-sm text-red-400">
+                    {deleteMutation.error instanceof Error ? deleteMutation.error.message : 'Failed to delete context'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
