@@ -68,7 +68,26 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "OpsPilot ${{ github.ref_name }}"
-          releaseBody: "See the assets to download this version and install."
+          releaseBody: |
+            ## 📥 Installation
+
+            ### macOS Users 🍎
+            **"Apple could not verify..." Warning?**
+            Since this app is not notarized by Apple, you may see a warning. To open it:
+            1. **Right-click** (or Control-click) the app icon.
+            2. Select **Open**.
+            3. Click **Open** in the dialog box.
+
+            Alternatively, run this command in Terminal after dragging to Applications:
+            ```bash
+            xattr -cr /Applications/OpsPilot.app
+            ```
+
+            ### Windows Users 🪟
+            Download the `.exe` file. You may need to click "More info" > "Run anyway" if SmartScreen appears.
+
+            ### Linux Users 🐧
+            Download the `.deb` or `.AppImage` file.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
