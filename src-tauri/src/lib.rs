@@ -88,6 +88,87 @@ struct ClusterStats {
     namespaces: usize,
 }
 
+// Comprehensive cluster cockpit data
+#[derive(Serialize, Clone)]
+struct NodeHealth {
+    name: String,
+    status: String,
+    cpu_capacity: u64,       // in millicores
+    cpu_allocatable: u64,
+    cpu_usage: u64,
+    memory_capacity: u64,    // in bytes
+    memory_allocatable: u64,
+    memory_usage: u64,
+    pods_capacity: u32,
+    pods_running: u32,
+    conditions: Vec<NodeCondition>,
+    taints: Vec<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct NodeCondition {
+    type_: String,
+    status: String,
+    message: String,
+}
+
+#[derive(Serialize, Clone)]
+struct PodStatusBreakdown {
+    running: usize,
+    pending: usize,
+    succeeded: usize,
+    failed: usize,
+    unknown: usize,
+}
+
+#[derive(Serialize, Clone)]
+struct DeploymentHealth {
+    name: String,
+    namespace: String,
+    desired: u32,
+    ready: u32,
+    available: u32,
+    up_to_date: u32,
+}
+
+#[derive(Serialize, Clone)]
+struct NamespaceUsage {
+    name: String,
+    pod_count: usize,
+    cpu_usage: u64,
+    memory_usage: u64,
+}
+
+#[derive(Serialize, Clone)]
+struct ClusterCockpitData {
+    // Overall stats
+    total_nodes: usize,
+    healthy_nodes: usize,
+    total_pods: usize,
+    total_deployments: usize,
+    total_services: usize,
+    total_namespaces: usize,
+
+    // Resource totals
+    total_cpu_capacity: u64,      // millicores
+    total_cpu_allocatable: u64,
+    total_cpu_usage: u64,
+    total_memory_capacity: u64,   // bytes
+    total_memory_allocatable: u64,
+    total_memory_usage: u64,
+    total_pods_capacity: u32,
+
+    // Breakdowns
+    pod_status: PodStatusBreakdown,
+    nodes: Vec<NodeHealth>,
+    unhealthy_deployments: Vec<DeploymentHealth>,
+    top_namespaces: Vec<NamespaceUsage>,
+
+    // Warnings/Alerts
+    warning_count: usize,
+    critical_count: usize,
+}
+
 // Combined initial data for faster first load
 #[derive(Serialize, Clone)]
 struct InitialClusterData {
@@ -1592,6 +1673,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|_app| {
             use std::env;
             let key = "PATH";
@@ -1664,6 +1746,7 @@ pub fn run() {
             send_shell_input,
             resize_shell,
             get_cluster_stats,
+            get_cluster_cockpit,
             get_initial_cluster_data,
             list_azure_subscriptions,
             list_aks_clusters,
@@ -1924,6 +2007,263 @@ async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, S
     }
 
     Ok(stats)
+}
+
+#[tauri::command]
+async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpitData, String> {
+    let client = create_client(state.clone()).await?;
+
+    let nodes_api: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
+    let pods_api: Api<k8s_openapi::api::core::v1::Pod> = Api::all(client.clone());
+    let deployments_api: Api<k8s_openapi::api::apps::v1::Deployment> = Api::all(client.clone());
+    let services_api: Api<k8s_openapi::api::core::v1::Service> = Api::all(client.clone());
+    let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client.clone());
+
+    // Also fetch node metrics
+    let node_metrics_api: Api<DynamicObject> = Api::all_with(client.clone(), &kube::discovery::ApiResource {
+        group: "metrics.k8s.io".to_string(),
+        version: "v1beta1".to_string(),
+        api_version: "metrics.k8s.io/v1beta1".to_string(),
+        kind: "NodeMetrics".to_string(),
+        plural: "nodes".to_string(),
+    });
+
+    let lp = ListParams::default();
+
+    // Parallel Execution
+    let (nodes_res, pods_res, deployments_res, services_res, namespaces_res, node_metrics_res) = tokio::join!(
+        nodes_api.list(&lp),
+        pods_api.list(&lp),
+        deployments_api.list(&lp),
+        services_api.list(&lp),
+        namespaces_api.list(&lp),
+        node_metrics_api.list(&lp)
+    );
+
+    // Process nodes
+    let nodes_list = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?;
+    let pods_items: Vec<_> = pods_res.map(|l| l.items).unwrap_or_default();
+    let deployments_items: Vec<_> = deployments_res.map(|l| l.items).unwrap_or_default();
+    let services_count = services_res.map(|l| l.items.len()).unwrap_or(0);
+    let namespaces_count = namespaces_res.map(|l| l.items.len()).unwrap_or(0);
+    let node_metrics_list = node_metrics_res.ok();
+
+    // Build node metrics map
+    let node_metrics_map: std::collections::HashMap<String, (u64, u64)> = node_metrics_list
+        .map(|list| {
+            list.items.into_iter().filter_map(|item| {
+                let name = item.metadata.name?;
+                let usage = item.data.get("usage")?;
+                let cpu = usage.get("cpu").and_then(|v| v.as_str()).map(parse_cpu_to_nano).unwrap_or(0);
+                let memory = usage.get("memory").and_then(|v| v.as_str()).map(parse_memory_to_bytes).unwrap_or(0);
+                Some((name, (cpu, memory)))
+            }).collect()
+        })
+        .unwrap_or_default();
+
+    // Count pods per node
+    let mut pods_per_node: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for pod in &pods_items {
+        if let Some(node_name) = pod.spec.as_ref().and_then(|s| s.node_name.as_ref()) {
+            *pods_per_node.entry(node_name.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Process pod status breakdown
+    let mut pod_status = PodStatusBreakdown {
+        running: 0,
+        pending: 0,
+        succeeded: 0,
+        failed: 0,
+        unknown: 0,
+    };
+
+    // Count pods per namespace with metrics
+    let mut namespace_usage: std::collections::HashMap<String, (usize, u64, u64)> = std::collections::HashMap::new();
+
+    for pod in &pods_items {
+        let phase = pod.status.as_ref().and_then(|s| s.phase.as_ref()).map(|s| s.as_str()).unwrap_or("Unknown");
+        match phase {
+            "Running" => pod_status.running += 1,
+            "Pending" => pod_status.pending += 1,
+            "Succeeded" => pod_status.succeeded += 1,
+            "Failed" => pod_status.failed += 1,
+            _ => pod_status.unknown += 1,
+        }
+
+        // Count by namespace
+        let ns = pod.metadata.namespace.clone().unwrap_or_default();
+        let entry = namespace_usage.entry(ns).or_insert((0, 0, 0));
+        entry.0 += 1;
+    }
+
+    // Process nodes
+    let mut total_cpu_capacity: u64 = 0;
+    let mut total_cpu_allocatable: u64 = 0;
+    let mut total_cpu_usage: u64 = 0;
+    let mut total_memory_capacity: u64 = 0;
+    let mut total_memory_allocatable: u64 = 0;
+    let mut total_memory_usage: u64 = 0;
+    let mut total_pods_capacity: u32 = 0;
+    let mut healthy_nodes = 0;
+    let mut warning_count = 0;
+    let mut critical_count = 0;
+
+    let nodes: Vec<NodeHealth> = nodes_list.items.iter().map(|node| {
+        let name = node.metadata.name.clone().unwrap_or_default();
+        let status_obj = node.status.as_ref();
+        let spec = node.spec.as_ref();
+
+        // Get conditions
+        let conditions: Vec<NodeCondition> = status_obj
+            .and_then(|s| s.conditions.as_ref())
+            .map(|conds| conds.iter().map(|c| NodeCondition {
+                type_: c.type_.clone(),
+                status: c.status.clone(),
+                message: c.message.clone().unwrap_or_default(),
+            }).collect())
+            .unwrap_or_default();
+
+        // Check if node is healthy (Ready condition is True)
+        let is_ready = conditions.iter().any(|c| c.type_ == "Ready" && c.status == "True");
+        let status = if is_ready { "Ready" } else { "NotReady" };
+        if is_ready {
+            healthy_nodes += 1;
+        } else {
+            critical_count += 1;
+        }
+
+        // Check for warning conditions
+        for cond in &conditions {
+            if cond.type_ != "Ready" && cond.status == "True" {
+                warning_count += 1;
+            }
+        }
+
+        // Get taints
+        let taints: Vec<String> = spec
+            .and_then(|s| s.taints.as_ref())
+            .map(|t| t.iter().map(|taint| {
+                format!("{}={:?}:{}", taint.key, taint.value.clone().unwrap_or_default(), taint.effect)
+            }).collect())
+            .unwrap_or_default();
+
+        // Parse capacity and allocatable
+        let capacity = status_obj.and_then(|s| s.capacity.as_ref());
+        let allocatable = status_obj.and_then(|s| s.allocatable.as_ref());
+
+        let cpu_capacity = capacity.and_then(|c| c.get("cpu")).map(|q| parse_cpu_to_milli(&q.0)).unwrap_or(0);
+        let cpu_allocatable = allocatable.and_then(|a| a.get("cpu")).map(|q| parse_cpu_to_milli(&q.0)).unwrap_or(0);
+        let memory_capacity = capacity.and_then(|c| c.get("memory")).map(|q| parse_memory_to_bytes(&q.0)).unwrap_or(0);
+        let memory_allocatable = allocatable.and_then(|a| a.get("memory")).map(|q| parse_memory_to_bytes(&q.0)).unwrap_or(0);
+        let pods_capacity = capacity.and_then(|c| c.get("pods")).map(|q| q.0.parse::<u32>().unwrap_or(0)).unwrap_or(0);
+
+        // Get usage from metrics
+        let (cpu_usage_nano, memory_usage) = node_metrics_map.get(&name).cloned().unwrap_or((0, 0));
+        let cpu_usage = cpu_usage_nano / 1_000_000; // Convert nano to milli
+
+        // Update totals
+        total_cpu_capacity += cpu_capacity;
+        total_cpu_allocatable += cpu_allocatable;
+        total_cpu_usage += cpu_usage;
+        total_memory_capacity += memory_capacity;
+        total_memory_allocatable += memory_allocatable;
+        total_memory_usage += memory_usage;
+        total_pods_capacity += pods_capacity;
+
+        let pods_running = pods_per_node.get(&name).cloned().unwrap_or(0);
+
+        NodeHealth {
+            name,
+            status: status.to_string(),
+            cpu_capacity,
+            cpu_allocatable,
+            cpu_usage,
+            memory_capacity,
+            memory_allocatable,
+            memory_usage,
+            pods_capacity,
+            pods_running,
+            conditions,
+            taints,
+        }
+    }).collect();
+
+    // Get unhealthy deployments
+    let unhealthy_deployments: Vec<DeploymentHealth> = deployments_items.iter()
+        .filter_map(|dep| {
+            let name = dep.metadata.name.clone()?;
+            let namespace = dep.metadata.namespace.clone().unwrap_or_default();
+            let status = dep.status.as_ref()?;
+            let spec = dep.spec.as_ref()?;
+
+            let desired = spec.replicas.unwrap_or(1) as u32;
+            let ready = status.ready_replicas.unwrap_or(0) as u32;
+            let available = status.available_replicas.unwrap_or(0) as u32;
+            let up_to_date = status.updated_replicas.unwrap_or(0) as u32;
+
+            // Only include unhealthy ones
+            if ready < desired || available < desired {
+                warning_count += 1;
+                Some(DeploymentHealth {
+                    name,
+                    namespace,
+                    desired,
+                    ready,
+                    available,
+                    up_to_date,
+                })
+            } else {
+                None
+            }
+        })
+        .take(10) // Limit to top 10
+        .collect();
+
+    // Get top namespaces by pod count
+    let mut top_namespaces: Vec<NamespaceUsage> = namespace_usage.into_iter()
+        .map(|(name, (pod_count, cpu, mem))| NamespaceUsage {
+            name,
+            pod_count,
+            cpu_usage: cpu,
+            memory_usage: mem,
+        })
+        .collect();
+    top_namespaces.sort_by(|a, b| b.pod_count.cmp(&a.pod_count));
+    top_namespaces.truncate(10);
+
+    Ok(ClusterCockpitData {
+        total_nodes: nodes_list.items.len(),
+        healthy_nodes,
+        total_pods: pods_items.len(),
+        total_deployments: deployments_items.len(),
+        total_services: services_count,
+        total_namespaces: namespaces_count,
+        total_cpu_capacity,
+        total_cpu_allocatable,
+        total_cpu_usage,
+        total_memory_capacity,
+        total_memory_allocatable,
+        total_memory_usage,
+        total_pods_capacity,
+        pod_status,
+        nodes,
+        unhealthy_deployments,
+        top_namespaces,
+        warning_count,
+        critical_count,
+    })
+}
+
+fn parse_cpu_to_milli(cpu: &str) -> u64 {
+    if cpu.ends_with('m') {
+        cpu.trim_end_matches('m').parse::<u64>().unwrap_or(0)
+    } else if cpu.ends_with('n') {
+        cpu.trim_end_matches('n').parse::<u64>().unwrap_or(0) / 1_000_000
+    } else {
+        // Assume cores
+        (cpu.parse::<f64>().unwrap_or(0.0) * 1000.0) as u64
+    }
 }
 
 // Fast initial cluster data fetch - gets all commonly needed data in one call

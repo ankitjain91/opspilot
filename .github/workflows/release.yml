@@ -89,3 +89,82 @@ jobs:
           files: |
             opspilot-*.tar.gz
             opspilot-*.zip
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz
+            src-tauri/target/release/bundle/nsis/opspilot_*.exe
+            src-tauri/target/release/bundle/deb/opspilot_*.deb
+            src-tauri/target/release/bundle/appimage/opspilot_*.AppImage
+
+      # Upload signatures as artifacts for the next job
+      - name: Upload macOS Signature
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz.sig
+
+      - name: Upload Linux Signature
+        if: matrix.platform == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-linux
+          path: src-tauri/target/release/bundle/appimage/opspilot_*.AppImage.sig
+
+      - name: Upload Windows Signature
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-windows
+          path: src-tauri/target/release/bundle/nsis/opspilot_*.exe.sig
+
+  publish-updater:
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download macOS Signature
+        uses: actions/download-artifact@v4
+        with:
+          name: sig-macos
+          path: updater-artifacts
+
+      - name: Download Linux Signature
+        uses: actions/download-artifact@v4
+        with:
+          name: sig-linux
+          path: updater-artifacts
+
+      - name: Download Windows Signature
+        uses: actions/download-artifact@v4
+        with:
+          name: sig-windows
+          path: updater-artifacts
+
+      - name: Rename artifacts for script
+        run: |
+          mv updater-artifacts/opspilot_*.AppImage.sig updater-artifacts/opspilot.AppImage.sig || true
+          mv updater-artifacts/opspilot_*.exe.sig updater-artifacts/opspilot.exe.sig || true
+          # macOS sig is already named correctly by upload step if we are careful, but let's ensure
+          # The upload step uploads specific file. download-artifact downloads it.
+
+      - name: Generate latest.json
+        run: node scripts/generate-latest-json.js
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      - name: Move latest.json to publish dir
+        run: |
+          mkdir public_html
+          mv latest.json public_html/
+
+      - name: Deploy to GitHub Pages (Final)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public_html
+          keep_files: true
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "Update latest.json for ${{ github.ref_name }}"

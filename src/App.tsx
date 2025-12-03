@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient, QueryClient } from "@tanstack/react-query";
+import { Updater } from "./components/Updater";
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { Terminal } from '@xterm/xterm';
@@ -13,7 +14,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import Editor from '@monaco-editor/react';
 import { Virtuoso } from "react-virtuoso";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, BarChart, Bar, Legend } from 'recharts';
 import {
   Activity,
   AlertCircle,
@@ -43,8 +44,6 @@ import {
   Puzzle,
   RefreshCw,
   LogOut as LogOutIcon,
-  Maximize2,
-  Minimize2,
   Cpu,
   Eye,
   List,
@@ -102,6 +101,74 @@ interface ClusterStats {
   deployments: number;
   services: number;
   namespaces: number;
+}
+
+// Comprehensive cockpit data structures
+interface NodeCondition {
+  type_: string;
+  status: string;
+  message: string;
+}
+
+interface NodeHealth {
+  name: string;
+  status: string;
+  cpu_capacity: number;
+  cpu_allocatable: number;
+  cpu_usage: number;
+  memory_capacity: number;
+  memory_allocatable: number;
+  memory_usage: number;
+  pods_capacity: number;
+  pods_running: number;
+  conditions: NodeCondition[];
+  taints: string[];
+}
+
+interface PodStatusBreakdown {
+  running: number;
+  pending: number;
+  succeeded: number;
+  failed: number;
+  unknown: number;
+}
+
+interface DeploymentHealth {
+  name: string;
+  namespace: string;
+  desired: number;
+  ready: number;
+  available: number;
+  up_to_date: number;
+}
+
+interface NamespaceUsage {
+  name: string;
+  pod_count: number;
+  cpu_usage: number;
+  memory_usage: number;
+}
+
+interface ClusterCockpitData {
+  total_nodes: number;
+  healthy_nodes: number;
+  total_pods: number;
+  total_deployments: number;
+  total_services: number;
+  total_namespaces: number;
+  total_cpu_capacity: number;
+  total_cpu_allocatable: number;
+  total_cpu_usage: number;
+  total_memory_capacity: number;
+  total_memory_allocatable: number;
+  total_memory_usage: number;
+  total_pods_capacity: number;
+  pod_status: PodStatusBreakdown;
+  nodes: NodeHealth[];
+  unhealthy_deployments: DeploymentHealth[];
+  top_namespaces: NamespaceUsage[];
+  warning_count: number;
+  critical_count: number;
 }
 
 // Combined initial data for faster first load
@@ -1333,161 +1400,419 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, resourceName }: {
   );
 }
 
-function ClusterOverview({
-  onNavigate,
-  navStructure,
-  vclusters,
-  vclustersLoading,
-  vclustersFetching,
-  isDiscovering
-}: {
-  onNavigate: (res: NavResource) => void,
-  navStructure?: NavGroup[],
-  vclusters?: any[],
-  vclustersLoading?: boolean,
-  vclustersFetching?: boolean,
-  isDiscovering?: boolean
-}) {
-  const { data: stats, isLoading, isError, error } = useQuery({
-    queryKey: ["cluster_stats"],
-    queryFn: async () => await invoke<ClusterStats>("get_cluster_stats"),
-    staleTime: 30000, // Cache for 30 seconds
-    refetchInterval: 60000, // Refetch every 60 seconds (reduced from 30)
+// Cluster Cockpit Dashboard - Airplane cockpit style view
+function ClusterCockpit({ onNavigate: _onNavigate }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[] }) {
+  const { data: cockpit, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["cluster_cockpit"],
+    queryFn: async () => await invoke<ClusterCockpitData>("get_cluster_cockpit"),
+    staleTime: 15000,
+    refetchInterval: 30000,
   });
 
-  if (isError) {
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'Ki', 'Mi', 'Gi', 'Ti'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  };
+
+  const formatCpu = (milli: number) => {
+    if (milli >= 1000) return `${(milli / 1000).toFixed(1)} cores`;
+    return `${milli}m`;
+  };
+
+  // Colors for charts
+  const COLORS = {
+    running: '#22c55e',
+    pending: '#eab308',
+    succeeded: '#3b82f6',
+    failed: '#ef4444',
+    unknown: '#6b7280',
+    cpu: '#06b6d4',
+    memory: '#8b5cf6',
+    healthy: '#22c55e',
+    warning: '#f59e0b',
+    critical: '#ef4444',
+  };
+
+  // Gauge component
+  const Gauge = ({ value, max, label, color, size = 120 }: { value: number, max: number, label: string, color: string, size?: number }) => {
+    const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+    const strokeWidth = 8;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    const getColor = () => {
+      if (percentage >= 90) return COLORS.critical;
+      if (percentage >= 75) return COLORS.warning;
+      return color;
+    };
+
     return (
-      <div className="flex flex-col items-center justify-center p-20 text-red-400">
-        <AlertCircle size={48} className="mb-4" />
-        <p className="text-lg">Failed to load cluster stats</p>
-        <p className="text-sm text-gray-500 mt-2">{String(error)}</p>
+      <div className="flex flex-col items-center">
+        <svg width={size} height={size} className="transform -rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="#27272a"
+            strokeWidth={strokeWidth}
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={getColor()}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            className="transition-all duration-500"
+          />
+        </svg>
+        <div className="absolute flex flex-col items-center justify-center" style={{ width: size, height: size }}>
+          <span className="text-2xl font-bold text-white">{percentage.toFixed(0)}%</span>
+          <span className="text-xs text-zinc-400">{label}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Status indicator
+  const StatusIndicator = ({ status, count, label }: { status: 'healthy' | 'warning' | 'critical', count: number, label: string }) => (
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${status === 'critical' ? 'bg-red-500/10 border-red-500/30' :
+        status === 'warning' ? 'bg-yellow-500/10 border-yellow-500/30' :
+          'bg-green-500/10 border-green-500/30'
+      }`}>
+      <div className={`w-2 h-2 rounded-full ${status === 'critical' ? 'bg-red-500 animate-pulse' :
+          status === 'warning' ? 'bg-yellow-500' :
+            'bg-green-500'
+        }`} />
+      <span className={`text-sm font-medium ${status === 'critical' ? 'text-red-400' :
+          status === 'warning' ? 'text-yellow-400' :
+            'text-green-400'
+        }`}>{count}</span>
+      <span className="text-xs text-zinc-500">{label}</span>
+    </div>
+  );
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-[#09090b]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-12 h-12 text-cyan-400 animate-spin" />
+          <span className="text-zinc-400">Loading cluster cockpit...</span>
+        </div>
       </div>
     );
   }
 
-  const findResourceType = (kind: string): NavResource | null => {
-    if (!navStructure) {
-      console.warn('navStructure not loaded yet');
-      return null;
-    }
-    for (const group of navStructure) {
-      const found = group.items.find(item => item.kind.toLowerCase() === kind.toLowerCase());
-      if (found) {
-        console.log(`Found resource type for ${kind}:`, found);
-        return found;
-      }
-    }
-    console.warn(`Resource type not found for: ${kind}`);
-    return null;
-  };
-
-  // Stat card component with loading state
-  const StatCard = ({ kind, label, value, color, icon: Icon }: {
-    kind: string, label: string, value?: number, color: string, icon: any
-  }) => {
-    const colorClasses: Record<string, { border: string, text: string, bg: string, hover: string }> = {
-      blue: { border: 'hover:border-blue-500', text: 'text-blue-400', bg: 'bg-blue-500/10', hover: 'group-hover:text-blue-300' },
-      green: { border: 'hover:border-green-500', text: 'text-green-400', bg: 'bg-green-500/10', hover: 'group-hover:text-green-300' },
-      purple: { border: 'hover:border-purple-500', text: 'text-purple-400', bg: 'bg-purple-500/10', hover: 'group-hover:text-purple-300' },
-      orange: { border: 'hover:border-orange-500', text: 'text-orange-400', bg: 'bg-orange-500/10', hover: 'group-hover:text-orange-300' },
-      yellow: { border: 'hover:border-yellow-500', text: 'text-yellow-400', bg: 'bg-yellow-500/10', hover: 'group-hover:text-yellow-300' },
-    };
-    const c = colorClasses[color];
-
+  if (isError || !cockpit) {
     return (
-      <button
-        onClick={() => {
-          const resourceType = findResourceType(kind);
-          if (resourceType) onNavigate(resourceType);
-        }}
-        disabled={isDiscovering}
-        className={`bg-gradient-to-br from-gray-900 to-black p-6 rounded-lg border border-gray-800 flex items-center justify-between ${c.border} hover:shadow-lg transition-all cursor-pointer group disabled:opacity-70 disabled:cursor-wait`}
-      >
-        <div className="text-left">
-          <h3 className={`text-gray-400 text-sm font-medium uppercase tracking-wider mb-1 ${c.hover} transition-colors`}>{label}</h3>
-          {isLoading ? (
-            <div className="h-9 w-16 bg-gray-800 rounded animate-pulse" />
-          ) : (
-            <span className={`text-3xl font-bold ${c.text} ${c.hover} transition-colors`}>{value ?? 0}</span>
-          )}
-        </div>
-        <div className={`p-3 rounded-full ${c.bg} group-hover:scale-105 transition-all`}>
-          <Icon className={`${c.text} w-8 h-8 group-hover:scale-110 transition-transform`} />
-        </div>
-      </button>
+      <div className="h-full flex flex-col items-center justify-center bg-[#09090b] p-8">
+        <AlertCircle className="w-16 h-16 text-red-400 mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">Failed to load cockpit</h2>
+        <p className="text-zinc-400 mb-4">{String(error)}</p>
+        <button onClick={() => refetch()} className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 rounded text-white">
+          Retry
+        </button>
+      </div>
     );
-  };
+  }
+
+  // Prepare chart data
+  const podStatusData = [
+    { name: 'Running', value: cockpit.pod_status.running, color: COLORS.running },
+    { name: 'Pending', value: cockpit.pod_status.pending, color: COLORS.pending },
+    { name: 'Succeeded', value: cockpit.pod_status.succeeded, color: COLORS.succeeded },
+    { name: 'Failed', value: cockpit.pod_status.failed, color: COLORS.failed },
+    { name: 'Unknown', value: cockpit.pod_status.unknown, color: COLORS.unknown },
+  ].filter(d => d.value > 0);
+
+  const nodeBarData = cockpit.nodes.slice(0, 8).map(node => ({
+    name: node.name.length > 20 ? node.name.slice(-20) : node.name,
+    cpu: node.cpu_capacity > 0 ? Math.round((node.cpu_usage / node.cpu_capacity) * 100) : 0,
+    memory: node.memory_capacity > 0 ? Math.round((node.memory_usage / node.memory_capacity) * 100) : 0,
+  }));
+
+  const namespaceData = cockpit.top_namespaces.slice(0, 8).map(ns => ({
+    name: ns.name.length > 15 ? ns.name.slice(0, 15) + '...' : ns.name,
+    pods: ns.pod_count,
+  }));
 
   return (
-    <div className="p-8 space-y-8 animate-in fade-in duration-300 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
+    <div className="h-full overflow-y-auto bg-[#09090b] p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-2">Cluster Overview</h1>
-          <p className="text-gray-400">High-level summary of your cluster resources.</p>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+            <Activity className="w-7 h-7 text-cyan-400" />
+            Cluster Cockpit
+          </h1>
+          <p className="text-zinc-500 mt-1">Real-time cluster health and resource monitoring</p>
         </div>
-        {isDiscovering && (
-          <div className="flex items-center gap-2 text-sm text-cyan-400">
-            <Loader2 size={16} className="animate-spin" />
-            <span>Discovering resources...</span>
+        <div className="flex items-center gap-3">
+          <StatusIndicator status={cockpit.critical_count > 0 ? 'critical' : 'healthy'} count={cockpit.critical_count} label="Critical" />
+          <StatusIndicator status={cockpit.warning_count > 0 ? 'warning' : 'healthy'} count={cockpit.warning_count} label="Warnings" />
+          <button onClick={() => refetch()} className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors">
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Gauges Row */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {/* CPU Gauge */}
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
+          <Gauge value={cockpit.total_cpu_usage} max={cockpit.total_cpu_capacity} label="CPU" color={COLORS.cpu} size={140} />
+          <div className="mt-4 text-center">
+            <div className="text-sm text-zinc-400">{formatCpu(cockpit.total_cpu_usage)} / {formatCpu(cockpit.total_cpu_capacity)}</div>
+            <div className="text-xs text-zinc-600 mt-1">Allocatable: {formatCpu(cockpit.total_cpu_allocatable)}</div>
           </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <StatCard kind="Node" label="Nodes" value={stats?.nodes} color="blue" icon={Server} />
-        <StatCard kind="Pod" label="Pods" value={stats?.pods} color="green" icon={Layers} />
-        <StatCard kind="Deployment" label="Deployments" value={stats?.deployments} color="purple" icon={Package} />
-        <StatCard kind="Service" label="Services" value={stats?.services} color="orange" icon={Network} />
-        <StatCard kind="Namespace" label="Namespaces" value={stats?.namespaces} color="yellow" icon={FolderOpen} />
-      </div>
-
-      {/* Virtual Clusters (vcluster) */}
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
-            <Layers size={20} className="text-cyan-400" />
-            Virtual Clusters (vcluster)
-          </h2>
-          <p className="text-gray-400 text-sm">Virtual Kubernetes clusters running in this cluster</p>
         </div>
 
-        {(vclustersLoading || vclustersFetching) ? (
-          <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/20 backdrop-blur-sm rounded-lg p-8 border border-purple-500/30">
-            <div className="flex items-center justify-center gap-3">
-              <svg className="animate-spin h-5 w-5 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span className="text-gray-400">Loading virtual clusters...</span>
+        {/* Memory Gauge */}
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
+          <Gauge value={cockpit.total_memory_usage} max={cockpit.total_memory_capacity} label="Memory" color={COLORS.memory} size={140} />
+          <div className="mt-4 text-center">
+            <div className="text-sm text-zinc-400">{formatBytes(cockpit.total_memory_usage)} / {formatBytes(cockpit.total_memory_capacity)}</div>
+            <div className="text-xs text-zinc-600 mt-1">Allocatable: {formatBytes(cockpit.total_memory_allocatable)}</div>
+          </div>
+        </div>
+
+        {/* Pods Gauge */}
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
+          <Gauge value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} size={140} />
+          <div className="mt-4 text-center">
+            <div className="text-sm text-zinc-400">{cockpit.total_pods} / {cockpit.total_pods_capacity}</div>
+            <div className="text-xs text-zinc-600 mt-1">Running: {cockpit.pod_status.running}</div>
+          </div>
+        </div>
+
+        {/* Nodes Status */}
+        <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex flex-col items-center relative">
+          <Gauge value={cockpit.healthy_nodes} max={cockpit.total_nodes} label="Nodes" color={COLORS.healthy} size={140} />
+          <div className="mt-4 text-center">
+            <div className="text-sm text-zinc-400">{cockpit.healthy_nodes} / {cockpit.total_nodes} Healthy</div>
+            <div className="text-xs text-zinc-600 mt-1">
+              {cockpit.total_nodes - cockpit.healthy_nodes > 0 && (
+                <span className="text-red-400">{cockpit.total_nodes - cockpit.healthy_nodes} unhealthy</span>
+              )}
             </div>
           </div>
-        ) : vclusters && vclusters.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {vclusters.map((vc: any) => {
-              const vclusterName = vc.vclusterName || vc.name;
-              return (
-                <div
-                  key={vc.id}
-                  className="bg-gradient-to-br from-gray-900 to-black p-4 rounded-lg border border-cyan-500/30 hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/30 transition-all"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white text-sm truncate mb-1">{vclusterName}</h3>
-                      <span className="text-xs text-gray-500">Namespace: {vc.namespace}</span>
-                    </div>
-                    <StatusBadge status={vc.status} />
-                  </div>
+        </div>
+      </div>
 
-                  <VclusterConnectButton name={vclusterName} namespace={vc.namespace} />
-                </div>
-              );
-            })}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-5 gap-4 mb-6">
+        {[
+          { label: 'Nodes', value: cockpit.total_nodes, icon: Server, color: 'text-blue-400' },
+          { label: 'Pods', value: cockpit.total_pods, icon: Layers, color: 'text-green-400' },
+          { label: 'Deployments', value: cockpit.total_deployments, icon: Package, color: 'text-purple-400' },
+          { label: 'Services', value: cockpit.total_services, icon: Network, color: 'text-orange-400' },
+          { label: 'Namespaces', value: cockpit.total_namespaces, icon: FolderOpen, color: 'text-yellow-400' },
+        ].map((stat, i) => (
+          <div key={i} className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 hover:border-zinc-700 transition-colors">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-zinc-500 uppercase tracking-wider">{stat.label}</div>
+                <div className={`text-2xl font-bold ${stat.color} mt-1`}>{stat.value}</div>
+              </div>
+              <stat.icon className={`w-8 h-8 ${stat.color} opacity-50`} />
+            </div>
           </div>
-        ) : (
-          <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-4 text-center text-gray-500 text-sm">
-            No vclusters detected in this cluster
+        ))}
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-3 gap-6 mb-6">
+        {/* Pod Status Pie Chart */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <PieChart className="w-4 h-4 text-cyan-400" />
+            Pod Status Distribution
+          </h3>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsPieChart>
+                <Pie
+                  data={podStatusData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {podStatusData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
+                  labelStyle={{ color: '#fff' }}
+                />
+                <Legend
+                  verticalAlign="bottom"
+                  height={36}
+                  formatter={(value) => <span className="text-xs text-zinc-400">{value}</span>}
+                />
+              </RechartsPieChart>
+            </ResponsiveContainer>
           </div>
-        )}
+        </div>
+
+        {/* Node Resource Usage Bar Chart */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <Server className="w-4 h-4 text-cyan-400" />
+            Node Resource Usage (%)
+          </h3>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={nodeBarData} layout="vertical">
+                <XAxis type="number" domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} />
+                <YAxis type="category" dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} width={80} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
+                  labelStyle={{ color: '#fff' }}
+                />
+                <Bar dataKey="cpu" fill={COLORS.cpu} name="CPU %" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="memory" fill={COLORS.memory} name="Memory %" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Top Namespaces */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <FolderOpen className="w-4 h-4 text-cyan-400" />
+            Top Namespaces by Pods
+          </h3>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={namespaceData}>
+                <XAxis dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} angle={-45} textAnchor="end" height={60} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
+                  labelStyle={{ color: '#fff' }}
+                />
+                <Bar dataKey="pods" fill={COLORS.running} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Row - Nodes Table and Unhealthy Deployments */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Nodes Health Table */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <Server className="w-4 h-4 text-cyan-400" />
+            Nodes Health ({cockpit.nodes.length})
+          </h3>
+          <div className="overflow-auto max-h-[280px]">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-zinc-900">
+                <tr className="text-zinc-500 uppercase">
+                  <th className="text-left py-2 px-2">Node</th>
+                  <th className="text-center py-2 px-2">Status</th>
+                  <th className="text-right py-2 px-2">CPU</th>
+                  <th className="text-right py-2 px-2">Memory</th>
+                  <th className="text-right py-2 px-2">Pods</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cockpit.nodes.map((node, i) => {
+                  const cpuPct = node.cpu_capacity > 0 ? (node.cpu_usage / node.cpu_capacity) * 100 : 0;
+                  const memPct = node.memory_capacity > 0 ? (node.memory_usage / node.memory_capacity) * 100 : 0;
+                  return (
+                    <tr key={i} className="border-t border-zinc-800 hover:bg-zinc-800/50">
+                      <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px]" title={node.name}>
+                        {node.name.length > 25 ? '...' + node.name.slice(-22) : node.name}
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${node.status === 'Ready' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                          }`}>{node.status}</span>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${cpuPct > 90 ? 'bg-red-500' : cpuPct > 75 ? 'bg-yellow-500' : 'bg-cyan-500'}`} style={{ width: `${cpuPct}%` }} />
+                          </div>
+                          <span className="text-zinc-400 w-10 text-right">{cpuPct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${memPct > 90 ? 'bg-red-500' : memPct > 75 ? 'bg-yellow-500' : 'bg-purple-500'}`} style={{ width: `${memPct}%` }} />
+                          </div>
+                          <span className="text-zinc-400 w-10 text-right">{memPct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-2 text-right text-zinc-400">
+                        {node.pods_running}/{node.pods_capacity}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Unhealthy Deployments */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-yellow-400" />
+            Unhealthy Deployments ({cockpit.unhealthy_deployments.length})
+          </h3>
+          {cockpit.unhealthy_deployments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[240px] text-zinc-500">
+              <Check className="w-12 h-12 text-green-400 mb-2" />
+              <span>All deployments healthy</span>
+            </div>
+          ) : (
+            <div className="overflow-auto max-h-[280px]">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-zinc-900">
+                  <tr className="text-zinc-500 uppercase">
+                    <th className="text-left py-2 px-2">Deployment</th>
+                    <th className="text-left py-2 px-2">Namespace</th>
+                    <th className="text-center py-2 px-2">Ready</th>
+                    <th className="text-center py-2 px-2">Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cockpit.unhealthy_deployments.map((dep, i) => (
+                    <tr key={i} className="border-t border-zinc-800 hover:bg-zinc-800/50">
+                      <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px]" title={dep.name}>{dep.name}</td>
+                      <td className="py-2 px-2 text-zinc-500 truncate max-w-[100px]">{dep.namespace}</td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`${dep.ready < dep.desired ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {dep.ready}/{dep.desired}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`${dep.available < dep.desired ? 'text-red-400' : 'text-green-400'}`}>
+                          {dep.available}/{dep.desired}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1871,7 +2196,7 @@ interface Tab {
   kind: string;
 }
 
-function Dashboard({ onDisconnect, isConnected, setIsConnected }: { onDisconnect: () => void, isConnected: boolean, setIsConnected: (v: boolean) => void }) {
+function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: boolean, setIsConnected: (v: boolean) => void }) {
   const [activeRes, setActiveRes] = useState<NavResource | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -1945,7 +2270,7 @@ function Dashboard({ onDisconnect, isConnected, setIsConnected }: { onDisconnect
 
   // Detect vcluster instances using vcluster CLI (Moved to Dashboard for persistence)
   // Note: We no longer fetch namespaces here - we reuse cached data from initial fetch
-  const { data: vclusters, isLoading: vclustersLoading, isFetching: vclustersFetching } = useQuery({
+  const { data: _vclusters, isLoading: _vclustersLoading, isFetching: _vclustersFetching } = useQuery({
     queryKey: ["vclusters", currentContext],
     queryFn: async () => {
       try {
@@ -2836,14 +3161,10 @@ function Dashboard({ onDisconnect, isConnected, setIsConnected }: { onDisconnect
                   />
                 )
               ) : (
-                /* ClusterOverview can render immediately - stats load independently */
-                <ClusterOverview
+                /* ClusterCockpit - comprehensive cluster dashboard */
+                <ClusterCockpit
                   navStructure={navStructure}
                   onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
-                  vclusters={vclusters}
-                  vclustersLoading={vclustersLoading}
-                  vclustersFetching={vclustersFetching}
-                  isDiscovering={isDiscovering}
                 />
               )}
             </div>
@@ -4612,7 +4933,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 
         // For Guaranteed: must have both CPU and memory limits equal to requests
         if (!(hasCpuLimit && hasMemLimit && hasCpuRequest && hasMemRequest &&
-              requests.cpu === limits.cpu && requests.memory === limits.memory)) {
+          requests.cpu === limits.cpu && requests.memory === limits.memory)) {
           allGuaranteed = false;
         }
       }
@@ -4639,11 +4960,10 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
             <div><span className="block text-[#858585] mb-1">Restart Policy</span><span className="font-mono text-[#cccccc]">{spec?.restartPolicy || '-'}</span></div>
             <div>
               <span className="block text-[#858585] mb-1">QoS Class</span>
-              <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${
-                qosClass === 'Guaranteed' ? 'bg-[#89d185]/10 text-[#89d185]' :
-                qosClass === 'Burstable' ? 'bg-[#cca700]/10 text-[#cca700]' :
-                'bg-[#858585]/10 text-[#858585]'
-              }`}>{qosClass}</span>
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${qosClass === 'Guaranteed' ? 'bg-[#89d185]/10 text-[#89d185]' :
+                  qosClass === 'Burstable' ? 'bg-[#cca700]/10 text-[#cca700]' :
+                    'bg-[#858585]/10 text-[#858585]'
+                }`}>{qosClass}</span>
             </div>
             <div><span className="block text-[#858585] mb-1">DNS Policy</span><span className="font-mono text-[#cccccc]">{dnsPolicy}</span></div>
             {priorityClassName && (
@@ -5254,7 +5574,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
     };
     const parseMem = (val: string) => {
       if (!val) return 0;
-      const units: Record<string, number> = { Ki: 1024, Mi: 1024**2, Gi: 1024**3, Ti: 1024**4, K: 1000, M: 1000**2, G: 1000**3, T: 1000**4 };
+      const units: Record<string, number> = { Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3, Ti: 1024 ** 4, K: 1000, M: 1000 ** 2, G: 1000 ** 3, T: 1000 ** 4 };
       for (const [suffix, mult] of Object.entries(units)) {
         if (val.endsWith(suffix)) return parseInt(val) * mult;
       }
@@ -5334,12 +5654,11 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
               <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-1">Taints</h4>
               <div className="flex flex-wrap gap-1.5">
                 {taints.map((t: any, i: number) => (
-                  <span key={i} className={`px-2 py-1 rounded text-[10px] font-mono border ${
-                    t.effect === 'NoSchedule' ? 'bg-[#f48771]/10 text-[#f48771] border-[#f48771]/30' :
-                    t.effect === 'NoExecute' ? 'bg-[#f48771]/20 text-[#f48771] border-[#f48771]/40' :
-                    t.effect === 'PreferNoSchedule' ? 'bg-[#cca700]/10 text-[#cca700] border-[#cca700]/30' :
-                    'bg-[#252526] text-[#cccccc] border-[#3e3e42]'
-                  }`} title={`Effect: ${t.effect}${t.value ? `, Value: ${t.value}` : ''}`}>
+                  <span key={i} className={`px-2 py-1 rounded text-[10px] font-mono border ${t.effect === 'NoSchedule' ? 'bg-[#f48771]/10 text-[#f48771] border-[#f48771]/30' :
+                      t.effect === 'NoExecute' ? 'bg-[#f48771]/20 text-[#f48771] border-[#f48771]/40' :
+                        t.effect === 'PreferNoSchedule' ? 'bg-[#cca700]/10 text-[#cca700] border-[#cca700]/30' :
+                          'bg-[#252526] text-[#cccccc] border-[#3e3e42]'
+                    }`} title={`Effect: ${t.effect}${t.value ? `, Value: ${t.value}` : ''}`}>
                     {t.key}={t.value || ''}:{t.effect}
                   </span>
                 ))}
@@ -6572,19 +6891,17 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
                         return (
                           <div
                             key={cluster.id}
-                            className={`group relative rounded-xl border p-5 transition-all duration-300 ${
-                              isRunning
+                            className={`group relative rounded-xl border p-5 transition-all duration-300 ${isRunning
                                 ? 'bg-gradient-to-br from-emerald-500/5 to-transparent border-emerald-500/20 hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/10'
                                 : 'bg-white/[0.02] border-white/10 hover:border-white/20'
-                            }`}
+                              }`}
                           >
                             {/* Status Badge */}
                             <div className="absolute top-4 right-4">
-                              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${
-                                isRunning
+                              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${isRunning
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                   : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
-                              }`}>
+                                }`}>
                                 <div className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
                                 {isRunning ? 'Running' : 'Stopped'}
                               </div>
@@ -6609,11 +6926,10 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
                             <button
                               onClick={() => connectMutation.mutate({ subId: sub.id, cluster })}
                               disabled={connectMutation.isPending || !isRunning}
-                              className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-                                isRunning
+                              className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${isRunning
                                   ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 disabled:opacity-50'
                                   : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                              }`}
+                                }`}
                             >
                               {isConnecting ? (
                                 <>
@@ -6765,11 +7081,11 @@ function AppContent() {
   if (isConnected && (!!globalCurrentContext) && bootError) {
     const errorMessage = (bootErr as any)?.message || "Unknown error";
     const isConnectionError = errorMessage.toLowerCase().includes("connect") ||
-                              errorMessage.toLowerCase().includes("unreachable") ||
-                              errorMessage.toLowerCase().includes("timeout");
+      errorMessage.toLowerCase().includes("unreachable") ||
+      errorMessage.toLowerCase().includes("timeout");
     const isAuthError = errorMessage.toLowerCase().includes("unauthorized") ||
-                        errorMessage.toLowerCase().includes("forbidden") ||
-                        errorMessage.toLowerCase().includes("certificate");
+      errorMessage.toLowerCase().includes("forbidden") ||
+      errorMessage.toLowerCase().includes("certificate");
 
     return (
       <div className="h-screen bg-gradient-to-br from-zinc-900 to-zinc-950 flex flex-col items-center justify-center p-8">

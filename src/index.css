@@ -1,37 +1,57 @@
 @import "tailwindcss";
 
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.95);
-  background-color: #000000;
+  color: rgba(255, 255, 255, 0.90);
+  background-color: #09090b;
+  /* Zinc 950 */
 
   font-synthesis: none;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  --bg-primary: #000000;
-  --bg-secondary: #111111;
-  --bg-tertiary: #1a1a1a;
-  --border-color: #1f2937;
-  --text-primary: #ffffff;
-  --text-secondary: #9ca3af;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Semantic Colors (Zinc Palette) */
+  --bg-primary: #09090b;
+  /* Zinc 950 */
+  --bg-secondary: #18181b;
+  /* Zinc 900 */
+  --bg-tertiary: #27272a;
+  /* Zinc 800 */
+  --bg-surface: rgba(24, 24, 27, 0.6);
+  /* Glass effect base */
+
+  --border-subtle: #27272a;
+  /* Zinc 800 */
+  --border-default: #3f3f46;
+  /* Zinc 700 */
+
+  --text-primary: #fafafa;
+  /* Zinc 50 */
+  --text-secondary: #a1a1aa;
+  /* Zinc 400 */
+  --text-tertiary: #71717a;
+  /* Zinc 500 */
+
   --accent-color: #06b6d4;
-  /* Cyan */
-  --accent-hover: #0891b2;
-  --error-color: #f87171;
-  --success-color: #34d399;
-  --warning-color: #fbbf24;
+  /* Cyan 500 */
+  --accent-glow: rgba(6, 182, 212, 0.15);
+
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
 }
 
 body {
-  @apply bg-black text-white antialiased overflow-hidden;
+  @apply bg-[#09090b] text-zinc-50 antialiased overflow-hidden selection:bg-cyan-500/30;
   font-size: 13px;
-  /* High density */
 }
 
-/* Scrollbar: thin, neutral gray */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -42,23 +62,27 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4b5563; /* gray-600 */
-  border-radius: 6px;
+  @apply bg-zinc-800 rounded-full border-[1px] border-[#09090b];
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280; /* gray-500 */
+  @apply bg-zinc-700;
 }
 
 /* Utilities */
-.border-default {
-  @apply border-[#3e3e42];
+.glass-panel {
+  @apply bg-zinc-900/60 backdrop-blur-md border border-white/5;
 }
 
-.bg-secondary {
-  @apply bg-[#252526];
+.glass-header {
+  @apply bg-[#09090b]/80 backdrop-blur-xl border-b border-white/5;
 }
 
-.text-secondary {
-  @apply text-[#858585];
+.sidebar-item {
+  @apply flex items-center gap-2 px-3 py-2 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-all duration-200;
+}
+
+.sidebar-item.active {
+  @apply text-cyan-400 bg-cyan-500/10;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);
 }
