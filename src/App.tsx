@@ -21,6 +21,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Filter,
   FolderOpen,
   Layers,
@@ -47,9 +48,11 @@ import {
   LogOut as LogOutIcon,
   Cpu,
   Eye,
+  EyeOff,
   List,
   Tags,
   Save,
+  Minus,
   LayoutDashboard,
   Globe,
   Sparkles,
@@ -244,7 +247,7 @@ interface ClusterEventSummary {
   event_type: string;
 }
 
-// Ollama AI status
+// Ollama AI status (legacy)
 interface OllamaStatus {
   ollama_running: boolean;
   model_available: boolean;
@@ -252,6 +255,62 @@ interface OllamaStatus {
   available_models: string[];
   error: string | null;
 }
+
+// LLM Provider types
+type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'custom';
+
+interface LLMConfig {
+  provider: LLMProvider;
+  api_key: string | null;
+  base_url: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+}
+
+interface LLMStatus {
+  connected: boolean;
+  provider: string;
+  model: string;
+  available_models: string[];
+  error: string | null;
+}
+
+// Default LLM configurations
+const DEFAULT_LLM_CONFIGS: Record<LLMProvider, LLMConfig> = {
+  ollama: {
+    provider: 'ollama',
+    api_key: null,
+    base_url: 'http://127.0.0.1:11434',
+    model: 'llama3.1:8b',
+    temperature: 0.2,
+    max_tokens: 2048,
+  },
+  openai: {
+    provider: 'openai',
+    api_key: null,
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    temperature: 0.2,
+    max_tokens: 2048,
+  },
+  anthropic: {
+    provider: 'anthropic',
+    api_key: null,
+    base_url: 'https://api.anthropic.com/v1',
+    model: 'claude-sonnet-4-20250514',
+    temperature: 0.2,
+    max_tokens: 2048,
+  },
+  custom: {
+    provider: 'custom',
+    api_key: null,
+    base_url: 'http://localhost:8000/v1',
+    model: 'default',
+    temperature: 0.2,
+    max_tokens: 2048,
+  },
+};
 
 // Combined initial data for faster first load
 interface InitialClusterData {
@@ -389,7 +448,9 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const sessionId = useMemo(() => `session-${Math.random().toString(36).substr(2, 9)}`, []);
+  const unlistenRef = useRef<(() => void) | null>(null);
+  const unlistenClosedRef = useRef<(() => void) | null>(null);
+  const sessionId = useMemo(() => `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
 
   const [selectedContainer, setSelectedContainer] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
@@ -408,99 +469,157 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
     }
   }, [containers, selectedContainer]);
 
-  const handleDisconnect = useCallback(async () => {
+  const cleanupTerminal = useCallback(() => {
+    if (unlistenRef.current) {
+      unlistenRef.current();
+      unlistenRef.current = null;
+    }
+    if (unlistenClosedRef.current) {
+      unlistenClosedRef.current();
+      unlistenClosedRef.current = null;
+    }
     if (xtermRef.current) {
       xtermRef.current.dispose();
       xtermRef.current = null;
     }
-    setIsConnected(false);
-    setIsConnecting(false);
-    // Ideally we should also tell backend to kill the session, 
-    // but the backend `start_exec` might not have a kill command exposed easily yet 
-    // other than dropping the channel. 
-    // For now, we just clean up frontend.
+    fitAddonRef.current = null;
   }, []);
 
-  const handleConnect = useCallback(() => {
+  const handleDisconnect = useCallback(() => {
+    cleanupTerminal();
+    setIsConnected(false);
+    setIsConnecting(false);
+  }, [cleanupTerminal]);
+
+  const handleConnect = useCallback(async () => {
     if (!terminalRef.current || !selectedContainer) return;
 
+    // Clean up any existing terminal first
+    cleanupTerminal();
     setIsConnecting(true);
 
-    // Initialize xterm
+    // Initialize xterm with optimized settings
     const term = new Terminal({
       cursorBlink: true,
+      cursorStyle: 'block',
       fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+      fontWeight: '400',
+      letterSpacing: 0,
+      lineHeight: 1.2,
+      scrollback: 10000,
+      fastScrollModifier: 'alt',
+      fastScrollSensitivity: 5,
       theme: {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-        cursor: '#cccccc',
+        background: '#0d0d0d',
+        foreground: '#e0e0e0',
+        cursor: '#f0f0f0',
+        cursorAccent: '#0d0d0d',
         selectionBackground: '#264f78',
+        black: '#000000',
+        red: '#e06c75',
+        green: '#98c379',
+        yellow: '#e5c07b',
+        blue: '#61afef',
+        magenta: '#c678dd',
+        cyan: '#56b6c2',
+        white: '#abb2bf',
+        brightBlack: '#5c6370',
+        brightRed: '#e06c75',
+        brightGreen: '#98c379',
+        brightYellow: '#e5c07b',
+        brightBlue: '#61afef',
+        brightMagenta: '#c678dd',
+        brightCyan: '#56b6c2',
+        brightWhite: '#ffffff',
       }
     });
 
     const fitAddon = new FitAddon();
-    const webglAddon = new WebglAddon();
-
     term.loadAddon(fitAddon);
-    term.loadAddon(webglAddon);
+
+    // Try WebGL, fall back gracefully
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      term.loadAddon(webglAddon);
+    } catch {
+      // WebGL not available, canvas renderer will be used
+    }
 
     term.open(terminalRef.current);
-    fitAddon.fit();
 
-    // Handle WebGL context loss
-    webglAddon.onContextLoss(() => {
-      webglAddon.dispose();
+    // Fit after a brief delay to ensure proper sizing
+    requestAnimationFrame(() => {
+      try { fitAddon.fit(); } catch {}
     });
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    term.writeln(`\x1b[33mConnecting to container '${selectedContainer}'...\x1b[0m`);
+    term.writeln(`\x1b[33mConnecting to container '\x1b[1m${selectedContainer}\x1b[0m\x1b[33m'...\x1b[0m`);
 
-    // Start Exec Session
-    invoke("start_exec", { namespace, name, container: selectedContainer, sessionId })
-      .then(() => {
-        term.writeln(`\x1b[32mConnected!\x1b[0m`);
-        term.focus();
-        setIsConnected(true);
-        setIsConnecting(false);
-      })
-      .catch(err => {
-        term.writeln(`\x1b[31mFailed to connect: ${err} \x1b[0m`);
-        setIsConnected(false);
-        setIsConnecting(false);
-      });
+    // Set up event listeners before connecting
+    const outputUnlisten = await listen<string>(`term_output:${sessionId}`, (event) => {
+      if (xtermRef.current) {
+        xtermRef.current.write(event.payload);
+      }
+    });
+    unlistenRef.current = outputUnlisten;
 
-    // Handle Input
-    term.onData(data => {
-      invoke("send_exec_input", { sessionId, data }).catch(console.error);
+    const closedUnlisten = await listen(`term_closed:${sessionId}`, () => {
+      if (xtermRef.current) {
+        xtermRef.current.writeln('\r\n\x1b[31mConnection closed by remote host.\x1b[0m');
+      }
+      setIsConnected(false);
+    });
+    unlistenClosedRef.current = closedUnlisten;
+
+    // Handle Input - send immediately for responsiveness
+    const inputDisposable = term.onData(data => {
+      invoke("send_exec_input", { sessionId, data }).catch(() => {});
     });
 
-    // Handle Output
-    const unlisten = listen<string>(`term_output:${sessionId}`, (event) => {
-      term.write(event.payload);
-    });
-
-    // Handle Resize
-    const handleResize = () => fitAddon.fit();
+    // Handle Resize with debounce
+    let resizeTimeout: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (fitAddonRef.current && xtermRef.current) {
+          try {
+            fitAddonRef.current.fit();
+          } catch {}
+        }
+      }, 100);
+    };
     window.addEventListener("resize", handleResize);
 
-    // Cleanup function for this connection attempt
+    try {
+      await invoke("start_exec", { namespace, name, container: selectedContainer, sessionId });
+      term.writeln(`\x1b[32mConnected to ${name}/${selectedContainer}\x1b[0m\r\n`);
+      term.focus();
+      setIsConnected(true);
+    } catch (err) {
+      term.writeln(`\x1b[31mFailed to connect: ${err}\x1b[0m`);
+      cleanupTerminal();
+    } finally {
+      setIsConnecting(false);
+    }
+
+    // Return cleanup
     return () => {
-      unlisten.then(f => f());
+      clearTimeout(resizeTimeout);
+      inputDisposable.dispose();
       window.removeEventListener("resize", handleResize);
     };
-  }, [namespace, name, selectedContainer, sessionId]);
+  }, [namespace, name, selectedContainer, sessionId, cleanupTerminal]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (xtermRef.current) {
-        xtermRef.current.dispose();
-      }
+      cleanupTerminal();
     };
-  }, []);
+  }, [cleanupTerminal]);
 
   return (
     <div className="flex flex-col h-full gap-2">
@@ -798,95 +917,168 @@ function LocalTerminalTab() {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const sessionId = useMemo(() => `local-${Math.random().toString(36).substr(2, 9)}`, []);
+  const unlistenOutputRef = useRef<(() => void) | null>(null);
+  const unlistenClosedRef = useRef<(() => void) | null>(null);
+  const sessionId = useMemo(() => `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, []);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    // Initialize xterm
-    const term = new Terminal({
-      cursorBlink: true,
-      fontSize: 16,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-        cursor: '#cccccc',
-        selectionBackground: '#264f78',
-      }
-    });
+    let mounted = true;
 
-    const fitAddon = new FitAddon();
-    const webglAddon = new WebglAddon();
-
-    term.loadAddon(fitAddon);
-    term.loadAddon(webglAddon);
-
-    term.open(terminalRef.current);
-
-    // Wait for terminal to be fully rendered before fitting
-    setTimeout(() => {
-      try {
-        fitAddon.fit();
-      } catch (e) {
-        console.warn("Failed to fit terminal on initial load:", e);
-      }
-    }, 50);
-
-    // Handle WebGL context loss
-    webglAddon.onContextLoss(() => {
-      webglAddon.dispose();
-    });
-
-    xtermRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    // Start Local Shell Session
-    invoke("start_local_shell", { sessionId })
-      .then(() => {
-        term.writeln("\x1b[32mStarting local shell...\x1b[0m");
-        term.focus();
-      })
-      .catch(err => {
-        term.writeln(`\x1b[31mFailed to start shell: ${err}\x1b[0m`);
+    const initTerminal = async () => {
+      // Initialize xterm with optimized settings
+      const term = new Terminal({
+        cursorBlink: true,
+        cursorStyle: 'block',
+        fontSize: 14,
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace",
+        fontWeight: '400',
+        letterSpacing: 0,
+        lineHeight: 1.2,
+        scrollback: 50000,
+        fastScrollModifier: 'alt',
+        fastScrollSensitivity: 5,
+        allowProposedApi: true,
+        theme: {
+          background: '#0d0d0d',
+          foreground: '#e0e0e0',
+          cursor: '#f0f0f0',
+          cursorAccent: '#0d0d0d',
+          selectionBackground: '#264f78',
+          black: '#000000',
+          red: '#e06c75',
+          green: '#98c379',
+          yellow: '#e5c07b',
+          blue: '#61afef',
+          magenta: '#c678dd',
+          cyan: '#56b6c2',
+          white: '#abb2bf',
+          brightBlack: '#5c6370',
+          brightRed: '#e06c75',
+          brightGreen: '#98c379',
+          brightYellow: '#e5c07b',
+          brightBlue: '#61afef',
+          brightMagenta: '#c678dd',
+          brightCyan: '#56b6c2',
+          brightWhite: '#ffffff',
+        }
       });
 
-    // Handle Input
-    term.onData(data => {
-      invoke("send_shell_input", { sessionId, data }).catch(console.error);
-    });
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
 
-    // Handle Output
-    const unlisten = listen<string>(`shell_output:${sessionId}`, (event) => {
-      term.write(event.payload);
-    });
-
-    // Handle Resize
-    const handleResize = () => {
+      // Try WebGL for better performance
       try {
-        if (fitAddonRef.current && xtermRef.current) {
-          fitAddonRef.current.fit();
-          const { cols, rows } = xtermRef.current;
-          invoke("resize_shell", { sessionId, rows, cols }).catch(console.error);
-        }
-      } catch (e) {
-        console.warn("Failed to resize terminal:", e);
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        term.loadAddon(webglAddon);
+      } catch {
+        // Canvas fallback
       }
-    };
-    window.addEventListener("resize", handleResize);
 
-    // Initial resize with delay
-    setTimeout(handleResize, 150);
+      if (!terminalRef.current || !mounted) {
+        term.dispose();
+        return;
+      }
+
+      term.open(terminalRef.current);
+      xtermRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      // Set up event listeners
+      const outputUnlisten = await listen<string>(`shell_output:${sessionId}`, (event) => {
+        if (xtermRef.current) {
+          xtermRef.current.write(event.payload);
+        }
+      });
+      unlistenOutputRef.current = outputUnlisten;
+
+      const closedUnlisten = await listen(`shell_closed:${sessionId}`, () => {
+        if (xtermRef.current) {
+          xtermRef.current.writeln('\r\n\x1b[31mShell session ended.\x1b[0m');
+        }
+      });
+      unlistenClosedRef.current = closedUnlisten;
+
+      // Handle Input
+      const inputDisposable = term.onData(data => {
+        invoke("send_shell_input", { sessionId, data }).catch(() => {});
+      });
+
+      // Handle Resize with debounce
+      let resizeTimeout: ReturnType<typeof setTimeout>;
+      const handleResize = () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          if (fitAddonRef.current && xtermRef.current) {
+            try {
+              fitAddonRef.current.fit();
+              const { cols, rows } = xtermRef.current;
+              invoke("resize_shell", { sessionId, rows, cols }).catch(() => {});
+            } catch {}
+          }
+        }, 50);
+      };
+      window.addEventListener("resize", handleResize);
+
+      // Start shell
+      try {
+        await invoke("start_local_shell", { sessionId });
+        if (mounted) {
+          setIsReady(true);
+          // Fit and focus after shell starts
+          requestAnimationFrame(() => {
+            handleResize();
+            term.focus();
+          });
+        }
+      } catch (err) {
+        term.writeln(`\x1b[31mFailed to start shell: ${err}\x1b[0m`);
+      }
+
+      // Return cleanup
+      return () => {
+        clearTimeout(resizeTimeout);
+        inputDisposable.dispose();
+        window.removeEventListener("resize", handleResize);
+      };
+    };
+
+    const cleanupFn = initTerminal();
 
     return () => {
-      unlisten.then(f => f());
-      term.dispose();
-      window.removeEventListener("resize", handleResize);
+      mounted = false;
+      cleanupFn.then(fn => fn?.());
+
+      if (unlistenOutputRef.current) {
+        unlistenOutputRef.current();
+        unlistenOutputRef.current = null;
+      }
+      if (unlistenClosedRef.current) {
+        unlistenClosedRef.current();
+        unlistenClosedRef.current = null;
+      }
+      if (xtermRef.current) {
+        xtermRef.current.dispose();
+        xtermRef.current = null;
+      }
+      // Kill the shell session
+      invoke("stop_local_shell", { sessionId }).catch(() => {});
     };
   }, [sessionId]);
 
   return (
-    <div className="h-full bg-[#1e1e1e] p-0 overflow-hidden">
+    <div className="h-full bg-[#0d0d0d] overflow-hidden relative">
+      {!isReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d0d] z-10">
+          <div className="flex items-center gap-2 text-zinc-500">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Starting shell...</span>
+          </div>
+        </div>
+      )}
       <div ref={terminalRef} className="h-full w-full" />
     </div>
   );
@@ -976,7 +1168,7 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
       qc.invalidateQueries({ queryKey: ["cluster_stats"] });
       qc.invalidateQueries({ queryKey: ["vclusters"] });
       qc.invalidateQueries({ queryKey: ["list_resources"] });
-      qc.invalidateQueries({ queryKey: ["resource"] });
+      qc.invalidateQueries({ queryKey: ["list_resources"] });
       qc.invalidateQueries({ queryKey: ["crd-groups"] });
       qc.clear();
       addLog('Loading cluster dashboard...', 'success');
@@ -1238,14 +1430,14 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                         {connectMutation.isPending && connectMutation.variables === ctx ? (
                           <Loader2 size={18} className="animate-spin text-cyan-400" />
                         ) : (
-                          <ChevronRight size={16} className={`transition-all ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
+                          <ChevronRight size={16} className={`transition-[color,transform] duration-150 ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
                         )}
                       </button>
                       {/* Delete button */}
                       <button
                         onClick={(e) => handleDeleteContext(ctx, e)}
                         disabled={ctx === currentContext || deleteMutation.isPending}
-                        className={`ml-2 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100
+                        className={`ml-2 p-1.5 rounded-lg transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100
                           ${ctx === currentContext
                             ? 'text-zinc-600 cursor-not-allowed'
                             : 'text-zinc-500 hover:text-red-400 hover:bg-red-500/10'}`}
@@ -1636,7 +1828,7 @@ function ResourceContextMenu({
     <div className="relative" ref={menuRef}>
       <button
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
-        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-all opacity-0 group-hover:opacity-100"
+        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100"
         title="Actions"
       >
         <MoreVertical size={16} />
@@ -2751,36 +2943,392 @@ function OllamaSetupInstructions({ status, onRetry }: { status: OllamaStatus | n
   );
 }
 
+// LLM Settings Component - Industry-standard configuration
+function LLMSettingsPanel({
+  config,
+  onConfigChange,
+  onClose
+}: {
+  config: LLMConfig;
+  onConfigChange: (config: LLMConfig) => void;
+  onClose: () => void;
+}) {
+  const [localConfig, setLocalConfig] = useState<LLMConfig>(config);
+  const [status, setStatus] = useState<LLMStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+
+  const providerInfo: Record<LLMProvider, { name: string; description: string; icon: string; requiresApiKey: boolean; defaultModel: string }> = {
+    ollama: {
+      name: 'Ollama',
+      description: 'Free, local AI. Runs on your machine.',
+      icon: '🦙',
+      requiresApiKey: false,
+      defaultModel: 'llama3.1:8b',
+    },
+    openai: {
+      name: 'OpenAI',
+      description: 'GPT-4o and more. Requires API key.',
+      icon: '🤖',
+      requiresApiKey: true,
+      defaultModel: 'gpt-4o',
+    },
+    anthropic: {
+      name: 'Anthropic',
+      description: 'Claude models. Requires API key.',
+      icon: '🧠',
+      requiresApiKey: true,
+      defaultModel: 'claude-sonnet-4-20250514',
+    },
+    custom: {
+      name: 'Custom',
+      description: 'OpenAI-compatible endpoint (vLLM, etc.)',
+      icon: '⚙️',
+      requiresApiKey: false,
+      defaultModel: 'default',
+    },
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCommand(id);
+    setTimeout(() => setCopiedCommand(null), 2000);
+  };
+
+  const checkConnection = async () => {
+    setChecking(true);
+    setStatus(null);
+    try {
+      const result = await invoke<LLMStatus>("check_llm_status", { config: localConfig });
+      setStatus(result);
+    } catch (err) {
+      setStatus({
+        connected: false,
+        provider: localConfig.provider,
+        model: localConfig.model,
+        available_models: [],
+        error: String(err),
+      });
+    }
+    setChecking(false);
+  };
+
+  const handleProviderChange = (provider: LLMProvider) => {
+    const defaultConfig = DEFAULT_LLM_CONFIGS[provider];
+    setLocalConfig({ ...defaultConfig, api_key: provider === localConfig.provider ? localConfig.api_key : null });
+    setStatus(null);
+  };
+
+  const handleSave = () => {
+    // Use default model if model field is empty
+    const configToSave = {
+      ...localConfig,
+      model: localConfig.model.trim() || currentProviderInfo.defaultModel,
+    };
+    onConfigChange(configToSave);
+    // Save to localStorage
+    localStorage.setItem('opspilot-llm-config', JSON.stringify(configToSave));
+    onClose();
+  };
+
+  useEffect(() => {
+    // Auto-check on mount
+    checkConnection();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const currentProviderInfo = providerInfo[localConfig.provider];
+
+  return (
+    <div className="p-5 space-y-5 max-h-full overflow-y-auto">
+      {/* Decorative background */}
+      <div className="absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-violet-500/10 via-fuchsia-500/5 to-transparent pointer-events-none" />
+      <div className="absolute -top-20 -right-20 w-40 h-40 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Header */}
+      <div className="relative flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl blur-sm opacity-60" />
+            <div className="relative w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+              <Settings size={20} className="text-white" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white tracking-tight">AI Settings</h3>
+            <p className="text-xs text-zinc-400">Configure your AI provider</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-all">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* Provider Selection */}
+      <div className="relative space-y-3">
+        <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Select Provider</label>
+        <div className="grid grid-cols-2 gap-2.5">
+          {(Object.keys(providerInfo) as LLMProvider[]).map(provider => (
+            <button
+              key={provider}
+              onClick={() => handleProviderChange(provider)}
+              className={`relative p-3.5 rounded-xl text-left transition-all duration-200 border overflow-hidden group ${
+                localConfig.provider === provider
+                  ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
+                  : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+              }`}
+            >
+              {localConfig.provider === provider && (
+                <div className="absolute top-2 right-2">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                    <Check size={12} className="text-white" />
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <span className="text-xl">{providerInfo[provider].icon}</span>
+                <span className="font-semibold text-white text-sm">{providerInfo[provider].name}</span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">{providerInfo[provider].description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Connection Status */}
+      <div className="relative bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`relative w-3 h-3 rounded-full ${
+              checking ? 'bg-amber-400' :
+              status?.connected ? 'bg-emerald-400' : 'bg-red-400'
+            }`}>
+              {checking && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
+              {status?.connected && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
+            </div>
+            <div>
+              <span className="text-sm font-medium text-white">Connection Status</span>
+              {status && (
+                <p className={`text-xs ${status.connected ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {status.connected ? `Connected to ${status.provider}` : (status.error || 'Not connected')}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={checkConnection}
+            disabled={checking}
+            className="text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-all disabled:opacity-50 font-medium"
+          >
+            {checking ? 'Testing...' : 'Test Connection'}
+          </button>
+        </div>
+      </div>
+
+      {/* Ollama Setup Instructions */}
+      {localConfig.provider === 'ollama' && status && !status.connected && (
+        <div className="relative bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-amber-400" />
+            <p className="text-sm text-amber-300 font-semibold">Ollama Setup Required</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 bg-black/20 rounded-lg p-2">
+              <code className="flex-1 text-[11px] text-cyan-300 font-mono">brew install ollama && ollama serve</code>
+              <button
+                onClick={() => copyToClipboard('brew install ollama && ollama serve', 'install')}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
+              >
+                {copiedCommand === 'install' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 bg-black/20 rounded-lg p-2">
+              <code className="flex-1 text-[11px] text-cyan-300 font-mono">ollama pull {localConfig.model}</code>
+              <button
+                onClick={() => copyToClipboard(`ollama pull ${localConfig.model}`, 'pull')}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
+              >
+                {copiedCommand === 'pull' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </div>
+          <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1.5 transition-colors">
+            Visit ollama.com for more info <ExternalLink size={12} />
+          </a>
+        </div>
+      )}
+
+      {/* API Key */}
+      {currentProviderInfo.requiresApiKey && (
+        <div className="space-y-2.5">
+          <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">API Key</label>
+          <div className="relative">
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              value={localConfig.api_key || ''}
+              onChange={(e) => setLocalConfig({ ...localConfig, api_key: e.target.value || null })}
+              placeholder={`Enter your ${currentProviderInfo.name} API key`}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-11 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition-colors"
+            >
+              {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="text-[11px] text-zinc-500">
+            {localConfig.provider === 'openai' && 'Get your API key from platform.openai.com'}
+            {localConfig.provider === 'anthropic' && 'Get your API key from console.anthropic.com'}
+          </p>
+        </div>
+      )}
+
+      {/* Base URL */}
+      <div className="space-y-2.5">
+        <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+          Base URL
+          {localConfig.provider !== 'custom' && <span className="text-zinc-500 font-normal normal-case">(optional)</span>}
+        </label>
+        <input
+          type="text"
+          value={localConfig.base_url}
+          onChange={(e) => setLocalConfig({ ...localConfig, base_url: e.target.value })}
+          placeholder="API endpoint URL"
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono text-xs"
+        />
+      </div>
+
+      {/* Advanced Settings */}
+      <details className="group">
+        <summary className="text-xs font-semibold text-zinc-400 uppercase tracking-wider cursor-pointer hover:text-zinc-300 flex items-center gap-2 transition-colors">
+          <ChevronRight size={14} className="transition-transform duration-200 group-open:rotate-90" />
+          Advanced Settings
+        </summary>
+        <div className="mt-4 space-y-5 pl-5 border-l-2 border-white/10">
+          {/* Model Override */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-zinc-300 font-medium">Model Override</label>
+              <span className="text-[10px] text-zinc-500">Default: {currentProviderInfo.defaultModel}</span>
+            </div>
+            <input
+              type="text"
+              value={localConfig.model}
+              onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
+              placeholder={currentProviderInfo.defaultModel}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:outline-none transition-all font-mono text-xs"
+            />
+            <p className="text-[10px] text-zinc-500">Leave empty to use the default. Only change if you know the exact model name.</p>
+          </div>
+
+          {/* Temperature */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-zinc-300 font-medium">Temperature</label>
+              <span className="text-xs text-violet-400 font-mono bg-violet-500/10 px-2 py-0.5 rounded-md">{localConfig.temperature.toFixed(2)}</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={localConfig.temperature}
+              onChange={(e) => setLocalConfig({ ...localConfig, temperature: parseFloat(e.target.value) })}
+              className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-violet-500"
+            />
+            <div className="flex justify-between text-[10px] text-zinc-500">
+              <span>Precise</span>
+              <span>Creative</span>
+            </div>
+          </div>
+
+          {/* Max Tokens */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-zinc-300 font-medium">Max Tokens</label>
+              <span className="text-xs text-violet-400 font-mono bg-violet-500/10 px-2 py-0.5 rounded-md">{localConfig.max_tokens}</span>
+            </div>
+            <input
+              type="range"
+              min="256"
+              max="8192"
+              step="256"
+              value={localConfig.max_tokens}
+              onChange={(e) => setLocalConfig({ ...localConfig, max_tokens: parseInt(e.target.value) })}
+              className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-violet-500"
+            />
+          </div>
+        </div>
+      </details>
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 pt-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-3 px-4 rounded-xl border border-white/10 text-zinc-300 font-medium text-sm hover:bg-white/5 hover:border-white/20 transition-all"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={currentProviderInfo.requiresApiKey && !localConfig.api_key}
+          className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-[1.02] disabled:hover:scale-100"
+        >
+          <Check size={16} />
+          Save Settings
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Helper to load LLM config from localStorage
+function loadLLMConfig(): LLMConfig {
+  try {
+    const saved = localStorage.getItem('opspilot-llm-config');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return DEFAULT_LLM_CONFIGS.ollama;
+}
+
 // Cluster-wide AI Chat Panel component - Global floating chat
 function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { onClose: () => void, isMinimized: boolean, onToggleMinimize: () => void }) {
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string }>>([]);
   const [userInput, setUserInput] = useState("");
   const [llmLoading, setLlmLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
-  const [checkingOllama, setCheckingOllama] = useState(true);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig);
+  const [llmStatus, setLlmStatus] = useState<LLMStatus | null>(null);
+  const [checkingLLM, setCheckingLLM] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Check Ollama status on mount
+  // Check LLM status on mount
   useEffect(() => {
-    checkOllamaStatus();
-  }, []);
+    checkLLMStatus();
+  }, [llmConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const checkOllamaStatus = async () => {
-    setCheckingOllama(true);
+  const checkLLMStatus = async () => {
+    setCheckingLLM(true);
     try {
-      const status = await invoke<OllamaStatus>("check_ollama_status");
-      setOllamaStatus(status);
+      const status = await invoke<LLMStatus>("check_llm_status", { config: llmConfig });
+      setLlmStatus(status);
     } catch (err) {
-      setOllamaStatus({
-        ollama_running: false,
-        model_available: false,
-        model_name: 'llama3.1:8b',
+      setLlmStatus({
+        connected: false,
+        provider: llmConfig.provider,
+        model: llmConfig.model,
         available_models: [],
         error: String(err),
       });
     } finally {
-      setCheckingOllama(false);
+      setCheckingLLM(false);
     }
   };
 
@@ -2871,7 +3419,8 @@ OUTPUT FORMAT (EVERY TURN)
 
 Keep responses concise and actionable. Focus on the most important issues.`;
 
-      const answer = await invoke<string>("call_local_llm_with_tools", {
+      const answer = await invoke<string>("call_llm", {
+        config: llmConfig,
         prompt: `${context}\n\nUser: ${message}`,
         systemPrompt,
         conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
@@ -2992,7 +3541,8 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
         }
 
         // Get follow-up analysis with tool results
-        const followUp = await invoke<string>("call_local_llm_with_tools", {
+        const followUp = await invoke<string>("call_llm", {
+          config: llmConfig,
           prompt: `Tool results:\n${allToolResults.join('\n\n')}\n\nAnalyze these results and provide your assessment.`,
           systemPrompt: "You are analyzing Kubernetes cluster data. Summarize findings, identify issues, and provide recommendations. Be concise.",
           conversationHistory: [],
@@ -3003,7 +3553,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
         setChatHistory(prev => [...prev, { role: 'assistant', content: answer }]);
       }
     } catch (err) {
-      setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Make sure Ollama is running with llama3.1:8b model.` }]);
+      setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Check your AI settings or provider connection.` }]);
     } finally {
       setLlmLoading(false);
     }
@@ -3014,16 +3564,19 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
     return (
       <div
         onClick={onToggleMinimize}
-        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 cursor-pointer transition-all group"
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-2.5 px-5 py-2.5 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-500 hover:via-purple-500 hover:to-fuchsia-500 rounded-2xl shadow-xl shadow-purple-500/25 cursor-pointer transition-all duration-300 group hover:scale-105 hover:shadow-purple-500/40"
       >
-        <MessageSquare size={18} className="text-white" />
-        <span className="text-white font-medium text-sm">AI Chat</span>
+        <div className="relative">
+          <Sparkles size={18} className="text-white" />
+          <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+        </div>
+        <span className="text-white font-semibold text-sm tracking-tight">AI Assistant</span>
         {chatHistory.length > 0 && (
-          <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/20 text-white">{chatHistory.filter(m => m.role === 'assistant').length}</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-medium backdrop-blur-sm">{chatHistory.filter(m => m.role === 'assistant').length}</span>
         )}
         <button
           onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className="ml-1 p-0.5 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+          className="ml-1 p-1 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition-all opacity-0 group-hover:opacity-100"
         >
           <X size={14} />
         </button>
@@ -3032,71 +3585,144 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
   }
 
   return (
-    <div className={`fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[500px] h-[600px]'} z-50 flex flex-col bg-[#1a1a1d] border border-purple-500/30 rounded-xl shadow-2xl transition-all duration-300`}>
+    <div className={`fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[480px] h-[640px]'} z-50 flex flex-col bg-gradient-to-b from-[#1a1a2e] to-[#16161a] border border-white/10 rounded-2xl shadow-2xl shadow-black/50 transition-all duration-300 overflow-hidden`}>
+      {/* Decorative background effects */}
+      <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-500/10 via-fuchsia-500/5 to-transparent pointer-events-none" />
+      <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-purple-500/30 bg-gradient-to-r from-purple-500/10 to-cyan-500/10">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-purple-500/20">
-            <MessageSquare size={16} className="text-purple-400" />
+      <div className="relative flex items-center justify-between px-4 py-3.5 border-b border-white/5 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl blur-sm opacity-60" />
+            <div className="relative p-2 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
+              <Sparkles size={16} className="text-white" />
+            </div>
           </div>
-          <span className="font-semibold text-white">Cluster AI Assistant</span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">Beta</span>
+          <div>
+            <h3 className="font-semibold text-white text-sm tracking-tight">AI Assistant</h3>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="text-[10px] text-zinc-400 hover:text-zinc-300 flex items-center gap-1.5 transition-colors group"
+            >
+              <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
+              <span>{llmConfig.provider === 'ollama' ? 'Ollama' : llmConfig.provider === 'openai' ? 'OpenAI' : llmConfig.provider === 'anthropic' ? 'Anthropic' : 'Custom'}</span>
+              <span className="text-zinc-500">•</span>
+              <span className="text-zinc-500 group-hover:text-zinc-400">{llmConfig.model.split(':')[0]}</span>
+              <ChevronDown size={10} className="text-zinc-500" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-all"
+            title="Settings"
+          >
+            <Settings size={15} />
+          </button>
           <button
             onClick={onToggleMinimize}
-            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-all"
             title="Minimize"
           >
-            <Minimize2 size={16} />
+            <Minus size={15} />
           </button>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-all"
             title={isExpanded ? "Restore" : "Expand"}
           >
-            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-red-500/10 text-zinc-400 hover:text-red-400 transition-all"
             title="Close"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
       </div>
 
+      {/* Settings Panel Modal */}
+      {showSettings && (
+        <div className="absolute inset-0 z-50 bg-gradient-to-b from-[#1a1a2e] to-[#16161a] rounded-2xl overflow-y-auto">
+          <LLMSettingsPanel
+            config={llmConfig}
+            onConfigChange={(newConfig) => {
+              setLlmConfig(newConfig);
+              setShowSettings(false);
+            }}
+            onClose={() => setShowSettings(false)}
+          />
+        </div>
+      )}
+
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Loading state while checking Ollama */}
-        {checkingOllama && chatHistory.length === 0 && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+      <div className="relative flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Loading state while checking LLM */}
+        {checkingLLM && chatHistory.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-full blur-xl opacity-30 animate-pulse" />
+              <Loader2 className="relative w-10 h-10 animate-spin text-purple-400" />
+            </div>
+            <p className="mt-4 text-sm text-zinc-400 animate-pulse">Connecting to AI...</p>
           </div>
         )}
 
-        {/* Show setup instructions if Ollama not ready */}
-        {!checkingOllama && (!ollamaStatus?.ollama_running || !ollamaStatus?.model_available) && chatHistory.length === 0 && (
-          <OllamaSetupInstructions status={ollamaStatus} onRetry={checkOllamaStatus} />
+        {/* Show setup prompt if LLM not connected */}
+        {!checkingLLM && !llmStatus?.connected && chatHistory.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 px-6">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl blur-xl opacity-20" />
+              <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center border border-orange-500/20 backdrop-blur-sm">
+                <AlertCircle size={36} className="text-orange-400" />
+              </div>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Setup Required</h3>
+            <p className="text-sm text-zinc-400 text-center mb-1 max-w-[280px]">{llmStatus?.error || 'Configure your AI provider to start chatting.'}</p>
+            <p className="text-xs text-zinc-500 mb-6 font-mono">{llmConfig.provider} • {llmConfig.model}</p>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="group px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold text-sm transition-all duration-300 flex items-center gap-2 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 hover:scale-105"
+            >
+              <Settings size={16} className="group-hover:rotate-90 transition-transform duration-300" />
+              Configure AI
+            </button>
+          </div>
         )}
 
-        {/* Normal chat welcome screen - only show when Ollama is ready */}
-        {!checkingOllama && ollamaStatus?.ollama_running && ollamaStatus?.model_available && chatHistory.length === 0 && (
-          <div className="text-center py-8">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-500/20 flex items-center justify-center">
-              <MessageSquare size={32} className="text-purple-400" />
+        {/* Normal chat welcome screen - only show when LLM is ready */}
+        {!checkingLLM && llmStatus?.connected && chatHistory.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-10 px-6">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-2xl blur-xl opacity-20 animate-pulse" />
+              <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/20 to-cyan-500/20 flex items-center justify-center border border-violet-500/20 backdrop-blur-sm">
+                <Sparkles size={36} className="text-violet-400" />
+              </div>
             </div>
-            <h3 className="text-lg font-semibold text-white mb-2">Cluster AI Assistant</h3>
-            <p className="text-sm text-zinc-400 mb-4">Ask me anything about your cluster's health, resources, or issues.</p>
-            <div className="flex flex-wrap gap-2 justify-center">
-              {['What issues are in my cluster?', 'Show crashlooping pods', 'Check cluster health'].map(q => (
+            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Ready to Help</h3>
+            <p className="text-sm text-zinc-400 text-center mb-1 max-w-[300px]">Ask me anything about your cluster's health, resources, or issues.</p>
+            <p className="text-xs text-zinc-500 mb-6 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+              {llmStatus.provider} • {llmConfig.model.split(':')[0]}
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center max-w-[360px]">
+              {[
+                { icon: '🔍', text: 'Find cluster issues' },
+                { icon: '🔄', text: 'Crashlooping pods' },
+                { icon: '📊', text: 'Health overview' }
+              ].map(q => (
                 <button
-                  key={q}
-                  onClick={() => sendMessage(q)}
-                  className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                  key={q.text}
+                  onClick={() => sendMessage(q.text)}
+                  className="px-3.5 py-2 text-xs bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white rounded-xl transition-all border border-white/5 hover:border-white/10 flex items-center gap-2"
                 >
-                  {q}
+                  <span>{q.icon}</span>
+                  {q.text}
                 </button>
               ))}
             </div>
@@ -3104,30 +3730,32 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
         )}
 
         {chatHistory.map((msg, i) => (
-          <div key={i}>
+          <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {msg.role === 'user' && (
               <div className="flex justify-end">
-                <div className="max-w-[80%] rounded-lg px-3 py-2 bg-purple-500/20 border border-purple-500/30 text-white text-sm">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 bg-gradient-to-br from-violet-600/90 to-fuchsia-600/90 text-white text-sm shadow-lg shadow-purple-500/10">
                   {msg.content}
                 </div>
               </div>
             )}
             {msg.role === 'tool' && (
-              <div className="bg-zinc-800/50 rounded-lg border border-zinc-700 overflow-hidden">
-                <div className="px-3 py-2 bg-zinc-800 border-b border-zinc-700 flex items-center gap-2">
-                  <TerminalIcon size={14} className="text-cyan-400" />
-                  <span className="text-xs font-medium text-cyan-300">{msg.toolName}</span>
-                  {msg.command && <code className="text-xs text-zinc-500 ml-auto">{msg.command}</code>}
+              <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden">
+                <div className="px-3 py-2 bg-white/5 border-b border-white/5 flex items-center gap-2">
+                  <div className="p-1 rounded bg-cyan-500/20">
+                    <TerminalIcon size={12} className="text-cyan-400" />
+                  </div>
+                  <span className="text-xs font-semibold text-cyan-300">{msg.toolName}</span>
+                  {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px]">{msg.command}</code>}
                 </div>
-                <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
+                <div className="px-3 py-2.5 prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown
                     components={{
-                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1">{children}</p>,
-                      code: ({ children }) => <code className="text-xs bg-zinc-900 px-1 rounded text-cyan-300">{children}</code>,
-                      pre: ({ children }) => <pre className="text-xs bg-zinc-900 p-2 rounded overflow-x-auto my-2">{children}</pre>,
-                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1">{children}</ul>,
+                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
+                      code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                      pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1 space-y-0.5">{children}</ul>,
                       li: ({ children }) => <li className="text-zinc-300">{children}</li>,
-                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-2 mb-1">{children}</h2>,
+                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-3 mb-1.5">{children}</h2>,
                     }}
                   >
                     {msg.content}
@@ -3136,20 +3764,23 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
               </div>
             )}
             {msg.role === 'assistant' && (
-              <div className="flex justify-start">
-                <div className="max-w-[85%] rounded-lg px-3 py-2 bg-zinc-800 border border-zinc-700 prose prose-invert prose-sm max-w-none">
+              <div className="flex justify-start gap-2">
+                <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
+                  <Sparkles size={12} className="text-violet-400" />
+                </div>
+                <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown
                     components={{
-                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1.5">{children}</p>,
+                      p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
                       strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                      code: ({ children }) => <code className="text-xs bg-zinc-900 px-1 rounded text-cyan-300">{children}</code>,
-                      pre: ({ children }) => <pre className="text-xs bg-zinc-900 p-2 rounded overflow-x-auto my-2">{children}</pre>,
-                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="text-xs list-decimal ml-4 my-1">{children}</ol>,
-                      li: ({ children }) => <li className="text-zinc-300">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-2 mb-1">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-2 mb-1">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-xs font-semibold text-white mt-1.5 mb-0.5">{children}</h3>,
+                      code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                      pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                      ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="text-zinc-200">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-3 mb-1.5">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-3 mb-1.5">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-xs font-semibold text-white mt-2 mb-1">{children}</h3>,
                     }}
                   >
                     {msg.content}
@@ -3161,10 +3792,17 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
         ))}
 
         {llmLoading && (
-          <div className="flex justify-start">
-            <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-purple-400" />
-              <span>Analyzing cluster...</span>
+          <div className="flex justify-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
+              <Sparkles size={12} className="text-violet-400 animate-pulse" />
+            </div>
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-3">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+              <span className="text-sm text-zinc-400">Analyzing cluster...</span>
             </div>
           </div>
         )}
@@ -3172,20 +3810,22 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
       </div>
 
       {/* Input */}
-      <div className="border-t border-purple-500/30 p-3 bg-zinc-900/50">
+      <div className="relative border-t border-white/5 p-3 bg-black/20 backdrop-blur-sm">
         <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex gap-2">
-          <input
-            type="text"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            disabled={llmLoading}
-            placeholder="Ask about your cluster..."
-            className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-purple-500"
-          />
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              disabled={llmLoading}
+              placeholder="Ask about your cluster..."
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500/50 focus:bg-white/10 transition-all duration-200"
+            />
+          </div>
           <button
             type="submit"
             disabled={llmLoading || !userInput.trim()}
-            className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium transition-colors"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white font-medium transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100"
           >
             <Send size={16} />
           </button>
@@ -4201,7 +4841,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["resource"] });
+      qc.invalidateQueries({ queryKey: ["list_resources"] });
       if (activeTabId) {
         handleCloseTab(activeTabId);
       }
@@ -4860,7 +5500,7 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
           {kind === "Pod" && (
             <button
               onClick={() => setIsPFOpen(true)}
-              className="p-1.5 text-cyan-400 hover:bg-cyan-500/10 rounded transition-all flex items-center gap-1 border border-cyan-500/30 hover:border-cyan-500/50"
+              className="p-1.5 text-cyan-400 hover:bg-cyan-500/10 rounded transition-colors flex items-center gap-1 border border-cyan-500/30 hover:border-cyan-500/50"
               title="Port Forward"
             >
               <Plug size={14} />
@@ -4869,12 +5509,12 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
           )}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-all"
+            className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-colors"
             title={isExpanded ? "Minimize panel" : "Maximize panel"}
           >
             {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
-          <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-all">
+          <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded transition-colors">
             <X size={16} />
           </button>
         </div>
@@ -7630,7 +8270,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
 function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string, podSpec: any }) {
   const [selectedContainer, setSelectedContainer] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [logs, setLogs] = useState<string>("");
+  const [allLogs, setAllLogs] = useState<string[]>([]); // Store all log lines
   const [isStreaming, setIsStreaming] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [autoFollow, setAutoFollow] = useState(true);
@@ -7638,8 +8278,11 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
   const [wrapLines, setWrapLines] = useState(false);
   const [fontSize, setFontSize] = useState<'xs' | 'sm' | 'base'>('xs');
   const [error, setError] = useState<string | null>(null);
-  const sessionId = useMemo(() => `log-${Math.random().toString(36).substr(2, 9)}`, [namespace, name, selectedContainer]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const matchRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const sessionIdRef = useRef<string>(`log-${Math.random().toString(36).substr(2, 9)}`);
+  const streamActiveRef = useRef<boolean>(false);
 
   // Extract containers from spec
   const containers = [
@@ -7654,50 +8297,106 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
     }
   }, [containers]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Start streaming
+  // Start streaming - ONLY depends on container change, NOT on pause state
   useEffect(() => {
-    if (!selectedContainer || isPaused) return;
+    if (!selectedContainer) return;
+
+    // Generate new session ID for new container
+    const sessionId = `log-${namespace}-${name}-${selectedContainer}-${Date.now()}`;
+    sessionIdRef.current = sessionId;
 
     setError(null);
     setIsStreaming(true);
-    setLogs(""); // Clear on container change
+    setAllLogs([]); // Clear logs only on container change
+    streamActiveRef.current = true;
 
     invoke("start_log_stream", { namespace, name, container: selectedContainer, sessionId })
       .catch((err: any) => {
         setError(String(err));
         setIsStreaming(false);
+        streamActiveRef.current = false;
       });
 
-    const unlisten = listen<string>(`log_stream:${sessionId}`, (event) => {
-      setLogs((prev) => prev + event.payload);
-    });
+    let unlistenFn: (() => void) | null = null;
+    let unlistenEndFn: (() => void) | null = null;
 
-    const unlistenEnd = listen(`log_stream_end:${sessionId}`, () => {
-      setIsStreaming(false);
-    });
+    const setupListeners = async () => {
+      unlistenFn = await listen<string>(`log_stream:${sessionId}`, (event) => {
+        if (!streamActiveRef.current) return;
+        // Append new log lines
+        const newLines = event.payload.split('\n').filter(line => line.length > 0);
+        if (newLines.length > 0) {
+          setAllLogs(prev => [...prev, ...newLines]);
+        }
+      });
+
+      unlistenEndFn = await listen(`log_stream_end:${sessionId}`, () => {
+        setIsStreaming(false);
+        streamActiveRef.current = false;
+      });
+    };
+
+    setupListeners();
 
     return () => {
-      unlisten.then((f) => f());
-      unlistenEnd.then((f) => f());
+      streamActiveRef.current = false;
+      if (unlistenFn) unlistenFn();
+      if (unlistenEndFn) unlistenEndFn();
       invoke("stop_log_stream", { sessionId }).catch(() => { });
       setIsStreaming(false);
     };
-  }, [namespace, name, selectedContainer, sessionId, isPaused]);
+  }, [namespace, name, selectedContainer]);
 
-  // Auto-scroll
+  // Filter logs based on search - this is separate from streaming
+  const { filteredLogLines, matchingIndices } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { filteredLogLines: allLogs, matchingIndices: [] as number[] };
+    }
+    const query = searchQuery.toLowerCase();
+    const indices: number[] = [];
+    const filtered = allLogs.filter((line, idx) => {
+      const matches = line.toLowerCase().includes(query);
+      if (matches) indices.push(idx);
+      return matches;
+    });
+    return { filteredLogLines: filtered, matchingIndices: indices };
+  }, [allLogs, searchQuery]);
+
+  // Reset match index when search changes
   useEffect(() => {
-    if (autoFollow && scrollRef.current) {
+    setCurrentMatchIndex(0);
+  }, [searchQuery]);
+
+  // Auto-scroll to bottom when new logs come in (only if not searching and autoFollow is on)
+  useEffect(() => {
+    if (autoFollow && !searchQuery && scrollRef.current && !isPaused) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs, autoFollow]);
+  }, [allLogs, autoFollow, searchQuery, isPaused]);
 
-  const filteredLogLines = useMemo(() => {
-    const lines = logs.split('\n');
-    if (!searchQuery) return lines;
-    return lines.filter(line => line.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [logs, searchQuery]);
+  // Navigate to current match
+  const navigateToMatch = useCallback((index: number) => {
+    if (matchRefs.current[index]) {
+      matchRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
 
-  const logLineCount = logs.split('\n').length;
+  // Navigation functions
+  const goToNextMatch = useCallback(() => {
+    if (filteredLogLines.length === 0) return;
+    const newIndex = (currentMatchIndex + 1) % filteredLogLines.length;
+    setCurrentMatchIndex(newIndex);
+    navigateToMatch(newIndex);
+  }, [currentMatchIndex, filteredLogLines.length, navigateToMatch]);
+
+  const goToPrevMatch = useCallback(() => {
+    if (filteredLogLines.length === 0) return;
+    const newIndex = currentMatchIndex === 0 ? filteredLogLines.length - 1 : currentMatchIndex - 1;
+    setCurrentMatchIndex(newIndex);
+    navigateToMatch(newIndex);
+  }, [currentMatchIndex, filteredLogLines.length, navigateToMatch]);
+
+  const totalLogCount = allLogs.length;
   const matchCount = searchQuery ? filteredLogLines.length : 0;
 
   // Highlight search matches in log line
@@ -7806,29 +8505,65 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
 
         {/* Line count */}
         <div className="text-xs text-zinc-500">
-          {logLineCount.toLocaleString()} lines
+          {totalLogCount.toLocaleString()} lines
+          {searchQuery && <span className="text-zinc-600"> ({matchCount} matches)</span>}
         </div>
 
         {/* Search Input */}
-        <div className="relative flex-1 max-w-xs ml-auto">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-[#858585]" size={12} />
-          <input
-            type="text"
-            placeholder="Search logs..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#252526] border border-[#3e3e42] rounded pl-8 pr-2 py-1 text-xs text-[#cccccc] focus:border-[#007acc] focus:outline-none"
-          />
-          {searchQuery && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500">
-              {matchCount} matches
-            </span>
-          )}
+        <div className="relative flex-1 max-w-xs ml-auto flex items-center gap-1">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-[#858585]" size={12} />
+            <input
+              type="text"
+              placeholder="Filter logs... (streaming continues)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.shiftKey ? goToPrevMatch() : goToNextMatch();
+                }
+                if (e.key === 'Escape') {
+                  setSearchQuery('');
+                }
+              }}
+              className="w-full bg-[#252526] border border-[#3e3e42] rounded pl-8 pr-16 py-1 text-xs text-[#cccccc] focus:border-[#007acc] focus:outline-none"
+            />
+            {searchQuery && (
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <span className="text-[10px] text-zinc-500">
+                  {matchCount > 0 ? `${currentMatchIndex + 1}/${matchCount}` : '0/0'}
+                </span>
+                <button
+                  onClick={goToPrevMatch}
+                  className="p-0.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  title="Previous match (Shift+Enter)"
+                  disabled={matchCount === 0}
+                >
+                  <ChevronUp size={12} />
+                </button>
+                <button
+                  onClick={goToNextMatch}
+                  className="p-0.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  title="Next match (Enter)"
+                  disabled={matchCount === 0}
+                >
+                  <ChevronDown size={12} />
+                </button>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="p-0.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white"
+                  title="Clear search (Esc)"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Clear logs */}
         <button
-          onClick={() => setLogs("")}
+          onClick={() => setAllLogs([])}
           className="px-2 py-1 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
           title="Clear logs"
         >
@@ -7838,7 +8573,7 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
         {/* Download logs */}
         <button
           onClick={() => {
-            const blob = new Blob([logs], { type: 'text/plain' });
+            const blob = new Blob([allLogs.join('\n')], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -7847,13 +8582,22 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
             URL.revokeObjectURL(url);
           }}
           className="px-2 py-1 text-xs rounded border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
-          title="Download logs"
+          title="Download all logs"
         >
           <Save size={12} />
         </button>
       </div>
 
       {error && <div className="text-red-400 p-4 text-xs bg-red-500/10 border border-red-500/30 rounded">Failed to stream logs: {error}</div>}
+
+      {/* Search active indicator */}
+      {searchQuery && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-400">
+          <Search size={12} />
+          <span>Filtering for "{searchQuery}" - showing {matchCount} of {totalLogCount} lines</span>
+          {isStreaming && <span className="text-green-400 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Stream active</span>}
+        </div>
+      )}
 
       {/* Log viewer */}
       <div
@@ -7862,16 +8606,20 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
       >
         {filteredLogLines.length === 0 ? (
           <div className="p-4 text-zinc-500 text-center">
-            {isStreaming ? "Waiting for logs..." : logs ? "No matches found" : "No logs available."}
+            {isStreaming ? "Waiting for logs..." : allLogs.length > 0 ? "No matches found" : "No logs available."}
           </div>
         ) : (
           <table className="w-full">
             <tbody>
               {filteredLogLines.map((line, i) => (
-                <tr key={i} className="hover:bg-white/5 group">
+                <tr
+                  key={i}
+                  ref={(el) => { matchRefs.current[i] = el; }}
+                  className={`hover:bg-white/5 group ${searchQuery && i === currentMatchIndex ? 'bg-yellow-500/20' : ''}`}
+                >
                   {showLineNumbers && (
                     <td className="px-2 py-0.5 text-right text-zinc-600 select-none border-r border-zinc-800 sticky left-0 bg-[#0d0d0d] group-hover:bg-zinc-900/50 w-12">
-                      {i + 1}
+                      {searchQuery ? matchingIndices[i] + 1 : i + 1}
                     </td>
                   )}
                   <td className={`px-3 py-0.5 ${getLineColor(line)} leading-relaxed`}>

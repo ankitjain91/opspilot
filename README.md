@@ -11,8 +11,9 @@ A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeSc
 - 🚀 **Blazing Fast**: Built with Rust + Tauri for native performance
 - ✨ **Modern UI**: Sleek, dark-themed interface with analog gauges and real-time metrics
 - ☸️ **Kubernetes Native**: Full inspection of Pods, Deployments, Services, Nodes, ConfigMaps, Secrets, CRDs, and more
-- 🤖 **Cluster-Wide AI Assistant**: Global floating chat that can investigate your entire cluster - accessible from anywhere
-- 🔬 **Resource-Specific AI Chat**: Context-aware debugging for individual resources with autonomous investigation
+- 🤖 **Multi-Provider AI Assistant**: Supports Ollama (local), OpenAI, Anthropic, and custom endpoints
+- 🔬 **Cluster-Wide AI Chat**: Global floating assistant that can investigate your entire cluster
+- 🎯 **Resource-Specific AI Chat**: Context-aware debugging for individual resources with autonomous investigation
 - 🛡️ **Safe & Read-Only**: All AI tools are strictly read-only with mutation command guardrails
 - 📊 **Cluster Cockpit**: Airplane-style dashboard with CPU/Memory speedometers, health indicators, and resource overview
 - 📑 **Structured Logs & Events**: Fast access to pod logs with container selection and categorized events
@@ -21,7 +22,7 @@ A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeSc
 - 🔗 **Port Forwarding**: One-click port forwards with persistent list management
 - ☁️ **Virtual Cluster Support**: Seamless vcluster detection and connection
 - 🔧 **Context Management**: Switch contexts, delete unused contexts, and manage kubeconfig
-- 🧩 **Guided Ollama Setup**: Platform-specific installation instructions (macOS, Windows, Linux)
+- 🧩 **Easy AI Setup**: One-click provider selection with guided setup instructions
 
 ## AI Debugging Assistant
 
@@ -75,40 +76,48 @@ Open from any resource's detail panel for context-aware debugging:
 - Explicit guidance when issues are detected
 - All tools are read-only with no cluster mutations
 
-## Ollama Setup
+## AI Provider Setup
 
-OpsPilot uses [Ollama](https://ollama.com) for local AI. When you open the AI chat, it automatically checks if Ollama is configured and shows guided setup instructions if needed.
+OpsPilot supports multiple AI providers. Choose the one that works best for you:
+
+### Supported Providers
+
+| Provider | Type | API Key Required | Default Model |
+|----------|------|------------------|---------------|
+| **Ollama** | Local (Free) | No | llama3.1:8b |
+| **OpenAI** | Cloud | Yes | gpt-4o |
+| **Anthropic** | Cloud | Yes | claude-sonnet-4 |
+| **Custom** | Any OpenAI-compatible | Optional | Configurable |
 
 ### Quick Setup
 
-**macOS:**
+**Ollama (Local, Free):**
 ```bash
-brew install ollama
-ollama serve
-ollama pull llama3.1:8b
+# macOS
+brew install ollama && ollama serve
+
+# Windows
+winget install Ollama.Ollama && ollama serve
+
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh && ollama serve
 ```
 
-**Windows:**
-```powershell
-winget install Ollama.Ollama
-ollama serve
-ollama pull llama3.1:8b
-```
+**OpenAI:**
+1. Get your API key from [platform.openai.com](https://platform.openai.com)
+2. Open AI Settings in OpsPilot and paste your key
 
-**Linux:**
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama serve
-ollama pull llama3.1:8b
-```
+**Anthropic:**
+1. Get your API key from [console.anthropic.com](https://console.anthropic.com)
+2. Open AI Settings in OpsPilot and paste your key
+
+**Custom (vLLM, LM Studio, etc.):**
+1. Enter your OpenAI-compatible endpoint URL
+2. Add API key if required
 
 ### Status Indicators
 
-The chat panel shows real-time status:
-- **Ollama Service**: Running / Not Running
-- **Model Available**: Whether `llama3.1:8b` is installed
-
-If setup is incomplete, the panel shows step-by-step instructions with copy-to-clipboard commands for your platform.
+The AI chat panel shows real-time connection status with automatic provider detection. Click the provider badge to access settings.
 
 ## Development Quickstart
 

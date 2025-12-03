@@ -86,3 +86,57 @@ body {
   @apply text-cyan-400 bg-cyan-500/10;
   box-shadow: 0 0 15px rgba(6, 182, 212, 0.1);
 }
+
+/* Fix icon button hover shake - prevent layout shifts during transitions */
+
+/* Prevent SVG icons from shrinking or causing layout shifts */
+button svg,
+a svg,
+span svg {
+  flex-shrink: 0;
+  /* Force icons to maintain their intrinsic size */
+  min-width: max-content;
+  min-height: max-content;
+}
+
+/* Prevent buttons from resizing on hover */
+button,
+[role="button"] {
+  /* Create stacking context to prevent repaints */
+  isolation: isolate;
+  /* Contain layout changes */
+  contain: layout style;
+}
+
+/* Override transition-all on icon-only buttons to prevent size jitter */
+button.transition-all,
+[role="button"].transition-all {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow;
+}
+
+/* Lucide icons should not animate their size */
+svg.lucide {
+  /* Prevent any transforms from affecting icon size */
+  flex-shrink: 0;
+  flex-grow: 0;
+  /* Don't transition width/height - only color properties */
+  transition: color 150ms, fill 150ms, stroke 150ms !important;
+}
+
+/* Ensure buttons don't change size on hover due to border/outline changes */
+button:not([class*="scale"]),
+[role="button"]:not([class*="scale"]) {
+  /* Use outline instead of border changes for focus states to avoid layout shift */
+  outline-offset: -1px;
+}
+
+/* Prevent icon-only button content from shifting */
+button > svg:only-child {
+  display: block;
+  pointer-events: none;
+}
+
+/* Fix for buttons that might have padding/margin transitions */
+.transition-all {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform !important;
+}

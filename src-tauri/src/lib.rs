@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{State, Emitter};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::fs;
@@ -429,6 +428,7 @@ struct AppState {
     sessions: Arc<Mutex<HashMap<String, Arc<ExecSession>>>>,
     shell_sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
     port_forwards: Arc<Mutex<HashMap<String, PortForwardSession>>>,
+    log_streams: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
     discovery_cache: Arc<Mutex<Option<(std::time::Instant, Arc<Discovery>)>>>,
     vcluster_cache: Arc<Mutex<Option<(std::time::Instant, String)>>>,
     cluster_stats_cache: Arc<Mutex<Option<(std::time::Instant, ClusterStats)>>>,
@@ -1197,7 +1197,7 @@ async fn get_pod_logs(state: State<'_, AppState>, namespace: String, name: Strin
     Ok(logs)
 }
 
-// 4a. STREAMING LOGS (follow mode)
+// 4a. STREAMING LOGS (follow mode) - Optimized for high throughput
 #[tauri::command]
 async fn start_log_stream(
     app: tauri::AppHandle,
@@ -1207,34 +1207,87 @@ async fn start_log_stream(
     container: Option<String>,
     session_id: String,
 ) -> Result<(), String> {
-    let client = create_client(state).await?;
+    // First, cancel any existing stream with the same session_id
+    {
+        let mut streams = state.log_streams.lock().unwrap();
+        if let Some(cancel_tx) = streams.remove(&session_id) {
+            let _ = cancel_tx.send(());
+        }
+    }
+
+    let client = create_client(state.clone()).await?;
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client, &namespace);
 
     let lp = LogParams {
         container,
-        tail_lines: Some(100),
+        tail_lines: Some(500), // More initial lines for context
         follow: true,
         ..LogParams::default()
     };
 
     let stream = pods.log_stream(&name, &lp).await.map_err(|e| e.to_string())?;
 
+    // Create cancellation channel
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Store the cancel sender
+    {
+        let mut streams = state.log_streams.lock().unwrap();
+        streams.insert(session_id.clone(), cancel_tx);
+    }
+
+    let log_streams = state.log_streams.clone();
+    let sid = session_id.clone();
+
     tokio::spawn(async move {
-        use futures::{AsyncBufReadExt, StreamExt};
-        let mut lines = stream.lines();
-        while let Some(Ok(line)) = lines.next().await {
-            let _ = app.emit(&format!("log_stream:{}", session_id), line + "\n");
+        use futures::AsyncReadExt;
+
+        // Use the stream directly as an async reader with large buffer
+        let mut buf = vec![0u8; 16384]; // 16KB buffer for fast reads
+
+        // Pin the stream for reading
+        let mut stream = Box::pin(stream);
+
+        loop {
+            tokio::select! {
+                biased; // Prioritize cancellation check
+
+                // Check for cancellation first
+                _ = &mut cancel_rx => {
+                    break;
+                }
+                // Read raw bytes - much faster than line-by-line
+                result = stream.read(&mut buf) => {
+                    match result {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            // Send raw bytes as string - let frontend handle line splitting
+                            let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                            let _ = app.emit(&format!("log_stream:{}", sid), data);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
         }
-        let _ = app.emit(&format!("log_stream_end:{}", session_id), ());
+
+        // Clean up and emit end event
+        {
+            let mut streams = log_streams.lock().unwrap();
+            streams.remove(&sid);
+        }
+        let _ = app.emit(&format!("log_stream_end:{}", sid), ());
     });
 
     Ok(())
 }
 
 #[tauri::command]
-async fn stop_log_stream(_session_id: String) -> Result<(), String> {
-    // Streams auto-close when the task is dropped; for explicit control we'd track handles.
-    // For now, frontend unmounts → implicit stop.
+async fn stop_log_stream(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let mut streams = state.log_streams.lock().unwrap();
+    if let Some(cancel_tx) = streams.remove(&session_id) {
+        let _ = cancel_tx.send(());
+    }
     Ok(())
 }
 
@@ -1451,6 +1504,7 @@ async fn list_events(state: State<'_, AppState>, namespace: String, name: String
 }
 
 // 6. EXEC (TERMINAL)
+// Pod Terminal Exec - Industry-standard implementation with larger buffers
 #[tauri::command]
 async fn start_exec(
     app: tauri::AppHandle,
@@ -1460,6 +1514,12 @@ async fn start_exec(
     container: Option<String>,
     session_id: String
 ) -> Result<(), String> {
+    // Clean up any existing session with same ID
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        sessions.remove(&session_id);
+    }
+
     let client = create_client(state.clone()).await?;
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client, &namespace);
 
@@ -1472,18 +1532,16 @@ async fn start_exec(
         ..Default::default()
     };
 
-    let mut attached = pods.exec(&name, vec!["/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash; else exec sh; fi"], &ap).await.map_err(|e| e.to_string())?;
+    // Use a more robust shell detection command
+    let shell_cmd = vec![
+        "/bin/sh", "-c",
+        "command -v bash >/dev/null 2>&1 && exec bash -l || command -v sh >/dev/null 2>&1 && exec sh || exec /bin/sh"
+    ];
 
-    let mut stdin_writer = attached.stdin().ok_or("Failed to get stdin")?;
+    let mut attached = pods.exec(&name, shell_cmd, &ap).await.map_err(|e| e.to_string())?;
+
+    let stdin_writer = attached.stdin().ok_or("Failed to get stdin")?;
     let mut stdout = attached.stdout().ok_or("Failed to get stdout")?;
-
-    eprintln!("Got stdin and stdout for session: {}", session_id);
-
-    // Send initial newline to trigger the shell prompt
-    use tokio::io::AsyncWriteExt;
-    stdin_writer.write_all(b"\n").await.map_err(|e| format!("Failed to write initial newline: {}", e))?;
-    stdin_writer.flush().await.map_err(|e| format!("Failed to flush initial newline: {}", e))?;
-    eprintln!("Sent initial newline to session: {}", session_id);
 
     // Store stdin in session map
     let session = Arc::new(ExecSession {
@@ -1492,30 +1550,32 @@ async fn start_exec(
 
     state.sessions.lock().unwrap().insert(session_id.clone(), session);
 
-    // Spawn background task to read stdout and emit events
+    // Spawn background task to read stdout with larger buffer
     let session_id_clone = session_id.clone();
     let app_handle = app.clone();
-    
+    let sessions_ref = state.sessions.clone();
+
     tokio::spawn(async move {
-        eprintln!("Started stdout reader for session: {}", session_id_clone);
-        let mut buf = [0u8; 1024];
+        use tokio::io::AsyncReadExt;
+        // 8KB buffer for faster terminal output
+        let mut buf = vec![0u8; 8192];
+
         loop {
-            let n = match stdout.read(&mut buf).await {
-                Ok(n) if n == 0 => {
-                    eprintln!("stdout EOF for session: {}", session_id_clone);
-                    break;
+            match stdout.read(&mut buf).await {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if app_handle.emit(&format!("term_output:{}", session_id_clone), data).is_err() {
+                        break; // Frontend disconnected
+                    }
                 }
-                Ok(n) => n,
-                Err(e) => {
-                    eprintln!("Error reading stdout for session {}: {}", session_id_clone, e);
-                    break;
-                }
-            };
-            let data = String::from_utf8_lossy(&buf[..n]).to_string();
-            eprintln!("Read {} bytes from stdout: {:?}", n, data);
-            let _ = app_handle.emit(&format!("term_output:{}", session_id_clone), data);
+                Err(_) => break,
+            }
         }
-        eprintln!("Stdout reader ended for session: {}", session_id_clone);
+
+        // Clean up session on disconnect
+        sessions_ref.lock().unwrap().remove(&session_id_clone);
+        let _ = app_handle.emit(&format!("term_closed:{}", session_id_clone), ());
     });
 
     Ok(())
@@ -1523,36 +1583,25 @@ async fn start_exec(
 
 #[tauri::command]
 async fn send_exec_input(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    eprintln!("send_exec_input: session_id={}, data_len={}", session_id, data.len());
-    
     let session = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&session_id).cloned()
     };
 
     if let Some(session) = session {
+        use tokio::io::AsyncWriteExt;
         let mut stdin = session.stdin.lock().await;
-        stdin.write_all(data.as_bytes()).await.map_err(|e| {
-            eprintln!("Error writing to stdin: {}", e);
-            e.to_string()
-        })?;
-        stdin.flush().await.map_err(|e| {
-            eprintln!("Error flushing stdin: {}", e);
-            e.to_string()
-        })?;
-        eprintln!("Successfully wrote {} bytes to stdin", data.len());
+        stdin.write_all(data.as_bytes()).await.map_err(|e| e.to_string())?;
+        // Don't flush on every keystroke - let the buffer handle it for better performance
+        Ok(())
     } else {
-        eprintln!("Session {} not found", session_id);
-        return Err(format!("Session {} not found", session_id));
+        Err(format!("Session {} not found", session_id))
     }
-
-    Ok(())
 }
 
 #[tauri::command]
 async fn resize_exec(_state: State<'_, AppState>, _session_id: String, _cols: u16, _rows: u16) -> Result<(), String> {
     // Note: kube-rs AttachedProcess doesn't expose resize easily yet without accessing the underlying websocket.
-    // For now, we'll skip resizing or implement it later if critical.
     // Real implementation requires sending a specific JSON message to the websocket.
     Ok(())
 }
@@ -2077,6 +2126,7 @@ pub fn run() {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             shell_sessions: Arc::new(Mutex::new(HashMap::new())),
             port_forwards: Arc::new(Mutex::new(HashMap::new())),
+            log_streams: Arc::new(Mutex::new(HashMap::new())),
             discovery_cache: Arc::new(Mutex::new(None)),
             vcluster_cache: Arc::new(Mutex::new(None)),
             cluster_stats_cache: Arc::new(Mutex::new(None)),
@@ -2110,6 +2160,7 @@ pub fn run() {
             start_local_shell,
             send_shell_input,
             resize_shell,
+            stop_local_shell,
             get_cluster_stats,
             get_cluster_cockpit,
             get_cluster_health_summary,
@@ -2131,6 +2182,9 @@ pub fn run() {
             ai_local::call_local_llm,
             ai_local::call_local_llm_with_tools,
             ai_local::check_ollama_status,
+            ai_local::call_llm,
+            ai_local::check_llm_status,
+            ai_local::get_default_llm_config,
             test_connectivity,
         ])
         .run(tauri::generate_context!())
@@ -2208,29 +2262,45 @@ async fn get_current_context_name(state: State<'_, AppState>, custom_path: Optio
     Ok(kubeconfig.current_context.unwrap_or_else(|| "default".to_string()))
 }
 
+// Local Shell Terminal - Industry-standard PTY implementation
 #[tauri::command]
 async fn start_local_shell(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
+    // Clean up any existing session
+    {
+        let mut sessions = state.shell_sessions.lock().unwrap();
+        sessions.remove(&session_id);
+    }
+
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
+        rows: 30,
+        cols: 120,
         pixel_width: 0,
         pixel_height: 0,
     }).map_err(|e| e.to_string())?;
 
-    let cmd = if cfg!(target_os = "windows") {
-        CommandBuilder::new("powershell")
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = CommandBuilder::new("powershell");
+        c.args(["-NoLogo", "-NoExit"]);
+        c
     } else {
-        let shell = std::env::var("SHELL").unwrap_or("bash".to_string());
-        CommandBuilder::new(shell)
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let mut c = CommandBuilder::new(&shell);
+        // Start as login shell for proper environment
+        c.arg("-l");
+        c
     };
 
+    // Set TERM for proper color support
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+
     let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    
+
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
@@ -2241,21 +2311,28 @@ async fn start_local_shell(
 
     state.shell_sessions.lock().unwrap().insert(session_id.clone(), Arc::new(session));
 
-    // Spawn reader thread
+    // Spawn reader thread with larger buffer for fast output
     let session_id_clone = session_id.clone();
     let app_handle = app.clone();
+    let shell_sessions = state.shell_sessions.clone();
+
     std::thread::spawn(move || {
-        let mut buf = [0u8; 1024];
+        let mut buf = vec![0u8; 16384]; // 16KB buffer for fast reads
         loop {
             match reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_handle.emit(&format!("shell_output:{}", session_id_clone), data);
+                    if app_handle.emit(&format!("shell_output:{}", session_id_clone), data).is_err() {
+                        break; // Frontend disconnected
+                    }
                 }
                 Ok(_) => break, // EOF
                 Err(_) => break,
             }
         }
+        // Clean up on exit
+        shell_sessions.lock().unwrap().remove(&session_id_clone);
+        let _ = app_handle.emit(&format!("shell_closed:{}", session_id_clone), ());
     });
 
     Ok(())
@@ -2270,7 +2347,8 @@ async fn send_shell_input(
     let sessions = state.shell_sessions.lock().unwrap();
     if let Some(session) = sessions.get(&session_id) {
         if let Ok(mut writer) = session.writer.lock() {
-            write!(writer, "{}", data).map_err(|e| e.to_string())?;
+            writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+            writer.flush().map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -2294,6 +2372,17 @@ async fn resize_shell(
             }).map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+// Stop/kill a local shell session
+#[tauri::command]
+async fn stop_local_shell(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let mut sessions = state.shell_sessions.lock().unwrap();
+    sessions.remove(&session_id);
     Ok(())
 }
 
