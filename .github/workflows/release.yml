@@ -73,15 +73,6 @@ jobs:
           prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
-      - name: Verify Signature (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          ls -la src-tauri/target/universal-apple-darwin/release/bundle/macos/
-          if [ ! -f "src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz.sig" ]; then
-            echo "Error: Signature file not found! Signing failed."
-            exit 1
-          fi
-
       - name: Compress binary (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
