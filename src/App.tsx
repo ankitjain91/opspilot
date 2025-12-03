@@ -51,7 +51,8 @@ import {
   Save,
   LayoutDashboard,
   Globe,
-  Sparkles
+  Sparkles,
+  Box
 } from "lucide-react";
 // Topology view removed per user request
 import Loading from './components/Loading';
@@ -1401,12 +1402,46 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, resourceName }: {
 }
 
 // Cluster Cockpit Dashboard - Airplane cockpit style view
-function ClusterCockpit({ onNavigate: _onNavigate }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[] }) {
+function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[], currentContext?: string }) {
+  const qc = useQueryClient();
+  const [connectingVcluster, setConnectingVcluster] = useState<string | null>(null);
+
+  // Detect if we're inside a vcluster (context name starts with "vcluster_")
+  const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
+
   const { data: cockpit, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["cluster_cockpit"],
+    queryKey: ["cluster_cockpit", currentContext],
     queryFn: async () => await invoke<ClusterCockpitData>("get_cluster_cockpit"),
     staleTime: 15000,
     refetchInterval: 30000,
+  });
+
+  // Fetch vclusters for this cluster - only on host clusters, not inside vclusters
+  const { data: vclusters, isLoading: vclustersLoading } = useQuery({
+    queryKey: ["vclusters", currentContext],
+    queryFn: async () => {
+      try {
+        const vclusterResult = await invoke<string>("list_vclusters");
+        if (!vclusterResult || vclusterResult === "null" || vclusterResult.trim() === "") {
+          return [];
+        }
+        const vclusterList = JSON.parse(vclusterResult);
+        if (!Array.isArray(vclusterList)) return [];
+        return vclusterList.map((vc: any) => ({
+          id: `vcluster-${vc.Name}-${vc.Namespace}`,
+          name: vc.Name,
+          namespace: vc.Namespace,
+          status: vc.Status || 'Unknown',
+          version: vc.Version || '',
+          connected: vc.Connected || false,
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60000,
+    // Only fetch vclusters when on host cluster, not inside a vcluster
+    enabled: !!currentContext && !isInsideVcluster,
   });
 
   const formatBytes = (bytes: number) => {
@@ -1814,6 +1849,91 @@ function ClusterCockpit({ onNavigate: _onNavigate }: { onNavigate: (res: NavReso
           )}
         </div>
       </div>
+
+      {/* Virtual Clusters Section - only show on host clusters, not inside vclusters */}
+      {!isInsideVcluster && vclusters && vclusters.length > 0 && (
+        <div className="mt-6 bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+            <Box className="w-4 h-4 text-purple-400" />
+            Virtual Clusters ({vclusters.length})
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {vclusters.map((vc: any) => (
+              <div
+                key={vc.id}
+                className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700 hover:border-purple-500/50 transition-all group"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Box className="w-5 h-5 text-purple-400" />
+                    <div>
+                      <div className="font-medium text-white text-sm">{vc.name}</div>
+                      <div className="text-xs text-zinc-500">{vc.namespace}</div>
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded ${vc.status === 'Running' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                    {vc.status}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-zinc-500 mb-3">
+                  <span>v{vc.version}</span>
+                  {vc.connected && <span className="text-cyan-400">Connected</span>}
+                </div>
+                <button
+                  onClick={async () => {
+                    const vcId = vc.id;
+                    setConnectingVcluster(vcId);
+                    try {
+                      await invoke("connect_vcluster", { name: vc.name, namespace: vc.namespace });
+                      if ((window as any).showToast) {
+                        (window as any).showToast(`Connected to vcluster '${vc.name}'`, 'success');
+                      }
+                      qc.invalidateQueries({ queryKey: ["current_context"] });
+                      qc.invalidateQueries({ queryKey: ["discovery"] });
+                      qc.invalidateQueries({ queryKey: ["namespaces"] });
+                      qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+                      qc.invalidateQueries({ queryKey: ["vclusters"] });
+                      qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
+                    } catch (err) {
+                      if ((window as any).showToast) {
+                        (window as any).showToast(`Failed to connect: ${err}`, 'error');
+                      }
+                    } finally {
+                      setConnectingVcluster(null);
+                    }
+                  }}
+                  disabled={connectingVcluster === vc.id}
+                  className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${
+                    connectingVcluster === vc.id
+                      ? 'bg-purple-800 cursor-not-allowed'
+                      : 'bg-purple-600/80 hover:bg-purple-500'
+                  }`}
+                >
+                  {connectingVcluster === vc.id ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Plug size={14} />
+                      Connect
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {!isInsideVcluster && vclustersLoading && (
+        <div className="mt-6 bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
+          <div className="flex items-center gap-2 text-zinc-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Detecting virtual clusters...</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2268,57 +2388,16 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
     queryFn: async () => await invoke<string>("get_current_context_name"),
   });
 
-  // Detect vcluster instances using vcluster CLI (Moved to Dashboard for persistence)
-  // Note: We no longer fetch namespaces here - we reuse cached data from initial fetch
-  const { data: _vclusters, isLoading: _vclustersLoading, isFetching: _vclustersFetching } = useQuery({
-    queryKey: ["vclusters", currentContext],
-    queryFn: async () => {
-      try {
-        // Only fetch vcluster list - namespaces come from initial data fetch or cache
-        const vclusterResult = await invoke<string>("list_vclusters").catch(() => "[]");
-
-        // Try to get namespaces from React Query cache (populated by initial fetch)
-        const cachedNamespaces = qc.getQueryData<string[]>(["namespaces", currentContext]);
-
-        try {
-          const vclusterList = JSON.parse(vclusterResult);
-
-          if (vclusterList && vclusterList.length > 0) {
-            // If we have cached namespaces, filter vclusters; otherwise show all
-            const currentNamespaces = cachedNamespaces ? new Set(cachedNamespaces) : null;
-            const filteredVclusters = currentNamespaces
-              ? vclusterList.filter((vc: any) => currentNamespaces.has(vc.Namespace))
-              : vclusterList;
-
-            // Transform to our format
-            return filteredVclusters.map((vc: any) => ({
-              id: `vcluster-${vc.Name}-${vc.Namespace}`,
-              name: vc.Name,
-              namespace: vc.Namespace,
-              status: vc.Status || 'Unknown',
-              kind: 'VCluster',
-              group: '',
-              version: vc.Version || '',
-              age: '',
-              raw_json: '',
-              vclusterName: vc.Name,
-            }));
-          }
-        } catch (parseError) {
-          console.warn('vcluster CLI parse failed:', parseError);
-        }
-
-        return [];
-      } catch (e) {
-        console.error('Error fetching vclusters:', e);
-        return [];
-      }
-    },
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    gcTime: 5 * 60 * 1000,    // 5 minutes
-    retry: false,
-    enabled: !!currentContext,
-  });
+  // Track previous context to detect changes
+  const prevContextRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevContextRef.current && currentContext && prevContextRef.current !== currentContext) {
+      // Context changed - clear all cached data to prevent stale data from previous cluster
+      console.log(`Context changed from ${prevContextRef.current} to ${currentContext}, clearing cache`);
+      qc.clear();
+    }
+    prevContextRef.current = currentContext;
+  }, [currentContext, qc]);
 
   // Keyboard Shortcut for Command Palette & Terminal
   useEffect(() => {
@@ -2452,20 +2531,35 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
     }
   }, [navStructure]);
 
-  // State for expanded groups
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    "Cluster": true,
-    "Workloads": true,
-    "Network": false,
-    "Config": false,
-    "Storage": false,
-    "Access Control": false,
-    "Crossplane": true,
-    "Custom Resources": false
+  // State for expanded groups - persist to localStorage
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('opspilot-expanded-groups');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // Fall through to defaults
+      }
+    }
+    return {
+      "Cluster": false,
+      "Workloads": false,
+      "Network": false,
+      "Config": false,
+      "Storage": false,
+      "Access Control": false,
+      "Crossplane": false,
+      "Virtual Clusters": true,
+      "Custom Resources": false
+    };
   });
 
   const toggleGroup = (group: string) => {
-    setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
+    setExpandedGroups(prev => {
+      const newState = { ...prev, [group]: !prev[group] };
+      localStorage.setItem('opspilot-expanded-groups', JSON.stringify(newState));
+      return newState;
+    });
   };
 
   // Grouping Logic
@@ -3019,35 +3113,21 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
           <button onClick={async () => {
             console.log("Disconnect button clicked");
 
-            // Proceed with disconnect immediately
+            // Clear ALL cached data immediately to prevent stale data
+            console.log("Clearing all query cache...");
+            qc.clear();
+
+            // Clear backend caches
+            try {
+              await invoke("clear_discovery_cache");
+            } catch (e) {
+              console.error("Failed to clear discovery cache:", e);
+            }
+
+            // Proceed with disconnect
             console.log("Calling onDisconnect...");
             onDisconnect();
             console.log("Disconnect complete");
-
-            // Do cleanup in background (don't wait)
-            setTimeout(async () => {
-              try {
-                console.log("Invalidating queries...");
-                qc.invalidateQueries();
-              } catch (e) {
-                console.error("Failed to invalidate queries:", e);
-              }
-
-              try {
-                console.log("Clearing discovery cache...");
-                // @ts-ignore invoke from tauri
-                await Promise.race([
-                  invoke("clear_discovery_cache"),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
-                ]);
-                console.log("Discovery cache cleared");
-              } catch (e) {
-                console.error("Failed to clear discovery cache:", e);
-              }
-
-              console.log("Broadcasting reload event...");
-              window.dispatchEvent(new CustomEvent("lenskiller:reload"));
-            }, 0);
           }} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-base text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-all">
             <LogOutIcon size={18} />
             <span>Disconnect</span>
@@ -3165,6 +3245,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
                 <ClusterCockpit
                   navStructure={navStructure}
                   onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                  currentContext={currentContext}
                 />
               )}
             </div>
@@ -6959,6 +7040,7 @@ function AzurePage({ onConnect }: { onConnect: () => void }) {
 }
 
 function AppContent() {
+  const qc = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const [showAzure, setShowAzure] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: number; message: string; type?: 'success' | 'error' | 'info' }>>([]);
@@ -7144,7 +7226,10 @@ function AppContent() {
                 Retry Connection
               </button>
               <button
-                onClick={() => setIsConnected(false)}
+                onClick={() => {
+                  qc.clear();
+                  setIsConnected(false);
+                }}
                 className="flex-1 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 font-medium transition-all"
               >
                 Change Cluster
@@ -7182,6 +7267,8 @@ function AppContent() {
         isConnected={isConnected}
         setIsConnected={setIsConnected}
         onDisconnect={() => {
+          // Clear ALL cached data to prevent stale data
+          qc.clear();
           (window as any).showToast?.('Disconnected from cluster', 'info');
           setIsConnected(false);
         }}

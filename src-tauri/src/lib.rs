@@ -2613,6 +2613,17 @@ async fn connect_vcluster(
 
 #[tauri::command]
 async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
+    // Get current context to use with vcluster CLI
+    let context = {
+        if let Ok(guard) = state.selected_context.try_lock() {
+            guard.clone()
+        } else {
+            None
+        }
+    };
+
+    // Context is used for the vcluster CLI call below
+
     // Check cache first (30 second TTL)
     if let Ok(cache) = state.vcluster_cache.try_lock() {
         if let Some((timestamp, cached_result)) = &*cache {
@@ -2622,9 +2633,18 @@ async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
         }
     }
 
-    // Use vcluster CLI to list all vclusters
-    let output = tokio::process::Command::new("vcluster")
-        .args(&["list", "--output", "json"])
+    // Use vcluster CLI to list all vclusters with context
+    let mut cmd = tokio::process::Command::new("vcluster");
+    cmd.args(&["list", "--output", "json"]);
+
+    // Add context if available
+    if let Some(ctx) = &context {
+        if !ctx.is_empty() {
+            cmd.args(&["--context", ctx]);
+        }
+    }
+
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to execute vcluster command: {}. Make sure vcluster CLI is installed.", e))?;
