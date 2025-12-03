@@ -3653,8 +3653,9 @@ async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
     }
 
     // Use vcluster CLI to list all vclusters with context
+    // Use --driver=helm to avoid platform mode which requires vcluster platform login
     let mut cmd = tokio::process::Command::new("vcluster");
-    cmd.args(&["list", "--output", "json"]);
+    cmd.args(&["list", "--output", "json", "--driver=helm"]);
 
     // Add context if available
     if let Some(ctx) = &context {
@@ -3669,7 +3670,27 @@ async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
         .map_err(|e| format!("Failed to execute vcluster command: {}. Make sure vcluster CLI is installed.", e))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // If helm driver fails, try without driver (auto-detect)
+        if stderr.contains("management-cluster") || stderr.contains("platform") {
+            let mut retry_cmd = tokio::process::Command::new("vcluster");
+            retry_cmd.args(&["list", "--output", "json"]);
+            if let Some(ctx) = &context {
+                if !ctx.is_empty() {
+                    retry_cmd.args(&["--context", ctx]);
+                }
+            }
+            let retry_output = retry_cmd.output().await;
+            if let Ok(out) = retry_output {
+                if out.status.success() {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+                        *cache = Some((std::time::Instant::now(), stdout.clone()));
+                    }
+                    return Ok(stdout);
+                }
+            }
+        }
         return Err(format!("vcluster list failed: {}", stderr));
     }
 
