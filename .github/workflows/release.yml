@@ -101,6 +101,7 @@ jobs:
             opspilot-*.tar.gz
             opspilot-*.zip
             src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz
-            src-tauri/target/release/bundle/nsis/opspilot_*.exe
-            src-tauri/target/release/bundle/deb/opspilot_*.deb
-            src-tauri/target/release/bundle/appimage/opspilot_*.AppImage
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
