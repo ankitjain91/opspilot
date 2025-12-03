@@ -797,7 +797,13 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
   const [customPath, setCustomPath] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"local" | "azure">("local");
+  const [connectionLogs, setConnectionLogs] = useState<Array<{ time: string; message: string; status: 'pending' | 'success' | 'error' | 'info' }>>([]);
   const qc = useQueryClient();
+
+  const addLog = (message: string, status: 'pending' | 'success' | 'error' | 'info' = 'info') => {
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setConnectionLogs(prev => [...prev, { time, message, status }]);
+  };
 
   const { data: contexts, isLoading } = useQuery({
     queryKey: ["kube_contexts", customPath],
@@ -820,41 +826,48 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
 
   const connectMutation = useMutation({
     mutationFn: async (context: string) => {
-      console.log("Starting connection to:", context);
+      setConnectionLogs([]);
+      addLog(`Initiating connection to ${context}`, 'info');
 
       // Reset all state and release locks first
       try {
-        console.log("Resetting backend state...");
+        addLog('Resetting backend state...', 'pending');
         await Promise.race([
           invoke("reset_state"),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Reset timeout")), 1000)
           )
         ]);
-        console.log("Backend state reset");
+        addLog('Backend state cleared', 'success');
       } catch (err) {
-        console.warn("Failed to reset state (continuing anyway):", err);
+        addLog('Backend reset skipped (non-critical)', 'info');
       }
 
       // Try to set the context with a timeout
       try {
-        console.log("Setting context...");
+        addLog('Loading kubeconfig...', 'pending');
+        await new Promise(r => setTimeout(r, 300)); // Small delay for visual feedback
+        addLog('Setting Kubernetes context...', 'pending');
         await Promise.race([
           invoke("set_kube_config", { context, path: customPath }),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Timeout")), 5000)
           )
         ]);
-        console.log("Context set successfully");
+        addLog('Context configured successfully', 'success');
       } catch (err) {
-        console.warn("Failed to set context (will use current):", err);
-        // Continue anyway - the app will use the current context
+        addLog(`Context setup warning: ${err}`, 'info');
       }
+
+      addLog('Validating cluster connection...', 'pending');
+      await new Promise(r => setTimeout(r, 200));
+      addLog('Preparing API discovery...', 'pending');
 
       return Promise.resolve();
     },
     onSuccess: () => {
-      console.log("Connection successful, calling onConnect");
+      addLog('Connection established!', 'success');
+      addLog('Clearing cached data...', 'pending');
       // Invalidate ALL cached data to prevent showing stale data from previous cluster
       qc.invalidateQueries({ queryKey: ["current_context"] });
       qc.invalidateQueries({ queryKey: ["current_context_boot"] });
@@ -866,11 +879,12 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
       qc.invalidateQueries({ queryKey: ["list_resources"] });
       qc.invalidateQueries({ queryKey: ["resource"] });
       qc.invalidateQueries({ queryKey: ["crd-groups"] });
-      // Clear all queries to be safe
       qc.clear();
-      onConnect();
+      addLog('Loading cluster dashboard...', 'success');
+      setTimeout(() => onConnect(), 500);
     },
     onError: (error: Error) => {
+      addLog(`Connection failed: ${error.message}`, 'error');
       console.error("Connection error:", error);
     }
   });
@@ -1019,6 +1033,65 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
                   <AlertCircle size={18} className="shrink-0 mt-0.5" />
                   <span className="leading-relaxed">{connectionError}</span>
+                </div>
+              )}
+
+              {/* Connecting Overlay with Live Logs */}
+              {connectMutation.isPending && (
+                <div className="bg-zinc-900/95 backdrop-blur-sm border border-cyan-500/20 rounded-xl overflow-hidden mb-4 animate-in fade-in">
+                  {/* Header */}
+                  <div className="flex items-center justify-between p-4 border-b border-white/5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                        <Loader2 size={20} className="animate-spin text-cyan-400" />
+                      </div>
+                      <div>
+                        <p className="text-white font-medium">Connecting to cluster</p>
+                        <p className="text-zinc-500 text-xs font-mono truncate max-w-[280px]">{connectMutation.variables}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setConnectionLogs([]);
+                        connectMutation.reset();
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white text-xs font-medium transition-all flex items-center gap-1.5"
+                    >
+                      <X size={14} />
+                      Cancel
+                    </button>
+                  </div>
+                  {/* Live Log */}
+                  <div className="bg-black/40 p-3 max-h-[200px] overflow-y-auto font-mono text-xs">
+                    {connectionLogs.map((log, i) => (
+                      <div key={i} className="flex items-start gap-2 py-1 animate-in fade-in slide-in-from-left-2">
+                        <span className="text-zinc-600 shrink-0">{log.time}</span>
+                        <span className={`shrink-0 ${
+                          log.status === 'success' ? 'text-green-400' :
+                          log.status === 'error' ? 'text-red-400' :
+                          log.status === 'pending' ? 'text-yellow-400' :
+                          'text-zinc-400'
+                        }`}>
+                          {log.status === 'success' ? '✓' :
+                           log.status === 'error' ? '✗' :
+                           log.status === 'pending' ? '○' : '→'}
+                        </span>
+                        <span className={`${
+                          log.status === 'success' ? 'text-green-300' :
+                          log.status === 'error' ? 'text-red-300' :
+                          log.status === 'pending' ? 'text-yellow-200' :
+                          'text-zinc-300'
+                        }`}>{log.message}</span>
+                      </div>
+                    ))}
+                    {connectionLogs.length > 0 && (
+                      <div className="flex items-center gap-2 py-1 text-cyan-400">
+                        <span className="text-zinc-600">{new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                        <Loader2 size={10} className="animate-spin" />
+                        <span className="animate-pulse">Processing...</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1405,6 +1478,7 @@ function DeleteConfirmationModal({ isOpen, onClose, onConfirm, resourceName }: {
 function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[], currentContext?: string }) {
   const qc = useQueryClient();
   const [connectingVcluster, setConnectingVcluster] = useState<string | null>(null);
+  const [connectCancelled, setConnectCancelled] = useState(false);
 
   // Detect if we're inside a vcluster (context name starts with "vcluster_")
   const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
@@ -1879,48 +1953,66 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                   <span>v{vc.version}</span>
                   {vc.connected && <span className="text-cyan-400">Connected</span>}
                 </div>
-                <button
-                  onClick={async () => {
-                    const vcId = vc.id;
-                    setConnectingVcluster(vcId);
-                    try {
-                      await invoke("connect_vcluster", { name: vc.name, namespace: vc.namespace });
-                      if ((window as any).showToast) {
-                        (window as any).showToast(`Connected to vcluster '${vc.name}'`, 'success');
-                      }
-                      qc.invalidateQueries({ queryKey: ["current_context"] });
-                      qc.invalidateQueries({ queryKey: ["discovery"] });
-                      qc.invalidateQueries({ queryKey: ["namespaces"] });
-                      qc.invalidateQueries({ queryKey: ["cluster_stats"] });
-                      qc.invalidateQueries({ queryKey: ["vclusters"] });
-                      qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
-                    } catch (err) {
-                      if ((window as any).showToast) {
-                        (window as any).showToast(`Failed to connect: ${err}`, 'error');
-                      }
-                    } finally {
-                      setConnectingVcluster(null);
-                    }
-                  }}
-                  disabled={connectingVcluster === vc.id}
-                  className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${
-                    connectingVcluster === vc.id
-                      ? 'bg-purple-800 cursor-not-allowed'
-                      : 'bg-purple-600/80 hover:bg-purple-500'
-                  }`}
-                >
-                  {connectingVcluster === vc.id ? (
-                    <>
+                {connectingVcluster === vc.id ? (
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-purple-800 text-white text-xs font-medium">
                       <Loader2 size={14} className="animate-spin" />
                       Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Plug size={14} />
-                      Connect
-                    </>
-                  )}
-                </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setConnectCancelled(true);
+                        setConnectingVcluster(null);
+                        if ((window as any).showToast) {
+                          (window as any).showToast('Connection cancelled', 'info');
+                        }
+                      }}
+                      className="px-3 py-2 rounded-md bg-red-600/80 hover:bg-red-500 text-white text-xs font-medium transition-all"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      const vcId = vc.id;
+                      setConnectingVcluster(vcId);
+                      setConnectCancelled(false);
+                      try {
+                        await invoke("connect_vcluster", { name: vc.name, namespace: vc.namespace });
+                        // Check if cancelled while waiting
+                        if (connectCancelled) {
+                          return;
+                        }
+                        if ((window as any).showToast) {
+                          (window as any).showToast(`Connected to vcluster '${vc.name}'`, 'success');
+                        }
+                        // Clear all cached data from host cluster before switching context
+                        qc.removeQueries({ predicate: (query) => query.queryKey[0] !== "current_context" });
+                        // Now invalidate current_context to trigger refetch with new vcluster context
+                        qc.invalidateQueries({ queryKey: ["current_context"] });
+                      } catch (err) {
+                        if (!connectCancelled) {
+                          console.error('vcluster connect error:', err);
+                          if ((window as any).showToast) {
+                            (window as any).showToast(`Failed to connect: ${err}`, 'error');
+                          }
+                        }
+                      } finally {
+                        setConnectingVcluster(null);
+                      }
+                    }}
+                    disabled={connectingVcluster !== null}
+                    className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${
+                      connectingVcluster !== null
+                        ? 'bg-purple-800/50 cursor-not-allowed'
+                        : 'bg-purple-600/80 hover:bg-purple-500'
+                    }`}
+                  >
+                    <Plug size={14} />
+                    Connect
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -2392,9 +2484,9 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
   const prevContextRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (prevContextRef.current && currentContext && prevContextRef.current !== currentContext) {
-      // Context changed - clear all cached data to prevent stale data from previous cluster
+      // Context changed - remove all cached data except current_context query
       console.log(`Context changed from ${prevContextRef.current} to ${currentContext}, clearing cache`);
-      qc.clear();
+      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== "current_context" });
     }
     prevContextRef.current = currentContext;
   }, [currentContext, qc]);
@@ -3115,7 +3207,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
 
             // Clear ALL cached data immediately to prevent stale data
             console.log("Clearing all query cache...");
-            qc.clear();
+            qc.removeQueries();
 
             // Clear backend caches
             try {
@@ -7161,7 +7253,8 @@ function AppContent() {
     return <LoadingScreen message={`Loading cluster '${globalCurrentContext}'...`} />;
   }
   if (isConnected && (!!globalCurrentContext) && bootError) {
-    const errorMessage = (bootErr as any)?.message || "Unknown error";
+    const errorMessage = (bootErr as any)?.message || String(bootErr) || "Unknown error";
+    console.error("Boot error:", bootErr);
     const isConnectionError = errorMessage.toLowerCase().includes("connect") ||
       errorMessage.toLowerCase().includes("unreachable") ||
       errorMessage.toLowerCase().includes("timeout");
@@ -7227,7 +7320,7 @@ function AppContent() {
               </button>
               <button
                 onClick={() => {
-                  qc.clear();
+                  qc.removeQueries();
                   setIsConnected(false);
                 }}
                 className="flex-1 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 font-medium transition-all"
@@ -7266,9 +7359,15 @@ function AppContent() {
       <Dashboard
         isConnected={isConnected}
         setIsConnected={setIsConnected}
-        onDisconnect={() => {
+        onDisconnect={async () => {
           // Clear ALL cached data to prevent stale data
-          qc.clear();
+          qc.removeQueries();
+          // Also clear backend caches
+          try {
+            await invoke("clear_all_caches");
+          } catch (e) {
+            console.warn("Failed to clear backend caches:", e);
+          }
           (window as any).showToast?.('Disconnected from cluster', 'info');
           setIsConnected(false);
         }}

@@ -408,6 +408,24 @@ async fn clear_discovery_cache(state: State<'_, AppState>) -> Result<(), String>
     Ok(())
 }
 
+#[tauri::command]
+async fn clear_all_caches(state: State<'_, AppState>) -> Result<(), String> {
+    // Clear all in-memory caches
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+        *cache = None;
+    }
+    Ok(())
+}
+
 // Helper to create a client based on current state
 async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
     let (path, context) = {
@@ -1759,6 +1777,7 @@ pub fn run() {
             get_topology_graph_opts,
             list_crds,
             clear_discovery_cache,
+            clear_all_caches,
             reset_state,
             ai_local::call_local_llm,
             ai_local::call_local_llm_with_tools,
@@ -2586,7 +2605,10 @@ async fn connect_vcluster(
     name: String,
     namespace: String,
 ) -> Result<String, String> {
-    // Execute vcluster connect command without deprecated flag
+    // Get the current host context before connecting
+    let host_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
+
+    // Execute vcluster connect command
     let output = tokio::process::Command::new("vcluster")
         .args(&["connect", &name, "-n", &namespace])
         .output()
@@ -2598,14 +2620,67 @@ async fn connect_vcluster(
         return Err(format!("vcluster connect failed: {}", stderr));
     }
 
+    // Give the background proxy a moment to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
     // vcluster connect updates the kubeconfig, so we need to reload it
     // The context name will be something like "vcluster_<name>_<namespace>_<original-context>"
-    let original_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
-    let new_context = format!("vcluster_{}_{}_", name, namespace) + &original_context;
+    let new_context = format!("vcluster_{}_{}_", name, namespace) + &host_context;
 
-    // Use try_lock to avoid deadlocks
+    // Update selected context
     if let Ok(mut context_guard) = state.selected_context.try_lock() {
         *context_guard = Some(new_context.clone());
+    }
+
+    // Clear kubeconfig path since vcluster writes to default kubeconfig (~/.kube/config)
+    // This ensures create_client reads from the updated default kubeconfig
+    if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
+        *path_guard = None;
+    }
+
+    // Clear all caches since we're switching to a different cluster context
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.discovery_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+        *cache = None;
+    }
+
+    // Verify connectivity by making a simple API call with retries
+    for attempt in 0..3 {
+        match kube::Client::try_default().await {
+            Ok(client) => {
+                // Try to list namespaces to verify connection
+                use kube::api::Api;
+                use k8s_openapi::api::core::v1::Namespace;
+                let ns_api: Api<Namespace> = Api::all(client);
+                match ns_api.list(&Default::default()).await {
+                    Ok(_) => {
+                        return Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context));
+                    }
+                    Err(e) => {
+                        if attempt < 2 {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                            continue;
+                        }
+                        return Err(format!("Connected but API not ready: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                if attempt < 2 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    continue;
+                }
+                return Err(format!("Failed to create client for vcluster: {}", e));
+            }
+        }
     }
 
     Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context))
