@@ -8707,8 +8707,8 @@ Resource: ${name} (namespace: ${namespace})
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs">
-        <span className={`flex items-center gap-1 ${isFetching ? 'text-[#007acc]' : 'text-[#89d185]'}`}>
-          <svg className={`w-2 h-2 ${isFetching ? 'animate-pulse' : ''}`} viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
+        <span className={`inline-flex items-center gap-1.5 ${isFetching ? 'text-[#007acc]' : 'text-[#89d185]'}`}>
+          <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${isFetching ? 'bg-[#007acc] animate-pulse' : 'bg-[#89d185]'}`} />
           {isFetching ? 'Live (updating)' : 'Live'}
         </span>
       </div>
@@ -8719,7 +8719,7 @@ Resource: ${name} (namespace: ${namespace})
         <div key={i} className="bg-[#1e1e1e] p-3 rounded border border-[#3e3e42]">
           <div className="flex items-center justify-between text-xs">
             <span className={`inline-flex items-center gap-1 ${ev.type_ === 'Warning' ? 'text-[#cca700]' : 'text-[#89d185]'}`}>
-              <svg className="w-1.5 h-1.5" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4" /></svg>
+              <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${ev.type_ === 'Warning' ? 'bg-[#cca700]' : 'bg-[#89d185]'}`} />
               {ev.type_}
             </span>
             <span className="text-[10px] text-[#858585]">{new Date(ev.age).toLocaleString()}</span>
