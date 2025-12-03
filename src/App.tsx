@@ -14,6 +14,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import Editor from '@monaco-editor/react';
 import { Virtuoso } from "react-virtuoso";
+import ReactMarkdown from 'react-markdown';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, BarChart, Bar, Legend } from 'recharts';
 import {
   Activity,
@@ -5244,25 +5245,29 @@ After the model is available, retry your request.`;
                         </div>
                       )}
                       {/* Tool result */}
-                      <div className="px-3 py-2">
-                        <div
-                          className="text-[11px] text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none [&_h2]:text-xs [&_h2]:text-white [&_h2]:font-bold [&_h2]:mb-1 [&_h2]:mt-2 [&_h2]:first:mt-0 [&_h3]:text-[11px] [&_h3]:text-white [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1 [&_ul]:space-y-0.5 [&_ul]:text-[10px] [&_li]:text-[#cccccc] [&_p]:my-1 [&_p]:text-[10px] [&_code]:bg-[#2d2d30] [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-cyan-300 [&_code]:text-[9px] [&_pre]:bg-[#0d1117] [&_pre]:p-2 [&_pre]:rounded [&_pre]:border [&_pre]:border-[#3e3e42] [&_pre]:my-1.5 [&_pre]:text-[9px] [&_pre]:max-h-40 [&_pre]:overflow-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[#cccccc] [&_strong]:text-white [&_strong]:font-semibold"
-                          dangerouslySetInnerHTML={{
-                            __html: msg.content
-                              .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-                              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                              .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                              .replace(/`([^`]+)`/g, '<code>$1</code>')
-                              .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                              .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                              .replace(/^- (.+)$/gm, '<li>$1</li>')
-                              .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
-                              .replace(/```(\w+)?\n([\s\S]+?)```/g, '<pre><code>$2</code></pre>')
-                              .replace(/\n\n/g, '</p><p>')
-                              .replace(/^(?!<[hul>]|<p>)(.+)$/gm, '<p>$1</p>')
-                              .replace(/<p><\/p>/g, '')
+                      <div className="px-3 py-2 text-[11px] text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown
+                          components={{
+                            h2: ({ children }) => <h2 className="text-xs text-white font-bold mb-1 mt-2 first:mt-0">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-[11px] text-white font-semibold mb-1 mt-1.5">{children}</h3>,
+                            p: ({ children }) => <p className="my-1 text-[10px] text-[#cccccc]">{children}</p>,
+                            ul: ({ children }) => <ul className="list-disc ml-4 my-1 space-y-0.5 text-[10px]">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal ml-4 my-1 space-y-0.5 text-[10px]">{children}</ol>,
+                            li: ({ children }) => <li className="text-[#cccccc]">{children}</li>,
+                            code: ({ className, children }) => {
+                              const isBlock = className?.includes('language-');
+                              if (isBlock) {
+                                return <code className="text-[#cccccc] text-[9px]">{children}</code>;
+                              }
+                              return <code className="bg-[#2d2d30] px-1 py-0.5 rounded text-cyan-300 text-[9px]">{children}</code>;
+                            },
+                            pre: ({ children }) => <pre className="bg-[#0d1117] p-2 rounded border border-[#3e3e42] my-1.5 text-[9px] max-h-40 overflow-auto">{children}</pre>,
+                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                            em: ({ children }) => <em className="italic">{children}</em>,
                           }}
-                        />
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   </div>
@@ -5270,29 +5275,36 @@ After the model is available, retry your request.`;
 
                 {msg.role === 'assistant' && (
                   <div className="flex justify-start">
-                    <div className="max-w-[85%] rounded px-3 py-2 text-xs bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc]">
-                      <div
-                        className="prose prose-invert prose-sm max-w-none [&_h1]:text-sm [&_h1]:text-white [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-3 [&_h1]:first:mt-0 [&_h2]:text-xs [&_h2]:text-white [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-2 [&_h3]:text-xs [&_h3]:text-white [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:ml-4 [&_ul]:my-1.5 [&_ul]:space-y-0.5 [&_ol]:list-decimal [&_ol]:ml-4 [&_ol]:my-1.5 [&_ol]:space-y-0.5 [&_li]:text-[#cccccc] [&_li]:text-[11px] [&_p]:my-1.5 [&_p]:text-[11px] [&_p]:leading-relaxed [&_code]:bg-[#2d2d30] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[#ce9178] [&_code]:text-[10px] [&_pre]:bg-[#0d1117] [&_pre]:p-2.5 [&_pre]:rounded [&_pre]:border [&_pre]:border-[#3e3e42] [&_pre]:my-2 [&_pre]:text-[10px] [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[#cccccc] [&_strong]:text-white [&_strong]:font-semibold [&_em]:italic [&_em]:text-purple-300"
-                        dangerouslySetInnerHTML={{
-                          __html: msg.content
-                            .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                            .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                            .replace(/`([^`]+)`/g, '<code>$1</code>')
-                            .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                            .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                            .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                            .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
-                            .replace(/^- (.+)$/gm, '<li>$1</li>')
-                            .replace(/(<li>.*<\/li>\n?)+/g, (match) => {
-                              return match.includes('<li>1.') ? `<ol>${match}</ol>` : `<ul>${match}</ul>`;
-                            })
-                            .replace(/```(\w+)?\n([\s\S]+?)```/g, '<pre><code>$2</code></pre>')
-                            .replace(/\n\n/g, '</p><p>')
-                            .replace(/^(?!<[hul>]|<p>)(.+)$/gm, '<p>$1</p>')
-                            .replace(/<p><\/p>/g, '')
+                    <div className="max-w-[85%] rounded px-3 py-2 text-xs bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc] prose prose-invert prose-sm max-w-none">
+                      <ReactMarkdown
+                        components={{
+                          h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
+                          p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal ml-4 my-1.5 space-y-0.5">{children}</ol>,
+                          li: ({ children }) => <li className="text-[#cccccc] text-[11px]">{children}</li>,
+                          code: ({ className, children }) => {
+                            const isBlock = className?.includes('language-');
+                            if (isBlock) {
+                              return <code className="text-[#cccccc] text-[10px]">{children}</code>;
+                            }
+                            return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-[#ce9178] text-[10px]">{children}</code>;
+                          },
+                          pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
+                          strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                          em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+                          a: ({ href, children }) => <a href={href} className="text-cyan-400 hover:text-cyan-300 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                          blockquote: ({ children }) => <blockquote className="border-l-2 border-purple-500 pl-3 my-2 text-[#999]">{children}</blockquote>,
+                          hr: () => <hr className="border-[#3e3e42] my-3" />,
+                          table: ({ children }) => <table className="border-collapse my-2 text-[10px] w-full">{children}</table>,
+                          th: ({ children }) => <th className="border border-[#3e3e42] px-2 py-1 bg-[#2d2d30] text-white font-semibold">{children}</th>,
+                          td: ({ children }) => <td className="border border-[#3e3e42] px-2 py-1">{children}</td>,
                         }}
-                      />
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -5588,9 +5600,54 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
   const spec = fullObject?.spec || {};
   const status = fullObject?.status || {};
 
-  // Helpers
+  // Helpers - recursive rendering of nested objects
+  const renderValue = (v: any, depth = 0): React.ReactNode => {
+    if (v === null || v === undefined) return <span className="text-[#858585] italic">null</span>;
+    if (typeof v === 'boolean') return <span className={v ? 'text-[#89d185]' : 'text-[#f48771]'}>{String(v)}</span>;
+    if (typeof v === 'number') return <span className="text-[#b5cea8]">{v}</span>;
+    if (typeof v === 'string') return <span className="text-[#cccccc] break-all">{v || <span className="text-[#858585] italic">""</span>}</span>;
+    if (Array.isArray(v)) {
+      if (v.length === 0) return <span className="text-[#858585] italic">[]</span>;
+      // For simple arrays (strings, numbers), show inline
+      if (v.every(item => typeof item === 'string' || typeof item === 'number')) {
+        return <span className="text-[#cccccc]">{v.join(', ')}</span>;
+      }
+      // For complex arrays, show each item
+      return (
+        <div className="ml-3 mt-1 space-y-1 border-l border-[#3e3e42] pl-2">
+          {v.map((item, i) => (
+            <div key={i} className="text-[10px]">
+              <span className="text-[#858585]">[{i}] </span>
+              {renderValue(item, depth + 1)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (typeof v === 'object') {
+      const entries = Object.entries(v);
+      if (entries.length === 0) return <span className="text-[#858585] italic">{'{}'}</span>;
+      return (
+        <div className={depth > 0 ? "ml-3 mt-1 space-y-0.5 border-l border-[#3e3e42] pl-2" : "space-y-0.5"}>
+          {entries.map(([key, val]) => (
+            <div key={key} className="text-[10px]">
+              <span className="text-[#569cd6]">{key}: </span>
+              {renderValue(val, depth + 1)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return <span className="text-[#cccccc]">{String(v)}</span>;
+  };
+
   const renderKV = (obj: any) => obj ? Object.entries(obj).map(([k, v]) => (
-    <div key={k} className="flex justify-between gap-4"><span className="text-[#858585] font-mono text-[11px]">{k}</span><span className="text-[#cccccc] font-mono text-[11px] break-all">{String(v)}</span></div>
+    <div key={k} className="py-1 border-b border-[#2d2d30] last:border-b-0">
+      <div className="flex gap-4">
+        <span className="text-[#569cd6] font-mono text-[11px] min-w-[120px] shrink-0">{k}</span>
+        <div className="text-[#cccccc] font-mono text-[11px] break-all flex-1">{renderValue(v)}</div>
+      </div>
+    </div>
   )) : <span className="text-[#858585] italic text-xs">None</span>;
 
   if (k === 'pod') {
