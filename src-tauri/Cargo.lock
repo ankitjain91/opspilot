@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "opspilot"
-version = "0.1.13"
+version = "0.1.19"
 dependencies = [
  "chrono",
  "futures",
