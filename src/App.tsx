@@ -6322,6 +6322,31 @@ function CollapsibleSection({ title, icon, children, defaultOpen = true }: { tit
   );
 }
 
+// Helper to fix kubectl commands with placeholder syntax like [namespace], <pod>, etc.
+function fixKubectlPlaceholders(text: string, resource: K8sObject, containers?: string[]): string {
+  // Replace common placeholder patterns with actual values
+  let fixed = text;
+
+  // Fix namespace placeholders
+  fixed = fixed.replace(/\[namespace\]|\<namespace\>|\{namespace\}/gi, resource.namespace);
+  fixed = fixed.replace(/-n\s+\[ns\]|-n\s+\<ns\>/gi, `-n ${resource.namespace}`);
+
+  // Fix pod name placeholders
+  if (resource.kind === 'Pod') {
+    fixed = fixed.replace(/\[pod\]|\<pod\>|\{pod\}|\[pod-name\]|\<pod-name\>/gi, resource.name);
+  }
+
+  // Fix container placeholders - use first container if available
+  if (containers && containers.length > 0) {
+    fixed = fixed.replace(/\[container\]|\<container\>|\{container\}|\[container-name\]|\<container-name\>/gi, containers[0]);
+  }
+
+  // Fix resource name placeholders
+  fixed = fixed.replace(/\[name\]|\<name\>|\{name\}|\[resource-name\]|\<resource-name\>/gi, resource.name);
+
+  return fixed;
+}
+
 function OverviewTab({ resource, fullObject, loading, error, onDelete, currentContext }: { resource: K8sObject, fullObject: any, loading: boolean, error?: Error, onDelete: () => void, currentContext?: string }) {
   const [llmLoading, setLlmLoading] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<
@@ -6396,6 +6421,9 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
       const labels = fullObject?.metadata?.labels
         ? Object.entries(fullObject.metadata.labels).map(([k, v]) => `${k}=${v}`).join(', ')
         : 'None';
+
+      // Get container names for placeholder fixing
+      const containerNames = fullObject?.spec?.containers?.map((c: any) => c.name) || [];
 
       const context = `
 Current Resource:
@@ -6479,9 +6507,16 @@ You MUST NOT:
 
 You MAY:
 - Suggest READ-ONLY commands the user can run to collect data
-  (e.g., "You can run: kubectl get pod X -o yaml (READ ONLY)")
 - Ask for outputs of describe, logs, events, metrics, etc.
 - Explain how to interpret the outputs they already have
+
+**CRITICAL - KUBECTL COMMAND FORMAT:**
+When suggesting kubectl commands, ALWAYS use the ACTUAL resource names from the context.
+- **CORRECT:** kubectl logs my-pod-abc123 -n production -c nginx
+- **WRONG:** kubectl logs -n [namespace] <pod> -c [container]
+- **WRONG:** kubectl logs <pod-name> -n <namespace>
+Never use placeholder brackets like [namespace], <pod>, [container], etc.
+Always substitute actual values from the current resource context.
 
 If the user explicitly asks for mutating commands:
 Reply: "I am running in READ-ONLY Kubernetes analysis mode and cannot generate modifying commands."
@@ -7044,17 +7079,19 @@ Never self-terminate.`,
           const nextTools = Array.from(nextToolMatches);
 
           if (nextTools.length === 0) {
-            // No more tools requested - final answer
-            setChatHistory(prev => [...prev, { role: 'assistant', content: analysisAnswer }]);
+            // No more tools requested - final answer (fix any placeholder commands)
+            const fixedAnswer = fixKubectlPlaceholders(analysisAnswer, resource, containerNames);
+            setChatHistory(prev => [...prev, { role: 'assistant', content: fixedAnswer }]);
             break;
           }
 
           // AI wants to investigate more - show reasoning
           const reasoningPart = analysisAnswer.split('TOOL:')[0].trim();
           if (reasoningPart) {
+            const fixedReasoning = fixKubectlPlaceholders(reasoningPart, resource, containerNames);
             setChatHistory(prev => [...prev, {
               role: 'assistant',
-              content: reasoningPart + '\n\n*🔄 Continuing investigation...*'
+              content: fixedReasoning + '\n\n*🔄 Continuing investigation...*'
             }]);
           }
 
@@ -7263,7 +7300,9 @@ Never self-terminate.`,
 
         // Don't add any "investigation complete" messages - let AI continue naturally
       } else {
-        setChatHistory(prev => [...prev, { role: 'assistant', content: answer }]);
+        // Fix any placeholder commands in the answer
+        const fixedAnswer = fixKubectlPlaceholders(answer, resource, containerNames);
+        setChatHistory(prev => [...prev, { role: 'assistant', content: fixedAnswer }]);
       }
     } catch (err) {
       const msg = (err as any)?.toString?.() || String(err);
