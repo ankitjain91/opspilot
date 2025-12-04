@@ -166,7 +166,8 @@ jobs:
             if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
               SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" 2>&1)
             else
-              SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key --no-password 2>&1)
+              # No password - let signer prompt (it outputs "Signing without password")
+              SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key 2>&1)
             fi
             SIGN_EXIT=$?
             set -e
