@@ -145,6 +145,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"  # Remove 'v' prefix
@@ -162,7 +163,11 @@ jobs:
 
             # Run signer and capture all output (use || true to prevent script exit on error)
             set +e
-            SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key 2>&1)
+            if [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+              SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" 2>&1)
+            else
+              SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key --no-password 2>&1)
+            fi
             SIGN_EXIT=$?
             set -e
             rm -f /tmp/tauri.key
