@@ -7906,6 +7906,28 @@ function KindSpecSection({ kind, fullObject, currentContext }: { kind: string, f
     const selector = spec.selector?.matchLabels ? Object.entries(spec.selector.matchLabels).map(([k, v]) => `${k}=${v}`).join(', ') : '-';
     const tplContainers = spec.template?.spec?.containers || [];
     const initContainers = spec.template?.spec?.initContainers || [];
+    const namespace = fullObject?.metadata?.namespace;
+    const matchLabels = spec.selector?.matchLabels || {};
+
+    // Fetch pods matching the deployment's selector
+    const { data: managedPods } = useQuery({
+      queryKey: ["deployment_pods", currentContext, namespace, JSON.stringify(matchLabels)],
+      queryFn: async () => {
+        if (!namespace || Object.keys(matchLabels).length === 0) return [];
+        try {
+          const allPods = await invoke<any[]>("list_resources", {
+            req: { group: "", version: "v1", kind: "Pod", namespace }
+          });
+          // Filter pods that match all selector labels
+          return allPods.filter((pod: any) => {
+            const podLabels = pod.labels || {};
+            return Object.entries(matchLabels).every(([key, val]) => podLabels[key] === val);
+          });
+        } catch { return []; }
+      },
+      staleTime: 10000,
+      refetchInterval: 15000,
+    });
 
     // Status info
     const readyReplicas = status.readyReplicas || 0;
@@ -8098,6 +8120,41 @@ function KindSpecSection({ kind, fullObject, currentContext }: { kind: string, f
               </div>
             </div>
           )}
+
+          {/* Managed Pods */}
+          <div>
+            <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Managed Pods ({managedPods?.length || 0})</h4>
+            {managedPods && managedPods.length > 0 ? (
+              <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                {managedPods.map((pod: any) => {
+                  const podStatus = pod.status || 'Unknown';
+                  const isRunning = podStatus === 'Running';
+                  const isPending = podStatus === 'Pending' || podStatus === 'ContainerCreating';
+                  const isFailed = podStatus === 'Failed' || podStatus === 'Error' || podStatus === 'CrashLoopBackOff';
+                  const isTerminating = podStatus === 'Terminating';
+                  const restarts = pod.restarts || 0;
+                  const age = pod.age || '-';
+                  return (
+                    <div key={pod.name} className="px-2 py-1.5 bg-[#1e1e1e] border border-[#3e3e42] rounded flex items-center justify-between gap-2 hover:border-[#007acc]/50 transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isRunning ? 'bg-green-500' : isPending ? 'bg-yellow-500' : isFailed ? 'bg-red-500' : isTerminating ? 'bg-orange-500' : 'bg-[#858585]'}`} />
+                        <span className="font-mono text-[10px] text-[#cccccc] truncate" title={pod.name}>{pod.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] ${isRunning ? 'bg-green-500/20 text-green-400' : isPending ? 'bg-yellow-500/20 text-yellow-400' : isFailed ? 'bg-red-500/20 text-red-400' : isTerminating ? 'bg-orange-500/20 text-orange-400' : 'bg-[#3e3e42] text-[#858585]'}`}>{podStatus}</span>
+                        {restarts > 0 && (
+                          <span className={`px-1 py-0.5 rounded text-[9px] ${restarts > 5 ? 'bg-red-500/20 text-red-400' : restarts > 2 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-[#3e3e42] text-[#858585]'}`}>↻{restarts}</span>
+                        )}
+                        <span className="text-[9px] text-[#585858]">{age}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[#858585] italic text-[11px] py-2">No pods found matching selector</div>
+            )}
+          </div>
         </div>
       </CollapsibleSection>
     );
