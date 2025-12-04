@@ -1982,6 +1982,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   const qc = useQueryClient();
   const [connectingVcluster, setConnectingVcluster] = useState<string | null>(null);
   const [connectCancelled, setConnectCancelled] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<string>("");
 
   // Detect if we're inside a vcluster (context name starts with "vcluster_")
   const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
@@ -2693,22 +2694,24 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                   {vc.connected && <span className="text-cyan-400">Connected</span>}
                 </div>
                 {connectingVcluster === vc.id ? (
-                  <div className="flex gap-2">
-                    <div className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-purple-800 text-white text-xs font-medium">
-                      <Loader2 size={14} className="animate-spin" />
-                      Connecting...
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-md bg-purple-900/50 border border-purple-500/30">
+                      <Loader2 size={14} className="animate-spin text-purple-400" />
+                      <span className="text-xs text-purple-200 flex-1">{connectionStatus || "Initializing..."}</span>
                     </div>
                     <button
                       onClick={() => {
                         setConnectCancelled(true);
                         setConnectingVcluster(null);
+                        setConnectionStatus("");
                         if ((window as any).showToast) {
                           (window as any).showToast('Connection cancelled', 'info');
                         }
                       }}
-                      className="px-3 py-2 rounded-md bg-red-600/80 hover:bg-red-500 text-white text-xs font-medium transition-all"
+                      className="w-full px-3 py-1.5 rounded-md bg-zinc-700/50 hover:bg-zinc-600/50 text-zinc-300 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
                     >
-                      <X size={14} />
+                      <X size={12} />
+                      Cancel
                     </button>
                   </div>
                 ) : (
@@ -2717,12 +2720,35 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                       const vcId = vc.id;
                       setConnectingVcluster(vcId);
                       setConnectCancelled(false);
+                      setConnectionStatus("Starting vcluster proxy...");
                       try {
+                        // Simulate progress updates
+                        const statusUpdates = [
+                          { delay: 500, msg: "Starting vcluster proxy..." },
+                          { delay: 2000, msg: "Waiting for proxy to initialize..." },
+                          { delay: 4000, msg: "Configuring kubeconfig..." },
+                          { delay: 6000, msg: "Verifying API connection..." },
+                          { delay: 10000, msg: "Establishing secure tunnel..." },
+                        ];
+
+                        const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+                        statusUpdates.forEach(({ delay, msg }) => {
+                          const id = setTimeout(() => {
+                            if (!connectCancelled) setConnectionStatus(msg);
+                          }, delay);
+                          timeoutIds.push(id);
+                        });
+
                         await invoke("connect_vcluster", { name: vc.name, namespace: vc.namespace });
+
+                        // Clear timeouts
+                        timeoutIds.forEach(id => clearTimeout(id));
+
                         // Check if cancelled while waiting
                         if (connectCancelled) {
                           return;
                         }
+                        setConnectionStatus("Connected! Loading cluster...");
                         if ((window as any).showToast) {
                           (window as any).showToast(`Connected to vcluster '${vc.name}'`, 'success');
                         }
@@ -2733,12 +2759,14 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                       } catch (err) {
                         if (!connectCancelled) {
                           console.error('vcluster connect error:', err);
+                          setConnectionStatus("");
                           if ((window as any).showToast) {
                             (window as any).showToast(`Failed to connect: ${err}`, 'error');
                           }
                         }
                       } finally {
                         setConnectingVcluster(null);
+                        setConnectionStatus("");
                       }
                     }}
                     disabled={connectingVcluster !== null}
@@ -3880,6 +3908,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
 function VclusterConnectButton({ name, namespace }: { name: string, namespace: string }) {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState("");
   const qc = useQueryClient();
   // Handle Reload button: invalidate queries globally when event fires
   useEffect(() => {
@@ -3893,59 +3922,95 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
   }, [qc]);
   return (
     <div>
-      <button
-        onClick={async () => {
-          try {
-            setConnecting(true);
-            const result = await invoke("connect_vcluster", {
-              name,
-              namespace
-            });
-            console.log('vcluster connect success:', result);
-            setConnected(true);
-            // Toast notify
-            if ((window as any).showToast) {
-              (window as any).showToast(`Connected to vcluster '${name}' in namespace '${namespace}'`, 'success');
+      {connecting ? (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-md bg-cyan-900/50 border border-cyan-500/30">
+            <Loader2 size={14} className="animate-spin text-cyan-400" />
+            <span className="text-xs text-cyan-200 flex-1">{status || "Initializing..."}</span>
+          </div>
+          <button
+            onClick={() => {
+              setConnecting(false);
+              setStatus("");
+              if ((window as any).showToast) {
+                (window as any).showToast('Connection cancelled', 'info');
+              }
+            }}
+            className="w-full px-3 py-1.5 rounded-md bg-zinc-700/50 hover:bg-zinc-600/50 text-zinc-300 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
+          >
+            <X size={12} />
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={async () => {
+            try {
+              setConnecting(true);
+              setStatus("Starting vcluster proxy...");
+
+              // Status updates to show progress
+              const statusUpdates = [
+                { delay: 500, msg: "Starting vcluster proxy..." },
+                { delay: 2000, msg: "Waiting for proxy to initialize..." },
+                { delay: 4000, msg: "Configuring kubeconfig..." },
+                { delay: 6000, msg: "Verifying API connection..." },
+                { delay: 10000, msg: "Establishing secure tunnel..." },
+              ];
+
+              const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+              statusUpdates.forEach(({ delay, msg }) => {
+                const id = setTimeout(() => setStatus(msg), delay);
+                timeoutIds.push(id);
+              });
+
+              const result = await invoke("connect_vcluster", {
+                name,
+                namespace
+              });
+
+              // Clear status timeouts
+              timeoutIds.forEach(id => clearTimeout(id));
+
+              console.log('vcluster connect success:', result);
+              setStatus("Connected! Loading cluster...");
+              setConnected(true);
+              // Toast notify
+              if ((window as any).showToast) {
+                (window as any).showToast(`Connected to vcluster '${name}' in namespace '${namespace}'`, 'success');
+              }
+              // Clear all caches - backend caches are already cleared in connect_vcluster
+              // Clear frontend React Query caches
+              qc.clear();
+              await qc.invalidateQueries({ queryKey: ["current_context"] });
+              await qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+              await qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
+              await qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
+              await qc.invalidateQueries({ queryKey: ["vclusters"] });
+              await qc.invalidateQueries({ queryKey: ["discovery"] });
+              await qc.invalidateQueries({ queryKey: ["namespaces"] });
+              await qc.invalidateQueries({ queryKey: ["crd-groups"] });
+              await qc.invalidateQueries({ queryKey: ["metrics"] });
+              // Also refetch any resource lists that depend on context
+              await qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes("list_resources") });
+            } catch (err) {
+              console.error('vcluster connect error:', err);
+              if ((window as any).showToast) {
+                (window as any).showToast(`Failed to connect: ${err}`, 'error');
+              }
+              alert(`Error: ${err}\n\nTo connect manually, run:\nvcluster connect ${name} -n ${namespace}`);
+            } finally {
+              setConnecting(false);
+              setStatus("");
             }
-            // Clear all caches - backend caches are already cleared in connect_vcluster
-            // Clear frontend React Query caches
-            qc.clear();
-            await qc.invalidateQueries({ queryKey: ["current_context"] });
-            await qc.invalidateQueries({ queryKey: ["cluster_stats"] });
-            await qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
-            await qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
-            await qc.invalidateQueries({ queryKey: ["vclusters"] });
-            await qc.invalidateQueries({ queryKey: ["discovery"] });
-            await qc.invalidateQueries({ queryKey: ["namespaces"] });
-            await qc.invalidateQueries({ queryKey: ["crd-groups"] });
-            await qc.invalidateQueries({ queryKey: ["metrics"] });
-            // Also refetch any resource lists that depend on context
-            await qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes("list_resources") });
-          } catch (err) {
-            console.error('vcluster connect error:', err);
-            if ((window as any).showToast) {
-              (window as any).showToast(`Failed to connect: ${err}`, 'error');
-            }
-            alert(`Error: ${err}\n\nTo connect manually, run:\nvcluster connect ${name} -n ${namespace}`);
-          } finally {
-            setConnecting(false);
-          }
-        }}
-        disabled={connecting}
-        className={`w-full mt-3 px-3 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-2 ${connecting ? 'bg-cyan-800 text-white cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}
-      >
-        {connecting ? (
-          <>
-            <Loader2 className="animate-spin" size={14} />
-            Connecting...
-          </>
-        ) : (
-          <>
-            <Plug size={14} />
-            Connect to vcluster
-          </>
-        )}
-      </button>
+          }}
+          disabled={connecting}
+          className={`w-full mt-3 px-3 py-2 rounded-md text-xs font-medium transition-all flex items-center justify-center gap-2 ${connecting ? 'bg-cyan-800 text-white cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}
+        >
+          <Plug size={14} />
+          Connect to vcluster
+        </button>
+      )}
       {connected && (
         <div className="mt-2 text-xs flex items-center gap-2 text-green-400">
           <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 10-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" /></svg>
