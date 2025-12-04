@@ -15,6 +15,7 @@ import '@xterm/xterm/css/xterm.css';
 import Editor from '@monaco-editor/react';
 import { Virtuoso } from "react-virtuoso";
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, BarChart, Bar, Legend } from 'recharts';
 import {
   Activity,
@@ -4440,6 +4441,7 @@ Be concise. Focus on actionable findings.`,
                 </div>
                 <div className="px-3 py-2.5 prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
                       code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
@@ -4447,6 +4449,7 @@ Be concise. Focus on actionable findings.`,
                       ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1 space-y-0.5">{children}</ul>,
                       li: ({ children }) => <li className="text-zinc-300">{children}</li>,
                       h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-3 mb-1.5">{children}</h2>,
+                      strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
                     }}
                   >
                     {msg.content}
@@ -4461,6 +4464,7 @@ Be concise. Focus on actionable findings.`,
                 </div>
                 <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
                       strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
@@ -7699,6 +7703,7 @@ After the model is available, retry your request.`;
                       {/* Tool result */}
                       <div className="px-3 py-2 text-[11px] text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none">
                         <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
                           components={{
                             h2: ({ children }) => <h2 className="text-xs text-white font-bold mb-1 mt-2 first:mt-0">{children}</h2>,
                             h3: ({ children }) => <h3 className="text-[11px] text-white font-semibold mb-1 mt-1.5">{children}</h3>,
@@ -7729,6 +7734,7 @@ After the model is available, retry your request.`;
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded px-3 py-2 text-xs bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc] prose prose-invert prose-sm max-w-none">
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
                           h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2">{children}</h2>,
