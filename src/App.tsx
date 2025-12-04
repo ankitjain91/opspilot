@@ -9766,7 +9766,32 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
               <X size={14} />
             </button>
           </div>
-          <div className="text-xs text-[#cccccc] whitespace-pre-wrap">{aiAnalysis}</div>
+          <div className="text-xs text-[#cccccc] prose prose-invert prose-sm max-w-none">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2 first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
+                p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal ml-4 my-1.5 space-y-0.5">{children}</ol>,
+                li: ({ children }) => <li className="text-[#cccccc] text-[11px]">{children}</li>,
+                code: ({ className, children }) => {
+                  const isBlock = className?.includes('language-');
+                  if (isBlock) {
+                    return <code className="text-[#cccccc] text-[10px]">{children}</code>;
+                  }
+                  return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-cyan-300 text-[10px]">{children}</code>;
+                },
+                pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
+                strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+              }}
+            >
+              {aiAnalysis}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
 
@@ -9915,7 +9940,32 @@ Resource: ${name} (namespace: ${namespace})
               <X size={14} />
             </button>
           </div>
-          <div className="text-xs text-[#cccccc] whitespace-pre-wrap">{allEventsAnalysis}</div>
+          <div className="text-xs text-[#cccccc] prose prose-invert prose-sm max-w-none">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2 first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
+                p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal ml-4 my-1.5 space-y-0.5">{children}</ol>,
+                li: ({ children }) => <li className="text-[#cccccc] text-[11px]">{children}</li>,
+                code: ({ className, children }) => {
+                  const isBlock = className?.includes('language-');
+                  if (isBlock) {
+                    return <code className="text-[#cccccc] text-[10px]">{children}</code>;
+                  }
+                  return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-cyan-300 text-[10px]">{children}</code>;
+                },
+                pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
+                strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+              }}
+            >
+              {allEventsAnalysis}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
 
@@ -9956,8 +10006,31 @@ Resource: ${name} (namespace: ${namespace})
               )}
             </button>
             {expandedExplanations[i] && !loadingExplanations[i] && (
-              <div className="mt-2 p-2 bg-[#252526] border border-[#3e3e42] rounded text-xs text-[#cccccc] leading-relaxed">
-                <pre className="whitespace-pre-wrap font-sans">{expandedExplanations[i]}</pre>
+              <div className="mt-2 p-2 bg-[#252526] border border-[#3e3e42] rounded text-xs text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2 first:mt-0">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
+                    p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal ml-4 my-1.5 space-y-0.5">{children}</ol>,
+                    li: ({ children }) => <li className="text-[#cccccc] text-[11px]">{children}</li>,
+                    code: ({ className, children }) => {
+                      const isBlock = className?.includes('language-');
+                      if (isBlock) {
+                        return <code className="text-[#cccccc] text-[10px]">{children}</code>;
+                      }
+                      return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-cyan-300 text-[10px]">{children}</code>;
+                    },
+                    pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
+                    strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                    em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+                  }}
+                >
+                  {expandedExplanations[i]}
+                </ReactMarkdown>
               </div>
             )}
           </div>
