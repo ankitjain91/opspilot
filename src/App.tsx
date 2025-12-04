@@ -7491,7 +7491,23 @@ After the model is available, retry your request.`;
       )}
 
       {/* Spec Summary (Kind Specific) */}
-      <KindSpecSection kind={resource.kind} fullObject={fullObject} currentContext={currentContext} />
+      {loading ? (
+        <CollapsibleSection title={`${resource.kind} Details`} icon={<Loader2 size={14} className="animate-spin" />}>
+          <div className="flex items-center justify-center py-8 text-zinc-500">
+            <Loader2 size={20} className="animate-spin mr-2" />
+            Loading {resource.kind.toLowerCase()} spec...
+          </div>
+        </CollapsibleSection>
+      ) : fullObject && Object.keys(fullObject).length > 0 ? (
+        <KindSpecSection kind={resource.kind} fullObject={fullObject} currentContext={currentContext} />
+      ) : (
+        <CollapsibleSection title={`${resource.kind} Details`} icon={<AlertCircle size={14} />}>
+          <div className="text-center py-4 text-zinc-500 text-sm">
+            Unable to load resource details
+            {error && <div className="text-red-400 text-xs mt-1">{String(error)}</div>}
+          </div>
+        </CollapsibleSection>
+      )}
 
       {/* Raw Status */}
       {fullObject?.status && (
