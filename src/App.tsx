@@ -2466,22 +2466,22 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
       if (healthMetrics.cpuPct > 80) issues.push(`CPU at ${healthMetrics.cpuPct.toFixed(0)}%`);
       if (healthMetrics.memPct > 80) issues.push(`Memory at ${healthMetrics.memPct.toFixed(0)}%`);
 
-      const unhealthyPodsList = cockpit.unhealthy_pods?.slice(0, 5).map((p: any) =>
-        `- ${p.namespace}/${p.name}: ${p.status}`
+      const unhealthyDeploysList = cockpit.unhealthy_deployments?.slice(0, 5).map((d: DeploymentHealth) =>
+        `- ${d.namespace}/${d.name}: ${d.ready}/${d.desired} ready`
       ).join('\n') || '';
 
-      const unhealthyDeploysList = cockpit.unhealthy_deployments?.slice(0, 5).map((d: any) =>
-        `- ${d.namespace}/${d.name}: ${d.status}`
+      const unhealthyNodesList = cockpit.nodes?.filter((n: NodeHealth) => n.status !== 'Ready').slice(0, 5).map((n: NodeHealth) =>
+        `- ${n.name}: ${n.status}`
       ).join('\n') || '';
 
       const context = `
 Cluster Health Score: ${healthMetrics.healthScore}/100
 Issues Detected: ${issues.join(', ')}
 
-${unhealthyPodsList ? `Unhealthy Pods:\n${unhealthyPodsList}` : ''}
+${unhealthyNodesList ? `Unhealthy Nodes:\n${unhealthyNodesList}` : ''}
 ${unhealthyDeploysList ? `Unhealthy Deployments:\n${unhealthyDeploysList}` : ''}
 
-Node Status: ${cockpit.node_status.ready}/${cockpit.node_status.total} ready
+Node Status: ${cockpit.healthy_nodes}/${cockpit.total_nodes} ready
 Pod Status: ${cockpit.pod_status.running} running, ${cockpit.pod_status.pending} pending, ${cockpit.pod_status.failed} failed
 CPU: ${healthMetrics.cpuPct.toFixed(1)}% used
 Memory: ${healthMetrics.memPct.toFixed(1)}% used
