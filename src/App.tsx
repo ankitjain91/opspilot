@@ -3991,6 +3991,14 @@ OUTPUT FORMAT (EVERY TURN)
 3. RECOMMENDATIONS - What should be done (but not how to mutate)
 4. NEXT INVESTIGATION STEPS - If you need more data, use TOOL: commands
 
+**AUTONOMOUS INVESTIGATION (CRITICAL):**
+- You drive the debugging process COMPLETELY on your own
+- After analyzing initial data, IMMEDIATELY use tools to investigate further
+- Don't wait for user input - call tools right away
+- Chain tools together: CLUSTER_HEALTH → GET_EVENTS → LIST_PODS → GET_LOGS
+- If you find an issue, drill down with more tools automatically
+- NEVER stop mid-investigation - keep using tools until you have a clear answer
+
 Keep responses concise and actionable. Focus on the most important issues.`;
 
       const answer = await invoke<string>("call_llm", {
@@ -4114,15 +4122,124 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
           allToolResults.push(`## ${toolName}\n${toolResult}`);
         }
 
-        // Get follow-up analysis with tool results
-        const followUp = await invoke<string>("call_llm", {
-          config: llmConfig,
-          prompt: `Tool results:\n${allToolResults.join('\n\n')}\n\nAnalyze these results and provide your assessment.`,
-          systemPrompt: "You are analyzing Kubernetes cluster data. Summarize findings, identify issues, and provide recommendations. Be concise.",
-          conversationHistory: [],
-        });
+        // Iterative investigation loop - AI continues until done
+        let combinedResults = allToolResults.join('\n\n---\n\n');
+        let iterationCount = 0;
+        const maxIterations = 8;
 
-        setChatHistory(prev => [...prev, { role: 'assistant', content: followUp }]);
+        while (iterationCount < maxIterations) {
+          const analysisPrompt = iterationCount === 0
+            ? `Tool results:\n${combinedResults}\n\nAnalyze these results for: "${message}". If you need more data, use TOOL: commands.`
+            : `New tool results:\n${combinedResults}\n\nContinue your investigation.`;
+
+          const analysisAnswer = await invoke<string>("call_llm", {
+            config: llmConfig,
+            prompt: analysisPrompt,
+            systemPrompt: `You are analyzing Kubernetes cluster data autonomously.
+
+**AUTO-CONTINUE RULE:**
+1. If you found issues but need more details → USE TOOLS immediately (GET_LOGS, DESCRIBE, etc.)
+2. If you have partial evidence → USE TOOLS to find more
+3. ONLY stop when you have HIGH CONFIDENCE or exhausted relevant tools
+
+Available tools: CLUSTER_HEALTH, GET_EVENTS [ns], LIST_PODS [ns], LIST_DEPLOYMENTS [ns], LIST_SERVICES [ns], DESCRIBE <kind> <ns> <name>, GET_LOGS <ns> <pod> [container], TOP_PODS, FIND_ISSUES
+
+To use a tool: TOOL: <tool_name> [args]
+
+Be concise. Focus on actionable findings.`,
+            conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
+          });
+
+          // Check if AI wants more tools
+          const nextToolMatches = analysisAnswer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
+          const nextTools = Array.from(nextToolMatches);
+
+          if (nextTools.length === 0) {
+            // No more tools - final answer
+            setChatHistory(prev => [...prev, { role: 'assistant', content: analysisAnswer }]);
+            break;
+          }
+
+          // Show reasoning
+          const reasoningPart = analysisAnswer.split('TOOL:')[0].trim();
+          if (reasoningPart) {
+            setChatHistory(prev => [...prev, {
+              role: 'assistant',
+              content: reasoningPart + '\n\n*🔄 Continuing investigation...*'
+            }]);
+          }
+
+          // Execute next tools
+          const newToolResults: string[] = [];
+          for (const toolMatch of nextTools) {
+            const toolName = toolMatch[1];
+            const toolArgs = toolMatch[2]?.trim();
+            let toolResult = '';
+            let kubectlCommand = '';
+
+            if (!validTools.includes(toolName)) {
+              setChatHistory(prev => [...prev, { role: 'tool', content: `⚠️ Invalid tool: ${toolName}`, toolName: 'INVALID', command: 'N/A' }]);
+              continue;
+            }
+
+            try {
+              // Re-execute tools (same logic as above)
+              if (toolName === 'CLUSTER_HEALTH') {
+                kubectlCommand = 'kubectl get nodes,pods --all-namespaces';
+                const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
+                toolResult = `## Cluster Health\n**Nodes:** ${health.ready_nodes}/${health.total_nodes} ready\n**Pods:** ${health.running_pods}/${health.total_pods} running`;
+              } else if (toolName === 'GET_EVENTS') {
+                const namespace = toolArgs || undefined;
+                kubectlCommand = namespace ? `kubectl get events -n ${namespace}` : 'kubectl get events -A';
+                const events = await invoke<ClusterEventSummary[]>("get_cluster_events_summary", { namespace, limit: 20 });
+                toolResult = events.length === 0 ? 'No warning events.' : `## Events (${events.length})\n${events.slice(0, 15).map(e => `- [${e.event_type}] ${e.namespace}/${e.name}: ${e.reason} - ${e.message}`).join('\n')}`;
+              } else if (toolName === 'LIST_PODS') {
+                const namespace = toolArgs || undefined;
+                kubectlCommand = namespace ? `kubectl get pods -n ${namespace}` : 'kubectl get pods -A';
+                const pods = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Pod", namespace: namespace || null } });
+                toolResult = `## Pods (${pods.length})\n${pods.slice(0, 20).map(p => `- ${p.namespace}/${p.name}: ${p.status}`).join('\n')}`;
+              } else if (toolName === 'GET_LOGS') {
+                const parts = (toolArgs || '').split(/\s+/);
+                const [ns, pod, container] = parts;
+                if (!ns || !pod) {
+                  toolResult = '⚠️ Usage: GET_LOGS <namespace> <pod> [container]';
+                } else {
+                  kubectlCommand = container ? `kubectl logs -n ${ns} ${pod} -c ${container}` : `kubectl logs -n ${ns} ${pod}`;
+                  const logs = await invoke<string>("get_pod_logs", { namespace: ns, name: pod, container: container || null, lines: 100 });
+                  toolResult = `## Logs: ${ns}/${pod}\n\`\`\`\n${logs.slice(-2000)}\n\`\`\``;
+                }
+              } else if (toolName === 'DESCRIBE') {
+                const [kind, ns, name] = (toolArgs || '').split(/\s+/);
+                if (!kind || !ns || !name) {
+                  toolResult = '⚠️ Usage: DESCRIBE <kind> <namespace> <name>';
+                } else {
+                  kubectlCommand = `kubectl describe ${kind.toLowerCase()} -n ${ns} ${name}`;
+                  const details = await invoke<string>("get_resource_details", {
+                    req: { group: kind === 'Deployment' ? 'apps' : '', version: 'v1', kind, namespace: ns },
+                    name
+                  });
+                  const parsed = JSON.parse(details);
+                  toolResult = `## ${kind}: ${ns}/${name}\n\`\`\`yaml\n${JSON.stringify(parsed, null, 2).slice(0, 2000)}\n\`\`\``;
+                }
+              } else if (toolName === 'FIND_ISSUES') {
+                kubectlCommand = 'kubectl get pods -A --field-selector=status.phase!=Running';
+                const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
+                const issues = [...health.critical_issues, ...health.warnings].slice(0, 20);
+                toolResult = issues.length === 0 ? '✅ No issues found.' : `## Issues (${issues.length})\n${issues.map(i => `- [${i.severity.toUpperCase()}] ${i.resource_kind} ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}`;
+              } else {
+                toolResult = `Tool ${toolName} executed`;
+              }
+            } catch (err) {
+              toolResult = `❌ Error: ${err}`;
+            }
+
+            setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName, command: kubectlCommand }]);
+            newToolResults.push(`## ${toolName}\n${toolResult}`);
+          }
+
+          combinedResults = newToolResults.join('\n\n---\n\n');
+          iterationCount++;
+        }
       } else {
         setChatHistory(prev => [...prev, { role: 'assistant', content: answer }]);
       }
@@ -6651,13 +6768,16 @@ You must behave like an autonomous investigator with this loop:
    - Use TOOL: commands to gather that data autonomously.
    - Be explicit and specific; do NOT be vague.
 
-5. ITERATE
+5. ITERATE (AUTO-CONTINUE)
    - When new data arrives, repeat:
      - Update summary
      - Refine or discard hypotheses
      - Adjust evidence
      - Request the next most useful data via tools
    - Continue until a HIGH-confidence root cause is identified or you explicitly say it's ambiguous.
+   - **CRITICAL: NEVER stop mid-investigation** - if you have hypotheses to test, USE TOOLS immediately
+   - Don't wait for user prompting - call tools right away to continue investigation
+   - Chain tools together: Start with LOGS → Then EVENTS → Then DESCRIBE → Then related resources
 
 ------------------------------------------------
 OUTPUT FORMAT (EVERY TURN)
@@ -7029,7 +7149,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
         // Iterative investigation loop - AI analyzes and decides if more investigation needed
         let combinedResults = allToolResults.join('\n\n---\n\n');
         let iterationCount = 0;
-        const maxIterations = 3; // Prevent infinite loops
+        const maxIterations = 8; // Allow thorough autonomous investigation
 
         while (iterationCount < maxIterations) {
           const analysisPrompt = iterationCount === 0
@@ -7115,17 +7235,28 @@ If tool data is insufficient even after using all relevant tools, explicitly sta
 - Reference exact fields: spec.containers[0].imagePullPolicy
 - Align with K8s mechanics: pod lifecycle, probes, scheduling, CrashLoopBackOff, QoS, taints/tolerations
 
-**AUTONOMOUS INVESTIGATION:**
-- You drive the debugging process
-- Form hypotheses and test them with tools
+**AUTONOMOUS INVESTIGATION (CRITICAL):**
+- You drive the debugging process COMPLETELY on your own
+- Form hypotheses and IMMEDIATELY test them with tools - don't wait for user input
+- After each tool result, ALWAYS decide: do I need more evidence? If yes, call more tools immediately
 - Refine or discard hypotheses as new data arrives
 - Continue requesting evidence until HIGH confidence or ambiguity is acknowledged
+- NEVER stop mid-investigation - if you have hypotheses, test them with tools
+- If logs don't show the issue, check events. If events don't help, check related resources
+- Chain tools together: LOGS → EVENTS → DESCRIBE → METRICS → LIST_RESOURCES
+
+**AUTO-CONTINUE RULE:**
+When you finish analyzing tool output:
+1. If you have untested hypotheses → USE TOOLS to test them (don't just list them)
+2. If you found partial evidence → USE TOOLS to find more evidence
+3. If you need logs/events/describe → Call those tools NOW, don't suggest the user do it
+4. ONLY stop when you have HIGH CONFIDENCE in your conclusion or have exhausted all relevant tools
 
 **FINAL RULE:**
 If you cannot safely determine a single root cause yet, state:
 "I cannot safely determine a single root cause yet."
 
-Then keep multiple hypotheses open and use tools to gather the most powerful next piece of evidence.
+Then IMMEDIATELY use tools to gather the most powerful next piece of evidence - don't wait!
 
 Never generate mutative operations (apply, patch, delete, restart, scale).
 If requested, respond: "I cannot generate mutative operations. I operate in READ-ONLY Kubernetes DE mode."
