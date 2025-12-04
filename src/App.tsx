@@ -5098,6 +5098,39 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
     queryFn: async () => await invoke<string>("get_current_context_name"),
   });
 
+  // vcluster detection
+  const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
+  const [isDisconnectingVcluster, setIsDisconnectingVcluster] = useState(false);
+
+  const getVclusterInfo = () => {
+    if (!isInsideVcluster || !currentContext) return null;
+    const parts = currentContext.split('_');
+    if (parts.length >= 4) {
+      return {
+        name: parts[1],
+        namespace: parts[2],
+        hostContext: parts.slice(3).join('_')
+      };
+    }
+    return null;
+  };
+
+  const handleDisconnectVcluster = async () => {
+    const info = getVclusterInfo();
+    if (!info) return;
+    setIsDisconnectingVcluster(true);
+    try {
+      await invoke("disconnect_vcluster", { name: info.name, namespace: info.namespace });
+      await qc.invalidateQueries({ queryKey: ["current_context"] });
+    } catch (err) {
+      console.error("Failed to disconnect from vcluster:", err);
+    } finally {
+      setIsDisconnectingVcluster(false);
+    }
+  };
+
+  const vclusterInfo = getVclusterInfo();
+
   // Track previous context to detect changes
   const prevContextRef = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -5906,6 +5939,41 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
         className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative transition-all duration-300 ease-in-out"
         style={{ marginLeft: sidebarWidth }}
       >
+        {/* Sticky vcluster Banner */}
+        {isInsideVcluster && vclusterInfo && (
+          <div className="sticky top-0 z-30 bg-gradient-to-r from-purple-900/80 via-purple-800/70 to-purple-900/80 backdrop-blur-sm border-b border-purple-500/30 px-4 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Box className="w-4 h-4 text-purple-400" />
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-purple-200">Virtual Cluster:</span>
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-500/30 text-purple-200 border border-purple-500/40">
+                  {vclusterInfo.name}
+                </span>
+                <span className="text-xs text-purple-400/70">
+                  in {vclusterInfo.namespace} on {vclusterInfo.hostContext}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={handleDisconnectVcluster}
+              disabled={isDisconnectingVcluster}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 hover:border-purple-500/60 text-purple-200 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDisconnectingVcluster ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Disconnecting...
+                </>
+              ) : (
+                <>
+                  <LogOutIcon size={12} />
+                  Back to Host
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {activeRes?.kind === "HelmReleases" ? (
           <HelmReleases currentContext={currentContext} />
         ) : (
