@@ -62,6 +62,9 @@ struct ResourceSummary {
     node: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ip: Option<String>,
+    // Labels for selector matching
+    #[serde(skip_serializing_if = "Option::is_none")]
+    labels: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -1155,6 +1158,7 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
                                     (ready_str, restart_count, node_name, pod_ip)
                                 } else { (None, None, None, None) };
 
+                                                                let labels = obj.metadata.labels.clone();
                                                                 ResourceSummary {
                                   id: obj.metadata.uid.clone().unwrap_or_default(),
                                   name,
@@ -1169,6 +1173,7 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
                                   restarts,
                                   node,
                                   ip,
+                                  labels,
                                 }
                               }).collect();
                                                             return Ok(summaries);
@@ -1247,6 +1252,9 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
             (None, None, None, None)
         };
 
+        // Extract labels from metadata
+        let labels = obj.metadata.labels.clone();
+
         ResourceSummary {
             id: obj.metadata.uid.clone().unwrap_or_default(),
             name,
@@ -1261,6 +1269,7 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
             restarts,
             node,
             ip,
+            labels,
         }
     }).collect();
 
@@ -1498,6 +1507,8 @@ async fn start_resource_watch(
             (ready_str, restart_count, node_name, pod_ip)
         } else { (None, None, None, None) };
 
+        let labels = obj.metadata.labels.clone();
+
         ResourceSummary {
             id: obj.metadata.uid.clone().unwrap_or_default(),
             name,
@@ -1512,6 +1523,7 @@ async fn start_resource_watch(
             restarts,
             node,
             ip,
+            labels,
         }
     };
 
@@ -1906,6 +1918,7 @@ async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String,
         restarts: None,
         node: None,
         ip: None,
+        labels: patched.metadata.labels.clone(),
     })
 }
 
@@ -3223,6 +3236,7 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
             status,
             raw_json: String::new(),
             ready: None, restarts: None, node: None, ip: None,
+            labels: node.metadata.labels.clone(),
         }
     }).collect();
 
@@ -3259,6 +3273,7 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
                 restarts: restart_count,
                 node: node_name,
                 ip: pod_ip,
+                labels: pod.metadata.labels.clone(),
             }
         }).collect(),
         Err(_) => Vec::new(),
@@ -3283,6 +3298,7 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
                 raw_json: String::new(),
                 ready,
                 restarts: None, node: None, ip: None,
+                labels: dep.metadata.labels.clone(),
             }
         }).collect(),
         Err(_) => Vec::new(),
@@ -3305,6 +3321,7 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
                 status: svc_type,
                 raw_json: String::new(),
                 ready: None, restarts: None, node: None, ip: None,
+                labels: svc.metadata.labels.clone(),
             }
         }).collect(),
         Err(_) => Vec::new(),
