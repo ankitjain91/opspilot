@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient, QueryClient } from "@tanstack/react-query";
-import { Updater, checkForUpdatesManually } from "./components/Updater";
+import { Updater, checkForUpdatesManually, useUpdaterState, installPendingUpdate } from "./components/Updater";
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { Terminal } from '@xterm/xterm';
@@ -5031,6 +5031,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [resourceToDelete, setResourceToDelete] = useState<K8sObject | null>(null);
+  const updaterState = useUpdaterState();
 
   // Resizable UI State
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -5595,11 +5596,27 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
             </div>
           </div>
           <button
-            onClick={checkForUpdatesManually}
-            className="p-1.5 text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-md transition-colors"
-            title="Check for Updates"
+            onClick={updaterState === 'update-available' ? installPendingUpdate : checkForUpdatesManually}
+            className={`p-1.5 rounded-md transition-all relative ${
+              updaterState === 'update-available'
+                ? 'text-purple-400 bg-purple-500/20 animate-pulse shadow-[0_0_12px_rgba(168,85,247,0.5)]'
+                : updaterState === 'checking'
+                ? 'text-purple-400'
+                : 'text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10'
+            }`}
+            title={updaterState === 'update-available' ? 'Update Available - Click to Install' : 'Check for Updates'}
           >
-            <Download size={16} />
+            {updaterState === 'checking' ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : updaterState === 'update-available' ? (
+              <>
+                <Download size={16} />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-purple-500 rounded-full animate-ping" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-purple-400 rounded-full" />
+              </>
+            ) : (
+              <Download size={16} />
+            )}
           </button>
         </div>
 
