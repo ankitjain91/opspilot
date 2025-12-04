@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OpsPilot",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "identifier": "opspilot",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -36,7 +36,7 @@
       "endpoints": [
         "https://github.com/ankitjain91/opspilot/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMxMTFCMjJDQzQ3ODczQTAKUldTZ2MzakVMTElSTVR5ck1uUzRsOC9LUEZrTVkxSXFuNmxkVytVMTdIQm1Xa3N5VEJnNTZKZWwK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ2RTc2RkZGQ0UwRTE3M0YKUldRL0Z3N08vMi9uMWlGTDdjTTZLYmsrODM3dU9QSnN6T05SR0hLVkJqTjYybUd0WGYvaTJpTloK"
     }
   }
 }
