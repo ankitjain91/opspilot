@@ -2401,8 +2401,109 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
 
   const healthStatus = getHealthStatus(healthMetrics.healthScore);
 
+  // Disconnect from vcluster and switch to host cluster
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const handleDisconnectVcluster = async () => {
+    setIsDisconnecting(true);
+    try {
+      const result = await invoke<string>("disconnect_vcluster");
+      console.log("disconnect_vcluster result:", result);
+
+      // Check if we got a host context to switch to
+      if (result.startsWith("HOST_CONTEXT:")) {
+        const hostContext = result.replace("HOST_CONTEXT:", "");
+        console.log("Switching to host context:", hostContext);
+
+        // Clear all caches
+        await invoke("clear_all_caches");
+        qc.clear();
+
+        // The backend already set the context, just need to refresh the UI
+        await qc.invalidateQueries({ queryKey: ["current_context"] });
+        await qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
+        await qc.invalidateQueries({ queryKey: ["cluster_stats"] });
+        await qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
+        await qc.invalidateQueries({ queryKey: ["discovery"] });
+        await qc.invalidateQueries({ queryKey: ["namespaces"] });
+        await qc.invalidateQueries({ queryKey: ["vclusters"] });
+
+        if ((window as any).showToast) {
+          (window as any).showToast(`Disconnected from vcluster. Switched to host cluster: ${hostContext}`, 'success');
+        }
+      } else {
+        // Just refresh
+        qc.clear();
+        await qc.invalidateQueries({ queryKey: ["current_context"] });
+        if ((window as any).showToast) {
+          (window as any).showToast('Disconnected from vcluster', 'success');
+        }
+      }
+    } catch (err) {
+      console.error("Failed to disconnect from vcluster:", err);
+      if ((window as any).showToast) {
+        (window as any).showToast(`Failed to disconnect: ${err}`, 'error');
+      }
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  // Parse vcluster name from context (format: vcluster_<name>_<namespace>_<host>)
+  const getVclusterInfo = () => {
+    if (!isInsideVcluster || !currentContext) return null;
+    const parts = currentContext.split('_');
+    if (parts.length >= 4) {
+      return {
+        name: parts[1],
+        namespace: parts[2],
+        hostContext: parts.slice(3).join('_')
+      };
+    }
+    return null;
+  };
+  const vclusterInfo = getVclusterInfo();
+
   return (
     <div className="h-full overflow-y-auto bg-[#09090b] p-6">
+      {/* vcluster Banner - Show when inside a vcluster */}
+      {isInsideVcluster && vclusterInfo && (
+        <div className="mb-4 bg-gradient-to-r from-purple-900/30 via-purple-800/20 to-purple-900/30 rounded-xl p-4 border border-purple-500/30 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-purple-500/20">
+              <Box className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-purple-200">Virtual Cluster</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  {vclusterInfo.name}
+                </span>
+              </div>
+              <div className="text-xs text-purple-400/70 mt-0.5">
+                Running in namespace <span className="text-purple-300">{vclusterInfo.namespace}</span> on <span className="text-purple-300">{vclusterInfo.hostContext}</span>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleDisconnectVcluster}
+            disabled={isDisconnecting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/40 hover:border-purple-500/60 text-purple-200 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isDisconnecting ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Disconnecting...
+              </>
+            ) : (
+              <>
+                <LogOutIcon size={14} />
+                Return to Host Cluster
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

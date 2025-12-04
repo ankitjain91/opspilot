@@ -3732,8 +3732,19 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
     let current_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
 
     if !current_context.starts_with("vcluster_") {
-        return Ok("Not currently connected to a vcluster".to_string());
+        return Ok("".to_string()); // Return empty string to indicate no vcluster was active
     }
+
+    // Extract host context from vcluster context name
+    // Format: vcluster_<name>_<namespace>_<host-context>
+    // We need to find the host context which is the last part after the third underscore
+    let parts: Vec<&str> = current_context.splitn(4, '_').collect();
+    let host_context = if parts.len() >= 4 {
+        parts[3].to_string()
+    } else {
+        // Fallback: try to get current-context from kubeconfig after disconnect
+        String::new()
+    };
 
     // Run vcluster disconnect
     let disconnect_result = tokio::process::Command::new("vcluster")
@@ -3760,12 +3771,21 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
                 *cache = None;
             }
 
-            // Clear selected context to force reload from kubeconfig
+            // Set the selected context back to the host context
             if let Ok(mut ctx) = state.selected_context.try_lock() {
-                *ctx = None;
+                if !host_context.is_empty() {
+                    *ctx = Some(host_context.clone());
+                } else {
+                    *ctx = None; // Will reload from kubeconfig
+                }
             }
 
-            Ok("Disconnected from vcluster".to_string())
+            // Return the host context so frontend can switch to it
+            if !host_context.is_empty() {
+                Ok(format!("HOST_CONTEXT:{}", host_context))
+            } else {
+                Ok("Disconnected from vcluster".to_string())
+            }
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -3774,9 +3794,18 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
                 *cache = None;
             }
             if let Ok(mut ctx) = state.selected_context.try_lock() {
-                *ctx = None;
+                if !host_context.is_empty() {
+                    *ctx = Some(host_context.clone());
+                } else {
+                    *ctx = None;
+                }
             }
-            Ok(format!("vcluster disconnect completed with warnings: {}", stderr.trim()))
+            // Return host context even on warning
+            if !host_context.is_empty() {
+                Ok(format!("HOST_CONTEXT:{}", host_context))
+            } else {
+                Ok(format!("vcluster disconnect completed with warnings: {}", stderr.trim()))
+            }
         }
         Err(e) => Err(format!("Failed to disconnect from vcluster: {}", e))
     }
