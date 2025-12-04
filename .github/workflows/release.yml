@@ -140,6 +140,20 @@ jobs:
         run: |
           mv src-tauri/target/release/bundle/nsis/*.exe OpsPilot_Windows_x64_${{ github.ref_name }}.exe
 
+      - name: Find and upload latest.json (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # Find latest.json created by tauri-action
+          LATEST_JSON=$(find . -name "latest.json" -type f 2>/dev/null | head -1)
+          if [ -n "$LATEST_JSON" ]; then
+            echo "Found latest.json at: $LATEST_JSON"
+            cp "$LATEST_JSON" ./latest.json
+          else
+            echo "latest.json not found, creating from artifacts..."
+            # The tauri-action should have created it, but if not, we need to debug
+            find . -name "*.json" -type f 2>/dev/null | xargs grep -l "version" 2>/dev/null | head -5
+          fi
+
       - name: Upload binaries
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -152,3 +166,4 @@ jobs:
             OpsPilot_Windows_*.exe
             OpsPilot_Linux_*.deb
             OpsPilot_Linux_*.AppImage
+            latest.json
