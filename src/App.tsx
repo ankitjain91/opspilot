@@ -8997,10 +8997,32 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
   const [fontSize, setFontSize] = useState<'xs' | 'sm' | 'base'>('xs');
   const [error, setError] = useState<string | null>(null);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const matchRefs = useRef<(HTMLTableRowElement | null)[]>([]);
   const sessionIdRef = useRef<string>(`log-${Math.random().toString(36).substr(2, 9)}`);
   const streamActiveRef = useRef<boolean>(false);
+
+  // AI Log Analysis
+  const analyzeLogs = async () => {
+    if (allLogs.length === 0) return;
+    setIsAnalyzing(true);
+    setAiAnalysis(null);
+    try {
+      // Take last 100 lines for analysis
+      const recentLogs = allLogs.slice(-100).join('\n');
+      const answer = await invoke<string>("call_local_llm", {
+        prompt: `Analyze these Kubernetes pod logs and identify any errors, warnings, or issues. Provide a concise summary and recommendations:\n\nContainer: ${selectedContainer}\nPod: ${name}\nNamespace: ${namespace}\n\nLogs:\n${recentLogs}`,
+        systemPrompt: "You are a Kubernetes SRE assistant. Analyze logs concisely, focusing on errors, patterns, and actionable recommendations. Be brief but thorough.",
+      });
+      setAiAnalysis(answer);
+    } catch (err) {
+      setAiAnalysis(`Error: ${err}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   // Extract containers from spec
   const containers = [
@@ -9227,6 +9249,19 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
           {searchQuery && <span className="text-zinc-600"> ({matchCount} matches)</span>}
         </div>
 
+        <div className="h-4 w-px bg-zinc-700" />
+
+        {/* AI Analyze Button */}
+        <button
+          onClick={analyzeLogs}
+          disabled={isAnalyzing || allLogs.length === 0}
+          className="px-2 py-1 text-xs rounded border bg-purple-600/10 border-purple-600/50 text-purple-400 hover:bg-purple-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+          title="Analyze logs with AI"
+        >
+          {isAnalyzing ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+          {isAnalyzing ? 'Analyzing...' : 'AI Analyze'}
+        </button>
+
         {/* Search Input */}
         <div className="relative flex-1 max-w-xs ml-auto flex items-center gap-1">
           <div className="relative flex-1">
@@ -9308,6 +9343,24 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
 
       {error && <div className="text-red-400 p-4 text-xs bg-red-500/10 border border-red-500/30 rounded">Failed to stream logs: {error}</div>}
 
+      {/* AI Analysis Panel */}
+      {aiAnalysis && (
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-purple-400 flex items-center gap-1">
+              <Sparkles size={12} /> AI Log Analysis
+            </span>
+            <button
+              onClick={() => setAiAnalysis(null)}
+              className="text-purple-400 hover:text-purple-300"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="text-xs text-[#cccccc] whitespace-pre-wrap">{aiAnalysis}</div>
+        </div>
+      )}
+
       {/* Search active indicator */}
       {searchQuery && (
         <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-400">
@@ -9356,6 +9409,8 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
 function EventsTab({ namespace, name, uid, currentContext }: { namespace: string, name: string, uid: string, currentContext?: string }) {
   const [expandedExplanations, setExpandedExplanations] = useState<Record<number, string>>({});
   const [loadingExplanations, setLoadingExplanations] = useState<Record<number, boolean>>({});
+  const [allEventsAnalysis, setAllEventsAnalysis] = useState<string | null>(null);
+  const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
 
   const { data: events, isLoading, isFetching } = useQuery({
     queryKey: ["events", currentContext, namespace, name, uid],
@@ -9386,6 +9441,26 @@ Resource: ${name} (namespace: ${namespace})
     }
   };
 
+  const analyzeAllEvents = async () => {
+    if (!events || events.length === 0) return;
+    setIsAnalyzingAll(true);
+    setAllEventsAnalysis(null);
+    try {
+      const eventsContext = events.slice(0, 20).map(ev =>
+        `[${ev.type_}] ${ev.reason}: ${ev.message}${ev.count > 1 ? ` (x${ev.count})` : ''}`
+      ).join('\n');
+      const answer = await invoke<string>("call_local_llm", {
+        prompt: `Analyze these Kubernetes events for resource "${name}" in namespace "${namespace}" and provide:\n1. A summary of what's happening\n2. Any patterns or issues you notice\n3. Recommendations to resolve problems\n\nEvents:\n${eventsContext}`,
+        systemPrompt: "You are a Kubernetes SRE assistant. Provide concise, actionable analysis of Kubernetes events. Focus on patterns, root causes, and practical solutions.",
+      });
+      setAllEventsAnalysis(answer);
+    } catch (err) {
+      setAllEventsAnalysis(`Error: ${err}`);
+    } finally {
+      setIsAnalyzingAll(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center p-8 gap-2 text-xs text-[#007acc]">
@@ -9401,7 +9476,40 @@ Resource: ${name} (namespace: ${namespace})
           <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${isFetching ? 'bg-[#007acc] animate-pulse' : 'bg-[#89d185]'}`} />
           {isFetching ? 'Live (updating)' : 'Live'}
         </span>
+        {events && events.length > 0 && (
+          <>
+            <div className="h-4 w-px bg-zinc-700" />
+            <button
+              onClick={analyzeAllEvents}
+              disabled={isAnalyzingAll}
+              className="px-2 py-1 rounded border bg-purple-600/10 border-purple-600/50 text-purple-400 hover:bg-purple-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              title="Analyze all events with AI"
+            >
+              {isAnalyzingAll ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+              {isAnalyzingAll ? 'Analyzing...' : 'AI Analyze All'}
+            </button>
+          </>
+        )}
       </div>
+
+      {/* AI Analysis Panel */}
+      {allEventsAnalysis && (
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-purple-400 flex items-center gap-1">
+              <Sparkles size={12} /> AI Events Analysis
+            </span>
+            <button
+              onClick={() => setAllEventsAnalysis(null)}
+              className="text-purple-400 hover:text-purple-300"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="text-xs text-[#cccccc] whitespace-pre-wrap">{allEventsAnalysis}</div>
+        </div>
+      )}
+
       {!events || events.length === 0 && (
         <div className="text-[#858585] text-center p-8 text-xs">No events found for this resource.</div>
       )}
