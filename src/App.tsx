@@ -2000,6 +2000,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   const [connectingVcluster, setConnectingVcluster] = useState<string | null>(null);
   const [connectCancelled, setConnectCancelled] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>("");
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
 
   // Detect if we're inside a vcluster (context name starts with "vcluster_")
   const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
@@ -2402,7 +2403,6 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   const healthStatus = getHealthStatus(healthMetrics.healthScore);
 
   // Disconnect from vcluster and switch to host cluster
-  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const handleDisconnectVcluster = async () => {
     setIsDisconnecting(true);
     try {
