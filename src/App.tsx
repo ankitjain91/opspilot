@@ -10969,6 +10969,7 @@ export default function App() {
         persistOptions={{ persister }}
       >
         <AppContent />
+        <Updater />
       </PersistQueryClientProvider>
     </ErrorBoundary>
   );

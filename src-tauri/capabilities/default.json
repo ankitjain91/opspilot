@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "shell:default",
-    "dialog:default"
+    "dialog:default",
+    "updater:default",
+    "process:allow-restart",
+    "process:allow-exit"
   ]
 }
