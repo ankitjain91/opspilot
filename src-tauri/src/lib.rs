@@ -730,6 +730,26 @@ async fn set_kube_config(
     path: Option<String>,
     context: Option<String>
 ) -> Result<String, String> {
+    // Check if we're currently connected to a vcluster and need to disconnect
+    let current_context = {
+        if let Ok(guard) = state.selected_context.try_lock() {
+            guard.clone()
+        } else {
+            None
+        }
+    };
+
+    // If switching FROM a vcluster context to a different context, disconnect first
+    if let Some(ref curr_ctx) = current_context {
+        if curr_ctx.starts_with("vcluster_") {
+            // Run vcluster disconnect in background (don't block on it)
+            let _ = tokio::process::Command::new("vcluster")
+                .arg("disconnect")
+                .output()
+                .await;
+        }
+    }
+
     // Clear all caches first to prevent stale data
     if let Ok(mut cache) = state.discovery_cache.try_lock() {
         *cache = None;
@@ -839,6 +859,11 @@ async fn reset_state(state: State<'_, AppState>) -> Result<(), String> {
     // Clear ALL caches when switching contexts to prevent stale data from previous cluster
     // Use try_lock to avoid deadlocks
 
+    // CRITICAL: Clear client cache first - this is the most important for context switching
+    if let Ok(mut cache) = state.client_cache.try_lock() {
+        *cache = None;
+    }
+
     // Clear discovery cache
     if let Ok(mut cache) = state.discovery_cache.try_lock() {
         *cache = None;
@@ -857,6 +882,15 @@ async fn reset_state(state: State<'_, AppState>) -> Result<(), String> {
     // Clear pod limits cache
     if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
         *cache = None;
+    }
+
+    // Reset selected context and kubeconfig path to force reload
+    if let Ok(mut ctx) = state.selected_context.try_lock() {
+        *ctx = None;
+    }
+
+    if let Ok(mut path) = state.kubeconfig_path.try_lock() {
+        *path = None;
     }
 
     Ok(())
@@ -2321,6 +2355,7 @@ pub fn run() {
             refresh_azure_data,
             azure_login,
             connect_vcluster,
+            disconnect_vcluster,
             list_vclusters,
             get_topology_graph,
             get_topology_graph_opts,
@@ -3689,6 +3724,62 @@ async fn connect_vcluster(
 
     // Should not reach here, but just in case
     Err("Failed to verify vcluster connection after multiple attempts".to_string())
+}
+
+#[tauri::command]
+async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, String> {
+    // Get current context to check if we're in a vcluster
+    let current_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
+
+    if !current_context.starts_with("vcluster_") {
+        return Ok("Not currently connected to a vcluster".to_string());
+    }
+
+    // Run vcluster disconnect
+    let disconnect_result = tokio::process::Command::new("vcluster")
+        .arg("disconnect")
+        .output()
+        .await;
+
+    match disconnect_result {
+        Ok(output) if output.status.success() => {
+            // Clear all caches
+            if let Ok(mut cache) = state.client_cache.try_lock() {
+                *cache = None;
+            }
+            if let Ok(mut cache) = state.discovery_cache.try_lock() {
+                *cache = None;
+            }
+            if let Ok(mut cache) = state.vcluster_cache.try_lock() {
+                *cache = None;
+            }
+            if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+                *cache = None;
+            }
+            if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
+                *cache = None;
+            }
+
+            // Clear selected context to force reload from kubeconfig
+            if let Ok(mut ctx) = state.selected_context.try_lock() {
+                *ctx = None;
+            }
+
+            Ok("Disconnected from vcluster".to_string())
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Even if disconnect "fails", we should still clear our state
+            if let Ok(mut cache) = state.client_cache.try_lock() {
+                *cache = None;
+            }
+            if let Ok(mut ctx) = state.selected_context.try_lock() {
+                *ctx = None;
+            }
+            Ok(format!("vcluster disconnect completed with warnings: {}", stderr.trim()))
+        }
+        Err(e) => Err(format!("Failed to disconnect from vcluster: {}", e))
+    }
 }
 
 #[tauri::command]

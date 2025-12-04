@@ -1140,6 +1140,20 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
       setConnectionLogs([]);
       addLog(`Initiating connection to ${context}`, 'info');
 
+      // Try to disconnect from any existing vcluster first
+      try {
+        addLog('Checking for active vcluster...', 'pending');
+        await Promise.race([
+          invoke("disconnect_vcluster"),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Disconnect timeout")), 3000)
+          )
+        ]);
+        addLog('vcluster cleanup complete', 'success');
+      } catch (err) {
+        addLog('No active vcluster (or already disconnected)', 'info');
+      }
+
       // Reset all state and release locks first
       try {
         addLog('Resetting backend state...', 'pending');
@@ -3046,8 +3060,20 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                       const vcId = vc.id;
                       setConnectingVcluster(vcId);
                       setConnectCancelled(false);
-                      setConnectionStatus("Starting vcluster proxy...");
+                      setConnectionStatus("Disconnecting from current vcluster...");
                       try {
+                        // First disconnect from any existing vcluster
+                        try {
+                          await Promise.race([
+                            invoke("disconnect_vcluster"),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000))
+                          ]);
+                        } catch (e) {
+                          // Ignore - might not be connected to a vcluster
+                        }
+
+                        setConnectionStatus("Starting vcluster proxy...");
+
                         // Simulate progress updates
                         const statusUpdates = [
                           { delay: 500, msg: "Starting vcluster proxy..." },
@@ -4273,6 +4299,18 @@ function VclusterConnectButton({ name, namespace }: { name: string, namespace: s
           onClick={async () => {
             try {
               setConnecting(true);
+              setStatus("Disconnecting from current vcluster...");
+
+              // First disconnect from any existing vcluster
+              try {
+                await Promise.race([
+                  invoke("disconnect_vcluster"),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000))
+                ]);
+              } catch (e) {
+                // Ignore - might not be connected to a vcluster
+              }
+
               setStatus("Starting vcluster proxy...");
 
               // Status updates to show progress
