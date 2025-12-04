@@ -147,38 +147,49 @@ jobs:
           VERSION="${VERSION#v}"  # Remove 'v' prefix
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Read the signature
+          # Debug: List signature files
+          echo "Current directory: $(pwd)"
+          echo "Looking for .sig files..."
+          find . -name "*.sig" 2>/dev/null | head -20
+
+          # Read the signature from the correct location
           SIG_FILE="src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app.tar.gz.sig"
           if [ -f "$SIG_FILE" ]; then
             SIGNATURE=$(cat "$SIG_FILE")
             echo "Found signature: ${SIGNATURE:0:50}..."
           else
             echo "Warning: Signature file not found at $SIG_FILE"
-            SIGNATURE=""
+            # Try alternate location
+            ALT_SIG=$(find . -name "OpsPilot.app.tar.gz.sig" 2>/dev/null | head -1)
+            if [ -n "$ALT_SIG" ] && [ -f "$ALT_SIG" ]; then
+              SIGNATURE=$(cat "$ALT_SIG")
+              echo "Found signature at alternate location: $ALT_SIG"
+            else
+              SIGNATURE=""
+              echo "No signature file found anywhere!"
+            fi
           fi
 
-          # Create latest.json
-          cat > latest.json << EOF
-          {
-            "version": "${VERSION}",
-            "notes": "See release notes on GitHub",
-            "pub_date": "${PUB_DATE}",
-            "platforms": {
-              "darwin-universal": {
-                "signature": "${SIGNATURE}",
-                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
-              },
-              "darwin-aarch64": {
-                "signature": "${SIGNATURE}",
-                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
-              },
-              "darwin-x86_64": {
-                "signature": "${SIGNATURE}",
-                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
-              }
-            }
-          }
-          EOF
+          # Create latest.json using echo to avoid YAML parsing issues
+          echo "{" > latest.json
+          echo "  \"version\": \"${VERSION}\"," >> latest.json
+          echo "  \"notes\": \"See release notes on GitHub\"," >> latest.json
+          echo "  \"pub_date\": \"${PUB_DATE}\"," >> latest.json
+          echo "  \"platforms\": {" >> latest.json
+          echo "    \"darwin-universal\": {" >> latest.json
+          echo "      \"signature\": \"${SIGNATURE}\"," >> latest.json
+          echo "      \"url\": \"https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz\"" >> latest.json
+          echo "    }," >> latest.json
+          echo "    \"darwin-aarch64\": {" >> latest.json
+          echo "      \"signature\": \"${SIGNATURE}\"," >> latest.json
+          echo "      \"url\": \"https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz\"" >> latest.json
+          echo "    }," >> latest.json
+          echo "    \"darwin-x86_64\": {" >> latest.json
+          echo "      \"signature\": \"${SIGNATURE}\"," >> latest.json
+          echo "      \"url\": \"https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz\"" >> latest.json
+          echo "    }" >> latest.json
+          echo "  }" >> latest.json
+          echo "}" >> latest.json
 
           echo "Created latest.json:"
           cat latest.json
