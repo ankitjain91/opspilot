@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 // NOTE: For local development, run: npm install @tauri-apps/api
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient, QueryClient } from "@tanstack/react-query";
 import { Updater, checkForUpdatesManually, useUpdaterState, installPendingUpdate } from "./components/Updater";
@@ -5153,6 +5154,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [resourceToDelete, setResourceToDelete] = useState<K8sObject | null>(null);
   const updaterState = useUpdaterState();
+  const [appVersion, setAppVersion] = useState<string>("");
+
+  // Fetch app version on mount
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion(""));
+  }, []);
 
   // Resizable UI State
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -5742,7 +5749,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
           <div className="flex items-center gap-3 overflow-hidden">
             <img src="/icon.png" alt="OpsPilot" className="w-8 h-8 rounded-lg shadow-lg shadow-cyan-500/20 shrink-0" />
             <div className="flex flex-col min-w-0">
-              <span className="font-bold text-sm tracking-tight text-white truncate">OpsPilot</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm tracking-tight text-white truncate">OpsPilot</span>
+                {appVersion && (
+                  <span className="text-[10px] text-zinc-500 font-medium">v{appVersion}</span>
+                )}
+              </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
                 <span className="text-[10px] text-zinc-400 truncate font-medium">{currentContext || "Unknown"}</span>
