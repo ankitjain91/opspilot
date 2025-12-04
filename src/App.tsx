@@ -597,6 +597,12 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
     try {
       await invoke("start_exec", { namespace, name, container: selectedContainer, sessionId });
       term.writeln(`\x1b[32mConnected to ${name}/${selectedContainer}\x1b[0m\r\n`);
+      // Fit terminal after connection established with slight delay for DOM to settle
+      setTimeout(() => {
+        if (fitAddonRef.current) {
+          try { fitAddonRef.current.fit(); } catch {}
+        }
+      }, 50);
       term.focus();
       setIsConnected(true);
     } catch (err) {
@@ -620,6 +626,15 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
       cleanupTerminal();
     };
   }, [cleanupTerminal]);
+
+  // Show loading if containers not yet available
+  if (containers.length === 0) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center text-gray-500">
+        <Loading size={24} label="Loading container list..." />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full gap-2">
@@ -689,11 +704,11 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
 }
 
 // --- Metrics Chart Component ---
-function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string, namespace: string, name: string }) {
+function MetricsChart({ resourceKind, namespace, name, currentContext }: { resourceKind: string, namespace: string, name: string, currentContext?: string }) {
   const [metricsHistory, setMetricsHistory] = useState<ResourceMetrics[]>([]);
 
   const { data: currentMetrics } = useQuery({
-    queryKey: ["metrics_chart", resourceKind, namespace, name],
+    queryKey: ["metrics_chart", currentContext, resourceKind, namespace, name],
     queryFn: async () => {
       const allMetrics = await invoke<ResourceMetrics[]>("get_resource_metrics", {
         kind: resourceKind,
@@ -704,6 +719,11 @@ function MetricsChart({ resourceKind, namespace, name }: { resourceKind: string,
     enabled: resourceKind === "Pod" || resourceKind === "Node",
     refetchInterval: 5000,
   });
+
+  // Clear metrics history when context changes
+  useEffect(() => {
+    setMetricsHistory([]);
+  }, [currentContext]);
 
   useEffect(() => {
     if (currentMetrics) {
@@ -1420,7 +1440,7 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                   {filteredContexts.map(ctx => (
                     <div
                       key={ctx}
-                      className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all border group relative overflow-hidden flex items-center
+                      className={`w-full text-left px-4 py-3.5 rounded-xl text-sm transition-all border group flex items-center gap-2
                         ${connectMutation.isPending ? 'opacity-50' : 'hover:bg-white/5'}
                         ${ctx === currentContext ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/30' : 'border-transparent hover:border-white/10'}
                       `}
@@ -1428,30 +1448,30 @@ function ConnectionScreen({ onConnect, onOpenAzure }: { onConnect: () => void, o
                       <button
                         onClick={() => handleConnect(ctx)}
                         disabled={connectMutation.isPending}
-                        className="flex-1 flex items-center justify-between relative z-10 cursor-pointer"
+                        className="flex-1 min-w-0 flex items-center justify-between relative z-10 cursor-pointer"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
                           <div className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all ${ctx === currentContext ? 'bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.6)]' : 'bg-zinc-600 group-hover:bg-zinc-400'}`} />
                           <span className={`font-medium truncate ${ctx === currentContext ? 'text-cyan-100' : 'text-zinc-300 group-hover:text-white'}`}>
                             {ctx}
                           </span>
                           {ctx === currentContext && (
-                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0">
                               Active
                             </span>
                           )}
                         </div>
                         {connectMutation.isPending && connectMutation.variables === ctx ? (
-                          <Loader2 size={18} className="animate-spin text-cyan-400" />
+                          <Loader2 size={18} className="animate-spin text-cyan-400 shrink-0 ml-2" />
                         ) : (
-                          <ChevronRight size={16} className={`transition-[color,transform] duration-150 ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
+                          <ChevronRight size={16} className={`shrink-0 ml-2 transition-[color,transform] duration-150 ${ctx === currentContext ? 'text-cyan-400' : 'text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5'}`} />
                         )}
                       </button>
-                      {/* Delete button */}
+                      {/* Delete button - always visible in layout, opacity controlled by hover */}
                       <button
                         onClick={(e) => handleDeleteContext(ctx, e)}
                         disabled={ctx === currentContext || deleteMutation.isPending}
-                        className={`ml-2 p-1.5 rounded-lg transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100
+                        className={`shrink-0 p-1.5 rounded-lg transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100
                           ${ctx === currentContext
                             ? 'text-zinc-600 cursor-not-allowed'
                             : 'text-zinc-500 hover:text-red-400 hover:bg-red-500/10'}`}
@@ -4487,6 +4507,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
       // Context changed - remove all cached data except current_context query
       console.log(`Context changed from ${prevContextRef.current} to ${currentContext}, clearing cache`);
       qc.removeQueries({ predicate: (query) => query.queryKey[0] !== "current_context" });
+      // Clear component state that holds resources from the old context
+      setTabs([]);
+      setActiveTabId(null);
+      setActiveRes(null);
+      setSelectedNamespace("All Namespaces");
+      setSearchQuery("");
     }
     prevContextRef.current = currentContext;
   }, [currentContext, qc]);
@@ -5260,7 +5286,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
         style={{ marginLeft: sidebarWidth }}
       >
         {activeRes?.kind === "HelmReleases" ? (
-          <HelmReleases />
+          <HelmReleases currentContext={currentContext} />
         ) : (
           <>
             {/* Header */}
@@ -5316,7 +5342,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
               {activeRes?.kind === "Azure" ? (
                 <AzurePage onConnect={() => setActiveRes(null)} />
               ) : activeRes?.kind === "HelmReleases" ? (
-                <HelmReleases />
+                <HelmReleases currentContext={currentContext} />
               ) : activeRes ? (
                 /* Gate resource list until discovery completes - it needs navStructure */
                 !navStructure || isDiscovering ? (
@@ -5420,6 +5446,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
               setResourceToDelete(selectedObj);
               setIsDeleteModalOpen(true);
             }}
+            currentContext={currentContext}
           />
         )
       }
@@ -5447,7 +5474,7 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
 
 // --- Deep Dive Components ---
 
-function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sObject, kind: string, onClose: () => void, onDelete: () => void }) {
+function DeepDiveDrawer({ resource, kind, onClose, onDelete, currentContext }: { resource: K8sObject, kind: string, onClose: () => void, onDelete: () => void, currentContext?: string }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [isExpanded, setIsExpanded] = useState(false);
   const [drawerWidth, setDrawerWidth] = useState(800);
@@ -5474,7 +5501,7 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
   const [isPFOpen, setIsPFOpen] = useState(false);
   // Fetched full details (handles empty raw_json from list)
   const { data: fullObject, isLoading: detailsLoading, error: detailsError } = useQuery({
-    queryKey: ["resource_details_obj", resource.namespace, resource.group, resource.version, resource.kind, resource.name],
+    queryKey: ["resource_details_obj", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name],
     queryFn: async () => {
       if (resource.raw_json && resource.raw_json.trim() !== "") {
         try { return JSON.parse(resource.raw_json); } catch { /* ignore */ }
@@ -5559,11 +5586,11 @@ function DeepDiveDrawer({ resource, kind, onClose, onDelete }: { resource: K8sOb
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 bg-black">
-        {activeTab === "overview" && <OverviewTab resource={resource} fullObject={fullObject} loading={detailsLoading} error={detailsError as Error | undefined} onDelete={onDelete} />}
+        {activeTab === "overview" && <OverviewTab resource={resource} fullObject={fullObject} loading={detailsLoading} error={detailsError as Error | undefined} onDelete={onDelete} currentContext={currentContext} />}
         {activeTab === "logs" && kind === "Pod" && <LogsTab namespace={resource.namespace} name={resource.name} podSpec={podSpec} />}
         {activeTab === "terminal" && kind === "Pod" && <TerminalTab namespace={resource.namespace} name={resource.name} podSpec={podSpec} />}
-        {activeTab === "events" && <EventsTab namespace={resource.namespace} name={resource.name} uid={resource.id} />}
-        {activeTab === "yaml" && <YamlTab resource={resource} />}
+        {activeTab === "events" && <EventsTab namespace={resource.namespace} name={resource.name} uid={resource.id} currentContext={currentContext} />}
+        {activeTab === "yaml" && <YamlTab resource={resource} currentContext={currentContext} />}
       </div>
     </aside>
   );
@@ -5606,7 +5633,7 @@ function CollapsibleSection({ title, icon, children, defaultOpen = true }: { tit
   );
 }
 
-function OverviewTab({ resource, fullObject, loading, error, onDelete }: { resource: K8sObject, fullObject: any, loading: boolean, error?: Error, onDelete: () => void }) {
+function OverviewTab({ resource, fullObject, loading, error, onDelete, currentContext }: { resource: K8sObject, fullObject: any, loading: boolean, error?: Error, onDelete: () => void, currentContext?: string }) {
   const [llmLoading, setLlmLoading] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<
     { state: 'unknown' | 'connected' | 'unreachable' | 'model-missing'; detail?: string }
@@ -6591,7 +6618,7 @@ After the model is available, retry your request.`;
 
   // Events summary (warnings vs total) - lightweight query
   const { data: eventsSummary } = useQuery({
-    queryKey: ["overview_events", resource.namespace, resource.kind, resource.name],
+    queryKey: ["overview_events", currentContext, resource.namespace, resource.kind, resource.name],
     queryFn: async () => {
       try {
         const evs = await invoke<any[]>("list_events", { namespace: resource.namespace, name: resource.name, uid: resource.id });
@@ -6955,7 +6982,7 @@ After the model is available, retry your request.`;
       {/* Resource Metrics */}
       {showMetrics && (
         <CollapsibleSection title="Resource Metrics" icon={<Activity size={14} />}>
-          <MetricsChart resourceKind={resource.kind} namespace={resource.namespace} name={resource.name} />
+          <MetricsChart resourceKind={resource.kind} namespace={resource.namespace} name={resource.name} currentContext={currentContext} />
         </CollapsibleSection>
       )}
 
@@ -7057,7 +7084,7 @@ After the model is available, retry your request.`;
       )}
 
       {/* Spec Summary (Kind Specific) */}
-      <KindSpecSection kind={resource.kind} fullObject={fullObject} />
+      <KindSpecSection kind={resource.kind} fullObject={fullObject} currentContext={currentContext} />
 
       {/* Raw Status */}
       {fullObject?.status && (
@@ -7083,7 +7110,7 @@ After the model is available, retry your request.`;
 }
 
 // --- Kind Specific Spec Section ---
-function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }) {
+function KindSpecSection({ kind, fullObject, currentContext }: { kind: string, fullObject: any, currentContext?: string }) {
   const k = kind.toLowerCase();
   const spec = fullObject?.spec || {};
   const status = fullObject?.status || {};
@@ -7153,7 +7180,7 @@ function KindSpecSection({ kind, fullObject }: { kind: string, fullObject: any }
     }, [containers, activeContainer]);
     // Matching services (query all services; lightweight summary)
     const { data: svcList } = useQuery({
-      queryKey: ["pod_matching_services"],
+      queryKey: ["pod_matching_services", currentContext],
       queryFn: async () => {
         try {
           const svcs = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "Service", namespace: null } });
@@ -8663,12 +8690,12 @@ function LogsTab({ namespace, name, podSpec }: { namespace: string, name: string
   );
 }
 
-function EventsTab({ namespace, name, uid }: { namespace: string, name: string, uid: string }) {
+function EventsTab({ namespace, name, uid, currentContext }: { namespace: string, name: string, uid: string, currentContext?: string }) {
   const [expandedExplanations, setExpandedExplanations] = useState<Record<number, string>>({});
   const [loadingExplanations, setLoadingExplanations] = useState<Record<number, boolean>>({});
 
   const { data: events, isLoading, isFetching } = useQuery({
-    queryKey: ["events", namespace, name, uid],
+    queryKey: ["events", currentContext, namespace, name, uid],
     queryFn: async () => await invoke<K8sEvent[]>("list_events", { namespace, name, uid }),
     refetchInterval: 8000,
     refetchIntervalInBackground: true,
@@ -8760,7 +8787,7 @@ Resource: ${name} (namespace: ${namespace})
   );
 }
 
-function YamlTab({ resource }: { resource: K8sObject }) {
+function YamlTab({ resource, currentContext }: { resource: K8sObject, currentContext?: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -8770,7 +8797,7 @@ function YamlTab({ resource }: { resource: K8sObject }) {
 
   // Fetch full resource details on-demand
   const { data: yamlContent, isLoading } = useQuery({
-    queryKey: ["resource_details", resource.namespace, resource.group, resource.version, resource.kind, resource.name],
+    queryKey: ["resource_details", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name],
     queryFn: async () => {
       if (resource.raw_json && resource.raw_json.trim() !== "") return resource.raw_json;
       return await invoke<string>("get_resource_details", {
@@ -9033,10 +9060,10 @@ function PortForwardModal({ isOpen, onClose, namespace, podName }: { isOpen: boo
   );
 }
 
-function PortForwardList() {
+function PortForwardList({ currentContext }: { currentContext?: string }) {
   const qc = useQueryClient();
   const { data: forwards } = useQuery({
-    queryKey: ["portforwards"],
+    queryKey: ["portforwards", currentContext],
     queryFn: async () => await invoke<any[]>("list_port_forwards"),
     refetchInterval: 5000,
   });
@@ -9089,10 +9116,10 @@ interface HelmRelease {
   app_version: string;
 }
 
-function HelmReleases() {
+function HelmReleases({ currentContext }: { currentContext?: string }) {
   const qc = useQueryClient();
   const { data: releases, isLoading } = useQuery({
-    queryKey: ["helm_releases"],
+    queryKey: ["helm_releases", currentContext],
     queryFn: async () => await invoke<HelmRelease[]>("helm_list"),
     refetchInterval: 10000,
   });
@@ -9531,16 +9558,8 @@ function AppContent() {
     refetchInterval: 5000,
   });
 
-  // Auto-connect if backend has a context on mount (e.g. after refresh)
-  const [hasCheckedInitialContext, setHasCheckedInitialContext] = useState(false);
-  useEffect(() => {
-    if (!hasCheckedInitialContext && globalCurrentContext !== undefined) {
-      if (globalCurrentContext) {
-        setIsConnected(true);
-      }
-      setHasCheckedInitialContext(true);
-    }
-  }, [globalCurrentContext, hasCheckedInitialContext]);
+  // Always show home screen on app open - user must explicitly connect
+  // (Removed auto-connect logic that was previously here)
 
   useEffect(() => {
     if (typeof currentCtx === 'string') {
@@ -9582,10 +9601,7 @@ function AppContent() {
     );
   }
 
-  // Show a full-screen loading/error gate while cluster details load
-  if (isConnected && (!!globalCurrentContext) && bootLoading) {
-    return <LoadingScreen message={`Loading cluster '${globalCurrentContext}'...`} />;
-  }
+  // Show error gate only on connection errors (not during loading - let Dashboard load progressively)
   if (isConnected && (!!globalCurrentContext) && bootError) {
     const errorMessage = (bootErr as any)?.message || String(bootErr) || "Unknown error";
     console.error("Boot error:", bootErr);
@@ -9706,7 +9722,7 @@ function AppContent() {
           setIsConnected(false);
         }}
       />
-      <PortForwardList />
+      <PortForwardList currentContext={globalCurrentContext} />
 
       {/* Global Floating AI Chat Button */}
       {!showClusterChat && (

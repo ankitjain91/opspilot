@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{State, Emitter};
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::fs;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::path::PathBuf;
 
 mod ai_local;
@@ -409,8 +409,8 @@ struct ExecSession {
 }
 
 struct ShellSession {
-    master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
     writer: Arc<Mutex<Box<dyn std::io::Write + Send>>>,
+    master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
 }
 
 struct PortForwardSession {
@@ -1634,11 +1634,9 @@ async fn start_exec(
         ..Default::default()
     };
 
-    // Use a more robust shell detection command
-    let shell_cmd = vec![
-        "/bin/sh", "-c",
-        "command -v bash >/dev/null 2>&1 && exec bash -l || command -v sh >/dev/null 2>&1 && exec sh || exec /bin/sh"
-    ];
+    // Use simple /bin/sh which is available in almost all containers
+    // More complex shell detection can cause issues in minimal containers
+    let shell_cmd = vec!["/bin/sh"];
 
     let mut attached = pods.exec(&name, shell_cmd, &ap).await.map_err(|e| e.to_string())?;
 
@@ -1649,6 +1647,9 @@ async fn start_exec(
     let session = Arc::new(ExecSession {
         stdin: tokio::sync::Mutex::new(Box::new(stdin_writer)),
     });
+
+    // Keep the attached process alive by moving it into the background task
+    // The AttachedProcess must not be dropped or the websocket connection closes
 
     state.sessions.lock().unwrap().insert(session_id.clone(), session);
 
@@ -1661,6 +1662,10 @@ async fn start_exec(
         use tokio::io::AsyncReadExt;
         // 8KB buffer for faster terminal output
         let mut buf = vec![0u8; 8192];
+
+        // Move attached into this task to keep it alive
+        // The websocket connection stays open as long as attached is not dropped
+        let _attached_keepalive = attached;
 
         loop {
             match stdout.read(&mut buf).await {
@@ -1678,6 +1683,7 @@ async fn start_exec(
         // Clean up session on disconnect
         sessions_ref.lock().unwrap().remove(&session_id_clone);
         let _ = app_handle.emit(&format!("term_closed:{}", session_id_clone), ());
+        // _attached_keepalive is dropped here, closing the websocket
     });
 
     Ok(())
@@ -2365,7 +2371,7 @@ async fn get_current_context_name(state: State<'_, AppState>, custom_path: Optio
     Ok(kubeconfig.current_context.unwrap_or_else(|| "default".to_string()))
 }
 
-// Local Shell Terminal - Industry-standard PTY implementation
+// Local Shell Terminal - PTY implementation
 #[tauri::command]
 async fn start_local_shell(
     app: tauri::AppHandle,
@@ -2378,64 +2384,63 @@ async fn start_local_shell(
         sessions.remove(&session_id);
     }
 
+    // Create PTY
     let pty_system = native_pty_system();
-    let pair = pty_system.openpty(PtySize {
-        rows: 30,
-        cols: 120,
+    let pty_pair = pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
         pixel_width: 0,
         pixel_height: 0,
-    }).map_err(|e| e.to_string())?;
+    }).map_err(|e| format!("Failed to open PTY: {}", e))?;
 
+    // Build shell command
     let mut cmd = if cfg!(target_os = "windows") {
-        let mut c = CommandBuilder::new("powershell");
-        c.args(["-NoLogo", "-NoExit"]);
-        c
+        CommandBuilder::new("powershell")
     } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        let mut c = CommandBuilder::new(&shell);
-        // Start as login shell for proper environment
-        c.arg("-l");
-        c
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        CommandBuilder::new(shell)
     };
-
-    // Set TERM for proper color support
     cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
 
-    let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // Spawn shell in PTY
+    let _child = pty_pair.slave.spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn shell: {}", e))?;
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    // Get reader and writer from master
+    let mut reader = pty_pair.master.try_clone_reader()
+        .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
+    let writer = pty_pair.master.take_writer()
+        .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
 
+    // Store session
     let session = ShellSession {
-        master: Arc::new(Mutex::new(pair.master)),
-        writer: Arc::new(Mutex::new(writer)),
+        writer: Arc::new(Mutex::new(Box::new(writer) as Box<dyn std::io::Write + Send>)),
+        master: Arc::new(Mutex::new(pty_pair.master)),
     };
-
     state.shell_sessions.lock().unwrap().insert(session_id.clone(), Arc::new(session));
 
-    // Spawn reader thread with larger buffer for fast output
+    // Read PTY output in background thread
     let session_id_clone = session_id.clone();
-    let app_handle = app.clone();
+    let app_clone = app.clone();
     let shell_sessions = state.shell_sessions.clone();
 
     std::thread::spawn(move || {
-        let mut buf = vec![0u8; 16384]; // 16KB buffer for fast reads
+        let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
-                Ok(n) if n > 0 => {
+                Ok(0) => break, // EOF
+                Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if app_handle.emit(&format!("shell_output:{}", session_id_clone), data).is_err() {
-                        break; // Frontend disconnected
+                    if app_clone.emit(&format!("shell_output:{}", session_id_clone), data).is_err() {
+                        break;
                     }
                 }
-                Ok(_) => break, // EOF
                 Err(_) => break,
             }
         }
-        // Clean up on exit
+        // Cleanup
         shell_sessions.lock().unwrap().remove(&session_id_clone);
-        let _ = app_handle.emit(&format!("shell_closed:{}", session_id_clone), ());
+        let _ = app_clone.emit(&format!("shell_closed:{}", session_id_clone), ());
     });
 
     Ok(())
@@ -3540,12 +3545,13 @@ async fn connect_vcluster(
         }
     }
 
-    // Give the background proxy a moment to fully start
-    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+    // Give the background proxy more time to fully start (it can take several seconds)
+    tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
 
     // vcluster connect updates the kubeconfig, so we need to reload it
-    // The context name will be something like "vcluster_<name>_<namespace>_<original-context>"
-    let new_context = format!("vcluster_{}_{}_", name, namespace) + &host_context;
+    // The context name format is: "vcluster_<vcluster-name>_<namespace>_<original-context>"
+    // Note: In vcluster list JSON, "Name" is the vcluster name and "Namespace" is where it's deployed
+    let new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
 
     // Update selected context
     if let Ok(mut context_guard) = state.selected_context.try_lock() {
@@ -3558,13 +3564,14 @@ async fn connect_vcluster(
     }
 
     // Verify connectivity with retries and better error handling
-    for attempt in 0..5 {
+    // More retries with longer waits since vcluster proxy can take time to start
+    for attempt in 0..8 {
         // Read fresh kubeconfig each attempt
         let kubeconfig = match Kubeconfig::read() {
             Ok(kc) => kc,
             Err(e) => {
-                if attempt < 4 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                if attempt < 7 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     continue;
                 }
                 return Err(format!("Failed to read kubeconfig after vcluster connect: {}", e));
@@ -3581,8 +3588,8 @@ async fn connect_vcluster(
         ).await {
             Ok(c) => c,
             Err(e) => {
-                if attempt < 4 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                if attempt < 7 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     continue;
                 }
                 return Err(format!("Failed to configure vcluster context '{}': {}", new_context, e));
@@ -3592,8 +3599,8 @@ async fn connect_vcluster(
         let client = match Client::try_from(config) {
             Ok(c) => c,
             Err(e) => {
-                if attempt < 4 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                if attempt < 7 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     continue;
                 }
                 return Err(format!("Failed to create client for vcluster: {}", e));
@@ -3603,22 +3610,22 @@ async fn connect_vcluster(
         // Try to list namespaces to verify connection
         let ns_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
         match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(8),
             ns_api.list(&Default::default())
         ).await {
             Ok(Ok(_)) => {
                 return Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context));
             }
             Ok(Err(e)) => {
-                if attempt < 4 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+                if attempt < 7 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
                     continue;
                 }
                 return Err(format!("vcluster API not responding: {}", e));
             }
             Err(_) => {
-                if attempt < 4 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+                if attempt < 7 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
                     continue;
                 }
                 return Err("vcluster API timed out. The vcluster proxy may not be running correctly.".to_string());
