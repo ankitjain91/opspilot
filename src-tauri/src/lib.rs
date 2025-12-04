@@ -572,6 +572,14 @@ async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
     config.read_timeout = Some(std::time::Duration::from_secs(30));
     config.write_timeout = Some(std::time::Duration::from_secs(30));
 
+    // For vcluster contexts (local proxy), we may need to accept self-signed certs
+    // vcluster creates contexts with names like "vcluster_<name>_<ns>_<host>"
+    let is_vcluster = context.as_ref().map(|c| c.starts_with("vcluster_")).unwrap_or(false);
+    if is_vcluster {
+        // vcluster proxy uses localhost with self-signed certs
+        config.accept_invalid_certs = true;
+    }
+
     let client = Client::try_from(config).map_err(|e| format!("Failed to create Kubernetes client: {}", e))?;
 
     // Cache the client for reuse
@@ -786,6 +794,11 @@ async fn set_kube_config(
     // Set aggressive timeouts for connection test
     config.connect_timeout = Some(std::time::Duration::from_secs(5));
     config.read_timeout = Some(std::time::Duration::from_secs(5));
+
+    // For vcluster contexts (local proxy), accept self-signed certs
+    if context_name.starts_with("vcluster_") {
+        config.accept_invalid_certs = true;
+    }
 
     let client = Client::try_from(config).map_err(|e| format!("Failed to create client: {}", e))?;
 
@@ -2302,12 +2315,15 @@ pub fn run() {
 
 #[tauri::command]
 async fn test_connectivity(context: String, path: Option<String>) -> Result<String, String> {
+    // Check if vcluster context before moving
+    let is_vcluster = context.starts_with("vcluster_");
+
     // 1. Create client options with context
     let options = KubeConfigOptions {
         context: Some(context),
         ..Default::default()
     };
-    
+
     // 2. Load kubeconfig
     let kubeconfig = if let Some(p) = path {
         Kubeconfig::read_from(p).map_err(|e| e.to_string())?
@@ -2316,15 +2332,19 @@ async fn test_connectivity(context: String, path: Option<String>) -> Result<Stri
     };
 
     // 3. Create config with options
-    let config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
+    let mut config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
         .await
         .map_err(|e| e.to_string())?;
 
     // 4. Set aggressive timeout for quick feedback
-    let mut config = config;
     config.connect_timeout = Some(std::time::Duration::from_secs(2));
     config.read_timeout = Some(std::time::Duration::from_secs(2));
     config.write_timeout = Some(std::time::Duration::from_secs(2));
+
+    // For vcluster contexts (local proxy), accept self-signed certs
+    if is_vcluster {
+        config.accept_invalid_certs = true;
+    }
 
     let client = Client::try_from(config).map_err(|e| e.to_string())?;
 
@@ -3579,7 +3599,7 @@ async fn connect_vcluster(
         };
 
         // Try to create client with the new context
-        let config = match kube::Config::from_custom_kubeconfig(
+        let mut config = match kube::Config::from_custom_kubeconfig(
             kubeconfig,
             &KubeConfigOptions {
                 context: Some(new_context.clone()),
@@ -3595,6 +3615,9 @@ async fn connect_vcluster(
                 return Err(format!("Failed to configure vcluster context '{}': {}", new_context, e));
             }
         };
+
+        // vcluster proxy uses self-signed certs - always accept for vcluster contexts
+        config.accept_invalid_certs = true;
 
         let client = match Client::try_from(config) {
             Ok(c) => c,
