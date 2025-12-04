@@ -2332,6 +2332,58 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
     pods: ns.pod_count,
   }));
 
+  // Calculate health metrics
+  const healthMetrics = (() => {
+    const nodeHealthPct = cockpit.total_nodes > 0 ? (cockpit.healthy_nodes / cockpit.total_nodes) * 100 : 100;
+    const podRunningPct = cockpit.total_pods > 0 ? (cockpit.pod_status.running / cockpit.total_pods) * 100 : 100;
+    const deploymentHealthPct = cockpit.total_deployments > 0
+      ? ((cockpit.total_deployments - cockpit.unhealthy_deployments.length) / cockpit.total_deployments) * 100
+      : 100;
+    const cpuPct = cockpit.total_cpu_allocatable > 0 ? (cockpit.total_cpu_usage / cockpit.total_cpu_allocatable) * 100 : 0;
+    const memPct = cockpit.total_memory_allocatable > 0 ? (cockpit.total_memory_usage / cockpit.total_memory_allocatable) * 100 : 0;
+
+    // Resource health: penalize if over 90%
+    const cpuHealth = cpuPct > 90 ? 50 : cpuPct > 75 ? 75 : 100;
+    const memHealth = memPct > 90 ? 50 : memPct > 75 ? 75 : 100;
+
+    // Overall health score (weighted average)
+    const healthScore = Math.round(
+      (nodeHealthPct * 0.25) +
+      (podRunningPct * 0.25) +
+      (deploymentHealthPct * 0.2) +
+      (cpuHealth * 0.15) +
+      (memHealth * 0.15)
+    );
+
+    const failedPods = cockpit.pod_status.failed;
+    const pendingPods = cockpit.pod_status.pending;
+    const crashingPods = cockpit.pod_status.unknown; // Often indicates crash loops
+    const unhealthyNodes = cockpit.total_nodes - cockpit.healthy_nodes;
+
+    return {
+      healthScore,
+      nodeHealthPct,
+      podRunningPct,
+      deploymentHealthPct,
+      cpuPct,
+      memPct,
+      failedPods,
+      pendingPods,
+      crashingPods,
+      unhealthyNodes,
+      unhealthyDeployments: cockpit.unhealthy_deployments.length,
+    };
+  })();
+
+  const getHealthStatus = (score: number) => {
+    if (score >= 90) return { label: 'Excellent', color: 'text-green-400', bg: 'bg-green-500', border: 'border-green-500/30' };
+    if (score >= 75) return { label: 'Good', color: 'text-cyan-400', bg: 'bg-cyan-500', border: 'border-cyan-500/30' };
+    if (score >= 50) return { label: 'Degraded', color: 'text-yellow-400', bg: 'bg-yellow-500', border: 'border-yellow-500/30' };
+    return { label: 'Critical', color: 'text-red-400', bg: 'bg-red-500', border: 'border-red-500/30' };
+  };
+
+  const healthStatus = getHealthStatus(healthMetrics.healthScore);
+
   return (
     <div className="h-full overflow-y-auto bg-[#09090b] p-6">
       {/* Header */}
@@ -2363,6 +2415,182 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
             <RefreshCw size={18} />
           </button>
         </div>
+      </div>
+
+      {/* Cluster Health Summary */}
+      <div className="bg-gradient-to-r from-zinc-900 via-zinc-900/80 to-zinc-950 rounded-xl p-5 border border-zinc-800 mb-6">
+        <div className="flex items-start gap-6">
+          {/* Health Score Circle */}
+          <div className="flex flex-col items-center">
+            <div className={`relative w-28 h-28 rounded-full border-4 ${healthStatus.border} flex items-center justify-center`}
+                 style={{ background: `conic-gradient(${healthStatus.bg.replace('bg-', '')} ${healthMetrics.healthScore * 3.6}deg, #27272a ${healthMetrics.healthScore * 3.6}deg)` }}>
+              <div className="absolute inset-2 bg-zinc-900 rounded-full flex flex-col items-center justify-center">
+                <span className={`text-3xl font-bold ${healthStatus.color}`}>{healthMetrics.healthScore}</span>
+                <span className="text-[10px] text-zinc-500 uppercase">Health</span>
+              </div>
+            </div>
+            <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${healthStatus.bg}/20 ${healthStatus.color}`}>
+              {healthStatus.label}
+            </div>
+          </div>
+
+          {/* Health Breakdown */}
+          <div className="flex-1 grid grid-cols-5 gap-4">
+            {/* Nodes Health */}
+            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Server size={14} className="text-blue-400" />
+                <span className="text-xs text-zinc-400">Nodes</span>
+              </div>
+              <div className="text-xl font-bold text-white">{cockpit.healthy_nodes}<span className="text-zinc-500 text-sm">/{cockpit.total_nodes}</span></div>
+              <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${healthMetrics.nodeHealthPct === 100 ? 'bg-green-500' : healthMetrics.nodeHealthPct >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                     style={{ width: `${healthMetrics.nodeHealthPct}%` }} />
+              </div>
+              <div className="text-[9px] text-zinc-600 mt-1">
+                {healthMetrics.unhealthyNodes > 0 ? <span className="text-red-400">{healthMetrics.unhealthyNodes} not ready</span> : <span className="text-green-400">All ready</span>}
+              </div>
+            </div>
+
+            {/* Pods Health */}
+            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Layers size={14} className="text-green-400" />
+                <span className="text-xs text-zinc-400">Pods</span>
+              </div>
+              <div className="text-xl font-bold text-white">{cockpit.pod_status.running}<span className="text-zinc-500 text-sm">/{cockpit.total_pods}</span></div>
+              <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${healthMetrics.podRunningPct >= 95 ? 'bg-green-500' : healthMetrics.podRunningPct >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                     style={{ width: `${healthMetrics.podRunningPct}%` }} />
+              </div>
+              <div className="text-[9px] text-zinc-600 mt-1 flex gap-2">
+                {healthMetrics.pendingPods > 0 && <span className="text-yellow-400">{healthMetrics.pendingPods} pending</span>}
+                {healthMetrics.failedPods > 0 && <span className="text-red-400">{healthMetrics.failedPods} failed</span>}
+                {healthMetrics.pendingPods === 0 && healthMetrics.failedPods === 0 && <span className="text-green-400">All running</span>}
+              </div>
+            </div>
+
+            {/* Deployments Health */}
+            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Package size={14} className="text-purple-400" />
+                <span className="text-xs text-zinc-400">Deployments</span>
+              </div>
+              <div className="text-xl font-bold text-white">{cockpit.total_deployments - healthMetrics.unhealthyDeployments}<span className="text-zinc-500 text-sm">/{cockpit.total_deployments}</span></div>
+              <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${healthMetrics.deploymentHealthPct === 100 ? 'bg-green-500' : healthMetrics.deploymentHealthPct >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                     style={{ width: `${healthMetrics.deploymentHealthPct}%` }} />
+              </div>
+              <div className="text-[9px] text-zinc-600 mt-1">
+                {healthMetrics.unhealthyDeployments > 0 ? <span className="text-yellow-400">{healthMetrics.unhealthyDeployments} degraded</span> : <span className="text-green-400">All healthy</span>}
+              </div>
+            </div>
+
+            {/* CPU Pressure */}
+            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Cpu size={14} className="text-cyan-400" />
+                <span className="text-xs text-zinc-400">CPU Pressure</span>
+              </div>
+              <div className={`text-xl font-bold ${healthMetrics.cpuPct > 90 ? 'text-red-400' : healthMetrics.cpuPct > 75 ? 'text-yellow-400' : 'text-white'}`}>
+                {healthMetrics.cpuPct.toFixed(0)}%
+              </div>
+              <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${healthMetrics.cpuPct > 90 ? 'bg-red-500' : healthMetrics.cpuPct > 75 ? 'bg-yellow-500' : 'bg-cyan-500'}`}
+                     style={{ width: `${Math.min(healthMetrics.cpuPct, 100)}%` }} />
+              </div>
+              <div className="text-[9px] text-zinc-600 mt-1">
+                {healthMetrics.cpuPct > 90 ? <span className="text-red-400">Critical load</span> :
+                 healthMetrics.cpuPct > 75 ? <span className="text-yellow-400">High load</span> :
+                 <span className="text-green-400">Normal</span>}
+              </div>
+            </div>
+
+            {/* Memory Pressure */}
+            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+              <div className="flex items-center gap-2 mb-2">
+                <HardDrive size={14} className="text-purple-400" />
+                <span className="text-xs text-zinc-400">Memory Pressure</span>
+              </div>
+              <div className={`text-xl font-bold ${healthMetrics.memPct > 90 ? 'text-red-400' : healthMetrics.memPct > 75 ? 'text-yellow-400' : 'text-white'}`}>
+                {healthMetrics.memPct.toFixed(0)}%
+              </div>
+              <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${healthMetrics.memPct > 90 ? 'bg-red-500' : healthMetrics.memPct > 75 ? 'bg-yellow-500' : 'bg-purple-500'}`}
+                     style={{ width: `${Math.min(healthMetrics.memPct, 100)}%` }} />
+              </div>
+              <div className="text-[9px] text-zinc-600 mt-1">
+                {healthMetrics.memPct > 90 ? <span className="text-red-400">Critical usage</span> :
+                 healthMetrics.memPct > 75 ? <span className="text-yellow-400">High usage</span> :
+                 <span className="text-green-400">Normal</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Issues Summary - only show if there are issues */}
+        {(cockpit.critical_count > 0 || cockpit.warning_count > 0 || healthMetrics.failedPods > 0 || healthMetrics.pendingPods > 0 || healthMetrics.unhealthyNodes > 0) && (
+          <div className="mt-4 pt-4 border-t border-zinc-700/50">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle size={14} className="text-yellow-400" />
+              <span className="text-xs font-medium text-zinc-300">Active Issues</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {healthMetrics.unhealthyNodes > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
+                  <Server size={12} className="text-red-400" />
+                  <span className="text-xs text-red-300">{healthMetrics.unhealthyNodes} node{healthMetrics.unhealthyNodes > 1 ? 's' : ''} not ready</span>
+                </div>
+              )}
+              {healthMetrics.failedPods > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
+                  <Layers size={12} className="text-red-400" />
+                  <span className="text-xs text-red-300">{healthMetrics.failedPods} pod{healthMetrics.failedPods > 1 ? 's' : ''} failed</span>
+                </div>
+              )}
+              {healthMetrics.pendingPods > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
+                  <Layers size={12} className="text-yellow-400" />
+                  <span className="text-xs text-yellow-300">{healthMetrics.pendingPods} pod{healthMetrics.pendingPods > 1 ? 's' : ''} pending</span>
+                </div>
+              )}
+              {healthMetrics.crashingPods > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30">
+                  <Layers size={12} className="text-orange-400" />
+                  <span className="text-xs text-orange-300">{healthMetrics.crashingPods} pod{healthMetrics.crashingPods > 1 ? 's' : ''} unknown state</span>
+                </div>
+              )}
+              {healthMetrics.unhealthyDeployments > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
+                  <Package size={12} className="text-yellow-400" />
+                  <span className="text-xs text-yellow-300">{healthMetrics.unhealthyDeployments} deployment{healthMetrics.unhealthyDeployments > 1 ? 's' : ''} degraded</span>
+                </div>
+              )}
+              {healthMetrics.cpuPct > 90 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
+                  <Cpu size={12} className="text-red-400" />
+                  <span className="text-xs text-red-300">CPU at {healthMetrics.cpuPct.toFixed(0)}% - critical</span>
+                </div>
+              )}
+              {healthMetrics.memPct > 90 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
+                  <HardDrive size={12} className="text-red-400" />
+                  <span className="text-xs text-red-300">Memory at {healthMetrics.memPct.toFixed(0)}% - critical</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* All Clear Message */}
+        {cockpit.critical_count === 0 && cockpit.warning_count === 0 && healthMetrics.failedPods === 0 && healthMetrics.pendingPods === 0 && healthMetrics.unhealthyNodes === 0 && healthMetrics.unhealthyDeployments === 0 && (
+          <div className="mt-4 pt-4 border-t border-zinc-700/50">
+            <div className="flex items-center gap-2">
+              <Check size={14} className="text-green-400" />
+              <span className="text-xs text-green-400">All systems operational - no active issues detected</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main Speedometer Gauges Row */}
