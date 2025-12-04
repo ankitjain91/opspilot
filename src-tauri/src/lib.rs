@@ -1186,20 +1186,27 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
         let name = obj.metadata.name.clone().unwrap_or_default();
         let namespace = obj.metadata.namespace.clone().unwrap_or("-".into());
         
+        // Check if resource is being deleted (has deletionTimestamp)
+        let is_terminating = obj.metadata.deletion_timestamp.is_some();
+
         // Smart Status Extraction: Looks for 'phase', 'state', or 'conditions'
-        let status = obj.data.get("status")
-            .and_then(|s| s.get("phase").or(s.get("state")))
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| {
-                obj.data.get("status")
-                    .and_then(|s| s.get("conditions"))
-                    .and_then(|c| c.as_array())
-                    .and_then(|arr| arr.last()) 
-                    .and_then(|cond| cond.get("type"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("Active")
-            })
-            .to_string();
+        let status = if is_terminating {
+            "Terminating".to_string()
+        } else {
+            obj.data.get("status")
+                .and_then(|s| s.get("phase").or(s.get("state")))
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    obj.data.get("status")
+                        .and_then(|s| s.get("conditions"))
+                        .and_then(|c| c.as_array())
+                        .and_then(|arr| arr.last())
+                        .and_then(|cond| cond.get("type"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("Active")
+                })
+                .to_string()
+        };
 
         // Extract pod-specific fields if this is a Pod
         let (ready, restarts, node, ip) = if req.kind.to_lowercase() == "pod" {
@@ -1452,19 +1459,26 @@ async fn start_resource_watch(
         let name = obj.metadata.name.clone().unwrap_or_default();
         let namespace = obj.metadata.namespace.clone().unwrap_or("-".into());
 
-        let status = obj.data.get("status")
-            .and_then(|s| s.get("phase").or(s.get("state")))
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| {
-                obj.data.get("status")
-                    .and_then(|s| s.get("conditions"))
-                    .and_then(|c| c.as_array())
-                    .and_then(|arr| arr.last())
-                    .and_then(|cond| cond.get("type"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("Active")
-            })
-            .to_string();
+        // Check if resource is being deleted (has deletionTimestamp)
+        let is_terminating = obj.metadata.deletion_timestamp.is_some();
+
+        let status = if is_terminating {
+            "Terminating".to_string()
+        } else {
+            obj.data.get("status")
+                .and_then(|s| s.get("phase").or(s.get("state")))
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    obj.data.get("status")
+                        .and_then(|s| s.get("conditions"))
+                        .and_then(|c| c.as_array())
+                        .and_then(|arr| arr.last())
+                        .and_then(|cond| cond.get("type"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("Active")
+                })
+                .to_string()
+        };
 
         // Pod-specific extras
         let (ready, restarts, node, ip) = if kind.to_lowercase() == "pod" {

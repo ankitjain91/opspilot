@@ -1818,12 +1818,14 @@ function ResourceContextMenu({
   resource,
   onViewDetails,
   onDelete,
-  isPod = false
+  isPod = false,
+  disabled = false
 }: {
   resource: K8sObject,
   onViewDetails: () => void,
   onDelete: () => void,
-  isPod?: boolean
+  isPod?: boolean,
+  disabled?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1855,15 +1857,16 @@ function ResourceContextMenu({
       { label: 'Copy Pod IP', icon: <Copy size={14} />, action: () => copyToClipboard(resource.ip || '', 'Pod IP'), disabled: !resource.ip },
     ] : []),
     { divider: true },
-    { label: 'Delete', icon: <Trash2 size={14} />, action: () => { onDelete(); setIsOpen(false); }, danger: true },
+    { label: disabled ? 'Deleting...' : 'Delete', icon: disabled ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />, action: () => { if (!disabled) { onDelete(); setIsOpen(false); } }, danger: true, disabled },
   ];
 
   return (
     <div className="relative" ref={menuRef}>
       <button
-        onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
-        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100"
-        title="Actions"
+        onClick={(e) => { e.stopPropagation(); if (!disabled) setIsOpen(!isOpen); }}
+        className={`p-1.5 rounded-md hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-[color,background-color,opacity] opacity-0 group-hover:opacity-100 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+        title={disabled ? "Deleting..." : "Actions"}
+        disabled={disabled}
       >
         <MoreVertical size={16} />
       </button>
@@ -4446,6 +4449,8 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
   // Delete modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [resourceToDelete, setResourceToDelete] = useState<K8sObject | null>(null);
+  const [deletingResources, setDeletingResources] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDeleteRequest = (resource: K8sObject) => {
     setResourceToDelete(resource);
@@ -4454,6 +4459,11 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
 
   const handleDeleteConfirm = async () => {
     if (!resourceToDelete) return;
+    const resourceId = resourceToDelete.id;
+    setIsDeleting(true);
+    setDeletingResources(prev => new Set(prev).add(resourceId));
+    setDeleteModalOpen(false);
+
     try {
       await invoke("delete_resource", {
         req: {
@@ -4464,13 +4474,18 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
         },
         name: resourceToDelete.name
       });
-      (window as any).showToast?.(`Deleted ${resourceType.kind} '${resourceToDelete.name}'`, 'success');
-      // Invalidate the query to refresh the list
-      qc.invalidateQueries({ queryKey: ["list_resources"] });
+      (window as any).showToast?.(`Deleting ${resourceType.kind} '${resourceToDelete.name}'...`, 'info');
+      // Trigger an immediate refetch to show the Terminating status
+      setTimeout(() => refetch(), 500);
     } catch (err) {
       (window as any).showToast?.(`Failed to delete: ${err}`, 'error');
+      setDeletingResources(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(resourceId);
+        return newSet;
+      });
     }
-    setDeleteModalOpen(false);
+    setIsDeleting(false);
     setResourceToDelete(null);
   };
 
@@ -4741,15 +4756,16 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
               // For nodes, namespace is "-" in resource list but "" in metrics
               const metricsNs = obj.namespace === '-' ? '' : (obj.namespace || '');
               const metrics = metricsMap.get(`${metricsNs}/${obj.name}`);
+              const isResourceDeleting = deletingResources.has(obj.id);
               return isPod ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className={`grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
                   <div className="text-cyan-400 font-mono text-xs font-semibold">{obj.ready || '0/0'}</div>
-                  <div><StatusBadge status={obj.status} /></div>
+                  <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
                   <div className="text-yellow-400 font-mono text-xs font-semibold">{obj.restarts ?? 0}</div>
                   <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
@@ -4760,15 +4776,16 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
                     onViewDetails={() => onSelect(obj)}
                     onDelete={() => handleDeleteRequest(obj)}
                     isPod={true}
+                    disabled={isResourceDeleting || obj.status === 'Terminating'}
                   />
                 </div>
               ) : isNode ? (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className={`grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
-                  <div><StatusBadge status={obj.status} /></div>
+                  <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
                   <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
                   <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
                   <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
@@ -4776,21 +4793,23 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
                     resource={obj}
                     onViewDetails={() => onSelect(obj)}
                     onDelete={() => handleDeleteRequest(obj)}
+                    disabled={isResourceDeleting || obj.status === 'Terminating'}
                   />
                 </div>
               ) : (
                 <div
                   onClick={() => onSelect(obj)}
-                  className="grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group"
+                  className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
                 >
                   <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                   <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
-                  <div><StatusBadge status={obj.status} /></div>
+                  <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
                   <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                   <ResourceContextMenu
                     resource={obj}
                     onViewDetails={() => onSelect(obj)}
                     onDelete={() => handleDeleteRequest(obj)}
+                    disabled={isResourceDeleting || obj.status === 'Terminating'}
                   />
                 </div>
               );
@@ -9340,9 +9359,13 @@ function YamlTab({ resource, currentContext }: { resource: K8sObject, currentCon
   );
 }
 
-const StatusBadge = ({ status }: { status: string }) => {
+const StatusBadge = ({ status, isDeleting = false }: { status: string, isDeleting?: boolean }) => {
+  // If locally marked as deleting but API hasn't caught up, show as Terminating
+  const displayStatus = isDeleting ? 'Terminating' : status;
+  const showSpinner = displayStatus === 'Terminating' || displayStatus === 'ContainerCreating' || displayStatus === 'Pending';
+
   const getStyles = () => {
-    switch (status) {
+    switch (displayStatus) {
       case 'Active':
       case 'Running':
       case 'Bound':
@@ -9350,8 +9373,9 @@ const StatusBadge = ({ status }: { status: string }) => {
         return 'bg-green-500/20 text-green-400 border-green-500/40 shadow-sm shadow-green-500/20';
       case 'Pending':
       case 'ContainerCreating':
-      case 'Terminating':
         return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 shadow-sm shadow-yellow-500/20';
+      case 'Terminating':
+        return 'bg-orange-500/20 text-orange-400 border-orange-500/40 shadow-sm shadow-orange-500/20';
       case 'CrashLoopBackOff':
       case 'Error':
       case 'Failed':
@@ -9363,8 +9387,12 @@ const StatusBadge = ({ status }: { status: string }) => {
 
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${getStyles()} inline-flex items-center gap-1`}>
-      <span className={`w-1 h-1 rounded-full ${getStyles().split(' ')[1].replace('text-', 'bg-')}`} />
-      {status}
+      {showSpinner ? (
+        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+      ) : (
+        <span className={`w-1 h-1 rounded-full ${getStyles().split(' ')[1].replace('text-', 'bg-')}`} />
+      )}
+      {displayStatus}
     </span>
   );
 };
