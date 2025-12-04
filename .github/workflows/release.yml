@@ -160,25 +160,30 @@ jobs:
             # Write key to temp file for signing
             echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/tauri.key
 
-            # Run signer and capture all output
+            # Run signer and capture all output (use || true to prevent script exit on error)
+            set +e
             SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key 2>&1)
+            SIGN_EXIT=$?
+            set -e
             rm -f /tmp/tauri.key
 
+            echo "Signer exit code: $SIGN_EXIT"
             echo "Signer output:"
             echo "$SIGN_OUTPUT"
 
             # Extract just the signature line (base64 starting with dW50cnVzdGVk)
-            SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^dW50cnVzdGVk' | head -1)
+            SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^dW50cnVzdGVk' | head -1 || true)
 
             if [ -z "$SIGNATURE" ]; then
               # Fallback: try to get the last line that looks like base64
-              SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^[A-Za-z0-9+/=]{20,}$' | tail -1)
+              SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^[A-Za-z0-9+/=]{20,}$' | tail -1 || true)
             fi
 
             if [ -n "$SIGNATURE" ]; then
               echo "Extracted signature: ${SIGNATURE:0:50}..."
             else
-              echo "Could not extract signature from output"
+              echo "WARNING: Could not extract signature from output"
+              echo "Continuing without signature..."
             fi
           else
             echo "No signing key available"
