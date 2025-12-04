@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient, QueryClient } from "@tanstack/react-query";
-import { Updater } from "./components/Updater";
+import { Updater, checkForUpdatesManually } from "./components/Updater";
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import { Terminal } from '@xterm/xterm';
@@ -70,7 +70,8 @@ import {
   Clock,
   ArrowUpDown,
   MessageSquare,
-  Send
+  Send,
+  Download
 } from "lucide-react";
 // Topology view removed per user request
 import Loading from './components/Loading';
@@ -5593,6 +5594,13 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
               </div>
             </div>
           </div>
+          <button
+            onClick={checkForUpdatesManually}
+            className="p-1.5 text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10 rounded-md transition-colors"
+            title="Check for Updates"
+          >
+            <Download size={16} />
+          </button>
         </div>
 
         {/* Sidebar Search Bar */}
