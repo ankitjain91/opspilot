@@ -157,8 +157,8 @@ jobs:
           echo "Signing $TARBALL..."
           SIGNATURE=""
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            # Write key to temp file for signing
-            echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/tauri.key
+            # Write key to temp file for signing (use printf to avoid extra newlines)
+            printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/tauri.key
 
             # Run signer and capture all output (use || true to prevent script exit on error)
             set +e
