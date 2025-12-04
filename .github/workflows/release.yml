@@ -68,6 +68,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "OpsPilot ${{ github.ref_name }}"
+          updaterJsonKeepUniversal: true
           releaseBody: |
             ## 📥 Installation
 
