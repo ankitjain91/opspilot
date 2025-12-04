@@ -140,19 +140,54 @@ jobs:
         run: |
           mv src-tauri/target/release/bundle/nsis/*.exe OpsPilot_Windows_x64_${{ github.ref_name }}.exe
 
-      - name: Find and upload latest.json (macOS only)
+      - name: Create latest.json for updater (macOS only)
         if: matrix.platform == 'macos-latest'
         run: |
-          # Find latest.json created by tauri-action
-          LATEST_JSON=$(find . -name "latest.json" -type f 2>/dev/null | head -1)
-          if [ -n "$LATEST_JSON" ]; then
-            echo "Found latest.json at: $LATEST_JSON"
-            cp "$LATEST_JSON" ./latest.json
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Read the signature
+          SIG_FILE="src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app.tar.gz.sig"
+          if [ -f "$SIG_FILE" ]; then
+            SIGNATURE=$(cat "$SIG_FILE")
+            echo "Found signature: ${SIGNATURE:0:50}..."
           else
-            echo "latest.json not found, creating from artifacts..."
-            # The tauri-action should have created it, but if not, we need to debug
-            find . -name "*.json" -type f 2>/dev/null | xargs grep -l "version" 2>/dev/null | head -5
+            echo "Warning: Signature file not found at $SIG_FILE"
+            SIGNATURE=""
           fi
+
+          # Create latest.json
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION}",
+            "notes": "See release notes on GitHub",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-universal": {
+                "signature": "${SIGNATURE}",
+                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
+              },
+              "darwin-aarch64": {
+                "signature": "${SIGNATURE}",
+                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "https://github.com/ankitjain91/opspilot/releases/download/${{ github.ref_name }}/OpsPilot_universal.app.tar.gz"
+              }
+            }
+          }
+          EOF
+
+          echo "Created latest.json:"
+          cat latest.json
+
+      - name: Rename app bundle for updater (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # The updater expects OpsPilot_universal.app.tar.gz
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app.tar.gz OpsPilot_universal.app.tar.gz
 
       - name: Upload binaries
         uses: softprops/action-gh-release@v1
@@ -161,7 +196,7 @@ jobs:
           files: |
             opspilot-*.tar.gz
             opspilot-*.zip
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/opspilot.app.tar.gz
+            OpsPilot_universal.app.tar.gz
             OpsPilot_macOS_*.dmg
             OpsPilot_Windows_*.exe
             OpsPilot_Linux_*.deb
