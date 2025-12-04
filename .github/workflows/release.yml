@@ -99,7 +99,7 @@ jobs:
 
             **Debian/Ubuntu**:
             Install with: `sudo dpkg -i OpsPilot_Linux_x64_*.deb`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
