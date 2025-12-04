@@ -1901,9 +1901,18 @@ async fn list_port_forwards(state: State<'_, AppState>) -> Result<Vec<serde_json
 #[tauri::command]
 async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String, name: String, yaml_content: String) -> Result<ResourceSummary, String> {
     let client = create_client(state).await?;
-    
+
     // 1. Parse YAML to JSON Value
-    let data: serde_json::Value = serde_yaml::from_str(&yaml_content).map_err(|e| format!("Invalid YAML: {}", e))?;
+    let mut data: serde_json::Value = serde_yaml::from_str(&yaml_content).map_err(|e| format!("Invalid YAML: {}", e))?;
+
+    // 1.5. Strip metadata.managedFields - Kubernetes rejects it during apply
+    if let Some(metadata) = data.get_mut("metadata") {
+        if let Some(obj) = metadata.as_object_mut() {
+            obj.remove("managedFields");
+            // Also remove resourceVersion for server-side apply to avoid conflicts
+            obj.remove("resourceVersion");
+        }
+    }
 
     // 2. Extract GVK from the payload or arguments
     // We trust the args 'kind' but we need Group/Version. 

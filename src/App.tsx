@@ -2128,7 +2128,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
           {/* Value arc */}
           <path
             d={`M ${size / 2 + Math.cos((startAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((startAngle * Math.PI) / 180) * (size / 2 - 15)}
-               A ${size / 2 - 15} ${size / 2 - 15} 0 ${percentage > 50 ? 1 : 0} 1 ${size / 2 + Math.cos((currentAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((currentAngle * Math.PI) / 180) * (size / 2 - 15)}`}
+               A ${size / 2 - 15} ${size / 2 - 15} 0 ${(percentage / 100) * angleRange > 180 ? 1 : 0} 1 ${size / 2 + Math.cos((currentAngle * Math.PI) / 180) * (size / 2 - 15)} ${size / 2 + Math.sin((currentAngle * Math.PI) / 180) * (size / 2 - 15)}`}
             fill="none"
             stroke={getColor()}
             strokeWidth={6}
