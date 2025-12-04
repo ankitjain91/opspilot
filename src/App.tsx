@@ -2001,6 +2001,8 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
   const [connectCancelled, setConnectCancelled] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>("");
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isInvestigating, setIsInvestigating] = useState(false);
+  const [investigationResult, setInvestigationResult] = useState<string | null>(null);
 
   // Detect if we're inside a vcluster (context name starts with "vcluster_")
   const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
@@ -2445,6 +2447,54 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
       }
     } finally {
       setIsDisconnecting(false);
+    }
+  };
+
+  // AI Investigate Cluster Issues
+  const investigateClusterIssues = async () => {
+    if (!cockpit) return;
+    setIsInvestigating(true);
+    setInvestigationResult(null);
+    try {
+      // Build a summary of issues
+      const issues: string[] = [];
+      if (healthMetrics.unhealthyNodes > 0) issues.push(`${healthMetrics.unhealthyNodes} node(s) not ready`);
+      if (healthMetrics.failedPods > 0) issues.push(`${healthMetrics.failedPods} pod(s) failed`);
+      if (healthMetrics.pendingPods > 0) issues.push(`${healthMetrics.pendingPods} pod(s) pending`);
+      if (healthMetrics.crashingPods > 0) issues.push(`${healthMetrics.crashingPods} pod(s) in unknown state`);
+      if (healthMetrics.unhealthyDeployments > 0) issues.push(`${healthMetrics.unhealthyDeployments} deployment(s) degraded`);
+      if (healthMetrics.cpuPct > 80) issues.push(`CPU at ${healthMetrics.cpuPct.toFixed(0)}%`);
+      if (healthMetrics.memPct > 80) issues.push(`Memory at ${healthMetrics.memPct.toFixed(0)}%`);
+
+      const unhealthyPodsList = cockpit.unhealthy_pods?.slice(0, 5).map((p: any) =>
+        `- ${p.namespace}/${p.name}: ${p.status}`
+      ).join('\n') || '';
+
+      const unhealthyDeploysList = cockpit.unhealthy_deployments?.slice(0, 5).map((d: any) =>
+        `- ${d.namespace}/${d.name}: ${d.status}`
+      ).join('\n') || '';
+
+      const context = `
+Cluster Health Score: ${healthMetrics.healthScore}/100
+Issues Detected: ${issues.join(', ')}
+
+${unhealthyPodsList ? `Unhealthy Pods:\n${unhealthyPodsList}` : ''}
+${unhealthyDeploysList ? `Unhealthy Deployments:\n${unhealthyDeploysList}` : ''}
+
+Node Status: ${cockpit.node_status.ready}/${cockpit.node_status.total} ready
+Pod Status: ${cockpit.pod_status.running} running, ${cockpit.pod_status.pending} pending, ${cockpit.pod_status.failed} failed
+CPU: ${healthMetrics.cpuPct.toFixed(1)}% used
+Memory: ${healthMetrics.memPct.toFixed(1)}% used
+`;
+      const answer = await invoke<string>("call_local_llm", {
+        prompt: `Analyze this Kubernetes cluster status and provide:\n1. Priority assessment of the issues\n2. Likely root causes\n3. Recommended actions to resolve\n\n${context}`,
+        systemPrompt: "You are a Kubernetes SRE expert. Provide a concise, prioritized analysis of cluster issues with actionable recommendations. Focus on the most critical problems first.",
+      });
+      setInvestigationResult(answer);
+    } catch (err) {
+      setInvestigationResult(`Error: ${err}`);
+    } finally {
+      setIsInvestigating(false);
     }
   };
 
