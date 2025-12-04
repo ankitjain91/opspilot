@@ -6347,6 +6347,70 @@ function fixKubectlPlaceholders(text: string, resource: K8sObject, containers?: 
   return fixed;
 }
 
+// Helper to auto-fix tool arguments when errors occur
+function autoFixToolArgs(toolName: string, toolArgs: string | undefined, containers: string[], errorMessage?: string): { fixed: string | undefined; wasFixed: boolean } {
+  if (!toolArgs) return { fixed: undefined, wasFixed: false };
+
+  let fixed = toolArgs;
+  let wasFixed = false;
+
+  // Fix LOGS/LOGS_PREVIOUS container names
+  if (toolName === 'LOGS' || toolName === 'LOGS_PREVIOUS') {
+    // Remove brackets, quotes, and extra whitespace
+    const cleaned = toolArgs.replace(/[\[\]"'<>{}]/g, '').trim();
+
+    // If cleaned version is different, we fixed something
+    if (cleaned !== toolArgs) {
+      fixed = cleaned;
+      wasFixed = true;
+    }
+
+    // If container name doesn't match available containers, try to find best match
+    if (containers.length > 0 && cleaned && !containers.includes(cleaned)) {
+      // Try case-insensitive match
+      const lowerCleaned = cleaned.toLowerCase();
+      const match = containers.find(c => c.toLowerCase() === lowerCleaned);
+      if (match) {
+        fixed = match;
+        wasFixed = true;
+      } else {
+        // Try partial match
+        const partialMatch = containers.find(c =>
+          c.toLowerCase().includes(lowerCleaned) || lowerCleaned.includes(c.toLowerCase())
+        );
+        if (partialMatch) {
+          fixed = partialMatch;
+          wasFixed = true;
+        } else if (containers.length === 1) {
+          // Only one container, use it
+          fixed = containers[0];
+          wasFixed = true;
+        }
+      }
+    }
+  }
+
+  // Fix LIST_RESOURCES/DESCRIBE_ANY kind names
+  if (toolName === 'LIST_RESOURCES' || toolName === 'DESCRIBE_ANY') {
+    // Remove brackets and quotes
+    const cleaned = toolArgs.replace(/[\[\]"'<>{}]/g, '').trim();
+    if (cleaned !== toolArgs) {
+      fixed = cleaned;
+      wasFixed = true;
+    }
+  }
+
+  return { fixed, wasFixed };
+}
+
+// Check if a tool result indicates an error that can be auto-fixed
+function isAutoFixableError(toolResult: string): boolean {
+  return toolResult.includes('TOOL SYNTAX ERROR') ||
+    toolResult.includes('WRONG CONTAINER NAME') ||
+    toolResult.includes('Invalid container name') ||
+    toolResult.includes('Invalid syntax');
+}
+
 function OverviewTab({ resource, fullObject, loading, error, onDelete, currentContext }: { resource: K8sObject, fullObject: any, loading: boolean, error?: Error, onDelete: () => void, currentContext?: string }) {
   const [llmLoading, setLlmLoading] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<
@@ -6704,7 +6768,7 @@ whose job is to DRIVE the investigation, not just answer questions.`,
 
         for (const toolMatch of tools) {
           const toolName = toolMatch[1];
-          const toolArgs = toolMatch[2]?.trim();
+          let toolArgs = toolMatch[2]?.trim();
           let toolResult = '';
           let kubectlCommand = '';
 
@@ -6719,6 +6783,13 @@ whose job is to DRIVE the investigation, not just answer questions.`,
             }]);
             allToolResults.push(`## INVALID TOOL: ${toolName}\n${errorMsg}`);
             continue;
+          }
+
+          // Auto-fix tool arguments BEFORE execution to prevent errors
+          const { fixed: fixedArgs, wasFixed } = autoFixToolArgs(toolName, toolArgs, containerNames);
+          if (wasFixed && fixedArgs !== undefined && fixedArgs !== toolArgs) {
+            console.log(`[AI Self-Fix] Auto-corrected ${toolName} args: "${toolArgs}" → "${fixedArgs}"`);
+            toolArgs = fixedArgs;
           }
 
           try {
@@ -7099,7 +7170,7 @@ Never self-terminate.`,
           const newToolResults: string[] = [];
           for (const toolMatch of nextTools) {
             const toolName = toolMatch[1];
-            const toolArgs = toolMatch[2]?.trim();
+            let toolArgs = toolMatch[2]?.trim();
             let toolResult = '';
             let kubectlCommand = '';
 
@@ -7114,6 +7185,13 @@ Never self-terminate.`,
               }]);
               newToolResults.push(`## INVALID TOOL: ${toolName}\n${errorMsg}`);
               continue;
+            }
+
+            // Auto-fix tool arguments BEFORE execution to prevent errors
+            const { fixed: fixedArgs, wasFixed } = autoFixToolArgs(toolName, toolArgs, containerNames);
+            if (wasFixed && fixedArgs !== undefined && fixedArgs !== toolArgs) {
+              console.log(`[AI Self-Fix] Auto-corrected ${toolName} args: "${toolArgs}" → "${fixedArgs}"`);
+              toolArgs = fixedArgs;
             }
 
             try {
