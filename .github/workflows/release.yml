@@ -60,6 +60,7 @@ jobs:
           fi
 
       - name: Build the app
+        id: tauri_build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -147,30 +148,39 @@ jobs:
           VERSION="${VERSION#v}"  # Remove 'v' prefix
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Debug: List signature files
-          echo "Current directory: $(pwd)"
-          echo "Looking for .sig files..."
-          find . -name "*.sig" 2>/dev/null | head -20
+          # Debug: Check tauri outputs
+          echo "Tauri artifact paths: ${{ steps.tauri_build.outputs.artifactPaths }}"
 
-          # Read the signature from the correct location
+          # Debug: List all files in bundle directory
+          echo "Current directory: $(pwd)"
+          echo "Listing bundle directory..."
+          ls -la src-tauri/target/universal-apple-darwin/release/bundle/macos/ 2>/dev/null || echo "Bundle dir not found"
+
+          # Look for any signature files anywhere
+          echo "Looking for ALL .sig files in target..."
+          find src-tauri/target -name "*.sig" 2>/dev/null | head -20
+
+          # Read the signature - the sig is embedded in the .tar.gz, not a separate file after tauri-action runs
+          # Try reading from the path tauri-action mentions
           SIG_FILE="src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app.tar.gz.sig"
           if [ -f "$SIG_FILE" ]; then
             SIGNATURE=$(cat "$SIG_FILE")
             echo "Found signature: ${SIGNATURE:0:50}..."
           else
-            echo "Warning: Signature file not found at $SIG_FILE"
-            # Try alternate location
-            ALT_SIG=$(find . -name "OpsPilot.app.tar.gz.sig" 2>/dev/null | head -1)
-            if [ -n "$ALT_SIG" ] && [ -f "$ALT_SIG" ]; then
-              SIGNATURE=$(cat "$ALT_SIG")
-              echo "Found signature at alternate location: $ALT_SIG"
+            echo "Signature file not found at expected location"
+            # The tauri-action may have already deleted it after upload
+            # Try to get the signature from dmg.sig as fallback
+            DMG_SIG="src-tauri/target/universal-apple-darwin/release/bundle/dmg/OpsPilot_*.dmg.sig"
+            if ls $DMG_SIG 1>/dev/null 2>&1; then
+              SIGNATURE=$(cat $DMG_SIG)
+              echo "Found DMG signature as fallback"
             else
               SIGNATURE=""
-              echo "No signature file found anywhere!"
+              echo "No signature files found - tauri-action may have cleaned them up"
             fi
           fi
 
-          # Create latest.json using echo to avoid YAML parsing issues
+          # Create latest.json
           echo "{" > latest.json
           echo "  \"version\": \"${VERSION}\"," >> latest.json
           echo "  \"notes\": \"See release notes on GitHub\"," >> latest.json
