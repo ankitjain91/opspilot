@@ -2368,52 +2368,74 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
       {/* Main Speedometer Gauges Row */}
       <div className="grid grid-cols-2 gap-6 mb-6">
         {/* CPU Speedometer */}
-        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
-          <SpeedometerGauge
-            value={cockpit.total_cpu_usage}
-            max={cockpit.total_cpu_allocatable}
-            label="CPU UTILIZATION"
-            color={COLORS.cpu}
-            unit={formatCpu(cockpit.total_cpu_usage)}
-            size={180}
-          />
-          <div className="flex-1 space-y-3">
-            <GradientProgress value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="Used" sublabel={`${formatCpu(cockpit.total_cpu_usage)} of ${formatCpu(cockpit.total_cpu_allocatable)} Allocatable`} />
-            <GradientProgress value={cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable} max={cockpit.total_cpu_capacity} label="Reserved" sublabel={`${formatCpu(cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable)} reserved by system`} />
-            <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <span className="text-zinc-500">Allocatable</span>
-                <div className="text-cyan-400 font-mono font-semibold">{formatCpu(cockpit.total_cpu_allocatable)}</div>
-              </div>
-              <div>
-                <span className="text-zinc-500">Available</span>
-                <div className="text-green-400 font-mono font-semibold">{formatCpu(Math.max(0, cockpit.total_cpu_allocatable - cockpit.total_cpu_usage))}</div>
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800">
+          <div className="flex items-center gap-2 mb-4">
+            <Cpu className="w-5 h-5 text-cyan-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">CPU Utilization</h3>
+              <p className="text-[10px] text-zinc-500">Total CPU usage across all nodes vs allocatable capacity</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <SpeedometerGauge
+              value={cockpit.total_cpu_usage}
+              max={cockpit.total_cpu_allocatable}
+              label="CPU UTILIZATION"
+              color={COLORS.cpu}
+              unit={formatCpu(cockpit.total_cpu_usage)}
+              size={180}
+            />
+            <div className="flex-1 space-y-3">
+              <GradientProgress value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="Used by workloads" sublabel={`${formatCpu(cockpit.total_cpu_usage)} of ${formatCpu(cockpit.total_cpu_allocatable)} allocatable`} />
+              <GradientProgress value={cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable} max={cockpit.total_cpu_capacity} label="Reserved by system" sublabel={`${formatCpu(cockpit.total_cpu_capacity - cockpit.total_cpu_allocatable)} for kubelet, OS`} />
+              <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-zinc-500">Allocatable</span>
+                  <div className="text-cyan-400 font-mono font-semibold">{formatCpu(cockpit.total_cpu_allocatable)}</div>
+                  <span className="text-[9px] text-zinc-600">for pods</span>
+                </div>
+                <div>
+                  <span className="text-zinc-500">Available</span>
+                  <div className="text-green-400 font-mono font-semibold">{formatCpu(Math.max(0, cockpit.total_cpu_allocatable - cockpit.total_cpu_usage))}</div>
+                  <span className="text-[9px] text-zinc-600">free capacity</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Memory Speedometer */}
-        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800 flex items-center gap-6">
-          <SpeedometerGauge
-            value={cockpit.total_memory_usage}
-            max={cockpit.total_memory_allocatable}
-            label="MEMORY UTILIZATION"
-            color={COLORS.memory}
-            unit={formatBytes(cockpit.total_memory_usage)}
-            size={180}
-          />
-          <div className="flex-1 space-y-3">
-            <GradientProgress value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Used" sublabel={`${formatBytes(cockpit.total_memory_usage)} of ${formatBytes(cockpit.total_memory_allocatable)} Allocatable`} />
-            <GradientProgress value={cockpit.total_memory_capacity - cockpit.total_memory_allocatable} max={cockpit.total_memory_capacity} label="Reserved" sublabel={`${formatBytes(cockpit.total_memory_capacity - cockpit.total_memory_allocatable)} reserved by system`} />
-            <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <span className="text-zinc-500">Allocatable</span>
-                <div className="text-purple-400 font-mono font-semibold">{formatBytes(cockpit.total_memory_allocatable)}</div>
-              </div>
-              <div>
-                <span className="text-zinc-500">Available</span>
-                <div className="text-green-400 font-mono font-semibold">{formatBytes(Math.max(0, cockpit.total_memory_allocatable - cockpit.total_memory_usage))}</div>
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/50 to-zinc-950 rounded-xl p-6 border border-zinc-800">
+          <div className="flex items-center gap-2 mb-4">
+            <HardDrive className="w-5 h-5 text-purple-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">Memory Utilization</h3>
+              <p className="text-[10px] text-zinc-500">Total RAM usage across all nodes vs allocatable capacity</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <SpeedometerGauge
+              value={cockpit.total_memory_usage}
+              max={cockpit.total_memory_allocatable}
+              label="MEMORY UTILIZATION"
+              color={COLORS.memory}
+              unit={formatBytes(cockpit.total_memory_usage)}
+              size={180}
+            />
+            <div className="flex-1 space-y-3">
+              <GradientProgress value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Used by workloads" sublabel={`${formatBytes(cockpit.total_memory_usage)} of ${formatBytes(cockpit.total_memory_allocatable)} allocatable`} />
+              <GradientProgress value={cockpit.total_memory_capacity - cockpit.total_memory_allocatable} max={cockpit.total_memory_capacity} label="Reserved by system" sublabel={`${formatBytes(cockpit.total_memory_capacity - cockpit.total_memory_allocatable)} for kubelet, OS`} />
+              <div className="pt-2 border-t border-zinc-800 grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-zinc-500">Allocatable</span>
+                  <div className="text-purple-400 font-mono font-semibold">{formatBytes(cockpit.total_memory_allocatable)}</div>
+                  <span className="text-[9px] text-zinc-600">for pods</span>
+                </div>
+                <div>
+                  <span className="text-zinc-500">Available</span>
+                  <div className="text-green-400 font-mono font-semibold">{formatBytes(Math.max(0, cockpit.total_memory_allocatable - cockpit.total_memory_usage))}</div>
+                  <span className="text-[9px] text-zinc-600">free capacity</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2422,22 +2444,49 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
 
       {/* Vertical Meters Row */}
       <div className="bg-gradient-to-r from-zinc-900/80 to-zinc-950/80 rounded-xl p-6 border border-zinc-800 mb-6">
-        <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-          <Zap className="w-4 h-4 text-yellow-400" />
-          Cluster Capacity Overview
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-yellow-400" />
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-300">Cluster Capacity Overview</h3>
+              <p className="text-[10px] text-zinc-500">Quick view of resource utilization and health status</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 text-[10px] text-zinc-500">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Healthy (0-74%)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Warning (75-89%)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> Critical (90%+)</span>
+          </div>
+        </div>
         <div className="flex justify-around items-end">
-          <VerticalMeter value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="CPU" color={COLORS.cpu} icon={Cpu} />
-          <VerticalMeter value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Memory" color={COLORS.memory} icon={HardDrive} />
-          <VerticalMeter value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} icon={Layers} />
-          <VerticalMeter value={cockpit.total_nodes - cockpit.healthy_nodes} max={cockpit.total_nodes} label="Unhealthy" color={COLORS.critical} icon={AlertCircle} />
+          {/* Resource Utilization Meters */}
+          <div className="flex flex-col items-center">
+            <VerticalMeter value={cockpit.total_cpu_usage} max={cockpit.total_cpu_allocatable} label="CPU" color={COLORS.cpu} icon={Cpu} />
+            <span className="text-[9px] text-zinc-600 mt-1">processor usage</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <VerticalMeter value={cockpit.total_memory_usage} max={cockpit.total_memory_allocatable} label="Memory" color={COLORS.memory} icon={HardDrive} />
+            <span className="text-[9px] text-zinc-600 mt-1">RAM usage</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <VerticalMeter value={cockpit.total_pods} max={cockpit.total_pods_capacity} label="Pods" color={COLORS.running} icon={Layers} />
+            <span className="text-[9px] text-zinc-600 mt-1">pod slots used</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <VerticalMeter value={cockpit.total_nodes - cockpit.healthy_nodes} max={cockpit.total_nodes} label="Unhealthy" color={COLORS.critical} icon={AlertCircle} />
+            <span className="text-[9px] text-zinc-600 mt-1">nodes with issues</span>
+          </div>
 
-          {/* Ring gauges for compact metrics */}
+          {/* Divider */}
+          <div className="w-px h-32 bg-zinc-700 mx-2"></div>
+
+          {/* Ring gauges for health metrics */}
           <div className="flex flex-col items-center gap-2">
             <div className="relative">
               <Gauge value={cockpit.healthy_nodes} max={cockpit.total_nodes} label="Nodes" color={COLORS.healthy} size={100} />
             </div>
             <div className="text-[10px] text-zinc-500">{cockpit.healthy_nodes}/{cockpit.total_nodes} healthy</div>
+            <span className="text-[9px] text-zinc-600">Ready status</span>
           </div>
 
           <div className="flex flex-col items-center gap-2">
@@ -2445,6 +2494,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
               <Gauge value={cockpit.pod_status.running} max={cockpit.total_pods} label="Running" color={COLORS.running} size={100} />
             </div>
             <div className="text-[10px] text-zinc-500">{cockpit.pod_status.running}/{cockpit.total_pods} running</div>
+            <span className="text-[9px] text-zinc-600">Active pods</span>
           </div>
 
           <div className="flex flex-col items-center gap-2">
@@ -2452,48 +2502,60 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
               <Gauge value={cockpit.total_deployments - (cockpit.warning_count || 0)} max={cockpit.total_deployments} label="Healthy" color={COLORS.healthy} size={100} />
             </div>
             <div className="text-[10px] text-zinc-500">{cockpit.total_deployments} deployments</div>
+            <span className="text-[9px] text-zinc-600">Fully available</span>
           </div>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
-        {[
-          { label: 'Nodes', value: cockpit.total_nodes, icon: Server, color: 'text-blue-400' },
-          { label: 'Pods', value: cockpit.total_pods, icon: Layers, color: 'text-green-400' },
-          { label: 'Deployments', value: cockpit.total_deployments, icon: Package, color: 'text-purple-400' },
-          { label: 'Services', value: cockpit.total_services, icon: Network, color: 'text-orange-400' },
-          { label: 'Namespaces', value: cockpit.total_namespaces, icon: FolderOpen, color: 'text-yellow-400' },
-        ].map((stat, i) => (
-          <div key={i} className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 hover:border-zinc-700 transition-colors">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wider">{stat.label}</div>
-                <div className={`text-2xl font-bold ${stat.color} mt-1`}>{stat.value}</div>
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-cyan-400" />
+          <h3 className="text-sm font-semibold text-zinc-300">Resource Counts</h3>
+          <span className="text-[10px] text-zinc-500">Total resources in the cluster</span>
+        </div>
+        <div className="grid grid-cols-5 gap-4">
+          {[
+            { label: 'Nodes', value: cockpit.total_nodes, icon: Server, color: 'text-blue-400', desc: 'Worker machines' },
+            { label: 'Pods', value: cockpit.total_pods, icon: Layers, color: 'text-green-400', desc: 'Running containers' },
+            { label: 'Deployments', value: cockpit.total_deployments, icon: Package, color: 'text-purple-400', desc: 'App workloads' },
+            { label: 'Services', value: cockpit.total_services, icon: Network, color: 'text-orange-400', desc: 'Network endpoints' },
+            { label: 'Namespaces', value: cockpit.total_namespaces, icon: FolderOpen, color: 'text-yellow-400', desc: 'Logical partitions' },
+          ].map((stat, i) => (
+            <div key={i} className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 hover:border-zinc-700 transition-colors">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-zinc-500 uppercase tracking-wider">{stat.label}</div>
+                  <div className={`text-2xl font-bold ${stat.color} mt-1`}>{stat.value}</div>
+                  <div className="text-[9px] text-zinc-600 mt-0.5">{stat.desc}</div>
+                </div>
+                <stat.icon className={`w-8 h-8 ${stat.color} opacity-50`} />
               </div>
-              <stat.icon className={`w-8 h-8 ${stat.color} opacity-50`} />
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-3 gap-6 mb-6">
         {/* Pod Status Pie Chart */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <PieChart className="w-4 h-4 text-cyan-400" />
-            Pod Status Distribution
-          </h3>
-          <div className="h-[200px]">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-cyan-400" />
+              Pod Status Distribution
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Breakdown of pod lifecycle states</p>
+          </div>
+          <div className="h-[180px]">
             <ResponsiveContainer width="100%" height="100%">
               <RechartsPieChart>
                 <Pie
                   data={podStatusData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
+                  innerRadius={45}
+                  outerRadius={70}
                   paddingAngle={2}
                   dataKey="value"
                 >
@@ -2504,6 +2566,7 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
                 <Tooltip
                   contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
                   labelStyle={{ color: '#fff' }}
+                  formatter={(value: number, name: string) => [`${value} pods`, name]}
                 />
                 <Legend
                   verticalAlign="bottom"
@@ -2513,48 +2576,70 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
               </RechartsPieChart>
             </ResponsiveContainer>
           </div>
+          <div className="mt-2 pt-2 border-t border-zinc-800 text-[9px] text-zinc-600 grid grid-cols-2 gap-1">
+            <span><span className="text-green-400">Running</span> = actively executing</span>
+            <span><span className="text-yellow-400">Pending</span> = waiting to start</span>
+            <span><span className="text-blue-400">Succeeded</span> = completed ok</span>
+            <span><span className="text-red-400">Failed</span> = exited with error</span>
+          </div>
         </div>
 
         {/* Node Resource Usage Bar Chart */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <Server className="w-4 h-4 text-cyan-400" />
-            Node Resource Usage (%)
-          </h3>
-          <div className="h-[200px]">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <Server className="w-4 h-4 text-cyan-400" />
+              Node Resource Usage
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">CPU and memory utilization per node</p>
+          </div>
+          <div className="h-[180px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={nodeBarData} layout="vertical">
-                <XAxis type="number" domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} />
+                <XAxis type="number" domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
                 <YAxis type="category" dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} width={80} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
                   labelStyle={{ color: '#fff' }}
+                  formatter={(value: number, name: string) => [`${value}%`, name]}
                 />
+                <Legend formatter={(value) => <span className="text-xs text-zinc-400">{value}</span>} />
                 <Bar dataKey="cpu" fill={COLORS.cpu} name="CPU %" radius={[0, 4, 4, 0]} />
                 <Bar dataKey="memory" fill={COLORS.memory} name="Memory %" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+          <div className="mt-2 pt-2 border-t border-zinc-800 flex items-center justify-between text-[9px] text-zinc-600">
+            <span><span className="inline-block w-2 h-2 rounded-full bg-cyan-500 mr-1"></span>CPU: processor cores</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-1"></span>Memory: RAM usage</span>
+          </div>
         </div>
 
         {/* Top Namespaces */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-cyan-400" />
-            Top Namespaces by Pods
-          </h3>
-          <div className="h-[200px]">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-cyan-400" />
+              Top Namespaces
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Namespaces with most pods deployed</p>
+          </div>
+          <div className="h-[180px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={namespaceData}>
                 <XAxis dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} angle={-45} textAnchor="end" height={60} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 10 }} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 10 }} label={{ value: 'Pods', angle: -90, position: 'insideLeft', fill: '#52525b', fontSize: 10 }} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
                   labelStyle={{ color: '#fff' }}
+                  formatter={(value: number) => [`${value} pods`, 'Pod count']}
                 />
                 <Bar dataKey="pods" fill={COLORS.running} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+          <div className="mt-2 pt-2 border-t border-zinc-800 text-[9px] text-zinc-600">
+            Namespaces group related workloads and isolate resources
           </div>
         </div>
       </div>
@@ -2563,19 +2648,22 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
       <div className="grid grid-cols-2 gap-6">
         {/* Nodes Health Table */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <Server className="w-4 h-4 text-cyan-400" />
-            Nodes Health ({cockpit.nodes.length})
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <Server className="w-4 h-4 text-cyan-400" />
+              Nodes Health ({cockpit.nodes.length})
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Individual node status and resource consumption</p>
+          </div>
           <div className="overflow-auto max-h-[280px]">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-zinc-900">
                 <tr className="text-zinc-500 uppercase">
-                  <th className="text-left py-2 px-2">Node</th>
-                  <th className="text-center py-2 px-2">Status</th>
-                  <th className="text-right py-2 px-2">CPU</th>
-                  <th className="text-right py-2 px-2">Memory</th>
-                  <th className="text-right py-2 px-2">Pods</th>
+                  <th className="text-left py-2 px-2" title="Node hostname">Node</th>
+                  <th className="text-center py-2 px-2" title="Ready = accepting pods">Status</th>
+                  <th className="text-right py-2 px-2" title="CPU utilization percentage">CPU %</th>
+                  <th className="text-right py-2 px-2" title="Memory utilization percentage">Mem %</th>
+                  <th className="text-right py-2 px-2" title="Running/Capacity pods">Pods</th>
                 </tr>
               </thead>
               <tbody>
@@ -2620,24 +2708,28 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
 
         {/* Unhealthy Deployments */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-yellow-400" />
-            Unhealthy Deployments ({cockpit.unhealthy_deployments.length})
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-yellow-400" />
+              Unhealthy Deployments ({cockpit.unhealthy_deployments.length})
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Deployments with missing or unavailable replicas</p>
+          </div>
           {cockpit.unhealthy_deployments.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[240px] text-zinc-500">
               <Check className="w-12 h-12 text-green-400 mb-2" />
-              <span>All deployments healthy</span>
+              <span className="text-sm">All deployments healthy</span>
+              <span className="text-[10px] text-zinc-600 mt-1">No replica mismatches detected</span>
             </div>
           ) : (
             <div className="overflow-auto max-h-[280px]">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-zinc-900">
                   <tr className="text-zinc-500 uppercase">
-                    <th className="text-left py-2 px-2">Deployment</th>
-                    <th className="text-left py-2 px-2">Namespace</th>
-                    <th className="text-center py-2 px-2">Ready</th>
-                    <th className="text-center py-2 px-2">Available</th>
+                    <th className="text-left py-2 px-2" title="Deployment name">Deployment</th>
+                    <th className="text-left py-2 px-2" title="Kubernetes namespace">Namespace</th>
+                    <th className="text-center py-2 px-2" title="Ready/Desired pods">Ready</th>
+                    <th className="text-center py-2 px-2" title="Available/Desired pods">Available</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2667,10 +2759,13 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
       {/* Virtual Clusters Section - only show on host clusters, not inside vclusters */}
       {!isInsideVcluster && vclusters && vclusters.length > 0 && (
         <div className="mt-6 bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-            <Box className="w-4 h-4 text-purple-400" />
-            Virtual Clusters ({vclusters.length})
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+              <Box className="w-4 h-4 text-purple-400" />
+              Virtual Clusters ({vclusters.length})
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Lightweight isolated Kubernetes clusters running in this host cluster</p>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {vclusters.map((vc: any) => (
               <div
