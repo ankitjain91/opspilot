@@ -1965,6 +1965,63 @@ async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String,
     })
 }
 
+// 7.5. SCALE DEPLOYMENT
+#[tauri::command]
+async fn scale_deployment(state: State<'_, AppState>, namespace: String, name: String, replicas: i32) -> Result<String, String> {
+    let client = create_client(state).await?;
+
+    // Create a patch for the replicas field
+    let patch = serde_json::json!({
+        "spec": {
+            "replicas": replicas
+        }
+    });
+
+    let ar = kube::discovery::ApiResource::erase::<k8s_openapi::api::apps::v1::Deployment>(&());
+    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
+
+    let pp = PatchParams::apply("opspilot").force();
+    api.patch(&name, &pp, &Patch::Apply(&patch)).await.map_err(|e| e.to_string())?;
+
+    Ok(format!("Scaled deployment {} to {} replicas", name, replicas))
+}
+
+// 7.6. PATCH RESOURCE (Generic JSON Patch)
+#[tauri::command]
+async fn patch_resource(
+    state: State<'_, AppState>,
+    namespace: String,
+    kind: String,
+    name: String,
+    api_version: String,
+    patch_data: serde_json::Value
+) -> Result<String, String> {
+    let client = create_client(state).await?;
+
+    // Parse group/version from apiVersion
+    let (group, version) = if api_version.contains('/') {
+        let parts: Vec<&str> = api_version.split('/').collect();
+        (parts[0], parts[1])
+    } else {
+        ("", api_version.as_str())
+    };
+
+    let gvk = GroupVersionKind::gvk(group, version, &kind);
+    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
+    let (ar, caps) = discovery.resolve_gvk(&gvk).ok_or("Resource kind not found")?;
+
+    let api: Api<DynamicObject> = if caps.scope == Scope::Namespaced {
+        Api::namespaced_with(client, &namespace, &ar)
+    } else {
+        Api::all_with(client, &ar)
+    };
+
+    let pp = PatchParams::apply("opspilot").force();
+    api.patch(&name, &pp, &Patch::Apply(&patch_data)).await.map_err(|e| e.to_string())?;
+
+    Ok(format!("Patched {} {}/{}", kind, namespace, name))
+}
+
 // 8. HELM INTEGRATION
 #[derive(Serialize, Deserialize)]
 struct HelmRelease {
@@ -2346,6 +2403,8 @@ pub fn run() {
             stop_port_forward,
             list_port_forwards,
             apply_yaml,
+            scale_deployment,
+            patch_resource,
             helm_list,
             helm_uninstall,
             get_current_context_name,

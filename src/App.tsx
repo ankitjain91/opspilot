@@ -8046,7 +8046,30 @@ function KindSpecSection({ kind, fullObject, currentContext }: { kind: string, f
     const tplContainers = spec.template?.spec?.containers || [];
     const initContainers = spec.template?.spec?.initContainers || [];
     const namespace = fullObject?.metadata?.namespace;
+    const deploymentName = fullObject?.metadata?.name;
     const matchLabels = spec.selector?.matchLabels || {};
+    const qc = useQueryClient();
+    const [isScaling, setIsScaling] = useState(false);
+
+    const handleScale = async (newReplicas: number) => {
+      if (newReplicas < 0 || !namespace || !deploymentName) return;
+      setIsScaling(true);
+      try {
+        await invoke("scale_deployment", { namespace, name: deploymentName, replicas: newReplicas });
+        // Refresh the resource details
+        await qc.invalidateQueries({ queryKey: ["resource_details"] });
+        await qc.invalidateQueries({ queryKey: ["deployment_pods"] });
+        if ((window as any).showToast) {
+          (window as any).showToast(`Scaled to ${newReplicas} replicas`, 'success');
+        }
+      } catch (err) {
+        if ((window as any).showToast) {
+          (window as any).showToast(`Scale failed: ${err}`, 'error');
+        }
+      } finally {
+        setIsScaling(false);
+      }
+    };
 
     // Fetch pods matching the deployment's selector
     const { data: managedPods } = useQuery({
@@ -8142,9 +8165,30 @@ function KindSpecSection({ kind, fullObject, currentContext }: { kind: string, f
           <div>
             <h4 className="text-[11px] uppercase tracking-wider text-[#858585] font-bold mb-2">Replica Status</h4>
             <div className="grid grid-cols-4 gap-2">
-              <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
-                <div className="text-lg font-mono text-[#cccccc]">{replicas}</div>
-                <div className="text-[9px] text-[#858585]">Desired</div>
+              {/* Editable Desired Replicas */}
+              <div className="p-2 bg-[#1e1e1e] border border-purple-500/30 rounded text-center relative group">
+                <div className="flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => handleScale(replicas - 1)}
+                    disabled={isScaling || replicas <= 0}
+                    className="w-5 h-5 rounded bg-[#3e3e42] hover:bg-purple-600/50 text-[#cccccc] text-xs flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Scale down"
+                  >
+                    −
+                  </button>
+                  <div className={`text-lg font-mono text-purple-400 min-w-[24px] ${isScaling ? 'animate-pulse' : ''}`}>
+                    {isScaling ? '...' : replicas}
+                  </div>
+                  <button
+                    onClick={() => handleScale(replicas + 1)}
+                    disabled={isScaling}
+                    className="w-5 h-5 rounded bg-[#3e3e42] hover:bg-purple-600/50 text-[#cccccc] text-xs flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Scale up"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="text-[9px] text-purple-400/70">Desired</div>
               </div>
               <div className="p-2 bg-[#1e1e1e] border border-[#3e3e42] rounded text-center">
                 <div className={`text-lg font-mono ${readyReplicas === replicas ? 'text-green-400' : 'text-yellow-400'}`}>{readyReplicas}</div>
