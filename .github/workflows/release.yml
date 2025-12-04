@@ -155,26 +155,32 @@ jobs:
 
           # Sign the tarball manually using tauri signer
           echo "Signing $TARBALL..."
+          SIGNATURE=""
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            # Use npx to run tauri signer
-            SIGNATURE=$(echo "$TAURI_SIGNING_PRIVATE_KEY" | npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /dev/stdin 2>/dev/null || echo "")
+            # Write key to temp file for signing
+            echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/tauri.key
+
+            # Run signer and capture all output
+            SIGN_OUTPUT=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key 2>&1)
+            rm -f /tmp/tauri.key
+
+            echo "Signer output:"
+            echo "$SIGN_OUTPUT"
+
+            # Extract just the signature line (base64 starting with dW50cnVzdGVk)
+            SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^dW50cnVzdGVk' | head -1)
+
+            if [ -z "$SIGNATURE" ]; then
+              # Fallback: try to get the last line that looks like base64
+              SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -E '^[A-Za-z0-9+/=]{20,}$' | tail -1)
+            fi
+
             if [ -n "$SIGNATURE" ]; then
-              echo "Generated signature: ${SIGNATURE:0:50}..."
+              echo "Extracted signature: ${SIGNATURE:0:50}..."
             else
-              echo "Failed to generate signature, trying alternative method..."
-              # Alternative: write key to temp file
-              echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/tauri.key
-              SIGNATURE=$(npx @tauri-apps/cli signer sign "$TARBALL" --private-key-path /tmp/tauri.key 2>&1 | tail -1 || echo "")
-              rm -f /tmp/tauri.key
-              if [ -n "$SIGNATURE" ] && [[ "$SIGNATURE" != *"error"* ]]; then
-                echo "Generated signature via temp file: ${SIGNATURE:0:50}..."
-              else
-                SIGNATURE=""
-                echo "Could not generate signature"
-              fi
+              echo "Could not extract signature from output"
             fi
           else
-            SIGNATURE=""
             echo "No signing key available"
           fi
 
