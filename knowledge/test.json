@@ -1,0 +1,10 @@
+[
+    {
+        "title": "Pod Stuck in Terminating",
+        "content": "If a pod is stuck in Terminating state, it might be due to a finalizer. Check the finalizers using `kubectl get pod <pod> -o yaml`. You can remove the finalizer using `kubectl patch pod <pod> -p '{\"metadata\":{\"finalizers\":null}}'`."
+    },
+    {
+        "question": "What is a PVC?",
+        "answer": "A PersistentVolumeClaim (PVC) is a request for storage by a user. It is similar to a Pod. Pods consume node resources and PVCs consume PV resources."
+    }
+]

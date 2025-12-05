@@ -1,0 +1,455 @@
+{
+  "id": "kb-004",
+  "title": "kubectl Command Reference for vCluster Debugging",
+  "category": "reference",
+  "tags": ["commands", "reference", "vcluster", "kubectl"],
+  "summary": "Comprehensive kubectl command reference for debugging vCluster environments",
+
+  "vcluster_management": {
+    "description": "Commands for managing vCluster connections",
+    "commands": [
+      {
+        "command": "vcluster list",
+        "description": "List all available vclusters",
+        "output": "Shows vcluster name, namespace, status, and age",
+        "when_to_use": "Find available clusters to connect to"
+      },
+      {
+        "command": "vcluster connect cluster_<name>_dedicated",
+        "description": "Connect to a specific vcluster",
+        "output": "Updates kubeconfig to point to vcluster",
+        "example": "vcluster connect cluster_taasvstst_dedicated",
+        "when_to_use": "Before running any kubectl commands against a vcluster"
+      },
+      {
+        "command": "vcluster disconnect",
+        "description": "Disconnect from current vcluster",
+        "output": "Restores original kubeconfig context",
+        "when_to_use": "After finishing work in vcluster, before switching to another"
+      },
+      {
+        "command": "kubectl config current-context",
+        "description": "Show current kubeconfig context",
+        "output": "Context name (includes vcluster name if connected)",
+        "when_to_use": "Verify which cluster you're connected to"
+      }
+    ],
+    "best_practices": [
+      "Always verify current context before running destructive commands",
+      "Disconnect before connecting to a different vcluster",
+      "Keep terminal window title showing current cluster name"
+    ]
+  },
+
+  "pod_debugging": {
+    "description": "Commands for debugging pod issues",
+    "commands": [
+      {
+        "command": "kubectl get pods -n <namespace>",
+        "description": "List pods in a namespace",
+        "flags": {
+          "-A": "All namespaces",
+          "-w": "Watch for changes",
+          "-o wide": "Show more details (node, IP)"
+        },
+        "example": "kubectl get pods -n default",
+        "what_to_look_for": ["CrashLoopBackOff", "Pending", "ImagePullBackOff", "Running"]
+      },
+      {
+        "command": "kubectl logs -n <namespace> <pod-name>",
+        "description": "Get logs from a pod",
+        "flags": {
+          "--tail=N": "Show last N lines",
+          "--previous": "Logs from previous container (for crashed pods)",
+          "-f": "Follow log output (stream)",
+          "--since=5m": "Logs from last 5 minutes"
+        },
+        "example": "kubectl logs -n default uipathctl-operator-xxx --tail=100",
+        "when_to_use": "Pod is crashing or behaving unexpectedly"
+      },
+      {
+        "command": "kubectl describe pod -n <namespace> <pod-name>",
+        "description": "Get detailed pod information and events",
+        "output_sections": {
+          "Status": "Current pod state",
+          "Containers": "Container status, restart count",
+          "Events": "Recent events (image pull, crashes, scheduling)"
+        },
+        "example": "kubectl describe pod -n default uipathctl-operator-xxx",
+        "when_to_use": "Need to understand why pod is not starting or crashing"
+      },
+      {
+        "command": "kubectl get events -n <namespace>",
+        "description": "List recent events in namespace",
+        "flags": {
+          "--sort-by='.lastTimestamp'": "Sort by time",
+          "--field-selector type=Warning": "Only warnings"
+        },
+        "example": "kubectl get events -n default --sort-by='.lastTimestamp'",
+        "when_to_use": "Get timeline of what happened in the namespace"
+      },
+      {
+        "command": "kubectl exec -n <namespace> <pod-name> -- <command>",
+        "description": "Execute command inside running pod",
+        "flags": {
+          "-it": "Interactive terminal",
+          "-c <container>": "Specify container in multi-container pod"
+        },
+        "example": "kubectl exec -n default uipathctl-operator-xxx -- env",
+        "when_to_use": "Need to inspect pod filesystem or environment"
+      }
+    ],
+    "debugging_workflow": {
+      "pod_not_starting": [
+        "kubectl get pods -n <namespace> → Identify pod state",
+        "kubectl describe pod → Check events for scheduling/image issues",
+        "kubectl logs --previous → Check why previous instance crashed",
+        "kubectl get events → See timeline of failures"
+      ],
+      "pod_crashing_repeatedly": [
+        "kubectl logs --tail=100 → Check recent logs",
+        "kubectl logs --previous → Check what caused crash",
+        "kubectl describe pod → Check restart count and exit codes",
+        "kubectl get pod -o yaml → Check resource limits, probes"
+      ]
+    }
+  },
+
+  "custom_resource_debugging": {
+    "description": "Commands for debugging custom resources (CRDs)",
+    "commands": [
+      {
+        "command": "kubectl get <resource-type> -A",
+        "description": "List all resources of a type across namespaces",
+        "examples": [
+          "kubectl get mssqlelasticpools -A",
+          "kubectl get eventhubnamespaces -A",
+          "kubectl get eventhubconsumergroups -A",
+          "kubectl get federatedidentitycredentials -A"
+        ],
+        "what_to_look_for": ["Status field", "Age", "Ready condition"]
+      },
+      {
+        "command": "kubectl describe <resource-type> <name> -n <namespace>",
+        "description": "Get detailed resource information",
+        "output_sections": {
+          "Spec": "Desired state",
+          "Status": "Current state",
+          "Conditions": "Status conditions (Ready, Synced, etc.)",
+          "Events": "Recent events"
+        },
+        "example": "kubectl describe eventhubnamespace testcluster-maestro",
+        "when_to_use": "Resource is not provisioning or has errors"
+      },
+      {
+        "command": "kubectl get <resource-type> <name> -n <namespace> -o yaml",
+        "description": "Get full resource YAML definition",
+        "example": "kubectl get clusterconfig taasvstst -o yaml",
+        "when_to_use": "Need to see full configuration or status details"
+      },
+      {
+        "command": "kubectl get <resource-type> <name> -n <namespace> -o jsonpath='{.status}'",
+        "description": "Extract specific field from resource",
+        "examples": [
+          "kubectl get eventhubnamespace testcluster -o jsonpath='{.status.atProvider.id}'",
+          "kubectl get mssqlelasticpool testpool -o jsonpath='{.status.conditions}'"
+        ],
+        "when_to_use": "Need specific field value for scripting or verification"
+      }
+    ],
+    "common_resource_types": {
+      "crossplane_azure": [
+        "resourcegroups",
+        "eventhubnamespaces",
+        "eventhubs",
+        "eventhubconsumergroups",
+        "sqlservers",
+        "sqldatabases",
+        "mssqlelasticpools",
+        "cosmosdbaccounts"
+      ],
+      "workload_identity": [
+        "federatedidentitycredentials",
+        "serviceaccounts"
+      ],
+      "cluster_config": [
+        "clusterconfigs"
+      ]
+    }
+  },
+
+  "deployment_management": {
+    "description": "Commands for managing deployments and rollbacks",
+    "commands": [
+      {
+        "command": "kubectl get deployments -n <namespace>",
+        "description": "List deployments",
+        "flags": {
+          "-o wide": "Show images and selectors"
+        },
+        "example": "kubectl get deployments -n default"
+      },
+      {
+        "command": "kubectl set image deployment/<name> <container>=<image>:<tag> -n <namespace>",
+        "description": "Update deployment image (for rollback or upgrade)",
+        "example": "kubectl set image deployment/uipathctl-operator manager=ghcr.io/uipath/uipathctl:v2.151.1 -n default",
+        "when_to_use": "Need to downgrade or upgrade operator version",
+        "note": "This is how we performed the emergency rollback"
+      },
+      {
+        "command": "kubectl rollout status deployment/<name> -n <namespace>",
+        "description": "Watch deployment rollout progress",
+        "example": "kubectl rollout status deployment/uipathctl-operator -n default",
+        "when_to_use": "After updating deployment image"
+      },
+      {
+        "command": "kubectl rollout restart deployment/<name> -n <namespace>",
+        "description": "Restart deployment (recreate pods)",
+        "example": "kubectl rollout restart deployment/uipathctl-operator -n default",
+        "when_to_use": "Force pod restart without changing image"
+      },
+      {
+        "command": "kubectl scale deployment/<name> --replicas=<n> -n <namespace>",
+        "description": "Scale deployment up or down",
+        "example": "kubectl scale deployment/uipathctl-operator --replicas=0 -n default",
+        "when_to_use": "Temporarily disable operator or increase capacity"
+      }
+    ]
+  },
+
+  "webhook_debugging": {
+    "description": "Commands for debugging webhook issues",
+    "commands": [
+      {
+        "command": "kubectl get mutatingwebhookconfigurations",
+        "description": "List mutating webhooks",
+        "example": "kubectl get mutatingwebhookconfigurations",
+        "what_to_look_for": "Webhooks that might be blocking resource creation"
+      },
+      {
+        "command": "kubectl get validatingwebhookconfigurations",
+        "description": "List validating webhooks",
+        "example": "kubectl get validatingwebhookconfigurations",
+        "what_to_look_for": "Webhooks that might be rejecting resources"
+      },
+      {
+        "command": "kubectl describe mutatingwebhookconfiguration <name>",
+        "description": "Get webhook details",
+        "output_sections": {
+          "Webhooks": "List of webhooks in config",
+          "ClientConfig": "Service endpoint",
+          "FailurePolicy": "What happens if webhook fails (Fail or Ignore)"
+        },
+        "example": "kubectl describe mutatingwebhookconfiguration uipathctl-mutating-webhook-configuration"
+      },
+      {
+        "command": "kubectl delete mutatingwebhookconfigurations <name>",
+        "description": "Delete webhook configuration (EMERGENCY ONLY)",
+        "example": "kubectl delete mutatingwebhookconfigurations uipathctl-mutating-webhook-configuration",
+        "warning": "Only use if webhook is blocking critical resources and cannot be fixed",
+        "impact": "Resource mutation will be bypassed",
+        "when_to_use": "Webhook server pod is crashed and resources need to be created immediately"
+      }
+    ],
+    "webhook_troubleshooting": {
+      "symptom_connection_refused": {
+        "cause": "Webhook server pod is down",
+        "diagnosis": [
+          "kubectl get pods -n <webhook-namespace>",
+          "kubectl logs -n <webhook-namespace> <webhook-pod>"
+        ],
+        "solutions": [
+          "Fix webhook pod crash",
+          "Delete webhook config temporarily",
+          "Scale webhook deployment to 0 and back to 1"
+        ]
+      }
+    }
+  },
+
+  "clusterconfig_operations": {
+    "description": "Commands for managing ClusterConfig resources",
+    "commands": [
+      {
+        "command": "kubectl get clusterconfig <name> -o yaml",
+        "description": "Get full ClusterConfig",
+        "example": "kubectl get clusterconfig taasvstst -o yaml",
+        "when_to_use": "Review current cluster configuration"
+      },
+      {
+        "command": "kubectl patch clusterconfig <name> --type=json -p='<json-patch>'",
+        "description": "Patch ClusterConfig with JSON patch",
+        "example": "kubectl patch clusterconfig taasvstst --type=json -p='[\n  {\"op\": \"add\", \"path\": \"/spec/infraSpec/infra/azure/eventHub/instances/2/eventHubs/0/consumerGroups/-\", \"value\": \"traceview\"}\n]'",
+        "when_to_use": "Add consumer group, modify settings without full edit",
+        "note": "This triggers reconciliation without redeploying cluster"
+      },
+      {
+        "command": "kubectl edit clusterconfig <name>",
+        "description": "Edit ClusterConfig in default editor",
+        "warning": "May not work in vcluster due to terminal issues",
+        "alternative": "Use kubectl patch instead",
+        "when_to_use": "Making complex changes (use with caution)"
+      }
+    ],
+    "json_patch_examples": {
+      "add_to_array": {
+        "description": "Add item to end of array",
+        "patch": "[{\"op\": \"add\", \"path\": \"<path>/-\", \"value\": \"<value>\"}]",
+        "example": "Add consumer group: [{\"op\": \"add\", \"path\": \"/spec/.../consumerGroups/-\", \"value\": \"traceview\"}]"
+      },
+      "replace_value": {
+        "description": "Replace existing value",
+        "patch": "[{\"op\": \"replace\", \"path\": \"<path>\", \"value\": \"<new-value>\"}]",
+        "example": "Change SKU: [{\"op\": \"replace\", \"path\": \"/spec/.../sku\", \"value\": \"Standard\"}]"
+      },
+      "remove_value": {
+        "description": "Remove field or array item",
+        "patch": "[{\"op\": \"remove\", \"path\": \"<path>\"}]",
+        "example": "Remove consumer group: [{\"op\": \"remove\", \"path\": \"/spec/.../consumerGroups/0\"}]"
+      }
+    }
+  },
+
+  "service_account_debugging": {
+    "description": "Commands for debugging service account and workload identity",
+    "commands": [
+      {
+        "command": "kubectl get sa <name> -n <namespace> -o yaml",
+        "description": "Get service account details",
+        "what_to_look_for": {
+          "annotations": "Should have azure.workload.identity/client-id",
+          "labels": "Should have azure.workload.identity/use: 'true'"
+        },
+        "example": "kubectl get sa uipathctl -n default -o yaml"
+      },
+      {
+        "command": "kubectl get federatedidentitycredentials -A",
+        "description": "List all federated identity credentials",
+        "example": "kubectl get federatedidentitycredentials -A",
+        "what_to_look_for": "Credential matching service account name"
+      },
+      {
+        "command": "kubectl describe federatedidentitycredential <name>",
+        "description": "Get federated credential details",
+        "output_sections": {
+          "Spec": "Issuer, subject, audiences",
+          "Status": "Provisioning status"
+        },
+        "example": "kubectl describe federatedidentitycredential federated-identity-uipathctl"
+      }
+    ]
+  },
+
+  "filtering_and_formatting": {
+    "description": "Advanced kubectl techniques for filtering and formatting output",
+    "techniques": [
+      {
+        "technique": "grep for specific status",
+        "command": "kubectl get pods -A | grep -E 'CrashLoopBackOff|Error|Pending'",
+        "description": "Find problematic pods across all namespaces"
+      },
+      {
+        "technique": "jsonpath extraction",
+        "command": "kubectl get pods -n default -o jsonpath='{.items[*].metadata.name}'",
+        "description": "Get just pod names for scripting"
+      },
+      {
+        "technique": "watch resources",
+        "command": "kubectl get pods -n default -w",
+        "description": "Watch for changes in real-time"
+      },
+      {
+        "technique": "sort events by time",
+        "command": "kubectl get events -A --sort-by='.lastTimestamp'",
+        "description": "Get chronological event timeline"
+      },
+      {
+        "technique": "filter by field selector",
+        "command": "kubectl get events --field-selector type=Warning",
+        "description": "Show only warning events"
+      }
+    ]
+  },
+
+  "emergency_commands": {
+    "description": "Commands used during the actual incident resolution",
+    "incident_date": "2025-12-04",
+    "cluster": "taasvstst",
+    "commands_executed": [
+      {
+        "sequence": 1,
+        "command": "vcluster connect cluster_taasvstst_dedicated",
+        "purpose": "Connect to affected cluster"
+      },
+      {
+        "sequence": 2,
+        "command": "kubectl get pods -n default",
+        "purpose": "Identify crashed operator",
+        "finding": "uipathctl-operator in CrashLoopBackOff"
+      },
+      {
+        "sequence": 3,
+        "command": "kubectl logs -n default uipathctl-operator-xxx",
+        "purpose": "Get crash reason",
+        "finding": "WorkloadIdentityCredential failed: no client ID"
+      },
+      {
+        "sequence": 4,
+        "command": "kubectl set image deployment/uipathctl-operator manager=ghcr.io/uipath/uipathctl:v2.151.1 -n default",
+        "purpose": "Downgrade to version before workload identity requirement",
+        "result": "Pod started successfully"
+      },
+      {
+        "sequence": 5,
+        "command": "kubectl delete mutatingwebhookconfigurations uipathctl-mutating-webhook-configuration",
+        "purpose": "Remove webhook pointing to crashed pod",
+        "result": "Resources could be created"
+      },
+      {
+        "sequence": 6,
+        "command": "kubectl get mssqlelasticpools -A",
+        "purpose": "Verify resources are being created",
+        "result": "Resources provisioning successfully"
+      },
+      {
+        "sequence": 7,
+        "command": "kubectl patch clusterconfig taasvstst --type=json -p='[{\"op\": \"add\", \"path\": \"/spec/infraSpec/infra/azure/eventHub/instances/2/eventHubs/0/consumerGroups/-\", \"value\": \"traceview\"}]'",
+        "purpose": "Test adding consumer group via ClusterConfig patch",
+        "result": "Consumer group created successfully"
+      }
+    ]
+  },
+
+  "best_practices": {
+    "safety": [
+      "Always verify current context before running commands",
+      "Use --dry-run=client for destructive operations first",
+      "Test patches on non-production clusters when possible",
+      "Keep command history for incident reports"
+    ],
+    "efficiency": [
+      "Use aliases for common commands (alias k=kubectl)",
+      "Use -A instead of iterating through namespaces",
+      "Use jsonpath for extracting specific fields",
+      "Use -w (watch) for monitoring changes"
+    ],
+    "debugging": [
+      "Start with high-level (get pods -A) then drill down",
+      "Check controller pods before investigating resources",
+      "Use describe for events, logs for error messages",
+      "grep logs for ERROR, WARN, FATAL before reading everything"
+    ]
+  },
+
+  "references": {
+    "related_kb": [
+      "kb-001: Workload Identity Issues",
+      "kb-002: Resource Provisioning Failures",
+      "kb-005: Investigation Patterns"
+    ],
+    "external_docs": [
+      "kubectl cheat sheet: https://kubernetes.io/docs/reference/kubectl/cheatsheet/",
+      "jsonpath guide: https://kubernetes.io/docs/reference/kubectl/jsonpath/"
+    ]
+  }
+}

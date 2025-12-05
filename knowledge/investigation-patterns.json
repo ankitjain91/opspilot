@@ -1,0 +1,656 @@
+{
+  "id": "kb-005",
+  "title": "Investigation Patterns and Methodologies",
+  "category": "methodology",
+  "tags": ["debugging", "best-practices", "methodology", "incident-response"],
+  "summary": "Proven investigation patterns and methodologies for debugging Kubernetes and cloud infrastructure issues",
+
+  "general_principles": {
+    "principle_1": {
+      "name": "Top-Down Investigation",
+      "description": "Start with high-level view, then drill down to specifics",
+      "rationale": "Prevents getting lost in details before understanding the big picture",
+      "example": "Check all pods → Identify crashed pod → Check logs → Identify specific error → Fix root cause"
+    },
+    "principle_2": {
+      "name": "Follow the Control Flow",
+      "description": "Resources don't create themselves; controllers create them",
+      "rationale": "If resources aren't provisioning, the controller is the problem, not the resource",
+      "example": "EventHub not created → Check uipathctl-operator → Operator crashed → Fix operator"
+    },
+    "principle_3": {
+      "name": "Check Git History",
+      "description": "When something that worked before suddenly breaks, check what changed",
+      "rationale": "Code changes are the most common cause of new failures",
+      "example": "Operator crashing after upgrade → git log → Found workload identity requirement added yesterday"
+    },
+    "principle_4": {
+      "name": "Dependencies First",
+      "description": "Check dependencies before debugging the main component",
+      "rationale": "A component can't work if its dependencies are broken",
+      "example": "Consumer group not created → Check EventHub → Check EventHub namespace → Fix namespace first"
+    },
+    "principle_5": {
+      "name": "Fix vs Workaround",
+      "description": "Understand the difference between fixing root cause and applying workaround",
+      "rationale": "Workarounds are temporary; root cause fixes prevent recurrence",
+      "example": "Downgrade operator (workaround) vs Add federated credential (root cause fix)"
+    }
+  },
+
+  "investigation_patterns": {
+    "pattern_1_pod_not_starting": {
+      "name": "Pod Not Starting",
+      "symptoms": [
+        "Pod stuck in Pending state",
+        "Pod in CrashLoopBackOff",
+        "Pod in ImagePullBackOff"
+      ],
+      "investigation_sequence": [
+        {
+          "step": 1,
+          "action": "kubectl get pods -A",
+          "purpose": "Identify which pods are not starting",
+          "output": "List of pods with their states"
+        },
+        {
+          "step": 2,
+          "action": "kubectl describe pod <name>",
+          "purpose": "Get events showing why pod isn't starting",
+          "look_for": ["Scheduling errors", "Image pull errors", "Resource limits"]
+        },
+        {
+          "step": 3,
+          "action": "kubectl logs <pod-name> --previous",
+          "purpose": "If pod crashed, check why",
+          "look_for": ["Application errors", "Fatal errors", "Panic messages"]
+        },
+        {
+          "step": 4,
+          "action": "Fix based on root cause",
+          "options": {
+            "ImagePullBackOff": "Fix image name or registry credentials",
+            "CrashLoopBackOff": "Fix application error (config, permissions, etc.)",
+            "Pending": "Fix scheduling issue (resources, node selector, taints)"
+          }
+        }
+      ],
+      "real_world_example": {
+        "incident": "uipathctl-operator CrashLoopBackOff",
+        "investigation": [
+          "kubectl get pods -n default → CrashLoopBackOff",
+          "kubectl logs → 'WorkloadIdentityCredential failed'",
+          "Root cause: Missing federated credential",
+          "Fix: Downgrade + update infrastructure code"
+        ]
+      }
+    },
+
+    "pattern_2_resource_not_provisioning": {
+      "name": "Resource Not Provisioning",
+      "symptoms": [
+        "Resource stuck in Provisioning state",
+        "Resource created but cloud resource doesn't exist",
+        "No error messages in resource status"
+      ],
+      "investigation_sequence": [
+        {
+          "step": 1,
+          "action": "kubectl get <resource-type> -A",
+          "purpose": "Verify resource exists and check status",
+          "output": "Resource list with status"
+        },
+        {
+          "step": 2,
+          "action": "kubectl describe <resource>",
+          "purpose": "Get detailed status and conditions",
+          "look_for": ["Status conditions", "Error messages", "Events"]
+        },
+        {
+          "step": 3,
+          "action": "Identify the controller",
+          "purpose": "Find which controller manages this resource type",
+          "common_controllers": {
+            "Crossplane resources": "crossplane provider pods",
+            "EventHub/SQL/etc": "uipathctl-operator",
+            "Custom resources": "Check CRD for controller annotation"
+          }
+        },
+        {
+          "step": 4,
+          "action": "kubectl get pods -n <controller-namespace>",
+          "purpose": "Check if controller is running",
+          "look_for": ["CrashLoopBackOff", "Pending", "ImagePullBackOff"]
+        },
+        {
+          "step": 5,
+          "action": "kubectl logs <controller-pod>",
+          "purpose": "Check controller logs for reconciliation errors",
+          "look_for": ["API errors", "Permission errors", "Rate limit errors"]
+        },
+        {
+          "step": 6,
+          "action": "Fix controller issue or check dependencies",
+          "common_issues": [
+            "Controller crashed (see pattern 1)",
+            "Missing permissions (check RBAC, cloud IAM)",
+            "Dependency not ready (check parent resources)",
+            "Webhook blocking creation (check webhook configs)"
+          ]
+        }
+      ],
+      "decision_tree": {
+        "resource_exists": {
+          "yes": {
+            "has_errors": {
+              "yes": "Fix errors shown in status",
+              "no": "Check controller logs"
+            }
+          },
+          "no": "Check ClusterConfig includes this resource"
+        },
+        "controller_running": {
+          "yes": "Check controller logs for errors",
+          "no": "Fix controller pod (see pattern 1)"
+        }
+      }
+    },
+
+    "pattern_3_new_feature_broke_deployment": {
+      "name": "New Feature Broke Existing Deployment",
+      "symptoms": [
+        "Deployment that worked yesterday now fails",
+        "Errors about missing configuration/permissions",
+        "New resource types failing to create"
+      ],
+      "investigation_sequence": [
+        {
+          "step": 1,
+          "action": "git log --since='1 week ago' --oneline",
+          "purpose": "Find recent code changes",
+          "look_for": ["Feature additions", "Dependency updates", "Breaking changes"]
+        },
+        {
+          "step": 2,
+          "action": "git show <commit-hash>",
+          "purpose": "Understand what changed",
+          "look_for": ["New APIs used", "New permissions required", "New dependencies"]
+        },
+        {
+          "step": 3,
+          "action": "Identify new requirements",
+          "questions": [
+            "Does new code require new cloud permissions?",
+            "Does new code require new Kubernetes resources?",
+            "Does new code require configuration that doesn't exist?"
+          ]
+        },
+        {
+          "step": 4,
+          "action": "Choose fix strategy",
+          "options": {
+            "permanent_fix": {
+              "description": "Update infrastructure to support new requirement",
+              "steps": [
+                "Update infrastructure code (e.g., add federated credential)",
+                "Create PR and merge",
+                "Deploy to all clusters"
+              ],
+              "pros": ["Fixes root cause", "Works for all future clusters"],
+              "cons": ["Takes time", "Requires code review and deployment"]
+            },
+            "temporary_workaround": {
+              "description": "Rollback to version before breaking change",
+              "steps": [
+                "kubectl set image deployment/<name> <container>=<old-version>",
+                "Delete webhook configs if needed",
+                "Track clusters with workaround applied"
+              ],
+              "pros": ["Fast", "Unblocks production"],
+              "cons": ["Temporary", "Loses new features", "Technical debt"]
+            }
+          }
+        }
+      ],
+      "real_world_example": {
+        "incident": "MSSQLElasticPool autoscaler broke clusters",
+        "timeline": [
+          "Dec 3: Commit f0b85b9e added workload identity requirement",
+          "Dec 4: Clusters fail to provision, operator crashes",
+          "Investigation: git log → found commit adding workload identity",
+          "Root cause: Infrastructure didn't create federated credential",
+          "Permanent fix: PR #1039 to add federated credential",
+          "Temporary workaround: Downgrade operator to v2.151.1"
+        ],
+        "lessons_learned": [
+          "Always update infrastructure when adding new cloud permissions",
+          "Test infrastructure changes before merging application code",
+          "Document new requirements in PR description",
+          "Have rollback plan ready for production deployments"
+        ]
+      }
+    },
+
+    "pattern_4_intermittent_failures": {
+      "name": "Intermittent Failures",
+      "symptoms": [
+        "Resources sometimes provision, sometimes fail",
+        "Errors appear and disappear",
+        "Works in some clusters but not others"
+      ],
+      "investigation_sequence": [
+        {
+          "step": 1,
+          "action": "kubectl get events -A --sort-by='.lastTimestamp'",
+          "purpose": "Get timeline of events",
+          "look_for": "Patterns in timing (e.g., fails every 5 minutes)"
+        },
+        {
+          "step": 2,
+          "action": "Check for correlations",
+          "questions": [
+            "Do failures correlate with pod restarts?",
+            "Do failures happen at specific times?",
+            "Do failures happen in specific clusters/regions?",
+            "Do failures happen for specific resource types?"
+          ]
+        },
+        {
+          "step": 3,
+          "action": "Check external factors",
+          "factors": [
+            "Cloud provider rate limits",
+            "Cloud provider regional issues",
+            "Network connectivity",
+            "Clock skew",
+            "Resource quotas"
+          ]
+        },
+        {
+          "step": 4,
+          "action": "Implement observability",
+          "steps": [
+            "Add detailed logging to controller",
+            "Add metrics for success/failure rates",
+            "Add tracing for API calls",
+            "Monitor for pattern in failures"
+          ]
+        }
+      ]
+    },
+
+    "pattern_5_dependency_issues": {
+      "name": "Dependency Issues",
+      "symptoms": [
+        "Resource fails with 'not found' error",
+        "Resource waits indefinitely",
+        "Circular dependency deadlock"
+      ],
+      "investigation_sequence": [
+        {
+          "step": 1,
+          "action": "Identify dependencies",
+          "purpose": "Understand what resource needs to exist first",
+          "examples": {
+            "EventHubConsumerGroup": "Needs EventHub and EventHubNamespace",
+            "FederatedIdentityCredential": "Needs Managed Identity",
+            "Database": "Needs SQL Server"
+          }
+        },
+        {
+          "step": 2,
+          "action": "Check if dependencies exist",
+          "commands": [
+            "kubectl get <dependency-type> -A",
+            "kubectl describe <dependency> → Check if ready"
+          ]
+        },
+        {
+          "step": 3,
+          "action": "Fix dependencies first",
+          "rationale": "Dependent resource can't be created until dependency is ready",
+          "approach": "Recursive: If dependency is also failing, check its dependencies"
+        }
+      ],
+      "dependency_graph_example": {
+        "EventHubConsumerGroup": {
+          "depends_on": ["EventHub"],
+          "EventHub": {
+            "depends_on": ["EventHubNamespace"],
+            "EventHubNamespace": {
+              "depends_on": ["ResourceGroup"]
+            }
+          }
+        },
+        "investigation_order": [
+          "Check ResourceGroup exists",
+          "Check EventHubNamespace exists and is ready",
+          "Check EventHub exists and is ready",
+          "Then investigate EventHubConsumerGroup"
+        ]
+      }
+    }
+  },
+
+  "debugging_methodologies": {
+    "methodology_1_binary_search": {
+      "name": "Binary Search Debugging",
+      "description": "When many changes were made, find which one broke things",
+      "steps": [
+        "git bisect start",
+        "git bisect bad <current-commit>",
+        "git bisect good <known-good-commit>",
+        "Test each commit git gives you",
+        "git bisect good/bad based on test result",
+        "Continue until finding first bad commit"
+      ],
+      "when_to_use": "Something broke but you don't know which change caused it",
+      "example": "20 commits merged yesterday, clusters started failing today"
+    },
+
+    "methodology_2_divide_and_conquer": {
+      "name": "Divide and Conquer",
+      "description": "Break complex system into components and test each",
+      "steps": [
+        "Identify major components (controller, webhooks, cloud provider, etc.)",
+        "Test each component in isolation",
+        "Identify which component is failing",
+        "Drill down into that component"
+      ],
+      "when_to_use": "Complex system with many moving parts",
+      "example": "Is it controller? Webhook? Cloud API? Network?"
+    },
+
+    "methodology_3_hypothesis_testing": {
+      "name": "Hypothesis Testing",
+      "description": "Form hypothesis about root cause, then test it",
+      "steps": [
+        "Observe symptoms",
+        "Form hypothesis explaining symptoms",
+        "Design test to confirm/refute hypothesis",
+        "Run test",
+        "If confirmed, fix; if refuted, form new hypothesis"
+      ],
+      "example": {
+        "symptom": "Pod crashes with 'no client ID'",
+        "hypothesis": "Service account missing federated credential",
+        "test": "kubectl get federatedidentitycredentials -A | grep uipathctl",
+        "result": "No credential found → hypothesis confirmed",
+        "fix": "Add service account to NamespaceToSAList"
+      }
+    },
+
+    "methodology_4_compare_working_vs_broken": {
+      "name": "Compare Working vs Broken",
+      "description": "Find differences between working and broken systems",
+      "steps": [
+        "Identify a working system (cluster, environment, etc.)",
+        "Identify a broken system",
+        "Compare configurations: kubectl get <resource> -o yaml",
+        "Compare versions: kubectl get deployments -o wide",
+        "Compare permissions: kubectl get rolebindings -A",
+        "Identify differences and fix broken system to match working one"
+      ],
+      "when_to_use": "Some clusters work, some don't",
+      "example": "Cluster tracevutst works, taasvstst doesn't → Compare ClusterConfigs"
+    }
+  },
+
+  "incident_response_process": {
+    "phase_1_detection": {
+      "goal": "Identify that something is wrong",
+      "triggers": [
+        "Alert fires",
+        "User reports issue",
+        "Monitoring shows anomaly"
+      ],
+      "actions": [
+        "Verify issue exists",
+        "Assess severity and impact",
+        "Determine if immediate action needed"
+      ]
+    },
+    "phase_2_triage": {
+      "goal": "Understand scope and prioritize",
+      "questions": [
+        "How many clusters/users affected?",
+        "Is production impacted?",
+        "Can we workaround or must we fix?",
+        "Do we have time to investigate properly?"
+      ],
+      "actions": [
+        "Classify severity (P0/P1/P2/etc.)",
+        "Assign owner",
+        "Decide on strategy (immediate fix vs thorough investigation)"
+      ]
+    },
+    "phase_3_investigation": {
+      "goal": "Find root cause",
+      "approaches": [
+        "Use investigation patterns (see above)",
+        "Check recent changes (git log)",
+        "Check controller logs",
+        "Compare working vs broken systems"
+      ],
+      "stop_conditions": [
+        "Root cause identified and understood",
+        "OR: Workaround identified and time is critical"
+      ]
+    },
+    "phase_4_resolution": {
+      "goal": "Fix the issue",
+      "options": {
+        "immediate_workaround": {
+          "when": "Production down, need quick fix",
+          "examples": ["Rollback deployment", "Delete blocking webhook", "Scale down component"],
+          "follow_up": "Must create permanent fix"
+        },
+        "permanent_fix": {
+          "when": "Have time for proper fix",
+          "examples": ["Update infrastructure code", "Fix application bug", "Add missing permissions"],
+          "validation": "Test in dev/staging before production"
+        }
+      }
+    },
+    "phase_5_verification": {
+      "goal": "Confirm issue is resolved",
+      "checks": [
+        "Verify symptoms are gone",
+        "Check monitoring/alerts",
+        "Test affected functionality",
+        "Verify in multiple clusters if applicable"
+      ]
+    },
+    "phase_6_postmortem": {
+      "goal": "Learn and prevent recurrence",
+      "activities": [
+        "Document what happened",
+        "Document investigation process",
+        "Identify root cause",
+        "Identify contributing factors",
+        "Define action items to prevent recurrence",
+        "Share learnings with team"
+      ],
+      "outputs": [
+        "Incident report",
+        "Knowledge base article (like this one!)",
+        "Code fixes",
+        "Process improvements"
+      ]
+    }
+  },
+
+  "best_practices": {
+    "during_investigation": [
+      "Document commands you run and their output",
+      "Don't jump to conclusions without testing hypotheses",
+      "Check git history when something suddenly breaks",
+      "Compare working vs broken systems",
+      "Follow the data flow / control flow",
+      "Start broad (all pods) then narrow down (specific pod)",
+      "Check controller logs before blaming the resource"
+    ],
+    "during_fix": [
+      "Understand root cause before applying fix",
+      "Test fix in non-production first when possible",
+      "Document what you changed and why",
+      "Have rollback plan ready",
+      "Verify fix actually resolves the issue",
+      "Consider if fix is temporary or permanent"
+    ],
+    "after_incident": [
+      "Document investigation in knowledge base",
+      "Create action items to prevent recurrence",
+      "Add monitoring/alerting for early detection",
+      "Share learnings in team meeting",
+      "Update runbooks with new procedures",
+      "Consider if automation could have helped"
+    ]
+  },
+
+  "common_mistakes": {
+    "mistake_1": {
+      "mistake": "Jumping to conclusions",
+      "example": "Assuming it's a cloud provider issue without checking logs",
+      "consequence": "Waste time investigating wrong thing",
+      "prevention": "Form hypothesis then test it before assuming it's correct"
+    },
+    "mistake_2": {
+      "mistake": "Fixing symptoms instead of root cause",
+      "example": "Restarting pod without understanding why it crashed",
+      "consequence": "Issue recurs, wasted effort",
+      "prevention": "Always ask 'why' until you find root cause"
+    },
+    "mistake_3": {
+      "mistake": "Not checking recent changes",
+      "example": "Investigating configuration when code changed yesterday",
+      "consequence": "Miss obvious cause",
+      "prevention": "Always check git log when something that worked before breaks"
+    },
+    "mistake_4": {
+      "mistake": "Making multiple changes at once",
+      "example": "Upgrading operator + changing config + scaling deployment simultaneously",
+      "consequence": "Don't know which change fixed/broke things",
+      "prevention": "Change one thing at a time, verify, then proceed"
+    },
+    "mistake_5": {
+      "mistake": "Not documenting the investigation",
+      "example": "Fixing issue but not writing down what you did",
+      "consequence": "Next time same issue occurs, start from scratch",
+      "prevention": "Document as you go, create KB article after"
+    }
+  },
+
+  "investigation_checklist": {
+    "before_starting": [
+      "Verify issue exists and is not just reported incorrectly",
+      "Understand scope (how many clusters/users affected)",
+      "Check if similar issues reported recently",
+      "Determine urgency (production down vs minor annoyance)"
+    ],
+    "during_investigation": [
+      "Document commands run and output",
+      "Check git log for recent changes",
+      "Check controller pods status",
+      "Check controller logs",
+      "Check resource status and events",
+      "Check dependencies are ready",
+      "Compare with working system if available"
+    ],
+    "before_applying_fix": [
+      "Understand root cause",
+      "Test hypothesis with small experiment",
+      "Have rollback plan",
+      "Understand impact of change",
+      "Get approval if production change"
+    ],
+    "after_fix": [
+      "Verify issue resolved",
+      "Monitor for recurrence",
+      "Document in knowledge base",
+      "Create action items for prevention",
+      "Communicate resolution to stakeholders"
+    ]
+  },
+
+  "real_world_case_study": {
+    "incident": "uipathctl-operator Workload Identity Issue",
+    "date": "2025-12-04",
+    "clusters_affected": ["taasvstst", "tracevutst"],
+    "timeline": [
+      {
+        "time": "T+0m",
+        "event": "User reports resources failing to provision",
+        "action": "Connect to vcluster, check as-operator logs"
+      },
+      {
+        "time": "T+5m",
+        "event": "as-operator logs clean, but resources still not provisioning",
+        "action": "Check controller pods in default namespace",
+        "finding": "uipathctl-operator in CrashLoopBackOff"
+      },
+      {
+        "time": "T+10m",
+        "event": "Check operator logs",
+        "action": "kubectl logs uipathctl-operator",
+        "finding": "'failed to build WorkloadIdentityCredential: no client ID'"
+      },
+      {
+        "time": "T+15m",
+        "event": "Investigate when this started",
+        "action": "git log --grep=WorkloadIdentity",
+        "finding": "Commit f0b85b9e (Dec 3) added workload identity requirement"
+      },
+      {
+        "time": "T+20m",
+        "event": "Understand root cause",
+        "finding": "Infrastructure not creating federated credentials for uipathctl SA",
+        "decision": "Permanent fix: Update cloudgen-operator; Workaround: Downgrade operator"
+      },
+      {
+        "time": "T+25m",
+        "event": "Apply permanent fix",
+        "action": "Create PR #1039 to add uipathctl to NamespaceToSAList"
+      },
+      {
+        "time": "T+30m",
+        "event": "Apply workaround to production cluster",
+        "actions": [
+          "kubectl set image → downgrade to v2.151.1",
+          "kubectl delete mutatingwebhookconfigurations",
+          "Verify resources provisioning"
+        ]
+      },
+      {
+        "time": "T+45m",
+        "event": "Verification",
+        "actions": [
+          "Check taasvstst → resources provisioning with downgraded operator",
+          "Check tracevutst → resources provisioning with updated infrastructure",
+          "Add traceview consumer group → successfully created"
+        ]
+      }
+    ],
+    "patterns_used": [
+      "Top-down investigation (all pods → specific pod → logs)",
+      "Follow the control flow (resources not provisioning → check controller)",
+      "Check git history (sudden failure → recent change)",
+      "Fix vs workaround (PR for permanent, downgrade for immediate)"
+    ],
+    "lessons_learned": [
+      "Always check controller pods when resources fail",
+      "git log is essential for understanding sudden failures",
+      "Downgrading can be faster than waiting for infrastructure updates",
+      "Webhook failures cascade to resource creation failures",
+      "Test infrastructure changes before deploying application changes"
+    ]
+  },
+
+  "references": {
+    "related_kb": [
+      "kb-001: Workload Identity Issues",
+      "kb-002: Resource Provisioning Failures",
+      "kb-004: kubectl Command Reference"
+    ]
+  }
+}

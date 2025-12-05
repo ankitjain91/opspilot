@@ -1,0 +1,47 @@
+{
+  "knowledge_base": {
+    "name": "vCluster Kubernetes Troubleshooting",
+    "version": "1.0",
+    "last_updated": "2025-12-04",
+    "categories": [
+      "troubleshooting",
+      "kubernetes",
+      "azure",
+      "workload-identity",
+      "vcluster",
+      "operators"
+    ],
+    "documents": [
+      {
+        "id": "kb-001",
+        "title": "Workload Identity Issues",
+        "file": "workload-identity.json",
+        "tags": ["azure", "authentication", "crashloopbackoff"]
+      },
+      {
+        "id": "kb-002",
+        "title": "Resource Provisioning Failures",
+        "file": "resource-provisioning.json",
+        "tags": ["debugging", "crossplane", "controllers"]
+      },
+      {
+        "id": "kb-003",
+        "title": "Emergency Fixes and Workarounds",
+        "file": "emergency-fixes.json",
+        "tags": ["production", "hotfix", "downgrade"]
+      },
+      {
+        "id": "kb-004",
+        "title": "kubectl Command Reference",
+        "file": "kubectl-commands.json",
+        "tags": ["commands", "reference", "vcluster"]
+      },
+      {
+        "id": "kb-005",
+        "title": "Investigation Patterns",
+        "file": "investigation-patterns.json",
+        "tags": ["methodology", "debugging", "best-practices"]
+      }
+    ]
+  }
+}

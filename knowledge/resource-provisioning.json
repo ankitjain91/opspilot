@@ -1,0 +1,339 @@
+{
+  "id": "kb-002",
+  "title": "Resource Provisioning Failures in Kubernetes",
+  "category": "troubleshooting",
+  "severity": "high",
+  "tags": ["debugging", "crossplane", "controllers", "provisioning"],
+  "summary": "Systematic approach to debugging resource provisioning failures in vCluster environments",
+
+  "problem": {
+    "description": "Kubernetes custom resources are not being provisioned or are stuck in pending/provisioning state",
+    "symptoms": [
+      "Resources stuck in 'Provisioning' state",
+      "Custom resources created but underlying cloud resources don't exist",
+      "Timeout errors in resource status",
+      "No error messages visible in resource status"
+    ],
+    "common_resource_types": [
+      "MSSQLElasticPool",
+      "EventHubNamespace",
+      "EventHubConsumerGroup",
+      "CosmosDB",
+      "FederatedIdentityCredential"
+    ]
+  },
+
+  "investigation_workflow": {
+    "overview": "Resources don't provision themselves - controllers watch and create them. Always investigate the controller, not just the resource.",
+    "steps": [
+      {
+        "step": 1,
+        "phase": "Verify Resource State",
+        "commands": [
+          {
+            "command": "kubectl get <resource-type> -A",
+            "purpose": "List all resources of this type across namespaces",
+            "what_to_look_for": "Status field, age, any error conditions"
+          },
+          {
+            "command": "kubectl describe <resource-type> <name> -n <namespace>",
+            "purpose": "Get detailed status and events",
+            "what_to_look_for": "Conditions, status messages, recent events"
+          }
+        ],
+        "decision": {
+          "if_resource_exists_with_errors": "Go to step 2",
+          "if_resource_doesnt_exist": "Check if ClusterConfig includes this resource",
+          "if_resource_stuck_provisioning": "Go to step 2"
+        }
+      },
+      {
+        "step": 2,
+        "phase": "Check Controller Status",
+        "rationale": "Controllers reconcile resources. If controller is down, resources won't provision.",
+        "commands": [
+          {
+            "command": "kubectl get pods -n default",
+            "purpose": "Check if operator/controller pods are running",
+            "what_to_look_for": "CrashLoopBackOff, Pending, ImagePullBackOff states"
+          },
+          {
+            "command": "kubectl get pods -n <resource-namespace>",
+            "purpose": "Check namespace-specific controllers",
+            "what_to_look_for": "Controller pods for the specific resource type"
+          }
+        ],
+        "decision": {
+          "if_controller_crashed": "Go to step 3 (diagnose controller crash)",
+          "if_controller_running": "Go to step 4 (check controller logs)",
+          "if_controller_missing": "Check if operator was deployed"
+        }
+      },
+      {
+        "step": 3,
+        "phase": "Diagnose Controller Crash",
+        "commands": [
+          {
+            "command": "kubectl logs -n <namespace> <controller-pod>",
+            "purpose": "Get logs from crashed pod",
+            "what_to_look_for": "Error messages, stack traces, authentication failures"
+          },
+          {
+            "command": "kubectl logs -n <namespace> <controller-pod> --previous",
+            "purpose": "Get logs from previous instance (if pod restarted)",
+            "what_to_look_for": "What caused the initial crash"
+          },
+          {
+            "command": "kubectl describe pod -n <namespace> <controller-pod>",
+            "purpose": "Get pod events and status",
+            "what_to_look_for": "Container exit codes, restart count, recent events"
+          }
+        ],
+        "common_crash_reasons": [
+          {
+            "error": "WorkloadIdentityCredential failed",
+            "cause": "Missing federated identity credentials",
+            "kb_reference": "kb-001"
+          },
+          {
+            "error": "OOMKilled",
+            "cause": "Pod ran out of memory",
+            "solution": "Increase memory limits or investigate memory leak"
+          },
+          {
+            "error": "ImagePullBackOff",
+            "cause": "Cannot pull container image",
+            "solution": "Check image name, registry credentials, network connectivity"
+          }
+        ]
+      },
+      {
+        "step": 4,
+        "phase": "Analyze Controller Logs",
+        "description": "Even if controller is running, it may be failing to reconcile resources",
+        "commands": [
+          {
+            "command": "kubectl logs -n <namespace> <controller-pod> --tail=100",
+            "purpose": "Get recent log entries",
+            "what_to_look_for": "Reconciliation errors, API failures, timeout messages"
+          },
+          {
+            "command": "kubectl logs -n <namespace> <controller-pod> | grep -i error",
+            "purpose": "Filter for error messages",
+            "what_to_look_for": "Pattern of errors, specific resources failing"
+          },
+          {
+            "command": "kubectl logs -n <namespace> <controller-pod> | grep <resource-name>",
+            "purpose": "Find logs related to specific resource",
+            "what_to_look_for": "Reconciliation attempts, success/failure messages"
+          }
+        ],
+        "common_log_errors": [
+          {
+            "error": "rate limit exceeded",
+            "cause": "Too many API calls to cloud provider",
+            "solution": "Reduce reconciliation frequency or batch operations"
+          },
+          {
+            "error": "forbidden / unauthorized",
+            "cause": "Insufficient permissions",
+            "solution": "Check RBAC, service account permissions, cloud IAM roles"
+          },
+          {
+            "error": "resource not found",
+            "cause": "Dependency doesn't exist",
+            "solution": "Check if parent resources are created first"
+          }
+        ]
+      },
+      {
+        "step": 5,
+        "phase": "Check Webhooks",
+        "description": "Mutating/validating webhooks can block resource creation if webhook server is down",
+        "commands": [
+          {
+            "command": "kubectl get mutatingwebhookconfigurations",
+            "purpose": "List mutating webhooks",
+            "what_to_look_for": "Webhooks related to failing resources"
+          },
+          {
+            "command": "kubectl get validatingwebhookconfigurations",
+            "purpose": "List validating webhooks",
+            "what_to_look_for": "Webhooks that might be blocking resources"
+          },
+          {
+            "command": "kubectl describe mutatingwebhookconfiguration <name>",
+            "purpose": "Check webhook configuration",
+            "what_to_look_for": "Service endpoint, failure policy"
+          }
+        ],
+        "webhook_issues": [
+          {
+            "symptom": "Resources fail with 'connection refused'",
+            "cause": "Webhook server pod is down",
+            "solution": "Fix webhook pod or delete webhook config temporarily"
+          },
+          {
+            "symptom": "Resources time out during creation",
+            "cause": "Webhook server is slow or unresponsive",
+            "solution": "Check webhook pod logs, scale webhook deployment"
+          }
+        ],
+        "emergency_fix": {
+          "action": "Delete webhook configuration",
+          "command": "kubectl delete mutatingwebhookconfigurations <name>",
+          "warning": "Only do this if webhook is blocking critical resources and cannot be fixed quickly",
+          "impact": "Validation/mutation will be bypassed until webhook is restored"
+        }
+      },
+      {
+        "step": 6,
+        "phase": "Check Dependencies",
+        "description": "Some resources depend on others being created first",
+        "examples": [
+          {
+            "resource": "EventHubConsumerGroup",
+            "depends_on": "EventHubNamespace and EventHub",
+            "check": "kubectl get eventhubnamespaces -A"
+          },
+          {
+            "resource": "FederatedIdentityCredential",
+            "depends_on": "User-assigned managed identity",
+            "check": "az identity list"
+          },
+          {
+            "resource": "Database",
+            "depends_on": "SQL Server",
+            "check": "kubectl get sqlservers -A"
+          }
+        ],
+        "dependency_check_process": [
+          "Identify what the resource needs to exist before it can be created",
+          "Check if those dependencies are provisioned",
+          "If dependencies are missing, investigate why they failed",
+          "Fix dependencies first, then retry main resource"
+        ]
+      }
+    ]
+  },
+
+  "debugging_patterns": {
+    "pattern_1_pod_not_starting": {
+      "sequence": [
+        "kubectl get pods -A → Identify crashed/pending pods",
+        "kubectl describe pod → Check events",
+        "kubectl logs → Check application logs",
+        "kubectl get events -n <namespace> → Check recent events",
+        "Identify root cause (image, config, dependencies)"
+      ]
+    },
+    "pattern_2_resource_not_provisioning": {
+      "sequence": [
+        "kubectl get <resource-type> -A → Check if resource exists",
+        "kubectl describe <resource> → Check status conditions",
+        "Check controller pod logs → Find reconciliation errors",
+        "Check webhook configurations → Ensure webhooks are working",
+        "Fix controller/webhook issues"
+      ]
+    },
+    "pattern_3_intermittent_failures": {
+      "sequence": [
+        "kubectl get events -n <namespace> --sort-by='.lastTimestamp' → Recent events",
+        "Look for patterns (time-based, resource-based)",
+        "Check if errors correlate with pod restarts",
+        "Check cloud provider status/rate limits",
+        "Implement retry logic or backoff in controller"
+      ]
+    }
+  },
+
+  "common_scenarios": {
+    "scenario_1": {
+      "situation": "EventHub consumer groups not created",
+      "investigation": [
+        "Check if EventHub namespace exists",
+        "Check if EventHub exists within namespace",
+        "Check uipathctl-operator logs for errors",
+        "Verify ClusterConfig includes consumer group definition"
+      ],
+      "common_causes": [
+        "Operator crashed before creating consumer groups",
+        "EventHub not yet provisioned",
+        "Typo in consumer group name in ClusterConfig"
+      ]
+    },
+    "scenario_2": {
+      "situation": "SQL database stuck in provisioning",
+      "investigation": [
+        "Check if SQL Server is provisioned: kubectl get sqlservers -A",
+        "Check crossplane provider logs",
+        "Check if Azure credentials are valid",
+        "Check if resource group exists"
+      ],
+      "common_causes": [
+        "SQL Server provisioning takes 5-10 minutes",
+        "Azure API throttling",
+        "Invalid configuration (e.g., invalid SKU)"
+      ]
+    },
+    "scenario_3": {
+      "situation": "Workload identity resources not created",
+      "investigation": [
+        "Check if managed identity exists in Azure",
+        "Check if service account has correct annotations",
+        "Check cloudgen-operator logs",
+        "Verify service account in NamespaceToSAList"
+      ],
+      "kb_reference": "kb-001",
+      "common_causes": [
+        "Service account not in NamespaceToSAList",
+        "Managed identity creation failed",
+        "Azure RBAC preventing credential creation"
+      ]
+    }
+  },
+
+  "real_world_example": {
+    "date": "2025-12-04",
+    "cluster": "taasvstst",
+    "problem": "MSSQLElasticPool resources not being created",
+    "investigation_path": [
+      "Checked as-operator pod logs → no errors (red herring)",
+      "Checked default namespace pods → found uipathctl-operator in CrashLoopBackOff",
+      "Checked operator logs → 'WorkloadIdentityCredential failed'",
+      "Identified root cause: missing federated credential",
+      "Applied emergency fix: downgraded operator + deleted webhook"
+    ],
+    "time_to_resolution": "30 minutes",
+    "key_lesson": "Always check controller pods first, even if resource logs look clean"
+  },
+
+  "prevention_strategies": {
+    "monitoring": [
+      "Alert on CrashLoopBackOff pods in critical namespaces",
+      "Alert on resources stuck in Provisioning state for >10 minutes",
+      "Dashboard showing controller pod health",
+      "Metrics for resource reconciliation success rate"
+    ],
+    "testing": [
+      "Integration tests that verify full provisioning flow",
+      "Validate dependencies exist before deploying dependents",
+      "Canary deployments for operator upgrades",
+      "Rollback plan for failed operator deployments"
+    ],
+    "documentation": [
+      "Document resource dependencies",
+      "Document expected provisioning times",
+      "Document which controllers manage which resources",
+      "Runbook for common failure scenarios"
+    ]
+  },
+
+  "references": {
+    "related_kb": [
+      "kb-001: Workload Identity Issues",
+      "kb-003: Emergency Fixes and Workarounds",
+      "kb-004: kubectl Command Reference"
+    ]
+  }
+}

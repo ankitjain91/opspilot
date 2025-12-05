@@ -1,0 +1,168 @@
+{
+  "id": "kb-001",
+  "title": "Azure Workload Identity Issues in Kubernetes",
+  "category": "troubleshooting",
+  "severity": "critical",
+  "tags": ["azure", "authentication", "crashloopbackoff", "workload-identity"],
+  "summary": "Troubleshooting guide for pods crashing due to missing Azure Workload Identity configuration",
+
+  "problem": {
+    "description": "Pods crash with WorkloadIdentityCredential error when Azure Workload Identity federated credentials are not properly configured",
+    "symptoms": [
+      "Pod in CrashLoopBackOff state",
+      "Error message: 'failed to build WorkloadIdentityCredential: no client ID specified'",
+      "Pod restarts continuously",
+      "Resources dependent on the pod are not provisioned"
+    ],
+    "affected_components": [
+      "uipathctl-operator",
+      "Pods requiring Azure API access",
+      "Service accounts without federated credentials"
+    ]
+  },
+
+  "root_cause": {
+    "explanation": "Azure Workload Identity requires federated identity credentials to be created for service accounts. When a pod tries to use workload identity but the service account lacks the federated credential, it cannot obtain a client ID and crashes.",
+    "technical_details": {
+      "requirement": "Pod needs to access Azure APIs (e.g., Azure Monitor, Azure Resource Manager)",
+      "missing_component": "FederatedIdentityCredential resource for the service account",
+      "code_location": "cloudgen-operator/controllers/clusterconfig/azure/compose.go",
+      "configuration_map": "NamespaceToSAList"
+    }
+  },
+
+  "diagnosis": {
+    "steps": [
+      {
+        "step": 1,
+        "command": "kubectl get pods -n default",
+        "description": "Check if operator pods are running",
+        "expected_output": "Pod in CrashLoopBackOff state",
+        "interpretation": "If pod is crashing, check logs for the specific error"
+      },
+      {
+        "step": 2,
+        "command": "kubectl logs -n default <pod-name>",
+        "description": "Get pod logs to identify the error",
+        "expected_output": "Error containing 'WorkloadIdentityCredential' or 'no client ID'",
+        "interpretation": "Confirms workload identity is missing"
+      },
+      {
+        "step": 3,
+        "command": "kubectl get sa <service-account> -n <namespace> -o yaml",
+        "description": "Check service account annotations",
+        "expected_output": "Should have azure.workload.identity/client-id annotation",
+        "interpretation": "Missing annotation means federated credential wasn't created"
+      },
+      {
+        "step": 4,
+        "command": "kubectl get federatedidentitycredentials -A",
+        "description": "List all federated identity credentials",
+        "expected_output": "Should include credential for the service account",
+        "interpretation": "If missing, cloudgen-operator didn't create it"
+      }
+    ]
+  },
+
+  "solution": {
+    "permanent_fix": {
+      "description": "Update cloudgen-operator to create federated credentials for the service account",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Edit cloudgen-operator code",
+          "file": "controllers/clusterconfig/azure/compose.go",
+          "line": 1195,
+          "change": "Add service account to NamespaceToSAList map",
+          "code_example": "NamespaceToSAList: map[string][]string{\n    \"default\": {\"uipathctl\"},  // ADD THIS LINE\n    \"uipath\": {common.DefaultServiceAccount, \"asrobots-sa\", ...},\n}"
+        },
+        {
+          "step": 2,
+          "action": "Create PR and merge",
+          "command": "git checkout -b fix/add-service-account-workload-identity\ngit add controllers/clusterconfig/azure/compose.go\ngit commit -m 'fix: Add workload identity for service account'\ngit push origin fix/add-service-account-workload-identity"
+        },
+        {
+          "step": 3,
+          "action": "Deploy updated cloudgen-operator",
+          "note": "New clusters will automatically get the federated credential"
+        }
+      ]
+    },
+    "emergency_workaround": {
+      "description": "For existing clusters that cannot wait for operator update",
+      "when_to_use": "Production cluster is down and needs immediate fix",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Downgrade operator to version before workload identity requirement",
+          "command": "kubectl set image deployment/<operator-name> manager=<image>:<old-version> -n default",
+          "example": "kubectl set image deployment/uipathctl-operator manager=ghcr.io/uipath/uipathctl:v2.151.1 -n default"
+        },
+        {
+          "step": 2,
+          "action": "Delete webhook configurations (they point to crashed pod)",
+          "command": "kubectl delete mutatingwebhookconfigurations <webhook-name>",
+          "example": "kubectl delete mutatingwebhookconfigurations uipathctl-mutating-webhook-configuration"
+        },
+        {
+          "step": 3,
+          "action": "Verify operator is running",
+          "command": "kubectl get pods -n default",
+          "expected": "Pod status should be Running"
+        }
+      ],
+      "caveats": [
+        "Downgraded version may lack new features",
+        "Should be temporary until proper fix is deployed",
+        "Track which clusters are on old version"
+      ]
+    }
+  },
+
+  "prevention": {
+    "recommendations": [
+      "When adding workload identity to code, update infrastructure code simultaneously",
+      "Add validation in CI/CD to check if required federated credentials exist",
+      "Document all service accounts requiring workload identity",
+      "Add alerts for CrashLoopBackOff pods in critical namespaces"
+    ],
+    "code_review_checklist": [
+      "Does this code use Azure SDK requiring authentication?",
+      "Is the service account in NamespaceToSAList?",
+      "Are there tests validating federated credential creation?",
+      "Is this documented in deployment guide?"
+    ]
+  },
+
+  "related_issues": {
+    "similar_errors": [
+      "DefaultAzureCredential failed to retrieve token",
+      "ManagedIdentityCredential authentication unavailable",
+      "Client assertion is not valid"
+    ],
+    "related_kb_articles": [
+      "kb-002: Resource Provisioning Failures",
+      "kb-003: Emergency Fixes and Workarounds"
+    ]
+  },
+
+  "real_world_example": {
+    "date": "2025-12-04",
+    "cluster": "taasvstst",
+    "incident_summary": "uipathctl-operator crashing after upgrade to version with MSSQLElasticPool autoscaler",
+    "resolution": "Downgraded to v2.151.1 and deleted webhook config",
+    "time_to_resolution": "30 minutes",
+    "lessons_learned": [
+      "Always check git log when unexpected crashes occur after upgrade",
+      "Downgrading is sometimes faster than waiting for infrastructure updates",
+      "Webhook failures cascade to resource provisioning failures"
+    ]
+  },
+
+  "references": {
+    "azure_docs": "https://azure.github.io/azure-workload-identity/docs/introduction.html",
+    "kubernetes_docs": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/",
+    "related_commit": "f0b85b9e - Added workload identity requirement",
+    "pr": "#1039 - Add uipathctl to federated credentials"
+  }
+}
