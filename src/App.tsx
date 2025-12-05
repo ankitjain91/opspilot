@@ -554,7 +554,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
 
     // Fit after a brief delay to ensure proper sizing
     requestAnimationFrame(() => {
-      try { fitAddon.fit(); } catch {}
+      try { fitAddon.fit(); } catch { }
     });
 
     xtermRef.current = term;
@@ -580,7 +580,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
 
     // Handle Input - send immediately for responsiveness
     const inputDisposable = term.onData(data => {
-      invoke("send_exec_input", { sessionId, data }).catch(() => {});
+      invoke("send_exec_input", { sessionId, data }).catch(() => { });
     });
 
     // Handle Resize with debounce
@@ -591,7 +591,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
         if (fitAddonRef.current && xtermRef.current) {
           try {
             fitAddonRef.current.fit();
-          } catch {}
+          } catch { }
         }
       }, 100);
     };
@@ -603,7 +603,7 @@ function TerminalTab({ namespace, name, podSpec }: { namespace: string, name: st
       // Fit terminal after connection established with slight delay for DOM to settle
       setTimeout(() => {
         if (fitAddonRef.current) {
-          try { fitAddonRef.current.fit(); } catch {}
+          try { fitAddonRef.current.fit(); } catch { }
         }
       }, 50);
       term.focus();
@@ -1027,7 +1027,7 @@ function LocalTerminalTab() {
 
       // Handle Input
       const inputDisposable = term.onData(data => {
-        invoke("send_shell_input", { sessionId, data }).catch(() => {});
+        invoke("send_shell_input", { sessionId, data }).catch(() => { });
       });
 
       // Handle Resize with debounce
@@ -1039,8 +1039,8 @@ function LocalTerminalTab() {
             try {
               fitAddonRef.current.fit();
               const { cols, rows } = xtermRef.current;
-              invoke("resize_shell", { sessionId, rows, cols }).catch(() => {});
-            } catch {}
+              invoke("resize_shell", { sessionId, rows, cols }).catch(() => { });
+            } catch { }
           }
         }, 50);
       };
@@ -1088,7 +1088,7 @@ function LocalTerminalTab() {
         xtermRef.current = null;
       }
       // Kill the shell session
-      invoke("stop_local_shell", { sessionId }).catch(() => {});
+      invoke("stop_local_shell", { sessionId }).catch(() => { });
     };
   }, [sessionId]);
 
@@ -2594,7 +2594,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
           {/* Health Score Circle */}
           <div className="flex flex-col items-center">
             <div className={`relative w-28 h-28 rounded-full border-4 ${healthStatus.border} flex items-center justify-center`}
-                 style={{ background: `conic-gradient(${healthStatus.bg.replace('bg-', '')} ${healthMetrics.healthScore * 3.6}deg, #27272a ${healthMetrics.healthScore * 3.6}deg)` }}>
+              style={{ background: `conic-gradient(${healthStatus.bg.replace('bg-', '')} ${healthMetrics.healthScore * 3.6}deg, #27272a ${healthMetrics.healthScore * 3.6}deg)` }}>
               <div className="absolute inset-2 bg-zinc-900 rounded-full flex flex-col items-center justify-center">
                 <span className={`text-3xl font-bold ${healthStatus.color}`}>{healthMetrics.healthScore}</span>
                 <span className="text-[10px] text-zinc-500 uppercase">Health</span>
@@ -2616,7 +2616,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
               <div className="text-xl font-bold text-white">{cockpit.healthy_nodes}<span className="text-zinc-500 text-sm">/{cockpit.total_nodes}</span></div>
               <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${healthMetrics.nodeHealthPct === 100 ? 'bg-green-500' : healthMetrics.nodeHealthPct >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                     style={{ width: `${healthMetrics.nodeHealthPct}%` }} />
+                  style={{ width: `${healthMetrics.nodeHealthPct}%` }} />
               </div>
               <div className="text-[9px] text-zinc-600 mt-1">
                 {healthMetrics.unhealthyNodes > 0 ? <span className="text-red-400">{healthMetrics.unhealthyNodes} not ready</span> : <span className="text-green-400">All ready</span>}
@@ -2632,7 +2632,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
               <div className="text-xl font-bold text-white">{cockpit.pod_status.running}<span className="text-zinc-500 text-sm">/{cockpit.total_pods}</span></div>
               <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${healthMetrics.podRunningPct >= 95 ? 'bg-green-500' : healthMetrics.podRunningPct >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                     style={{ width: `${healthMetrics.podRunningPct}%` }} />
+                  style={{ width: `${healthMetrics.podRunningPct}%` }} />
               </div>
               <div className="text-[9px] text-zinc-600 mt-1 flex gap-2">
                 {healthMetrics.pendingPods > 0 && <span className="text-yellow-400">{healthMetrics.pendingPods} pending</span>}
@@ -2650,7 +2650,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
               <div className="text-xl font-bold text-white">{cockpit.total_deployments - healthMetrics.unhealthyDeployments}<span className="text-zinc-500 text-sm">/{cockpit.total_deployments}</span></div>
               <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${healthMetrics.deploymentHealthPct === 100 ? 'bg-green-500' : healthMetrics.deploymentHealthPct >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                     style={{ width: `${healthMetrics.deploymentHealthPct}%` }} />
+                  style={{ width: `${healthMetrics.deploymentHealthPct}%` }} />
               </div>
               <div className="text-[9px] text-zinc-600 mt-1">
                 {healthMetrics.unhealthyDeployments > 0 ? <span className="text-yellow-400">{healthMetrics.unhealthyDeployments} degraded</span> : <span className="text-green-400">All healthy</span>}
@@ -2668,12 +2668,12 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
               </div>
               <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${healthMetrics.cpuPct > 90 ? 'bg-red-500' : healthMetrics.cpuPct > 75 ? 'bg-yellow-500' : 'bg-cyan-500'}`}
-                     style={{ width: `${Math.min(healthMetrics.cpuPct, 100)}%` }} />
+                  style={{ width: `${Math.min(healthMetrics.cpuPct, 100)}%` }} />
               </div>
               <div className="text-[9px] text-zinc-600 mt-1">
                 {healthMetrics.cpuPct > 90 ? <span className="text-red-400">Critical load</span> :
-                 healthMetrics.cpuPct > 75 ? <span className="text-yellow-400">High load</span> :
-                 <span className="text-green-400">Normal</span>}
+                  healthMetrics.cpuPct > 75 ? <span className="text-yellow-400">High load</span> :
+                    <span className="text-green-400">Normal</span>}
               </div>
             </div>
 
@@ -2688,12 +2688,12 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
               </div>
               <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className={`h-full rounded-full ${healthMetrics.memPct > 90 ? 'bg-red-500' : healthMetrics.memPct > 75 ? 'bg-yellow-500' : 'bg-purple-500'}`}
-                     style={{ width: `${Math.min(healthMetrics.memPct, 100)}%` }} />
+                  style={{ width: `${Math.min(healthMetrics.memPct, 100)}%` }} />
               </div>
               <div className="text-[9px] text-zinc-600 mt-1">
                 {healthMetrics.memPct > 90 ? <span className="text-red-400">Critical usage</span> :
-                 healthMetrics.memPct > 75 ? <span className="text-yellow-400">High usage</span> :
-                 <span className="text-green-400">Normal</span>}
+                  healthMetrics.memPct > 75 ? <span className="text-yellow-400">High usage</span> :
+                    <span className="text-green-400">Normal</span>}
               </div>
             </div>
           </div>
@@ -3648,11 +3648,10 @@ function LLMSettingsPanel({
             <button
               key={provider}
               onClick={() => handleProviderChange(provider)}
-              className={`relative p-3.5 rounded-xl text-left transition-all duration-200 border overflow-hidden group ${
-                localConfig.provider === provider
-                  ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
-                  : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
-              }`}
+              className={`relative p-3.5 rounded-xl text-left transition-all duration-200 border overflow-hidden group ${localConfig.provider === provider
+                ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
+                : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                }`}
             >
               {localConfig.provider === provider && (
                 <div className="absolute top-2 right-2">
@@ -3675,10 +3674,9 @@ function LLMSettingsPanel({
       <div className="relative bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`relative w-3 h-3 rounded-full ${
-              checking ? 'bg-amber-400' :
+            <div className={`relative w-3 h-3 rounded-full ${checking ? 'bg-amber-400' :
               status?.connected ? 'bg-emerald-400' : 'bg-red-400'
-            }`}>
+              }`}>
               {checking && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
               {status?.connected && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
             </div>
@@ -3875,7 +3873,7 @@ function loadLLMConfig(): LLMConfig {
 
 // Cluster-wide AI Chat Panel component - Global floating chat
 function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { onClose: () => void, isMinimized: boolean, onToggleMinimize: () => void }) {
-  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string }>>([]);
+  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string, isActivity?: boolean }>>([]);
   const [userInput, setUserInput] = useState("");
   const [llmLoading, setLlmLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -3988,10 +3986,23 @@ You MAY:
 - Explain findings and provide recommendations
 
 OUTPUT FORMAT (EVERY TURN)
-1. SUMMARY - 2-3 sentences describing the situation
-2. FINDINGS - Key observations with severity indicators [CRITICAL]/[WARNING]/[INFO]
-3. RECOMMENDATIONS - What should be done (but not how to mutate)
-4. NEXT INVESTIGATION STEPS - If you need more data, use TOOL: commands
+You MUST use Markdown headers and bullet points for structure.
+**CRITICAL: You MUST put a blank line BEFORE and AFTER every header (###).**
+**CRITICAL: Do NOT output headers inline with text.**
+
+### 📝 Summary
+(2-3 sentences describing the situation)
+
+### 🔍 Findings
+- **[CRITICAL]** ...
+- **[WARNING]** ...
+- **[INFO]** ...
+
+### 💡 Recommendations
+- ...
+
+### ⏭️ Next Steps
+(If you need more data, use TOOL: commands here)
 
 **AUTONOMOUS INVESTIGATION (CRITICAL):**
 - You drive the debugging process COMPLETELY on your own
@@ -4001,11 +4012,68 @@ OUTPUT FORMAT (EVERY TURN)
 - If you find an issue, drill down with more tools automatically
 - NEVER stop mid-investigation - keep using tools until you have a clear answer
 
-Keep responses concise and actionable. Focus on the most important issues.`;
+**SYSTEMATIC RESEARCH PROTOCOL (CRITICAL):**
+1. **BROAD SEARCH**: If you can't find a specific resource, DO NOT GIVE UP. List ALL resources of that kind.
+   - Example: Pod 'api-123' not found? -> Run LIST_PODS to see what IS there.
+2. **FILTER & IDENTIFY**: Look through the list for similar names or relevant services.
+   - Example: User asked for "payment", you see 'payment-service-v8-x9z'. That's your target.
+3. **DEEP DIVE**: Once identified, drill down immediately.
+   - Run DESCRIBE to check status/events.
+   - Run GET_LOGS to check for application errors.
+4. **FAILURE ANALYSIS**: Look for keywords: "Error", "Failed", "BackOff", "CrashLoop".
+   - If you see an error, explain it clearly.
+
+**ROOT CAUSE ANALYSIS EXPERT (CRITICAL):**
+Adopt a "Hypothesis-Driven Debugging" approach:
+1. **OBSERVE**: State the symptom clearly (e.g., "Pod is crashing").
+2. **HYPOTHESIZE**: List 2-3 potential causes.
+   - Example: "Is it an OOM kill? Application panic? Missing config?"
+3. **VERIFY**: Use tools to prove/disprove each hypothesis.
+   - Check Exit Codes: 137 = OOM (Check limits), 1 = App Error (Check logs).
+   - Check Events: "BackOff" often means image pull issue or crash loop.
+   - Check Dependencies: Are secrets/configmaps mounted? Is the DB reachable?
+4. **CONCLUSION**: Provide a "Final Verdict" on the root cause.
+
+**KNOWLEDGE BASE (PRIORITY):**
+- **ALWAYS** use \`SEARCH_KNOWLEDGE <query>\` FIRST for:
+    - "How do I..." questions.
+    - "What is..." questions.
+    - Requests for specific commands (e.g., "command to connect").
+    - Error explanations.
+- Example: \`SEARCH_KNOWLEDGE connect to vcluster\` or \`SEARCH_KNOWLEDGE PVC\`.
+
+        **SCENARIO GUIDELINES:**
+        - **CrashLoopBackOff**: Check logs (--previous), check exit code.
+        - **ImagePullBackOff**: Check image name spelling, check secret existence.
+        - **Pending**: Check describe pod for scheduling events (CPU/Mem limits, Taints).
+        - **Service Issues**: Check endpoints to see if backend pods are ready.
+
+        **SELF-CORRECTION:**
+        - If a tool fails, analyze WHY (typo? wrong ns?) and fix it immediately.
+        - You are responsible for finding the truth.
+
+        **NO PLACEHOLDERS (CRITICAL):**
+        - NEVER use [namespace], <pod>, or ... in commands.
+          - You MUST use actual names (e.g., default, nginx-pod-123).
+          - If you don't know the name, run LIST_PODS first to find it.
+
+          Keep responses concise and actionable. Focus on the most important issues.`;
+
+      const finalPrompt = `
+=== BACKGROUND CONTEXT (FOR INFORMATION ONLY) ===
+${context}
+=== END CONTEXT ===
+
+=== USER REQUEST (PRIORITY) ===
+${message}
+=== INSTRUCTIONS ===
+- If the user asks a general question (e.g., "How do I..."), IGNORE the background context and use SEARCH_KNOWLEDGE.
+- If the user asks about the cluster, use the background context.
+`;
 
       const answer = await invoke<string>("call_llm", {
         config: llmConfig,
-        prompt: `${context}\n\nUser: ${message}`,
+        prompt: finalPrompt,
         systemPrompt,
         conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
       });
@@ -4015,7 +4083,7 @@ Keep responses concise and actionable. Focus on the most important issues.`;
       const tools = Array.from(toolMatches);
 
       const validTools = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_PODS', 'LIST_DEPLOYMENTS',
-        'LIST_SERVICES', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES'];
+        'LIST_SERVICES', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE'];
 
       if (tools.length > 0) {
         // Show initial reasoning before tool execution (filter out raw TOOL: lines)
@@ -4023,7 +4091,8 @@ Keep responses concise and actionable. Focus on the most important issues.`;
         if (initialReasoning) {
           setChatHistory(prev => [...prev, {
             role: 'assistant',
-            content: initialReasoning + '\n\n*🔄 Investigating...*'
+            content: initialReasoning + '\n\n*🔄 Investigating...*',
+            isActivity: true
           }]);
         }
 
@@ -4031,7 +4100,7 @@ Keep responses concise and actionable. Focus on the most important issues.`;
 
         for (const toolMatch of tools) {
           const toolName = toolMatch[1];
-          const toolArgs = toolMatch[2]?.trim();
+          let toolArgs: string | undefined = toolMatch[2]?.trim();
           let toolResult = '';
           let kubectlCommand = '';
 
@@ -4041,17 +4110,37 @@ Keep responses concise and actionable. Focus on the most important issues.`;
             continue;
           }
 
+          // Debug logging
+          console.log(`[Agent] Tool: ${toolName}, Args: "${toolArgs}"`);
+
+          // Validate against placeholders using Regex (skip for SEARCH_KNOWLEDGE)
+          const placeholderRegex = /\[.*?\]|<.*?>|\.\.\./;
+          let autoCorrected = false;
+
+          if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && placeholderRegex.test(toolArgs)) {
+            // Auto-correct for LIST commands
+            if (['LIST_PODS', 'LIST_DEPLOYMENTS', 'LIST_SERVICES', 'GET_EVENTS'].includes(toolName)) {
+              console.log(`[Agent] Auto-correcting placeholder in ${toolName}`);
+              toolArgs = undefined; // Clear the args to list all
+              autoCorrected = true;
+            } else {
+              toolResult = `❌ ERROR: You used a placeholder (e.g., [namespace], <pod>). You MUST use the ACTUAL name.\n\n👉 ACTION: Run LIST_PODS to find the real name.`;
+              setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName: 'INVALID', command: 'N/A' }]);
+              continue;
+            }
+          }
+
           try {
             if (toolName === 'CLUSTER_HEALTH') {
               kubectlCommand = 'kubectl get nodes,pods --all-namespaces';
               const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
               toolResult = `## Cluster Health Summary
-**Nodes:** ${health.ready_nodes}/${health.total_nodes} ready
-**Pods:** ${health.running_pods}/${health.total_pods} running (${health.pending_pods} pending, ${health.failed_pods} failed)
-**Deployments:** ${health.healthy_deployments}/${health.total_deployments} healthy
-**Resources:** CPU ${health.cluster_cpu_percent.toFixed(1)}%, Memory ${health.cluster_memory_percent.toFixed(1)}%
-${health.critical_issues.length > 0 ? `\n**Critical Issues:** ${health.critical_issues.length}` : ''}
-${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}`;
+              **Nodes:** ${health.ready_nodes}/${health.total_nodes} ready
+              **Pods:** ${health.running_pods}/${health.total_pods} running (${health.pending_pods} pending, ${health.failed_pods} failed)
+              **Deployments:** ${health.healthy_deployments}/${health.total_deployments} healthy
+              **Resources:** CPU ${health.cluster_cpu_percent.toFixed(1)}%, Memory ${health.cluster_memory_percent.toFixed(1)}%
+              ${health.critical_issues.length > 0 ? `\n**Critical Issues:** ${health.critical_issues.length}` : ''}
+              ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}`;
             } else if (toolName === 'GET_EVENTS') {
               const namespace = toolArgs || undefined;
               kubectlCommand = namespace ? `kubectl get events -n ${namespace}` : 'kubectl get events --all-namespaces';
@@ -4063,6 +4152,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
                   `- [${e.event_type}] ${e.namespace}/${e.name} (${e.kind}): ${e.reason} - ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`
                 ).join('\n')}`;
               }
+              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
             } else if (toolName === 'LIST_PODS') {
               const namespace = toolArgs || undefined;
               kubectlCommand = namespace ? `kubectl get pods -n ${namespace}` : 'kubectl get pods --all-namespaces';
@@ -4071,6 +4161,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
               });
               const summary = pods.slice(0, 20).map(p => `- ${p.namespace}/${p.name}: ${p.status}`).join('\n');
               toolResult = `## Pods (${pods.length} total)\n${summary}${pods.length > 20 ? `\n... and ${pods.length - 20} more` : ''}`;
+              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
             } else if (toolName === 'LIST_DEPLOYMENTS') {
               const namespace = toolArgs || undefined;
               kubectlCommand = namespace ? `kubectl get deployments -n ${namespace}` : 'kubectl get deployments --all-namespaces';
@@ -4079,6 +4170,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
               });
               const summary = deps.slice(0, 20).map(d => `- ${d.namespace}/${d.name}: ${d.ready || '?'}/${d.replicas || '?'} ready`).join('\n');
               toolResult = `## Deployments (${deps.length} total)\n${summary}`;
+              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
             } else if (toolName === 'LIST_SERVICES') {
               const namespace = toolArgs || undefined;
               kubectlCommand = namespace ? `kubectl get services -n ${namespace}` : 'kubectl get services --all-namespaces';
@@ -4087,6 +4179,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
               });
               const summary = svcs.slice(0, 20).map(s => `- ${s.namespace}/${s.name}: ${s.status}`).join('\n');
               toolResult = `## Services (${svcs.length} total)\n${summary}`;
+              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
             } else if (toolName === 'DESCRIBE') {
               const [kind, ns, name] = (toolArgs || '').split(/\s+/);
               if (!kind || !ns || !name) {
@@ -4103,8 +4196,8 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
             } else if (toolName === 'GET_LOGS') {
               const parts = (toolArgs || '').split(/\s+/);
               const [ns, pod, container] = parts;
-              if (!ns || !pod) {
-                toolResult = '⚠️ Usage: GET_LOGS <namespace> <pod> [container]';
+              if (!ns || !pod || ns.includes('[') || pod.includes('<')) {
+                toolResult = '⚠️ Usage: GET_LOGS <namespace> <pod> [container] (NO PLACEHOLDERS)';
               } else {
                 kubectlCommand = container ? `kubectl logs -n ${ns} ${pod} -c ${container}` : `kubectl logs -n ${ns} ${pod}`;
                 const logs = await invoke<string>("get_pod_logs", { namespace: ns, name: pod, container: container || null, lines: 100 });
@@ -4124,6 +4217,18 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
                   `- [${i.severity.toUpperCase()}] ${i.resource_kind} ${i.namespace}/${i.resource_name}: ${i.message}`
                 ).join('\n')}`;
               }
+            } else if (toolName === 'SEARCH_KNOWLEDGE') {
+              const query = toolArgs || '';
+              if (!query) {
+                toolResult = '⚠️ Usage: SEARCH_KNOWLEDGE <query>';
+              } else {
+                const results = await invoke<any[]>("search_knowledge_base", { query });
+                if (results.length === 0) {
+                  toolResult = `No knowledge base articles found for "${query}".`;
+                } else {
+                  toolResult = `## Knowledge Base Results for "${query}"\n${results.map(r => `### ${r.file} (Score: ${r.score})\n${r.content}`).join('\n\n')}`;
+                }
+              }
             }
           } catch (err) {
             toolResult = `❌ Tool error: ${err}`;
@@ -4136,7 +4241,7 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
         // Iterative investigation loop - AI continues until done
         let combinedResults = allToolResults.join('\n\n---\n\n');
         let iterationCount = 0;
-        const maxIterations = 8;
+        const maxIterations = 30;
 
         while (iterationCount < maxIterations) {
           const analysisPrompt = iterationCount === 0
@@ -4148,16 +4253,27 @@ ${health.warnings.length > 0 ? `\n**Warnings:** ${health.warnings.length}` : ''}
             prompt: analysisPrompt,
             systemPrompt: `You are analyzing Kubernetes cluster data autonomously.
 
-**AUTO-CONTINUE RULE:**
-1. If you found issues but need more details → USE TOOLS immediately (GET_LOGS, DESCRIBE, etc.)
-2. If you have partial evidence → USE TOOLS to find more
-3. ONLY stop when you have HIGH CONFIDENCE or exhausted relevant tools
+                      **AUTO-CONTINUE RULE:**
+                      1. If you found issues but need more details → USE TOOLS immediately (GET_LOGS, DESCRIBE, etc.)
+                      2. If you have partial evidence → USE TOOLS to find more
+                      3. ONLY stop when you have HIGH CONFIDENCE or exhausted relevant tools
 
-Available tools: CLUSTER_HEALTH, GET_EVENTS [ns], LIST_PODS [ns], LIST_DEPLOYMENTS [ns], LIST_SERVICES [ns], DESCRIBE <kind> <ns> <name>, GET_LOGS <ns> <pod> [container], TOP_PODS, FIND_ISSUES
+                      Available tools: CLUSTER_HEALTH, GET_EVENTS [ns], LIST_PODS [ns], LIST_DEPLOYMENTS [ns], LIST_SERVICES [ns], DESCRIBE <kind> <ns> <name>, GET_LOGS <ns> <pod> [container], TOP_PODS, FIND_ISSUES, SEARCH_KNOWLEDGE <query>
 
-To use a tool: TOOL: <tool_name> [args]
+                        **SYSTEMATIC RESEARCH:**
+                        - If you hit a dead end, WIDEN your search.
+                        - List all pods/services to find the right target.
+                        - Drill down into the most likely candidate.
+                        - Don't stop until you have found the root cause or proven it's healthy.
 
-Be concise. Focus on actionable findings.`,
+                        **ERROR HANDLING:**
+                        - If the last tool call failed, your HIGHEST PRIORITY is to fix it.
+                        - Ask yourself: "Why did it fail?" then try a different approach.
+- Example: "Pod not found" -> Call LIST_PODS to find the real name.
+
+                        To use a tool: TOOL: <tool_name> [args]
+
+                          Be concise. Focus on actionable findings.`,
             conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
           });
 
@@ -4176,7 +4292,8 @@ Be concise. Focus on actionable findings.`,
           if (reasoningPart) {
             setChatHistory(prev => [...prev, {
               role: 'assistant',
-              content: reasoningPart + '\n\n*🔄 Continuing investigation...*'
+              content: reasoningPart + '\n\n*🔄 Continuing investigation...*',
+              isActivity: true
             }]);
           }
 
@@ -4237,6 +4354,18 @@ Be concise. Focus on actionable findings.`,
                 const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
                 const issues = [...health.critical_issues, ...health.warnings].slice(0, 20);
                 toolResult = issues.length === 0 ? '✅ No issues found.' : `## Issues (${issues.length})\n${issues.map(i => `- [${i.severity.toUpperCase()}] ${i.resource_kind} ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}`;
+              } else if (toolName === 'SEARCH_KNOWLEDGE') {
+                const query = toolArgs || '';
+                if (!query) {
+                  toolResult = '⚠️ Usage: SEARCH_KNOWLEDGE <query>';
+                } else {
+                  const results = await invoke<any[]>("search_knowledge_base", { query });
+                  if (results.length === 0) {
+                    toolResult = `No knowledge base articles found for "${query}".`;
+                  } else {
+                    toolResult = `## Knowledge Base Results for "${query}"\n${results.map(r => `### ${r.file} (Score: ${r.score})\n${r.content}`).join('\n\n')}`;
+                  }
+                }
               } else {
                 toolResult = `Tool ${toolName} executed`;
               }
@@ -4441,102 +4570,116 @@ Be concise. Focus on actionable findings.`,
               </div>
             )}
             {msg.role === 'tool' && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden">
-                <div className="px-3 py-2 bg-white/5 border-b border-white/5 flex items-center gap-2">
-                  <div className="p-1 rounded bg-cyan-500/20">
-                    <TerminalIcon size={12} className="text-cyan-400" />
-                  </div>
-                  <span className="text-xs font-semibold text-cyan-300">{msg.toolName}</span>
-                  {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px]">{msg.command}</code>}
+              <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
+                  <TerminalIcon size={10} className="text-cyan-400" />
                 </div>
-                <div className="px-3 py-2.5 prose prose-invert prose-sm max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
-                      code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                      pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                      ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1 space-y-0.5">{children}</ul>,
-                      li: ({ children }) => <li className="text-zinc-300">{children}</li>,
-                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-3 mb-1.5">{children}</h2>,
-                      strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                    }}
-                  >
-                    {msg.content}
-                  </ReactMarkdown>
+                <div className="bg-white/5 rounded-lg border border-white/5 overflow-hidden">
+                  <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
+                    {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px] opacity-50">{msg.command}</code>}
+                  </div>
+                  <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="text-[11px] text-zinc-400 my-0.5 leading-relaxed font-mono">{children}</p>,
+                        code: ({ children }) => <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded text-zinc-300 font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="text-[10px] bg-black/30 p-2 rounded-md overflow-x-auto my-1 font-mono">{children}</pre>,
+                        ul: ({ children }) => <ul className="text-[11px] list-disc ml-4 my-0.5 space-y-0.5">{children}</ul>,
+                        li: ({ children }) => <li className="text-zinc-400">{children}</li>,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               </div>
             )}
             {msg.role === 'assistant' && (
-              <div className="flex justify-start gap-2">
-                <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-                  <Sparkles size={12} className="text-violet-400" />
+              (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
+                <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
+                    <Loader2 size={10} className="text-violet-400 animate-spin" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-zinc-400 italic">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
+                  </div>
                 </div>
-                <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
-                      strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                      code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                      pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                      ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="text-zinc-200">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-3 mb-1.5">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-semibold text-white mt-3 mb-1.5">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-xs font-semibold text-white mt-2 mb-1">{children}</h3>,
-                    }}
-                  >
-                    {msg.content}
-                  </ReactMarkdown>
+              ) : (
+
+                <div className="flex justify-start gap-2">
+                  <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
+                    <Sparkles size={12} className="text-violet-400" />
+                  </div>
+                  <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
+                        strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                        code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                        ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="text-zinc-200">{children}</li>,
+                        h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 border-b border-white/10 pb-1">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold text-violet-200 mt-3 mb-1.5">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-semibold text-violet-300 mt-3 mb-1">{children}</h3>,
+                      }}
+                    >
+                      {fixMarkdownHeaders(msg.content)}
+                    </ReactMarkdown>
+                  </div>
                 </div>
-              </div>
+              )
             )}
           </div>
-        ))}
+        ))
+        }
 
-        {llmLoading && (
-          <div className="flex justify-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-              <Sparkles size={12} className="text-violet-400 animate-pulse" />
-            </div>
-            <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-3">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+        {
+          llmLoading && (
+            <div className="flex justify-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
+                <Sparkles size={12} className="text-violet-400 animate-pulse" />
               </div>
-              <span className="text-sm text-zinc-400">Analyzing cluster...</span>
+              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-3">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <span className="text-sm text-zinc-400">Analyzing cluster...</span>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        }
         <div ref={chatEndRef} />
-      </div>
+      </div >
 
       {/* Input */}
-      <div className="relative border-t border-white/5 p-3 bg-black/20 backdrop-blur-sm">
-        <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              disabled={llmLoading}
-              placeholder="Ask about your cluster..."
-              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-violet-500/50 focus:bg-white/10 transition-all duration-200"
-            />
-          </div>
+      < div className="relative p-4 bg-gradient-to-t from-[#16161a] to-transparent" >
+        <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/10 rounded-full shadow-lg shadow-black/20 backdrop-blur-md focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all duration-300">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            disabled={llmLoading}
+            placeholder="Ask about your cluster..."
+            className="flex-1 px-4 py-2 bg-transparent border-none text-white text-sm placeholder-zinc-500 focus:outline-none min-w-0"
+          />
           <button
             type="submit"
             disabled={llmLoading || !userInput.trim()}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white font-medium transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100"
+            className="p-2.5 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
           >
-            <Send size={16} />
+            <Send size={16} className={llmLoading ? 'animate-pulse' : ''} />
           </button>
         </form>
-      </div>
-    </div>
+
+      </div >
+    </div >
   );
 }
 
@@ -5193,15 +5336,15 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
   // The cache will be cleared when needed (e.g., on disconnect)
   /*
   useEffect(() => {
-    (async () => {
-      try { qc.invalidateQueries(); } catch { }
-      try {
-        // @ts-ignore
-        await invoke("clear_discovery_cache");
-      } catch { }
-    })();
+                                            (async () => {
+                                              try { qc.invalidateQueries(); } catch { }
+                                              try {
+                                                // @ts-ignore
+                                                await invoke("clear_discovery_cache");
+                                              } catch { }
+                                            })();
   }, [qc]);
-  */
+                                          */
 
   const selectedObj = tabs.find(t => t.id === activeTabId)?.resource || null;
 
@@ -5788,13 +5931,12 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
           </div>
           <button
             onClick={updaterState === 'update-available' ? installPendingUpdate : checkForUpdatesManually}
-            className={`p-1.5 rounded-md transition-all relative ${
-              updaterState === 'update-available'
-                ? 'text-purple-400 bg-purple-500/20 animate-pulse shadow-[0_0_12px_rgba(168,85,247,0.5)]'
-                : updaterState === 'checking'
+            className={`p-1.5 rounded-md transition-all relative ${updaterState === 'update-available'
+              ? 'text-purple-400 bg-purple-500/20 animate-pulse shadow-[0_0_12px_rgba(168,85,247,0.5)]'
+              : updaterState === 'checking'
                 ? 'text-purple-400'
                 : 'text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10'
-            }`}
+              }`}
             title={updaterState === 'update-available' ? 'Update Available - Click to Install' : 'Check for Updates'}
           >
             {updaterState === 'checking' ? (
@@ -6480,6 +6622,14 @@ function CollapsibleSection({ title, icon, children, defaultOpen = true }: { tit
   );
 }
 
+// Helper to ensure markdown headers have proper spacing
+function fixMarkdownHeaders(text: string): string {
+  if (!text) return text;
+  // Ensure headers (###) have a blank line before them if they don't already
+  // We look for ### that is NOT preceded by \n\n
+  return text.replace(/([^\n])\n(#{1,6}\s)/g, '$1\n\n$2');
+}
+
 // Helper to fix kubectl commands with placeholder syntax like [namespace], <pod>, etc.
 function fixKubectlPlaceholders(text: string, resource: K8sObject, containers?: string[]): string {
   // Replace common placeholder patterns with actual values
@@ -6515,7 +6665,7 @@ function autoFixToolArgs(toolName: string, toolArgs: string | undefined, contain
   // Fix LOGS/LOGS_PREVIOUS container names
   if (toolName === 'LOGS' || toolName === 'LOGS_PREVIOUS') {
     // Remove brackets, quotes, and extra whitespace
-    const cleaned = toolArgs.replace(/[\[\]"'<>{}]/g, '').trim();
+    const cleaned = toolArgs.replace(/[\[\]"'<>{ }]/g, '').trim();
 
     // If cleaned version is different, we fixed something
     if (cleaned !== toolArgs) {
@@ -6551,7 +6701,7 @@ function autoFixToolArgs(toolName: string, toolArgs: string | undefined, contain
   // Fix LIST_RESOURCES/DESCRIBE_ANY kind names
   if (toolName === 'LIST_RESOURCES' || toolName === 'DESCRIBE_ANY') {
     // Remove brackets and quotes
-    const cleaned = toolArgs.replace(/[\[\]"'<>{}]/g, '').trim();
+    const cleaned = toolArgs.replace(/[\[\]"'<>{ }]/g, '').trim();
     if (cleaned !== toolArgs) {
       fixed = cleaned;
       wasFixed = true;
@@ -6576,7 +6726,7 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
   >({ state: 'unknown' });
   const [showOllamaHelp, setShowOllamaHelp] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string }>>([]);
+  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool', content: string, toolName?: string, command?: string, isActivity?: boolean }>>([]);
   const [userInput, setUserInput] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -6648,267 +6798,269 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
       const containerNames = fullObject?.spec?.containers?.map((c: any) => c.name) || [];
 
       const context = `
-Current Resource:
-- Kind: ${resource.kind}
-- Name: ${resource.name}
-- Namespace: ${resource.namespace}
-- Status: ${resource.status}
-- Age: ${formatAge(resource.age)}
-- Owner: ${ownerRefs}
-- Labels: ${labels}
-${resource.kind === 'Pod' && fullObject?.status?.phase ? `- Phase: ${fullObject.status.phase}` : ''}
-${resource.kind === 'Pod' && fullObject?.status?.podIP ? `- Pod IP: ${fullObject.status.podIP}` : ''}
-${resource.kind === 'Pod' && fullObject?.spec?.nodeName ? `- Node: ${fullObject.spec.nodeName}` : ''}
-${podConditions ? `- Conditions:\n  ${podConditions}` : ''}
-${podContainerStatuses ? `- Containers:\n${podContainerStatuses}` : ''}
-${resource.kind === 'Deployment' && fullObject?.status ? `- Replicas: ${fullObject.status.replicas || 0}/${fullObject.spec?.replicas || 0} available: ${fullObject.status.availableReplicas || 0}` : ''}
-${resource.kind === 'Service' && fullObject?.spec?.type ? `- Type: ${fullObject.spec.type}, ClusterIP: ${fullObject.spec.clusterIP || 'N/A'}` : ''}
+                                                              Current Resource:
+                                                              - Kind: ${resource.kind}
+                                                              - Name: ${resource.name}
+                                                              - Namespace: ${resource.namespace}
+                                                              - Status: ${resource.status}
+                                                              - Age: ${formatAge(resource.age)}
+                                                              - Owner: ${ownerRefs}
+                                                              - Labels: ${labels}
+                                                              ${resource.kind === 'Pod' && fullObject?.status?.phase ? `- Phase: ${fullObject.status.phase}` : ''}
+                                                              ${resource.kind === 'Pod' && fullObject?.status?.podIP ? `- Pod IP: ${fullObject.status.podIP}` : ''}
+                                                              ${resource.kind === 'Pod' && fullObject?.spec?.nodeName ? `- Node: ${fullObject.spec.nodeName}` : ''}
+                                                              ${podConditions ? `- Conditions:\n  ${podConditions}` : ''}
+                                                              ${podContainerStatuses ? `- Containers:\n${podContainerStatuses}` : ''}
+                                                              ${resource.kind === 'Deployment' && fullObject?.status ? `- Replicas: ${fullObject.status.replicas || 0}/${fullObject.spec?.replicas || 0} available: ${fullObject.status.availableReplicas || 0}` : ''}
+                                                              ${resource.kind === 'Service' && fullObject?.spec?.type ? `- Type: ${fullObject.spec.type}, ClusterIP: ${fullObject.spec.clusterIP || 'N/A'}` : ''}
 
-Recent Events (last 10):
-${recentEvents || 'No recent events'}
+                                                              Recent Events (last 10):
+                                                              ${recentEvents || 'No recent events'}
 
-Available READ-ONLY debugging tools:
-1. DESCRIBE - Get full YAML manifest
-2. EVENTS - Get all events for this resource
-3. LOGS [container_name] - Get pod logs (optionally specify container)
-   **CRITICAL:** Check "Containers:" section in context above for available container names
-   **IMPORTANT:** Container names must be plain text, NO brackets, quotes, or spaces
-   **CORRECT:** LOGS manager (if "manager" is listed in Containers section)
-   **WRONG:** LOGS [calico-node], LOGS "calico-node", LOGS calico node
-   **WRONG:** Using a container name from a different pod
-4. LOGS_PREVIOUS [container_name] - Get previous pod logs (for crashloops)
-   **CRITICAL:** Check "Containers:" section in context above for available container names
-   **IMPORTANT:** Container names must be plain text, NO brackets, quotes, or spaces
-   **CORRECT:** LOGS_PREVIOUS manager (if "manager" is listed in Containers section)
-   **WRONG:** LOGS_PREVIOUS [calico-node]
-   **WRONG:** Using a container name from a different pod
-5. RELATED_PODS - List related pods (same namespace/labels)
-6. PARENT_DETAILS - Get parent resource details (owner references)
-7. NETWORK_CHECK - Check service/endpoint status
-8. RESOURCE_USAGE - Get current resource metrics
-9. LIST_RESOURCES <kind> - List resources of type (e.g., "configmaps", "secrets")
-10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
-11. NODE_INFO - Get node details if pod is scheduled
-12. STORAGE_CHECK - Check PVC/PV status for pods
+                                                              Available READ-ONLY debugging tools:
+                                                              1. DESCRIBE - Get full YAML manifest
+                                                              2. EVENTS - Get all events for this resource
+                                                              3. LOGS [container_name] - Get pod logs (optionally specify container)
+                                                              **CRITICAL:** Check "Containers:" section in context above for available container names
+                                                              **IMPORTANT:** Container names must be plain text, NO brackets, quotes, or spaces
+                                                              **CORRECT:** LOGS manager (if "manager" is listed in Containers section)
+                                                              **WRONG:** LOGS [calico-node], LOGS "calico-node", LOGS calico node
+                                                              **WRONG:** Using a container name from a different pod
+                                                              4. LOGS_PREVIOUS [container_name] - Get previous pod logs (for crashloops)
+                                                              **CRITICAL:** Check "Containers:" section in context above for available container names
+                                                              **IMPORTANT:** Container names must be plain text, NO brackets, quotes, or spaces
+                                                              **CORRECT:** LOGS_PREVIOUS manager (if "manager" is listed in Containers section)
+                                                              **WRONG:** LOGS_PREVIOUS [calico-node]
+                                                              **WRONG:** Using a container name from a different pod
+                                                              5. RELATED_PODS - List related pods (same namespace/labels)
+                                                              6. PARENT_DETAILS - Get parent resource details (owner references)
+                                                              7. NETWORK_CHECK - Check service/endpoint status
+                                                              8. RESOURCE_USAGE - Get current resource metrics
+                                                              9. LIST_RESOURCES <kind> - List resources of type (e.g., "configmaps", "secrets")
+                                                                10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
+                                                                  11. NODE_INFO - Get node details if pod is scheduled
+                                                                  12. STORAGE_CHECK - Check PVC/PV status for pods
 
-**All tools are read-only and safe - they only retrieve information, never modify resources.**
+                                                                  **All tools are read-only and safe - they only retrieve information, never modify resources.**
 
-**CRITICAL SYNTAX RULES:**
-- Container names: NO brackets [], quotes "", or apostrophes ''
-- Arguments must be plain text separated by spaces
-- If you see a TOOL SYNTAX ERROR, fix your syntax and try again
+                                                                  **CRITICAL SYNTAX RULES:**
+                                                                  - Container names: NO brackets [], quotes "", or apostrophes ''
+                                                                  - Arguments must be plain text separated by spaces
+                                                                  - If you see a TOOL SYNTAX ERROR, fix your syntax and try again
 
-To use a tool, respond with: TOOL: <tool_name> [args]
-You can use multiple tools - list each on a new line.
-`;
+                                                                  To use a tool, respond with: TOOL: <tool_name> [args]
+                                                                    You can use multiple tools - list each on a new line.
+                                                                    `;
 
       const answer = await invoke<string>("call_local_llm_with_tools", {
         prompt: `${context}\n\nUser: ${message}`,
         systemPrompt: `SYSTEM IDENTITY
-You are a Distinguished Engineer and Principal SRE for Kubernetes and cloud-native systems.
-You operate as an AUTONOMOUS, READ-ONLY INCIDENT INVESTIGATOR.
+                                                                      You are a Distinguished Engineer and Principal SRE for Kubernetes and cloud-native systems.
+                                                                      You operate as an AUTONOMOUS, READ-ONLY INCIDENT INVESTIGATOR.
 
-You do NOT wait to be told what to do.
-You actively:
-- Form hypotheses
-- Decide what evidence you need next
-- Ask for that evidence explicitly
-- Refine or discard hypotheses as new data arrives
-- Drive the debugging process end-to-end
+                                                                      You do NOT wait to be told what to do.
+                                                                      You actively:
+                                                                      - Form hypotheses
+                                                                      - Decide what evidence you need next
+                                                                      - Ask for that evidence explicitly
+                                                                      - Refine or discard hypotheses as new data arrives
+                                                                      - Drive the debugging process end-to-end
 
-You NEVER perform or suggest cluster mutations.
-You ONLY analyze and reason.
+                                                                      You NEVER perform or suggest cluster mutations.
+                                                                      You ONLY analyze and reason.
 
-------------------------------------------------
-HARD SAFETY RULES (READ ONLY)
-You MUST NOT:
-- Generate kubectl commands that modify state (apply, patch, delete, scale, rollout, exec, cp)
-- Generate YAML patches or manifests to apply
-- Suggest direct mutations like "run this to fix it"
-- Provide shell commands that change the cluster
+                                                                      ------------------------------------------------
+                                                                      HARD SAFETY RULES (READ ONLY)
+                                                                      You MUST NOT:
+                                                                      - Generate kubectl commands that modify state (apply, patch, delete, scale, rollout, exec, cp)
+                                                                      - Generate YAML patches or manifests to apply
+                                                                      - Suggest direct mutations like "run this to fix it"
+                                                                      - Provide shell commands that change the cluster
 
-You MAY:
-- Suggest READ-ONLY commands the user can run to collect data
-- Ask for outputs of describe, logs, events, metrics, etc.
-- Explain how to interpret the outputs they already have
+                                                                      You MAY:
+                                                                      - Suggest READ-ONLY commands the user can run to collect data
+                                                                      - Ask for outputs of describe, logs, events, metrics, etc.
+                                                                      - Explain how to interpret the outputs they already have
 
-**CRITICAL - KUBECTL COMMAND FORMAT:**
-When suggesting kubectl commands, ALWAYS use the ACTUAL resource names from the context.
-- **CORRECT:** kubectl logs my-pod-abc123 -n production -c nginx
-- **WRONG:** kubectl logs -n [namespace] <pod> -c [container]
-- **WRONG:** kubectl logs <pod-name> -n <namespace>
-Never use placeholder brackets like [namespace], <pod>, [container], etc.
-Always substitute actual values from the current resource context.
+                                                                      **CRITICAL - KUBECTL COMMAND FORMAT:**
+                                                                      When suggesting kubectl commands, ALWAYS use the ACTUAL resource names from the context.
+                                                                      - **CORRECT:** kubectl logs my-pod-abc123 -n production -c nginx
+                                                                      - **WRONG:** kubectl logs -n [namespace] <pod> -c [container]
+                                                                        - **WRONG:** kubectl logs <pod-name> -n <namespace>
+                                                                          Never use placeholder brackets like [namespace], <pod>, [container], etc.
+                                                                            Always substitute actual values from the current resource context.
 
-If the user explicitly asks for mutating commands:
-Reply: "I am running in READ-ONLY Kubernetes analysis mode and cannot generate modifying commands."
+                                                                            If the user explicitly asks for mutating commands:
+                                                                            Reply: "I am running in READ-ONLY Kubernetes analysis mode and cannot generate modifying commands."
 
-------------------------------------------------
-TOOL USAGE (AUTONOMOUS INVESTIGATION)
-You have access to READ-ONLY debugging tools. Use them autonomously to drive investigation.
+                                                                            ------------------------------------------------
+                                                                            TOOL USAGE (AUTONOMOUS INVESTIGATION)
+                                                                            You have access to READ-ONLY debugging tools. Use them autonomously to drive investigation.
 
-Available tools:
-1. DESCRIBE - Get full YAML manifest
-2. EVENTS - Get all events for this resource
-3. LOGS [container_name] - Get pod logs (optionally specify container)
-   SYNTAX: LOGS calico-node (NO brackets, quotes, or spaces)
-4. LOGS_PREVIOUS [container_name] - Get previous pod logs (for crashloops)
-   SYNTAX: LOGS_PREVIOUS calico-node (NO brackets, quotes, or spaces)
-5. RELATED_PODS - List related pods (same namespace/labels)
-6. PARENT_DETAILS - Get parent resource details (owner references)
-7. NETWORK_CHECK - Check service/endpoint status
-8. RESOURCE_USAGE - Get current resource metrics
-9. LIST_RESOURCES <kind> - List resources of type (e.g., configmaps, secrets)
-10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
-11. NODE_INFO - Get node details if pod is scheduled
-12. STORAGE_CHECK - Check PVC/PV status for pods
+                                                                            Available tools:
+                                                                            1. DESCRIBE - Get full YAML manifest
+                                                                            2. EVENTS - Get all events for this resource
+                                                                            3. LOGS [container_name] - Get pod logs (optionally specify container)
+                                                                            SYNTAX: LOGS calico-node (NO brackets, quotes, or spaces)
+                                                                            4. LOGS_PREVIOUS [container_name] - Get previous pod logs (for crashloops)
+                                                                            SYNTAX: LOGS_PREVIOUS calico-node (NO brackets, quotes, or spaces)
+                                                                            5. RELATED_PODS - List related pods (same namespace/labels)
+                                                                            6. PARENT_DETAILS - Get parent resource details (owner references)
+                                                                            7. NETWORK_CHECK - Check service/endpoint status
+                                                                            8. RESOURCE_USAGE - Get current resource metrics
+                                                                            9. LIST_RESOURCES <kind> - List resources of type (e.g., configmaps, secrets)
+                                                                              10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
+                                                                                11. NODE_INFO - Get node details if pod is scheduled
+                                                                                12. STORAGE_CHECK - Check PVC/PV status for pods
 
-To use a tool: TOOL: <tool_name> [args]
-Multiple tools: List each on a new line
+                                                                                To use a tool: TOOL: <tool_name> [args]
+                                                                                  Multiple tools: List each on a new line
 
-**CRITICAL TOOL RULES:**
-- ALWAYS use LOGS for Pods before analyzing (shows actual behavior)
-- ALWAYS use EVENTS for any resource (shows problems and activity)
-- **FOR LOGS/LOGS_PREVIOUS: Check the "Containers:" section in the context FIRST**
-  - The context shows available containers for THIS specific pod
-  - ONLY use container names that are listed for THIS pod
-  - NEVER use container names from other pods (e.g., don't use "calico-node" if it's not in the Containers list)
-  - If pod has multiple containers, check logs for each one separately
-- Container names must be plain text: NO [], "", or '' characters
-- If you see "TOOL SYNTAX ERROR", fix your syntax and retry immediately
-- IGNORE tool execution errors - focus only on actual resource data
-- Never confuse tool errors with pod/resource problems
+                                                                                  **CRITICAL TOOL RULES:**
+                                                                                  - ALWAYS use LOGS for Pods before analyzing (shows actual behavior)
+                                                                                  - ALWAYS use EVENTS for any resource (shows problems and activity)
+                                                                                  - **FOR LOGS/LOGS_PREVIOUS: Check the "Containers:" section in the context FIRST**
+                                                                                  - The context shows available containers for THIS specific pod
+                                                                                  - ONLY use container names that are listed for THIS pod
+                                                                                  - NEVER use container names from other pods (e.g., don't use "calico-node" if it's not in the Containers list)
+                                                                                  - If pod has multiple containers, check logs for each one separately
+                                                                                  - Container names must be plain text: NO [], "", or '' characters
+                                                                                  - If you see "TOOL SYNTAX ERROR", fix your syntax and retry immediately
+                                                                                  - IGNORE tool execution errors - focus only on actual resource data
+                                                                                  - Never confuse tool errors with pod/resource problems
 
-------------------------------------------------
-AUTONOMOUS INVESTIGATION LOOP
+                                                                                  ------------------------------------------------
+                                                                                  AUTONOMOUS INVESTIGATION LOOP
 
-You must behave like an autonomous investigator with this loop:
+                                                                                  You must behave like an autonomous investigator with this loop:
 
-1. INGEST & SUMMARIZE
-   - Read all provided data (YAML, logs, events, metrics, describe outputs).
-   - Summarize in 2–3 precise sentences what the current situation appears to be.
+                                                                                  1. INGEST & SUMMARIZE
+                                                                                  - Read all provided data (YAML, logs, events, metrics, describe outputs).
+                                                                                  - Summarize in 2–3 precise sentences what the current situation appears to be.
 
-2. HYPOTHESIS GENERATION
-   - Generate 2–5 ranked hypotheses for what might be wrong.
-   - Ground each hypothesis in specific signals:
-     - container state
-     - events
-     - logs
-     - resource status
-     - scheduling info
-     - probe results
-   - Never say "it might be anything" — always propose concrete, testable possibilities.
+                                                                                  2. HYPOTHESIS GENERATION
+                                                                                  - Generate 2–5 ranked hypotheses for what might be wrong.
+                                                                                  - Ground each hypothesis in specific signals:
+                                                                                  - container state
+                                                                                  - events
+                                                                                  - logs
+                                                                                  - resource status
+                                                                                  - scheduling info
+                                                                                  - probe results
+                                                                                  - Never say "it might be anything" — always propose concrete, testable possibilities.
 
-3. EVIDENCE CHECK
-   For each hypothesis:
-   - Identify which existing evidence supports or contradicts it.
-   - Mark hypotheses as STRONG, WEAK, or UNKNOWN based on current data.
+                                                                                  3. EVIDENCE CHECK
+                                                                                  For each hypothesis:
+                                                                                  - Identify which existing evidence supports or contradicts it.
+                                                                                  - Mark hypotheses as STRONG, WEAK, or UNKNOWN based on current data.
 
-4. NEXT DATA REQUEST (AUTONOMOUS)
-   - Decide what data you need next to narrow down the root cause.
-   - Use TOOL: commands to gather that data autonomously.
-   - Be explicit and specific; do NOT be vague.
+                                                                                  4. NEXT DATA REQUEST (AUTONOMOUS)
+                                                                                  - Decide what data you need next to narrow down the root cause.
+                                                                                  - Use TOOL: commands to gather that data autonomously.
+                                                                                  - Be explicit and specific; do NOT be vague.
 
-5. ITERATE (AUTO-CONTINUE)
-   - When new data arrives, repeat:
-     - Update summary
-     - Refine or discard hypotheses
-     - Adjust evidence
-     - Request the next most useful data via tools
-   - Continue until a HIGH-confidence root cause is identified or you explicitly say it's ambiguous.
-   - **CRITICAL: NEVER stop mid-investigation** - if you have hypotheses to test, USE TOOLS immediately
-   - Don't wait for user prompting - call tools right away to continue investigation
-   - Chain tools together: Start with LOGS → Then EVENTS → Then DESCRIBE → Then related resources
+                                                                                  5. ITERATE (AUTO-CONTINUE)
+                                                                                  - When new data arrives, repeat:
+                                                                                  - Update summary
+                                                                                  - Refine or discard hypotheses
+                                                                                  - Adjust evidence
+                                                                                  - Request the next most useful data via tools
+                                                                                  - Continue until a HIGH-confidence root cause is identified or you explicitly say it's ambiguous.
+                                                                                  - **CRITICAL: NEVER stop mid-investigation** - if you have hypotheses to test, USE TOOLS immediately
+                                                                                  - Don't wait for user prompting - call tools right away to continue investigation
+                                                                                  - Chain tools together: Start with LOGS → Then EVENTS → Then DESCRIBE → Then related resources
 
-------------------------------------------------
-OUTPUT FORMAT (EVERY TURN)
+                                                                                  ------------------------------------------------
+                                                                                  OUTPUT FORMAT (EVERY TURN)
+                                                                          You MUST use Markdown headers and bullet points for structure.
+                                                                          **CRITICAL: You MUST put a blank line BEFORE and AFTER every header (###).**
+                                                                          **CRITICAL: Do NOT output headers inline with text.**
 
-On EVERY response, follow this exact structure:
+                                                                          ### 📝 Summary
 
-1. SUMMARY  
-2–3 sentences describing the situation in clear, precise terms.
+                                                                          (2-3 sentences describing the situation) in clear, precise terms.
 
-2. CURRENT BEST HYPOTHESES (RANKED)  
-List items like:
-- [#1 – STRONG] <short title>  
-  - Objects: Pod X, Deployment Y, Node Z  
-  - Fields: spec.containers[0].image, status.containerStatuses[0].state.waiting.reason  
-  - Evidence: quote specific lines from logs/events/YAML  
-- [#2 – MEDIUM] ...
+                                                                                  2. CURRENT BEST HYPOTHESES (RANKED)
+                                                                                  List items like:
+                                                                                  - [#1 – STRONG] <short title>
+                                                                                    - Objects: Pod X, Deployment Y, Node Z
+                                                                                    - Fields: spec.containers[0].image, status.containerStatuses[0].state.waiting.reason
+                                                                                    - Evidence: quote specific lines from logs/events/YAML
+                                                                                    - [#2 – MEDIUM] ...
 
-3. EVIDENCE SNAPSHOT  
-Bullet list of the *most important* signals you are using:
-- Events: ...
-- Logs: ...
-- YAML: ...
-- Metrics: ...
+                                                                                    3. EVIDENCE SNAPSHOT
+                                                                                    Bullet list of the *most important* signals you are using:
+                                                                                    - Events: ...
+                                                                                    - Logs: ...
+                                                                                    - YAML: ...
+                                                                                    - Metrics: ...
 
-4. NEXT INVESTIGATION STEPS
-If you need more evidence, use TOOL: commands to gather it.
-List each tool on a new line:
-TOOL: EVENTS
-TOOL: LOGS container-name
-TOOL: DESCRIBE
+                                                                                    4. NEXT INVESTIGATION STEPS
+                                                                                    If you need more evidence, use TOOL: commands to gather it.
+                                                                                    List each tool on a new line:
+                                                                                    TOOL: EVENTS
+                                                                                    TOOL: LOGS container-name
+                                                                                    TOOL: DESCRIBE
 
-5. MISSING DATA (IF ANY)  
-If you still lack key evidence after using available tools, list exactly what is missing and why it matters.
+                                                                                    5. MISSING DATA (IF ANY)
+                                                                                    If you still lack key evidence after using available tools, list exactly what is missing and why it matters.
 
-------------------------------------------------
-SCOPE OF EXPERTISE
+                                                                                    ------------------------------------------------
+                                                                                    SCOPE OF EXPERTISE
 
-You are extremely strong at:
-- Pod lifecycle (Pending, ContainerCreating, Running, CrashLoopBackOff, ImagePullBackOff, OOMKilled)
-- Probes (liveness, readiness, startup)
-- Networking (Services, Endpoints, DNS, CNI, Ingress, NetworkPolicy)
-- Scheduling (taints/tolerations, nodeSelector, affinity, resources, quotas)
-- Storage (PVC/PV, access modes, mount failures, permissions)
-- Controllers (Deployment, StatefulSet, DaemonSet, Job, CronJob, HPA)
-- Multi-resource relationships:
-  - Service ↔ Endpoints ↔ Pod labels
-  - Deployment ↔ ReplicaSet ↔ Pods
-  - HPA ↔ metrics ↔ workload
+                                                                                    You are extremely strong at:
+                                                                                    - Pod lifecycle (Pending, ContainerCreating, Running, CrashLoopBackOff, ImagePullBackOff, OOMKilled)
+                                                                                    - Probes (liveness, readiness, startup)
+                                                                                    - Networking (Services, Endpoints, DNS, CNI, Ingress, NetworkPolicy)
+                                                                                    - Scheduling (taints/tolerations, nodeSelector, affinity, resources, quotas)
+                                                                                    - Storage (PVC/PV, access modes, mount failures, permissions)
+                                                                                    - Controllers (Deployment, StatefulSet, DaemonSet, Job, CronJob, HPA)
+                                                                                    - Multi-resource relationships:
+                                                                                    - Service ↔ Endpoints ↔ Pod labels
+                                                                                    - Deployment ↔ ReplicaSet ↔ Pods
+                                                                                    - HPA ↔ metrics ↔ workload
 
-You must reference explicit fields and objects when reasoning, e.g.:
-- "spec.template.spec.containers[0].resources.requests.cpu"
-- "status.conditions[?(@.type=='Ready')]"
+                                                                                    You must reference explicit fields and objects when reasoning, e.g.:
+                                                                                    - "spec.template.spec.containers[0].resources.requests.cpu"
+                                                                                    - "status.conditions[?(@.type=='Ready')]"
 
-------------------------------------------------
-LLAMA OPTIMIZATION RULES
+                                                                                    ------------------------------------------------
+                                                                                    LLAMA OPTIMIZATION RULES
 
-To perform well as a smaller local model (e.g., Llama 3.1 8B):
+                                                                                    To perform well as a smaller local model (e.g., Llama 3.1 8B):
 
-- Prefer short, structured bullet lists over long paragraphs.
-- Avoid storytelling, metaphors, and chit-chat.
-- Use consistent labels ("SUMMARY", "HYPOTHESES", "EVIDENCE", "NEXT STEPS").
-- Keep your chain of reasoning shallow but precise and anchored to the inputs.
-- Never invent missing fields or values.
-- If something is unclear, use tools to gather more data instead of guessing.
+                                                                                    - Prefer short, structured bullet lists over long paragraphs.
+                                                                                    - Avoid storytelling, metaphors, and chit-chat.
+                                                                                    - Use consistent labels ("SUMMARY", "HYPOTHESES", "EVIDENCE", "NEXT STEPS").
+                                                                                    - Keep your chain of reasoning shallow but precise and anchored to the inputs.
+                                                                                    - Never invent missing fields or values.
+                                                                                    - If something is unclear, use tools to gather more data instead of guessing.
 
-------------------------------------------------
-FINAL SAFETY RULE
+                                                                                    ------------------------------------------------
+                                                                                    FINAL SAFETY RULE
 
-If at any point you are not confident in the root cause, you MUST say:
-"I cannot safely determine a single root cause yet."
+                                                                                    If at any point you are not confident in the root cause, you MUST say:
+                                                                                    "I cannot safely determine a single root cause yet."
 
-Then:
-- Keep multiple hypotheses open
-- Use tools to gather the most powerful next piece of evidence
+                                                                                    Then:
+                                                                                    - Keep multiple hypotheses open
+                                                                                    - Use tools to gather the most powerful next piece of evidence
 
-------------------------------------------------
-IMPORTANT:
-Do NOT output messages such as:
-"Reached maximum analysis depth", "Investigation complete", "Stopping here", or
-any other message about halting, depth, or completion.
+                                                                                    ------------------------------------------------
+                                                                                    IMPORTANT:
+                                                                                    Do NOT output messages such as:
+                                                                                    "Reached maximum analysis depth", "Investigation complete", "Stopping here", or
+                                                                                    any other message about halting, depth, or completion.
 
-You do NOT manage your own depth or step count.
-You continue responding normally unless the USER says to stop.
-There is NO investigation depth limit.
-Never self-terminate.
+                                                                                    You do NOT manage your own depth or step count.
+                                                                                    You continue responding normally unless the USER says to stop.
+                                                                                    There is NO investigation depth limit.
+                                                                                    Never self-terminate.
 
-------------------------------------------------
+                                                                                    ------------------------------------------------
 
-You are now running as an AUTONOMOUS, READ-ONLY Kubernetes Distinguished Engineer
-whose job is to DRIVE the investigation, not just answer questions.`,
+                                                                                    You are now running as an AUTONOMOUS, READ-ONLY Kubernetes Distinguished Engineer
+                                                                                    whose job is to DRIVE the investigation, not just answer questions.`,
         conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
       });
       // Mark Ollama connected on successful LLM response
@@ -7200,117 +7352,117 @@ whose job is to DRIVE the investigation, not just answer questions.`,
           const analysisAnswer = await invoke<string>("call_local_llm_with_tools", {
             prompt: analysisPrompt,
             systemPrompt: `SYSTEM IDENTITY
-You are a Distinguished Engineer and Principal SRE for Kubernetes and cloud-native systems.
-You operate as an AUTONOMOUS, READ-ONLY INCIDENT INVESTIGATOR.
+                                                                                                    You are a Distinguished Engineer and Principal SRE for Kubernetes and cloud-native systems.
+                                                                                                    You operate as an AUTONOMOUS, READ-ONLY INCIDENT INVESTIGATOR.
 
-You are analyzing tool output data to refine your investigation and determine next steps.
+                                                                                                    You are analyzing tool output data to refine your investigation and determine next steps.
 
-**CRITICAL RULES:**
-1. Base analysis ONLY on actual tool output data (logs, events, metrics, YAML)
-2. NEVER make assumptions from YAML alone without runtime evidence
-3. If logs not checked for a Pod, state: "MISSING EVIDENCE: Pod logs not retrieved"
-4. If events not checked, state: "MISSING EVIDENCE: Events not retrieved"
-5. **IGNORE tool execution errors** - messages marked "TOOL ERROR", "INVALID TOOL", or "TOOL SYNTAX ERROR" are debugging system issues, NOT resource problems
-6. Focus ONLY on successful tool executions containing actual Kubernetes data
+                                                                                                    **CRITICAL RULES:**
+                                                                                                    1. Base analysis ONLY on actual tool output data (logs, events, metrics, YAML)
+                                                                                                    2. NEVER make assumptions from YAML alone without runtime evidence
+                                                                                                    3. If logs not checked for a Pod, state: "MISSING EVIDENCE: Pod logs not retrieved"
+                                                                                                    4. If events not checked, state: "MISSING EVIDENCE: Events not retrieved"
+                                                                                                    5. **IGNORE tool execution errors** - messages marked "TOOL ERROR", "INVALID TOOL", or "TOOL SYNTAX ERROR" are debugging system issues, NOT resource problems
+                                                                                                    6. Focus ONLY on successful tool executions containing actual Kubernetes data
 
-**SELF-CORRECTION FOR SYNTAX ERRORS:**
-If you see "TOOL SYNTAX ERROR":
-- You made a syntax mistake (e.g., LOGS [container] instead of LOGS container)
-- Fix syntax and retry immediately using correct format
-- Do NOT report syntax errors as resource problems
-- Common fixes:
-  - Remove brackets: LOGS [calico-node] → LOGS calico-node
-  - Remove quotes: LOGS "app" → LOGS app
-  - Remove spaces in resource names: LIST_RESOURCES config maps → LIST_RESOURCES configmaps
+                                                                                                    **SELF-CORRECTION FOR SYNTAX ERRORS:**
+                                                                                                    If you see "TOOL SYNTAX ERROR":
+                                                                                                    - You made a syntax mistake (e.g., LOGS [container] instead of LOGS container)
+                                                                                                    - Fix syntax and retry immediately using correct format
+                                                                                                    - Do NOT report syntax errors as resource problems
+                                                                                                    - Common fixes:
+                                                                                                    - Remove brackets: LOGS [calico-node] → LOGS calico-node
+                                                                                                    - Remove quotes: LOGS "app" → LOGS app
+                                                                                                    - Remove spaces in resource names: LIST_RESOURCES config maps → LIST_RESOURCES configmaps
 
-**CRITICAL: Container Name Errors**
-If you see "container X is not valid for pod Y":
-- You used a container name from the WRONG pod
-- Check the original context's "Containers:" section for THIS pod's actual containers
-- ONLY use container names listed for THIS specific pod
-- Example: If context shows "Containers: manager, kube-rbac-proxy", ONLY use those names
-- NEVER use "calico-node", "install-cni", etc. unless they're listed for THIS pod
+                                                                                                    **CRITICAL: Container Name Errors**
+                                                                                                    If you see "container X is not valid for pod Y":
+                                                                                                    - You used a container name from the WRONG pod
+                                                                                                    - Check the original context's "Containers:" section for THIS pod's actual containers
+                                                                                                    - ONLY use container names listed for THIS specific pod
+                                                                                                    - Example: If context shows "Containers: manager, kube-rbac-proxy", ONLY use those names
+                                                                                                    - NEVER use "calico-node", "install-cni", etc. unless they're listed for THIS pod
 
-**OUTPUT FORMAT (MANDATORY)**
+                                                                                                    **OUTPUT FORMAT (MANDATORY)**
 
-1. SUMMARY
-2–3 sentences describing the situation in clear, precise terms based on evidence.
+                                                                                                    1. SUMMARY
+                                                                                                    2–3 sentences describing the situation in clear, precise terms based on evidence.
 
-2. CURRENT BEST HYPOTHESES (RANKED)
-List items like:
-- [#1 – STRONG] <short title>
-  - Objects: Pod X, Deployment Y, Node Z
-  - Fields: spec.containers[0].image, status.containerStatuses[0].state.waiting.reason
-  - Evidence: quote specific lines from logs/events/YAML
-- [#2 – MEDIUM] ...
-- [#3 – WEAK] ...
+                                                                                                    2. CURRENT BEST HYPOTHESES (RANKED)
+                                                                                                    List items like:
+                                                                                                    - [#1 – STRONG] <short title>
+                                                                                                      - Objects: Pod X, Deployment Y, Node Z
+                                                                                                      - Fields: spec.containers[0].image, status.containerStatuses[0].state.waiting.reason
+                                                                                                      - Evidence: quote specific lines from logs/events/YAML
+                                                                                                      - [#2 – MEDIUM] ...
+                                                                                                      - [#3 – WEAK] ...
 
-3. EVIDENCE SNAPSHOT
-Bullet list of the *most important* signals from tool outputs:
-- Events: [quote actual event messages with timestamps]
-- Logs: [quote actual log lines showing errors/behavior]
-- YAML: [reference specific fields like spec.containers[0].resources.limits.memory]
-- Metrics: [cite actual CPU/memory values if available]
+                                                                                                      3. EVIDENCE SNAPSHOT
+                                                                                                      Bullet list of the *most important* signals from tool outputs:
+                                                                                                      - Events: [quote actual event messages with timestamps]
+                                                                                                      - Logs: [quote actual log lines showing errors/behavior]
+                                                                                                      - YAML: [reference specific fields like spec.containers[0].resources.limits.memory]
+                                                                                                      - Metrics: [cite actual CPU/memory values if available]
 
-4. NEXT INVESTIGATION STEPS
-If you need more evidence to narrow down the root cause, use TOOL: commands.
-List each tool on a new line with correct syntax:
-TOOL: EVENTS
-TOOL: LOGS container-name
-TOOL: DESCRIBE
+                                                                                                      4. NEXT INVESTIGATION STEPS
+                                                                                                      If you need more evidence to narrow down the root cause, use TOOL: commands.
+                                                                                                      List each tool on a new line with correct syntax:
+                                                                                                      TOOL: EVENTS
+                                                                                                      TOOL: LOGS container-name
+                                                                                                      TOOL: DESCRIBE
 
-If you have sufficient evidence, provide final analysis instead.
+                                                                                                      If you have sufficient evidence, provide final analysis instead.
 
-5. MISSING DATA (IF ANY)
-If tool data is insufficient even after using all relevant tools, explicitly state:
-- What data is still missing
-- Why it's critical for diagnosis
-- Whether it's obtainable via tools or requires external access
+                                                                                                      5. MISSING DATA (IF ANY)
+                                                                                                      If tool data is insufficient even after using all relevant tools, explicitly state:
+                                                                                                      - What data is still missing
+                                                                                                      - Why it's critical for diagnosis
+                                                                                                      - Whether it's obtainable via tools or requires external access
 
-**BEHAVIOR RULES:**
-- Concise: short paragraphs, no filler
-- Evidence-based: cite specific fields, log lines, event messages
-- Deterministic: no speculation or hallucination
-- Linear reasoning: avoid abstract metaphors
-- Default to uncertainty when evidence is missing
-- Reference exact fields: spec.containers[0].imagePullPolicy
-- Align with K8s mechanics: pod lifecycle, probes, scheduling, CrashLoopBackOff, QoS, taints/tolerations
+                                                                                                      **BEHAVIOR RULES:**
+                                                                                                      - Concise: short paragraphs, no filler
+                                                                                                      - Evidence-based: cite specific fields, log lines, event messages
+                                                                                                      - Deterministic: no speculation or hallucination
+                                                                                                      - Linear reasoning: avoid abstract metaphors
+                                                                                                      - Default to uncertainty when evidence is missing
+                                                                                                      - Reference exact fields: spec.containers[0].imagePullPolicy
+                                                                                                      - Align with K8s mechanics: pod lifecycle, probes, scheduling, CrashLoopBackOff, QoS, taints/tolerations
 
-**AUTONOMOUS INVESTIGATION (CRITICAL):**
-- You drive the debugging process COMPLETELY on your own
-- Form hypotheses and IMMEDIATELY test them with tools - don't wait for user input
-- After each tool result, ALWAYS decide: do I need more evidence? If yes, call more tools immediately
-- Refine or discard hypotheses as new data arrives
-- Continue requesting evidence until HIGH confidence or ambiguity is acknowledged
-- NEVER stop mid-investigation - if you have hypotheses, test them with tools
-- If logs don't show the issue, check events. If events don't help, check related resources
-- Chain tools together: LOGS → EVENTS → DESCRIBE → METRICS → LIST_RESOURCES
+                                                                                                      **AUTONOMOUS INVESTIGATION (CRITICAL):**
+                                                                                                      - You drive the debugging process COMPLETELY on your own
+                                                                                                      - Form hypotheses and IMMEDIATELY test them with tools - don't wait for user input
+                                                                                                      - After each tool result, ALWAYS decide: do I need more evidence? If yes, call more tools immediately
+                                                                                                      - Refine or discard hypotheses as new data arrives
+                                                                                                      - Continue requesting evidence until HIGH confidence or ambiguity is acknowledged
+                                                                                                      - NEVER stop mid-investigation - if you have hypotheses, test them with tools
+                                                                                                      - If logs don't show the issue, check events. If events don't help, check related resources
+                                                                                                      - Chain tools together: LOGS → EVENTS → DESCRIBE → METRICS → LIST_RESOURCES
 
-**AUTO-CONTINUE RULE:**
-When you finish analyzing tool output:
-1. If you have untested hypotheses → USE TOOLS to test them (don't just list them)
-2. If you found partial evidence → USE TOOLS to find more evidence
-3. If you need logs/events/describe → Call those tools NOW, don't suggest the user do it
-4. ONLY stop when you have HIGH CONFIDENCE in your conclusion or have exhausted all relevant tools
+                                                                                                      **AUTO-CONTINUE RULE:**
+                                                                                                      When you finish analyzing tool output:
+                                                                                                      1. If you have untested hypotheses → USE TOOLS to test them (don't just list them)
+                                                                                                      2. If you found partial evidence → USE TOOLS to find more evidence
+                                                                                                      3. If you need logs/events/describe → Call those tools NOW, don't suggest the user do it
+                                                                                                      4. ONLY stop when you have HIGH CONFIDENCE in your conclusion or have exhausted all relevant tools
 
-**FINAL RULE:**
-If you cannot safely determine a single root cause yet, state:
-"I cannot safely determine a single root cause yet."
+                                                                                                      **FINAL RULE:**
+                                                                                                      If you cannot safely determine a single root cause yet, state:
+                                                                                                      "I cannot safely determine a single root cause yet."
 
-Then IMMEDIATELY use tools to gather the most powerful next piece of evidence - don't wait!
+                                                                                                      Then IMMEDIATELY use tools to gather the most powerful next piece of evidence - don't wait!
 
-Never generate mutative operations (apply, patch, delete, restart, scale).
-If requested, respond: "I cannot generate mutative operations. I operate in READ-ONLY Kubernetes DE mode."
+                                                                                                      Never generate mutative operations (apply, patch, delete, restart, scale).
+                                                                                                      If requested, respond: "I cannot generate mutative operations. I operate in READ-ONLY Kubernetes DE mode."
 
-**IMPORTANT:**
-Do NOT output messages such as:
-"Reached maximum analysis depth", "Investigation complete", "Stopping here", or
-any other message about halting, depth, or completion.
+                                                                                                      **IMPORTANT:**
+                                                                                                      Do NOT output messages such as:
+                                                                                                      "Reached maximum analysis depth", "Investigation complete", "Stopping here", or
+                                                                                                      any other message about halting, depth, or completion.
 
-You do NOT manage your own depth or step count.
-You continue responding normally unless the USER says to stop.
-There is NO investigation depth limit.
-Never self-terminate.`,
+                                                                                                      You do NOT manage your own depth or step count.
+                                                                                                      You continue responding normally unless the USER says to stop.
+                                                                                                      There is NO investigation depth limit.
+                                                                                                      Never self-terminate.`,
             conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
           });
           // Mark Ollama connected on successful follow-up LLM response
@@ -7334,7 +7486,8 @@ Never self-terminate.`,
             const fixedReasoning = fixKubectlPlaceholders(reasoningPart, resource, containerNames);
             setChatHistory(prev => [...prev, {
               role: 'assistant',
-              content: fixedReasoning + '\n\n*🔄 Continuing investigation...*'
+              content: fixedReasoning + '\n\n*🔄 Continuing investigation...*',
+              isActivity: true
             }]);
           }
 
@@ -7562,25 +7715,25 @@ Never self-terminate.`,
         setOllamaStatus({ state: 'unreachable', detail: msg });
         const helpful = `⚠️ Ollama is not running or unreachable.
 
-What this means: The local LLM server couldn’t be reached to process your request.
+                                                                                                                    What this means: The local LLM server couldn’t be reached to process your request.
 
-How to fix (READ ONLY guidance):
-- Start Ollama and ensure the service is running locally.
-- Verify the model is installed and available.
+                                                                                                                    How to fix (READ ONLY guidance):
+                                                                                                                    - Start Ollama and ensure the service is running locally.
+                                                                                                                    - Verify the model is installed and available.
 
-You can start Ollama and then retry your request.`;
+                                                                                                                    You can start Ollama and then retry your request.`;
         setChatHistory(prev => [...prev, { role: 'assistant', content: helpful }]);
       } else if (isModelMissing) {
         setOllamaStatus({ state: 'model-missing', detail: msg });
         const helpful = `⚠️ No model found in Ollama.
 
-What this means: The requested model isn’t installed or available.
+                                                                                                                    What this means: The requested model isn’t installed or available.
 
-How to fix (READ ONLY guidance):
-- Ensure the configured model exists locally (e.g., llama3.1:8b).
-- Pull or select an available model in your Ollama setup.
+                                                                                                                    How to fix (READ ONLY guidance):
+                                                                                                                    - Ensure the configured model exists locally (e.g., llama3.1:8b).
+                                                                                                                    - Pull or select an available model in your Ollama setup.
 
-After the model is available, retry your request.`;
+                                                                                                                    After the model is available, retry your request.`;
         setChatHistory(prev => [...prev, { role: 'assistant', content: helpful }]);
       } else {
         setChatHistory(prev => [...prev, { role: 'assistant', content: `Error: ${msg}` }]);
@@ -7712,52 +7865,33 @@ After the model is available, retry your request.`;
               </div>
             )}
             {chatHistory.map((msg, i) => (
-              <div key={i}>
+              <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                 {msg.role === 'user' && (
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] rounded px-3 py-2 text-xs bg-purple-600 text-white">
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 bg-gradient-to-br from-violet-600/90 to-fuchsia-600/90 text-white text-sm shadow-lg shadow-purple-500/10">
+                      {msg.content}
                     </div>
                   </div>
                 )}
-
                 {msg.role === 'tool' && (
-                  <div className="flex justify-start">
-                    <div className="max-w-[90%] rounded border border-cyan-500/30 bg-[#1e1e1e] overflow-hidden">
-                      {/* Tool header */}
-                      <div className="bg-cyan-900/20 px-3 py-1.5 border-b border-cyan-500/30 flex items-center gap-2">
-                        <span className="text-cyan-400 text-[10px] font-mono font-semibold">🔧 {msg.toolName}</span>
+                  <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
+                      <TerminalIcon size={10} className="text-cyan-400" />
+                    </div>
+                    <div className="bg-white/5 rounded-lg border border-white/5 overflow-hidden">
+                      <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center gap-2">
+                        <span className="text-[10px] font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
+                        {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px] opacity-50">{msg.command}</code>}
                       </div>
-                      {/* Kubectl command */}
-                      {msg.command && (
-                        <div className="bg-[#0d1117] px-3 py-1.5 border-b border-cyan-500/20">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[#858585] text-[9px] uppercase tracking-wider">kubectl equivalent</span>
-                          </div>
-                          <code className="text-[10px] text-cyan-300 font-mono select-all">{msg.command}</code>
-                        </div>
-                      )}
-                      {/* Tool result */}
-                      <div className="px-3 py-2 text-[11px] text-[#cccccc] leading-relaxed prose prose-invert prose-sm max-w-none">
+                      <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
-                            h2: ({ children }) => <h2 className="text-xs text-white font-bold mb-1 mt-2 first:mt-0">{children}</h2>,
-                            h3: ({ children }) => <h3 className="text-[11px] text-white font-semibold mb-1 mt-1.5">{children}</h3>,
-                            p: ({ children }) => <p className="my-1 text-[10px] text-[#cccccc]">{children}</p>,
-                            ul: ({ children }) => <ul className="list-disc ml-4 my-1 space-y-0.5 text-[10px]">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal ml-4 my-1 space-y-0.5 text-[10px]">{children}</ol>,
-                            li: ({ children }) => <li className="text-[#cccccc]">{children}</li>,
-                            code: ({ className, children }) => {
-                              const isBlock = className?.includes('language-');
-                              if (isBlock) {
-                                return <code className="text-[#cccccc] text-[9px]">{children}</code>;
-                              }
-                              return <code className="bg-[#2d2d30] px-1 py-0.5 rounded text-cyan-300 text-[9px]">{children}</code>;
-                            },
-                            pre: ({ children }) => <pre className="bg-[#0d1117] p-2 rounded border border-[#3e3e42] my-1.5 text-[9px] max-h-40 overflow-auto">{children}</pre>,
-                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                            em: ({ children }) => <em className="italic">{children}</em>,
+                            p: ({ children }) => <p className="text-[11px] text-zinc-400 my-0.5 leading-relaxed font-mono">{children}</p>,
+                            code: ({ children }) => <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded text-zinc-300 font-mono">{children}</code>,
+                            pre: ({ children }) => <pre className="text-[10px] bg-black/30 p-2 rounded-md overflow-x-auto my-1 font-mono">{children}</pre>,
+                            ul: ({ children }) => <ul className="text-[11px] list-disc ml-4 my-0.5 space-y-0.5">{children}</ul>,
+                            li: ({ children }) => <li className="text-zinc-400">{children}</li>,
                           }}
                         >
                           {msg.content}
@@ -7766,42 +7900,42 @@ After the model is available, retry your request.`;
                     </div>
                   </div>
                 )}
-
                 {msg.role === 'assistant' && (
-                  <div className="flex justify-start">
-                    <div className="max-w-[85%] rounded px-3 py-2 text-xs bg-[#1e1e1e] border border-[#3e3e42] text-[#cccccc] prose prose-invert prose-sm max-w-none">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                          h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2">{children}</h2>,
-                          h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
-                          p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
-                          ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal ml-4 my-1.5 space-y-0.5">{children}</ol>,
-                          li: ({ children }) => <li className="text-[#cccccc] text-[11px]">{children}</li>,
-                          code: ({ className, children }) => {
-                            const isBlock = className?.includes('language-');
-                            if (isBlock) {
-                              return <code className="text-[#cccccc] text-[10px]">{children}</code>;
-                            }
-                            return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-[#ce9178] text-[10px]">{children}</code>;
-                          },
-                          pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
-                          strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                          em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
-                          a: ({ href, children }) => <a href={href} className="text-cyan-400 hover:text-cyan-300 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                          blockquote: ({ children }) => <blockquote className="border-l-2 border-purple-500 pl-3 my-2 text-[#999]">{children}</blockquote>,
-                          hr: () => <hr className="border-[#3e3e42] my-3" />,
-                          table: ({ children }) => <table className="border-collapse my-2 text-[10px] w-full">{children}</table>,
-                          th: ({ children }) => <th className="border border-[#3e3e42] px-2 py-1 bg-[#2d2d30] text-white font-semibold">{children}</th>,
-                          td: ({ children }) => <td className="border border-[#3e3e42] px-2 py-1">{children}</td>,
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
+                  (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
+                    <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
+                        <Loader2 size={10} className="text-violet-400 animate-spin" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-400 italic">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex justify-start gap-2">
+                      <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
+                        <Sparkles size={12} className="text-violet-400" />
+                      </div>
+                      <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                            code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                            pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                            ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li className="text-zinc-200">{children}</li>,
+                            h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 border-b border-white/10 pb-1">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-bold text-violet-200 mt-3 mb-1.5">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold text-violet-300 mt-3 mb-1">{children}</h3>,
+                          }}
+                        >
+                          {fixMarkdownHeaders(msg.content)}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )
                 )}
               </div>
             ))}
@@ -9882,12 +10016,12 @@ function EventsTab({ namespace, name, uid, currentContext }: { namespace: string
     setLoadingExplanations(prev => ({ ...prev, [index]: true }));
     try {
       const context = `
-Event Type: ${event.type_}
-Reason: ${event.reason}
-Message: ${event.message}
-Count: ${event.count}
-Resource: ${name} (namespace: ${namespace})
-`;
+                                                                                                                                          Event Type: ${event.type_}
+                                                                                                                                          Reason: ${event.reason}
+                                                                                                                                          Message: ${event.message}
+                                                                                                                                          Count: ${event.count}
+                                                                                                                                          Resource: ${name} (namespace: ${namespace})
+                                                                                                                                          `;
       const answer = await invoke<string>("call_local_llm", {
         prompt: `Analyze this Kubernetes event and explain what it means, why it might be happening, and suggest potential solutions:\n\n${context}`,
         systemPrompt: "You are a Kubernetes SRE assistant. Provide concise, actionable explanations for Kubernetes events. Focus on root causes and practical solutions.",
@@ -10036,7 +10170,7 @@ Resource: ${name} (namespace: ${namespace})
                   remarkPlugins={[remarkGfm]}
                   components={{
                     h1: ({ children }) => <h1 className="text-sm text-white font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2 first:mt-0">{children}</h2>,
+                    h2: ({ children }) => <h2 className="text-xs text-white font-semibold mb-1.5 mt-2">{children}</h2>,
                     h3: ({ children }) => <h3 className="text-xs text-white font-semibold mb-1 mt-2">{children}</h3>,
                     p: ({ children }) => <p className="my-1.5 text-[11px] leading-relaxed text-[#cccccc]">{children}</p>,
                     ul: ({ children }) => <ul className="list-disc ml-4 my-1.5 space-y-0.5">{children}</ul>,
@@ -10047,14 +10181,20 @@ Resource: ${name} (namespace: ${namespace})
                       if (isBlock) {
                         return <code className="text-[#cccccc] text-[10px]">{children}</code>;
                       }
-                      return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-cyan-300 text-[10px]">{children}</code>;
+                      return <code className="bg-[#2d2d30] px-1.5 py-0.5 rounded text-[#ce9178] text-[10px]">{children}</code>;
                     },
                     pre: ({ children }) => <pre className="bg-[#0d1117] p-2.5 rounded border border-[#3e3e42] my-2 text-[10px] overflow-x-auto">{children}</pre>,
                     strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
                     em: ({ children }) => <em className="italic text-purple-300">{children}</em>,
+                    a: ({ href, children }) => <a href={href} className="text-cyan-400 hover:text-cyan-300 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                    blockquote: ({ children }) => <blockquote className="border-l-2 border-purple-500 pl-3 my-2 text-[#999]">{children}</blockquote>,
+                    hr: () => <hr className="border-[#3e3e42] my-3" />,
+                    table: ({ children }) => <table className="border-collapse my-2 text-[10px] w-full">{children}</table>,
+                    th: ({ children }) => <th className="border border-[#3e3e42] px-2 py-1 bg-[#2d2d30] text-white font-semibold">{children}</th>,
+                    td: ({ children }) => <td className="border border-[#3e3e42] px-2 py-1">{children}</td>,
                   }}
                 >
-                  {expandedExplanations[i]}
+                  {fixMarkdownHeaders(expandedExplanations[i])}
                 </ReactMarkdown>
               </div>
             )}

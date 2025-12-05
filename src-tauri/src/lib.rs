@@ -16,6 +16,7 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::path::PathBuf;
 
 mod ai_local;
+mod knowledge;
 
 // --- Data Structures ---
 
@@ -2438,6 +2439,7 @@ pub fn run() {
             ai_local::call_llm,
             ai_local::check_llm_status,
             ai_local::get_default_llm_config,
+            knowledge::search_knowledge_base,
             test_connectivity,
         ])
         .run(tauri::generate_context!())
