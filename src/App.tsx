@@ -4781,9 +4781,15 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
   const handleDeleteConfirm = async () => {
     if (!resourceToDelete) return;
     const resourceId = resourceToDelete.id;
+    const resourceName = resourceToDelete.name;
+    const resourceKind = resourceType.kind;
+
     setIsDeleting(true);
     setDeletingResources(prev => new Set(prev).add(resourceId));
     setDeleteModalOpen(false);
+
+    // Show immediate feedback that deletion is in progress
+    (window as any).showToast?.(`Deleting ${resourceKind} '${resourceName}'...`, 'info');
 
     try {
       await invoke("delete_resource", {
@@ -4795,11 +4801,12 @@ function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, cu
         },
         name: resourceToDelete.name
       });
-      (window as any).showToast?.(`Deleting ${resourceType.kind} '${resourceToDelete.name}'...`, 'info');
+      // Show success feedback
+      (window as any).showToast?.(`${resourceKind} '${resourceName}' deleted successfully`, 'success');
       // Trigger an immediate refetch to show the Terminating status
       setTimeout(() => refetch(), 500);
     } catch (err) {
-      (window as any).showToast?.(`Failed to delete: ${err}`, 'error');
+      (window as any).showToast?.(`Failed to delete ${resourceKind} '${resourceName}': ${err}`, 'error');
       setDeletingResources(prev => {
         const newSet = new Set(prev);
         newSet.delete(resourceId);
@@ -5657,16 +5664,25 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
   const deleteMutation = useMutation({
     mutationFn: async (obj: K8sObject) => {
       if (!activeRes) return;
+      // Show immediate feedback
+      (window as any).showToast?.(`Deleting ${activeRes.kind} '${obj.name}'...`, 'info');
       await invoke("delete_resource", {
         req: { group: activeRes.group, version: activeRes.version, kind: activeRes.kind, namespace: obj.namespace === "-" ? null : obj.namespace },
         name: obj.name
       });
+      return { kind: activeRes.kind, name: obj.name };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data) {
+        (window as any).showToast?.(`${data.kind} '${data.name}' deleted successfully`, 'success');
+      }
       qc.invalidateQueries({ queryKey: ["list_resources"] });
       if (activeTabId) {
         handleCloseTab(activeTabId);
       }
+    },
+    onError: (err, obj) => {
+      (window as any).showToast?.(`Failed to delete '${obj.name}': ${err}`, 'error');
     }
   });
 
