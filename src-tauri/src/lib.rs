@@ -3652,12 +3652,12 @@ async fn connect_vcluster(
     }
 
     // Execute vcluster connect command with timeout
-    // Use --driver=helm to avoid platform-specific features that require vcluster platform login
-    // The --background-proxy flag is default and handles kubeconfig updates automatically
+    // Use --context to explicitly specify the host cluster context - this bypasses platform lookups
+    // and ensures we connect to the right cluster even if vcluster CLI has stale platform state
     let connect_result = tokio::time::timeout(
         std::time::Duration::from_secs(45),
         tokio::process::Command::new("vcluster")
-            .args(&["connect", &name, "-n", &namespace, "--driver=helm"])
+            .args(&["connect", &name, "-n", &namespace, "--context", &host_context])
             .output()
     ).await;
 
@@ -3679,11 +3679,11 @@ async fn connect_vcluster(
         } else if stderr.contains("unauthorized") || stderr.contains("Unauthorized") {
             return Err(format!("Unauthorized access to vcluster '{}'. Check your permissions.", name));
         } else if stderr.contains("management-cluster") || stderr.contains("platform") {
-            // Try again without any driver flag - let vcluster auto-detect
+            // Try with --driver=helm to force OSS mode
             let retry_result = tokio::time::timeout(
                 std::time::Duration::from_secs(45),
                 tokio::process::Command::new("vcluster")
-                    .args(&["connect", &name, "-n", &namespace])
+                    .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
                     .output()
             ).await;
 
