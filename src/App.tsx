@@ -4570,24 +4570,32 @@ ${message}
               </div>
             )}
             {msg.role === 'tool' && (
-              <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
-                  <TerminalIcon size={10} className="text-cyan-400" />
-                </div>
-                <div className="bg-white/5 rounded-lg border border-white/5 overflow-hidden">
-                  <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
-                    {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px] opacity-50">{msg.command}</code>}
+              <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="bg-[#1e1e2e] rounded-lg border border-[#2d2d3d] overflow-hidden">
+                  {/* Tool Header */}
+                  <div className="px-3 py-2 bg-[#252535] border-b border-[#2d2d3d] flex items-center gap-2">
+                    <TerminalIcon size={14} className="text-cyan-400" />
+                    <span className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
                   </div>
-                  <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
+                  {/* kubectl equivalent */}
+                  {msg.command && (
+                    <div className="px-3 py-2 border-b border-[#2d2d3d]">
+                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">KUBECTL EQUIVALENT</div>
+                      <code className="text-xs text-cyan-400 font-mono">{msg.command}</code>
+                    </div>
+                  )}
+                  {/* Results */}
+                  <div className="px-3 py-3 prose prose-invert prose-sm max-w-none">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        p: ({ children }) => <p className="text-[11px] text-zinc-400 my-0.5 leading-relaxed font-mono">{children}</p>,
-                        code: ({ children }) => <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded text-zinc-300 font-mono">{children}</code>,
-                        pre: ({ children }) => <pre className="text-[10px] bg-black/30 p-2 rounded-md overflow-x-auto my-1 font-mono">{children}</pre>,
-                        ul: ({ children }) => <ul className="text-[11px] list-disc ml-4 my-0.5 space-y-0.5">{children}</ul>,
-                        li: ({ children }) => <li className="text-zinc-400">{children}</li>,
+                        p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
+                        strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                        code: ({ children }) => <code className="text-[11px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                        ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1 space-y-0.5">{children}</ul>,
+                        li: ({ children }) => <li className="text-zinc-300">{children}</li>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>,
                       }}
                     >
                       {msg.content}
@@ -4598,12 +4606,10 @@ ${message}
             )}
             {msg.role === 'assistant' && (
               (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
-                <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
-                    <Loader2 size={10} className="text-violet-400 animate-spin" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-zinc-400 italic">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="inline-flex items-center gap-2 px-3 py-2 bg-[#1e1e2e] rounded-lg border border-[#2d2d3d]">
+                    <Loader2 size={14} className="text-purple-400 animate-spin" />
+                    <span className="text-xs text-zinc-300">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
                   </div>
                 </div>
               ) : (
@@ -4640,17 +4646,10 @@ ${message}
 
         {
           llmLoading && (
-            <div className="flex justify-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-                <Sparkles size={12} className="text-violet-400 animate-pulse" />
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-3">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-                <span className="text-sm text-zinc-400">Analyzing cluster...</span>
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="inline-flex items-center gap-2 px-3 py-2 bg-[#1e1e2e] rounded-lg border border-[#2d2d3d]">
+                <Loader2 size={14} className="text-purple-400 animate-spin" />
+                <span className="text-xs text-zinc-300">Analyzing...</span>
               </div>
             </div>
           )
