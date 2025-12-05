@@ -4018,6 +4018,15 @@ Keep responses concise and actionable. Focus on the most important issues.`;
         'LIST_SERVICES', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES'];
 
       if (tools.length > 0) {
+        // Show initial reasoning before tool execution (filter out raw TOOL: lines)
+        const initialReasoning = answer.split(/TOOL:/)[0].trim();
+        if (initialReasoning) {
+          setChatHistory(prev => [...prev, {
+            role: 'assistant',
+            content: initialReasoning + '\n\n*🔄 Investigating...*'
+          }]);
+        }
+
         let allToolResults: string[] = [];
 
         for (const toolMatch of tools) {
