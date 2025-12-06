@@ -2089,14 +2089,6 @@ function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigat
     enabled: !!currentContext && !isInsideVcluster,
   });
 
-  // Fetch cost report
-  const { data: costReport, isLoading: costLoading } = useQuery({
-    queryKey: ["cluster_cost", currentContext],
-    queryFn: async () => await invoke<ClusterCostReport>("get_cluster_cost_report"),
-    staleTime: 60000, // 1 minute - costs don't change rapidly
-    refetchInterval: 120000, // Refresh every 2 minutes
-  });
-
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -3205,119 +3197,6 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
             </div>
           )}
         </div>
-      </div>
-
-      {/* Cost Estimation Section */}
-      <div className="mt-6 bg-gradient-to-br from-zinc-900/80 to-emerald-900/20 rounded-xl p-4 border border-emerald-800/50">
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-            Cost Estimation
-            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 ml-2">
-              {costReport?.provider || 'Azure'} Pricing
-            </span>
-          </h3>
-          <p className="text-[10px] text-zinc-500 mt-1">Estimated monthly costs based on pod resource requests</p>
-        </div>
-
-        {costLoading ? (
-          <div className="flex items-center gap-2 text-zinc-500">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Calculating costs...</span>
-          </div>
-        ) : costReport ? (
-          <div className="space-y-4">
-            {/* Total Cost Card */}
-            <div className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs text-zinc-500 uppercase tracking-wider">Estimated Monthly Cost</div>
-                  <div className="text-3xl font-bold text-emerald-400 mt-1">
-                    ${costReport.total_cost_monthly.toFixed(2)}
-                    <span className="text-sm text-zinc-500 font-normal">/month</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-4 text-xs">
-                    <div>
-                      <div className="text-zinc-500">CPU</div>
-                      <div className="text-cyan-400 font-semibold">${costReport.cpu_cost_monthly.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-zinc-500">Memory</div>
-                      <div className="text-purple-400 font-semibold">${costReport.memory_cost_monthly.toFixed(2)}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center justify-between text-xs text-zinc-500">
-                <span>{costReport.total_cpu_cores.toFixed(2)} vCPU cores</span>
-                <span>{costReport.total_memory_gb.toFixed(2)} GB memory</span>
-                <span>{costReport.total_pods} pods</span>
-              </div>
-            </div>
-
-            {/* Namespace Cost Breakdown */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Top Namespaces by Cost */}
-              <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800">
-                <div className="text-xs font-semibold text-zinc-400 mb-3 flex items-center gap-2">
-                  <TrendingUp className="w-3 h-3 text-emerald-400" />
-                  Top Namespaces by Cost
-                </div>
-                <div className="space-y-2 max-h-[200px] overflow-auto">
-                  {costReport.namespaces.slice(0, 8).map((ns, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs group hover:bg-zinc-800/50 p-1.5 rounded">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
-                          i === 0 ? 'bg-emerald-500/20 text-emerald-400' :
-                          i === 1 ? 'bg-cyan-500/20 text-cyan-400' :
-                          i === 2 ? 'bg-purple-500/20 text-purple-400' :
-                          'bg-zinc-700/50 text-zinc-400'
-                        }`}>{i + 1}</span>
-                        <span className="text-zinc-300 truncate max-w-[120px]" title={ns.namespace}>{ns.namespace}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-zinc-500">{ns.pod_count} pods</span>
-                        <span className="text-emerald-400 font-semibold w-16 text-right">${ns.total_cost_monthly.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cost by Resource Type */}
-              <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800">
-                <div className="text-xs font-semibold text-zinc-400 mb-3 flex items-center gap-2">
-                  <Layers className="w-3 h-3 text-purple-400" />
-                  Top Workloads by Cost
-                </div>
-                <div className="space-y-2 max-h-[200px] overflow-auto">
-                  {costReport.namespaces.flatMap(ns => ns.top_resources.map(r => ({ ...r, namespace: ns.namespace })))
-                    .sort((a, b) => b.total_cost_monthly - a.total_cost_monthly)
-                    .slice(0, 8)
-                    .map((r, i) => (
-                      <div key={i} className="flex items-center justify-between text-xs group hover:bg-zinc-800/50 p-1.5 rounded">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-zinc-300 truncate" title={r.name}>{r.name}</div>
-                          <div className="text-[10px] text-zinc-500 truncate">{r.namespace} • {r.pod_count} pod{r.pod_count > 1 ? 's' : ''}</div>
-                        </div>
-                        <span className="text-emerald-400 font-semibold ml-2">${r.total_cost_monthly.toFixed(2)}</span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Pricing Info */}
-            <div className="text-[9px] text-zinc-600 flex items-center justify-between pt-2">
-              <span>Pricing: ${costReport.cpu_price_per_core_hour}/vCPU-hour, ${costReport.memory_price_per_gb_hour}/GB-hour (730 hrs/month)</span>
-              <span className="text-zinc-500">Based on resource requests, not actual usage</span>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-zinc-500">Unable to calculate costs</div>
-        )}
       </div>
 
       {/* Virtual Clusters Section - only show on host clusters, not inside vclusters */}
