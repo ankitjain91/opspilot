@@ -5640,6 +5640,49 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
     queryFn: async () => await invoke<string>("get_current_context_name"),
   });
 
+  // Context Switcher State
+  const [isContextDropdownOpen, setIsContextDropdownOpen] = useState(false);
+  const [isSwitchingContext, setIsSwitchingContext] = useState(false);
+
+  // Fetch all contexts for context switcher
+  const { data: allContexts } = useQuery({
+    queryKey: ["all_contexts"],
+    queryFn: async () => {
+      const result = await invoke<{ name: string; cluster: string; user: string }[]>("list_contexts", { customPath: null });
+      return result;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Handle context switch
+  const handleSwitchContext = async (contextName: string) => {
+    if (contextName === currentContext) {
+      setIsContextDropdownOpen(false);
+      return;
+    }
+
+    setIsSwitchingContext(true);
+    setIsContextDropdownOpen(false);
+
+    try {
+      // Clear backend caches
+      await invoke("clear_all_caches");
+
+      // Set the new context
+      await invoke("set_kube_config", { path: null, context: contextName });
+
+      // Invalidate all queries to refetch with new context
+      await qc.invalidateQueries();
+
+      (window as any).showToast?.(`Switched to ${contextName}`, 'success');
+    } catch (e) {
+      console.error("Failed to switch context:", e);
+      (window as any).showToast?.(`Failed to switch context: ${e}`, 'error');
+    } finally {
+      setIsSwitchingContext(false);
+    }
+  };
+
   // vcluster detection
   const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
   const [isDisconnectingVcluster, setIsDisconnectingVcluster] = useState(false);
@@ -6178,10 +6221,15 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
                   <span className="text-[10px] text-zinc-500 font-medium">v{appVersion}</span>
                 )}
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
-                <span className="text-[10px] text-zinc-400 truncate font-medium">{currentContext || "Unknown"}</span>
-              </div>
+              <button
+                onClick={() => setIsContextDropdownOpen(!isContextDropdownOpen)}
+                className="flex items-center gap-1.5 hover:bg-white/10 rounded px-1 -mx-1 py-0.5 transition-colors group"
+                title="Click to switch context"
+              >
+                <div className={`w-1.5 h-1.5 rounded-full ${isSwitchingContext ? 'bg-yellow-400 animate-pulse' : 'bg-emerald-400'} shadow-[0_0_6px_rgba(52,211,153,0.6)]`} />
+                <span className="text-[10px] text-zinc-400 truncate font-medium group-hover:text-zinc-200">{currentContext || "Unknown"}</span>
+                <ChevronDown size={10} className={`text-zinc-500 transition-transform ${isContextDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
             </div>
           </div>
           <button
@@ -6709,6 +6757,43 @@ function Dashboard({ onDisconnect }: { onDisconnect: () => void, isConnected: bo
         }}
         resourceName={resourceToDelete?.name || ""}
       />
+
+      {/* Context Switcher Dropdown - Rendered at root level for proper z-index */}
+      {isContextDropdownOpen && (
+        <>
+          {/* Backdrop to close dropdown */}
+          <div
+            className="fixed inset-0 z-[9998]"
+            onClick={() => setIsContextDropdownOpen(false)}
+          />
+          <div className="fixed left-4 top-14 z-[9999] w-72 max-h-96 bg-[#1e1e1e] border border-zinc-600 rounded-lg shadow-2xl flex flex-col">
+            <div className="bg-[#252525] border-b border-zinc-700 px-3 py-2.5 shrink-0 rounded-t-lg">
+              <span className="text-xs font-medium text-zinc-400">Switch Context</span>
+            </div>
+            <div className="py-1 overflow-y-auto flex-1">
+              {allContexts?.map((ctx) => (
+                <button
+                  key={ctx.name}
+                  onClick={() => handleSwitchContext(ctx.name)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
+                    ctx.name === currentContext
+                      ? 'bg-cyan-500/20 text-cyan-400'
+                      : 'text-zinc-300 hover:bg-zinc-700'
+                  }`}
+                >
+                  {ctx.name === currentContext && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  )}
+                  <span className="truncate">{ctx.name}</span>
+                </button>
+              ))}
+              {(!allContexts || allContexts.length === 0) && (
+                <div className="px-3 py-2 text-sm text-zinc-500">No contexts found</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div >
   );
 }
