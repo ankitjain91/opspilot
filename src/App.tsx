@@ -4062,23 +4062,25 @@ HARD RULES (FOLLOW EXACTLY OR FAIL)
 - You are an autonomous investigator - investigate NOW, not later
 
 **TOOL SYNTAX (CRITICAL):**
+- Tools are NOT shell commands - NO pipes, grep, awk, or shell syntax
 - TOOL: commands must use PLAIN TEXT only
 - NO markdown formatting (no ** or * or \` or _)
-- NO placeholders like [namespace] or <pod-name> or ... - use ACTUAL names from context
-- NO fake options like --show-all, -n, --all, -o wide - these are NOT valid tool arguments
-- Use EXACT resource names from LIST_ALL or context
+- NO placeholders like [namespace] or <pod-name> - use ACTUAL names
+- NO fake options like --show-all, -n, --all, -o wide
+- NEVER describe what you "would do" - EXECUTE THE TOOL NOW
 
 CORRECT EXAMPLES:
   TOOL: LIST_ALL Pod
   TOOL: DESCRIBE Pod kube-system coredns-abc123
   TOOL: GET_LOGS kube-system coredns-abc123
-  TOOL: GET_EVENTS kube-system
+  TOOL: FIND_ISSUES
 
 WRONG EXAMPLES (NEVER DO THIS):
+  LIST_ALL Pod | grep crash                    ❌ shell pipes don't work
+  TOOL: LIST_ALL Pod | awk '{print $1}'        ❌ no shell syntax
   TOOL: DESCRIBE Pod <namespace> <pod-name>    ❌ placeholders
   TOOL: LIST_ALL **Pods**                      ❌ markdown
-  TOOL: GET_EVENTS [namespace]                 ❌ placeholder
-  TOOL: LIST_ALL Pods --show-all               ❌ fake option
+  "Let's try filtering..."                     ❌ don't describe, EXECUTE
 
 **READ-ONLY:** Never suggest kubectl apply, patch, delete, scale, or any mutating command
 **NEVER GIVE UP:** If resource not found, LIST_ALL to find correct name
@@ -7077,10 +7079,12 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
 
                                                                             ------------------------------------------------
                                                                             TOOL SYNTAX (CRITICAL - FOLLOW EXACTLY)
+                                                                            - Tools are NOT shell commands - NO pipes, grep, awk, or shell syntax
                                                                             - TOOL: commands must use PLAIN TEXT only
                                                                             - NO markdown formatting (no ** or * or \` or _)
-                                                                            - NO placeholders like [namespace] or <pod-name> or ... - use ACTUAL names from context
-                                                                            - NO fake options like --show-all, -n, --all, -o wide - these are NOT valid tool arguments
+                                                                            - NO placeholders like [namespace] or <pod-name> - use ACTUAL names
+                                                                            - NO fake options like --show-all, -n, --all, -o wide
+                                                                            - NEVER describe what you "would do" - EXECUTE THE TOOL NOW
 
                                                                             CORRECT EXAMPLES:
                                                                               TOOL: LOGS manager
@@ -7089,7 +7093,10 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                                               TOOL: LIST_RESOURCES configmaps
 
                                                                             WRONG EXAMPLES (NEVER DO THIS):
-                                                                              TOOL: LOGS [container]           ❌ placeholder
+                                                                              LOGS manager | grep error          ❌ shell pipes don't work
+                                                                              TOOL: EVENTS | awk '{print $1}'    ❌ no shell syntax
+                                                                              "Let's try filtering..."           ❌ don't describe, EXECUTE
+                                                                              TOOL: LOGS [container]             ❌ placeholder
                                                                               TOOL: LOGS **nginx**             ❌ markdown
                                                                               TOOL: DESCRIBE --show-all        ❌ fake option
                                                                               TOOL: LIST_RESOURCES <kind>      ❌ placeholder
