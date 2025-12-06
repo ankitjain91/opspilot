@@ -4192,14 +4192,28 @@ ${message}
           let autoCorrected = false;
 
           if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && placeholderRegex.test(toolArgs)) {
-            // Auto-correct for LIST commands
-            if (['LIST_PODS', 'LIST_DEPLOYMENTS', 'LIST_SERVICES', 'GET_EVENTS'].includes(toolName)) {
-              console.log(`[Agent] Auto-correcting placeholder in ${toolName}`);
-              toolArgs = undefined; // Clear the args to list all
+            // Auto-correct for tools that can work without args (list all)
+            if (['GET_EVENTS', 'LIST_ALL', 'TOP_PODS', 'FIND_ISSUES'].includes(toolName)) {
+              console.log(`[Agent] Auto-correcting placeholder in ${toolName} - clearing args`);
+              // For LIST_ALL, keep the resource kind but remove namespace placeholder
+              if (toolName === 'LIST_ALL') {
+                const parts = toolArgs.split(/\s+/);
+                toolArgs = parts[0]; // Keep just the resource kind (Pod, Deployment, etc.)
+              } else {
+                toolArgs = undefined; // Clear the args to list all
+              }
               autoCorrected = true;
             } else {
-              toolResult = `❌ ERROR: You used a placeholder (e.g., [namespace], <pod>). You MUST use the ACTUAL name.\n\n👉 ACTION: Run LIST_PODS to find the real name.`;
-              setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName: 'INVALID', command: 'N/A' }]);
+              // Provide specific guidance based on what they were trying to do
+              let guidance = 'Run TOOL: FIND_ISSUES to see problem pods, or TOOL: LIST_ALL Pod to see all pods.';
+              if (toolName === 'DESCRIBE') {
+                guidance = 'First run TOOL: LIST_ALL Pod (or the resource type you need) to find the exact name.';
+              } else if (toolName === 'GET_LOGS') {
+                guidance = 'First run TOOL: LIST_ALL Pod to find the exact pod name and namespace.';
+              }
+              toolResult = `❌ PLACEHOLDER ERROR: "${toolArgs}" contains [brackets] or <angles> which are not real names.\n\n👉 ${guidance}`;
+              setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName: 'ERROR', command: 'N/A' }]);
+              allToolResults.push(toolResult);
               continue;
             }
           }
@@ -4413,13 +4427,39 @@ Be concise. Focus on evidence.`,
           const newToolResults: string[] = [];
           for (const toolMatch of nextTools) {
             const toolName = toolMatch[1];
-            const toolArgs = sanitizeToolArgs(toolMatch[2]?.trim());
+            let toolArgs = sanitizeToolArgs(toolMatch[2]?.trim());
             let toolResult = '';
             let kubectlCommand = '';
 
             if (!validTools.includes(toolName)) {
               setChatHistory(prev => [...prev, { role: 'tool', content: `⚠️ Invalid tool: ${toolName}`, toolName: 'INVALID', command: 'N/A' }]);
               continue;
+            }
+
+            // Validate against placeholders (iteration)
+            const iterPlaceholderRegex = /\[.*?\]|<.*?>|\.\.\./;
+            if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && iterPlaceholderRegex.test(toolArgs)) {
+              // Auto-correct for tools that can work without args
+              if (['GET_EVENTS', 'LIST_ALL', 'LIST_PODS', 'TOP_PODS', 'FIND_ISSUES'].includes(toolName)) {
+                console.log(`[Agent Iter] Auto-correcting placeholder in ${toolName} - clearing args`);
+                if (toolName === 'LIST_ALL' || toolName === 'LIST_PODS') {
+                  const parts = (toolArgs || '').split(/\s+/);
+                  toolArgs = parts[0]; // Keep just the resource kind if present
+                } else {
+                  toolArgs = undefined;
+                }
+              } else {
+                let guidance = 'Use TOOL: FIND_ISSUES to see problem resources.';
+                if (toolName === 'DESCRIBE') {
+                  guidance = 'First run TOOL: LIST_ALL <kind> to find the exact name.';
+                } else if (toolName === 'GET_LOGS') {
+                  guidance = 'First run TOOL: LIST_ALL Pod to find the exact pod name and namespace.';
+                }
+                toolResult = `❌ PLACEHOLDER ERROR: "${toolArgs}" contains [brackets] or <angles> which are not real names.\n\n👉 ${guidance}`;
+                setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName, command: 'Validation Error' }]);
+                newToolResults.push(`### ${toolName}\n${toolResult}`);
+                continue;
+              }
             }
 
             try {
@@ -7335,6 +7375,21 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
             continue;
           }
 
+          // Validate against placeholders (skip for SEARCH_KNOWLEDGE)
+          const placeholderRegex = /\[.*?\]|<.*?>|\.\.\./;
+          if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && placeholderRegex.test(toolArgs)) {
+            // For EVENTS, just clear args to get all events
+            if (toolName === 'EVENTS') {
+              console.log(`[DeepDive] Auto-correcting placeholder in EVENTS - clearing args`);
+              toolArgs = undefined;
+            } else {
+              const errorMsg = `❌ PLACEHOLDER ERROR: "${toolArgs}" contains [brackets] or <angles> which are not real names.\n\n👉 Use actual names from the resource context above. For this pod, check the "Containers:" section for container names.`;
+              setChatHistory(prev => [...prev, { role: 'tool', content: errorMsg, toolName: 'ERROR', command: 'N/A' }]);
+              allToolResults.push(errorMsg);
+              continue;
+            }
+          }
+
           // Auto-fix tool arguments BEFORE execution to prevent errors
           const { fixed: fixedArgs, wasFixed } = autoFixToolArgs(toolName, toolArgs, containerNames);
           if (wasFixed && fixedArgs !== undefined && fixedArgs !== toolArgs) {
@@ -7761,6 +7816,20 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
               }]);
               newToolResults.push(`## INVALID TOOL: ${toolName}\n${errorMsg}`);
               continue;
+            }
+
+            // Validate against placeholders (iteration)
+            const iterPlaceholderRegex = /\[.*?\]|<.*?>|\.\.\./;
+            if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && iterPlaceholderRegex.test(toolArgs)) {
+              if (toolName === 'EVENTS') {
+                console.log(`[DeepDive Iter] Auto-correcting placeholder in EVENTS`);
+                toolArgs = undefined;
+              } else {
+                const errorMsg = `❌ PLACEHOLDER ERROR: "${toolArgs}" contains [brackets] or <angles>. Use actual names from context.`;
+                setChatHistory(prev => [...prev, { role: 'tool', content: errorMsg, toolName: 'ERROR', command: 'N/A' }]);
+                newToolResults.push(errorMsg);
+                continue;
+              }
             }
 
             // Auto-fix tool arguments BEFORE execution to prevent errors
