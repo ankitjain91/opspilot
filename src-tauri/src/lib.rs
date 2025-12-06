@@ -254,6 +254,12 @@ struct ClusterEventSummary {
     event_type: String, // "Normal" or "Warning"
 }
 
+#[derive(Serialize, Clone)]
+struct UnhealthyReport {
+    timestamp: String,
+    issues: Vec<ClusterIssue>,
+}
+
 // Combined initial data for faster first load
 #[derive(Serialize, Clone)]
 struct InitialClusterData {
@@ -2418,6 +2424,8 @@ pub fn run() {
             get_cluster_cockpit,
             get_cluster_health_summary,
             get_cluster_events_summary,
+            list_all_resources,
+            find_unhealthy_resources,
             get_initial_cluster_data,
             list_azure_subscriptions,
             list_aks_clusters,
@@ -3286,6 +3294,138 @@ async fn get_cluster_events_summary(
     summaries.sort_by(|a, b| b.count.cmp(&a.count));
 
     Ok(summaries)
+}
+
+#[tauri::command]
+async fn list_all_resources(state: State<'_, AppState>, kind: String) -> Result<Vec<ResourceSummary>, String> {
+    let client = create_client(state.clone()).await?;
+    let discovery = get_cached_discovery(&state, client.clone()).await.map_err(|e| e.to_string())?;
+
+    // Try to find the resource by kind (case-insensitive)
+    let ar = discovery.groups()
+        .flat_map(|g| g.resources_by_stability())
+        .find(|(ar, _caps)| ar.kind.eq_ignore_ascii_case(&kind))
+        .map(|(ar, _)| ar)
+        .ok_or_else(|| format!("Resource kind '{}' not found", kind))?;
+
+    let api: Api<DynamicObject> = Api::all_with(client, &ar);
+    let list = api.list(&ListParams::default()).await.map_err(|e| format!("Failed to list {}: {}", kind, e))?;
+
+    let summaries: Vec<ResourceSummary> = list.items.into_iter().map(|item| {
+        let name = item.metadata.name.clone().unwrap_or_default();
+        let namespace = item.metadata.namespace.clone().unwrap_or("-".into());
+        let age = item.metadata.creation_timestamp.as_ref().map(|t| t.0.to_rfc3339()).unwrap_or_default();
+        
+        // Try to guess status from common fields
+        let status = if let Some(s) = item.data.get("status") {
+            if let Some(phase) = s.get("phase").and_then(|v| v.as_str()) {
+                phase.to_string()
+            } else if let Some(conds) = s.get("conditions").and_then(|v| v.as_array()) {
+                // Check for Ready condition
+                let is_ready = conds.iter().any(|c| {
+                    c.get("type").and_then(|t| t.as_str()) == Some("Ready") &&
+                    c.get("status").and_then(|s| s.as_str()) == Some("True")
+                });
+                if is_ready { "Ready".to_string() } else { "NotReady".to_string() }
+            } else {
+                "Unknown".to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        ResourceSummary {
+            id: item.metadata.uid.clone().unwrap_or_default(),
+            name,
+            namespace,
+            kind: ar.kind.clone(),
+            group: ar.group.clone(),
+            version: ar.version.clone(),
+            age,
+            status,
+            raw_json: serde_json::to_string(&item).unwrap_or_default(),
+            ready: None, restarts: None, node: None, ip: None, labels: item.metadata.labels.clone(),
+        }
+    }).collect();
+
+    Ok(summaries)
+}
+
+#[tauri::command]
+async fn find_unhealthy_resources(state: State<'_, AppState>) -> Result<UnhealthyReport, String> {
+    let client = create_client(state.clone()).await?;
+    let mut issues = Vec::new();
+
+    // reuse get_cluster_health_summary logic partially or just check generic health
+    // For now, let's just do a fresh check on core components + PVCs
+    
+    // Check PVCs (Pending/Lost)
+    let pvcs_api: Api<k8s_openapi::api::core::v1::PersistentVolumeClaim> = Api::all(client.clone());
+    if let Ok(pvcs) = pvcs_api.list(&ListParams::default()).await {
+        for pvc in pvcs.items {
+            let phase = pvc.status.as_ref().and_then(|s| s.phase.as_ref()).map(|p| p.as_str()).unwrap_or("Unknown");
+            if phase != "Bound" {
+                issues.push(ClusterIssue {
+                    severity: "warning".to_string(),
+                    resource_kind: "PersistentVolumeClaim".to_string(),
+                    resource_name: pvc.metadata.name.clone().unwrap_or_default(),
+                    namespace: pvc.metadata.namespace.clone().unwrap_or_default(),
+                    message: format!("PVC is in {} state", phase),
+                });
+            }
+        }
+    }
+
+    // Check StatefulSets
+    let sts_api: Api<k8s_openapi::api::apps::v1::StatefulSet> = Api::all(client.clone());
+    if let Ok(stss) = sts_api.list(&ListParams::default()).await {
+        for sts in stss.items {
+            let desired = sts.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
+            let ready = sts.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            if ready < desired {
+                issues.push(ClusterIssue {
+                    severity: "warning".to_string(),
+                    resource_kind: "StatefulSet".to_string(),
+                    resource_name: sts.metadata.name.clone().unwrap_or_default(),
+                    namespace: sts.metadata.namespace.clone().unwrap_or_default(),
+                    message: format!("Only {}/{} replicas ready", ready, desired),
+                });
+            }
+        }
+    }
+
+    // Check DaemonSets
+    let ds_api: Api<k8s_openapi::api::apps::v1::DaemonSet> = Api::all(client.clone());
+    if let Ok(dss) = ds_api.list(&ListParams::default()).await {
+        for ds in dss.items {
+            let desired = ds.status.as_ref().map(|s| s.desired_number_scheduled).unwrap_or(0);
+            let ready = ds.status.as_ref().map(|s| s.number_ready).unwrap_or(0);
+            if ready < desired {
+                issues.push(ClusterIssue {
+                    severity: "warning".to_string(),
+                    resource_kind: "DaemonSet".to_string(),
+                    resource_name: ds.metadata.name.clone().unwrap_or_default(),
+                    namespace: ds.metadata.namespace.clone().unwrap_or_default(),
+                    message: format!("Only {}/{} pods ready", ready, desired),
+                });
+            }
+        }
+    }
+
+    // Also include the basic health summary issues
+    if let Ok(summary) = get_cluster_health_summary(state).await {
+        issues.extend(summary.critical_issues);
+        issues.extend(summary.warnings);
+    }
+
+    // Deduplicate issues
+    issues.sort_by(|a, b| a.resource_name.cmp(&b.resource_name));
+    issues.dedup_by(|a, b| a.resource_name == b.resource_name && a.resource_kind == b.resource_kind && a.message == b.message);
+
+    Ok(UnhealthyReport {
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        issues,
+    })
 }
 
 fn parse_cpu_to_milli(cpu: &str) -> u64 {

@@ -1,8 +1,8 @@
 {
   "knowledge_base": {
     "name": "vCluster Kubernetes Troubleshooting",
-    "version": "1.0",
-    "last_updated": "2025-12-04",
+    "version": "2.0",
+    "last_updated": "2025-12-05",
     "categories": [
       "troubleshooting",
       "kubernetes",
@@ -41,6 +41,27 @@
         "title": "Investigation Patterns",
         "file": "investigation-patterns.json",
         "tags": ["methodology", "debugging", "best-practices"]
+      },
+      {
+        "id": "kb-k8s-master",
+        "title": "Complete Kubernetes Troubleshooting Knowledge Base",
+        "file": "k8s-master-kb.json",
+        "tags": [
+          "cluster",
+          "nodes",
+          "pods",
+          "networking",
+          "storage",
+          "api-server",
+          "rbac",
+          "ingress",
+          "dns",
+          "scheduling",
+          "controllers",
+          "etcd",
+          "cni"
+        ],
+        "summary": "Unified Kubernetes troubleshooting reference (errors, patterns, diagnostics, fixes) including connectivity, node issues, pod lifecycle, networking, storage, control plane, RBAC, policies, scheduling, workloads, and more."
       }
     ]
   }

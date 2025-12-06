@@ -250,6 +250,11 @@ interface ClusterEventSummary {
   event_type: string;
 }
 
+interface UnhealthyReport {
+  timestamp: string;
+  issues: ClusterIssue[];
+}
+
 // Ollama AI status (legacy)
 interface OllamaStatus {
   ollama_running: boolean;
@@ -287,7 +292,7 @@ const DEFAULT_LLM_CONFIGS: Record<LLMProvider, LLMConfig> = {
     base_url: 'http://127.0.0.1:11434',
     model: 'llama3.1:8b',
     temperature: 0.2,
-    max_tokens: 2048,
+    max_tokens: 8192,
   },
   openai: {
     provider: 'openai',
@@ -295,7 +300,7 @@ const DEFAULT_LLM_CONFIGS: Record<LLMProvider, LLMConfig> = {
     base_url: 'https://api.openai.com/v1',
     model: 'gpt-4o',
     temperature: 0.2,
-    max_tokens: 2048,
+    max_tokens: 8192,
   },
   anthropic: {
     provider: 'anthropic',
@@ -303,7 +308,7 @@ const DEFAULT_LLM_CONFIGS: Record<LLMProvider, LLMConfig> = {
     base_url: 'https://api.anthropic.com/v1',
     model: 'claude-sonnet-4-20250514',
     temperature: 0.2,
-    max_tokens: 2048,
+    max_tokens: 8192,
   },
   custom: {
     provider: 'custom',
@@ -311,7 +316,7 @@ const DEFAULT_LLM_CONFIGS: Record<LLMProvider, LLMConfig> = {
     base_url: 'http://localhost:8000/v1',
     model: 'default',
     temperature: 0.2,
-    max_tokens: 2048,
+    max_tokens: 8192,
   },
 };
 
@@ -3933,131 +3938,187 @@ CLUSTER OVERVIEW:
 - Resource Usage: CPU ${healthSummary.cluster_cpu_percent.toFixed(1)}%, Memory ${healthSummary.cluster_memory_percent.toFixed(1)}%
 
 ${healthSummary.critical_issues.length > 0 ? `CRITICAL ISSUES (${healthSummary.critical_issues.length}):
-${healthSummary.critical_issues.slice(0, 10).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No critical issues.'}
+${healthSummary.critical_issues.slice(0, 50).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No critical issues.'}
 
 ${healthSummary.warnings.length > 0 ? `WARNINGS (${healthSummary.warnings.length}):
-${healthSummary.warnings.slice(0, 10).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No warnings.'}
+${healthSummary.warnings.slice(0, 50).map(i => `- [${i.resource_kind}] ${i.namespace}/${i.resource_name}: ${i.message}`).join('\n')}` : 'No warnings.'}
 
 ${healthSummary.crashloop_pods.length > 0 ? `CRASHLOOPING PODS (${healthSummary.crashloop_pods.length}):
-${healthSummary.crashloop_pods.slice(0, 5).map(p => `- ${p.namespace}/${p.name}: ${p.restart_count} restarts, reason: ${p.reason}`).join('\n')}` : ''}
+${healthSummary.crashloop_pods.slice(0, 30).map(p => `- ${p.namespace}/${p.name}: ${p.restart_count} restarts, reason: ${p.reason}`).join('\n')}` : ''}
 
 ${healthSummary.unhealthy_deployments.length > 0 ? `UNHEALTHY DEPLOYMENTS (${healthSummary.unhealthy_deployments.length}):
-${healthSummary.unhealthy_deployments.slice(0, 5).map(d => `- ${d.namespace}/${d.name}: ${d.ready}/${d.desired} ready - ${d.reason}`).join('\n')}` : ''}
+${healthSummary.unhealthy_deployments.slice(0, 30).map(d => `- ${d.namespace}/${d.name}: ${d.ready}/${d.desired} ready - ${d.reason}`).join('\n')}` : ''}
 
 AVAILABLE READ-ONLY TOOLS:
 1. CLUSTER_HEALTH - Refresh cluster health summary
 2. GET_EVENTS [namespace] - Get cluster events (optionally filter by namespace)
-3. LIST_PODS [namespace] - List pods (optionally filter by namespace)
-4. LIST_DEPLOYMENTS [namespace] - List deployments
-5. LIST_SERVICES [namespace] - List services
-6. DESCRIBE <kind> <namespace> <name> - Get detailed YAML of a resource
-7. GET_LOGS <namespace> <pod> [container] - Get pod logs
-8. TOP_PODS [namespace] - Show pod resource usage
-9. FIND_ISSUES - Find all problematic resources
+3. LIST_ALL <kind> - List ANY resource (e.g., Pod, Service, Deployment, PVC, Endpoints, etc.) across all namespaces
+4. DESCRIBE <kind> <namespace> <name> - Get detailed YAML of a resource
+5. GET_LOGS <namespace> <pod> [container] - Get pod logs
+6. TOP_PODS [namespace] - Show pod resource usage
+7. FIND_ISSUES - Find all problematic resources (pods, nodes, deployments, PVCs, etc.)
+8. SEARCH_KNOWLEDGE <query> - Search knowledge base for debugging guides
+9. GET_ENDPOINTS <namespace> <service> - Get endpoints for a service (shows which pods receive traffic)
 
 To use a tool, respond with: TOOL: <tool_name> [args]
 Multiple tools: List each on a new line
 `;
 
-      const systemPrompt = `SYSTEM IDENTITY
-You are a Cluster-Wide SRE AI Assistant with visibility across the ENTIRE Kubernetes cluster.
-You operate as an AUTONOMOUS, READ-ONLY CLUSTER INVESTIGATOR.
+      const systemPrompt = `You are an expert Kubernetes SRE AI Assistant with deep knowledge of cluster operations, debugging, and troubleshooting. You operate as an AUTONOMOUS, READ-ONLY investigator with visibility across the ENTIRE cluster.
 
-SCOPE
-- All namespaces and resources
-- Cross-resource relationships (Service → Endpoints → Pods, Deployment → ReplicaSet → Pods)
-- Cluster health, resource usage, and issues
+═══════════════════════════════════════════════════════════════
+KUBERNETES DOMAIN EXPERTISE
+═══════════════════════════════════════════════════════════════
 
-CAPABILITIES
-1. Cluster Health Analysis - Identify unhealthy nodes, pods, deployments
-2. Troubleshooting - Start from symptoms, drill down to root cause
-3. Optimization Suggestions - Over/under-provisioned workloads
-4. Security Analysis - Privileged containers, missing limits, exposed secrets
+**POD FAILURE MODES & EXIT CODES:**
+- Exit Code 0: Normal termination (success)
+- Exit Code 1: Application error (check logs for stack trace)
+- Exit Code 137: OOMKilled (128 + SIGKILL=9) - Container exceeded memory limits
+- Exit Code 143: SIGTERM (128 + 15) - Graceful termination requested
+- Exit Code 139: Segmentation fault (SIGSEGV)
+- Exit Code 126: Permission problem or command not executable
+- Exit Code 127: Command not found (wrong entrypoint/command in container)
 
-HARD SAFETY RULES (READ ONLY)
-You MUST NOT:
-- Generate kubectl commands that modify state (apply, patch, delete, scale)
-- Generate YAML patches or manifests to apply
-- Suggest direct mutations
+**POD PHASES & CONDITIONS:**
+- Pending: Pod accepted but not yet scheduled or pulling images
+- Running: All containers started, at least one is running
+- Succeeded: All containers terminated successfully (exit 0)
+- Failed: All containers terminated, at least one failed
+- Unknown: Cannot determine state (node communication issue)
 
-You MAY:
-- Suggest READ-ONLY commands for users to run
-- Use tools to gather more information
-- Explain findings and provide recommendations
+**COMMON FAILURE PATTERNS:**
+1. **CrashLoopBackOff**: Container keeps crashing → Check: exit code, logs --previous, resource limits
+2. **ImagePullBackOff**: Cannot pull image → Check: image name typos, imagePullSecrets, registry auth
+3. **Pending (Unschedulable)**: No node can run pod → Check: resource requests vs node capacity, taints/tolerations, node selectors
+4. **CreateContainerConfigError**: ConfigMap/Secret missing → Check: mounted volumes, env references
+5. **ErrImageNeverPull**: imagePullPolicy=Never but image missing locally
+6. **RunContainerError**: Container runtime failure → Check: securityContext, capabilities
 
-OUTPUT FORMAT (EVERY TURN)
-You MUST use Markdown headers and bullet points for structure.
-**CRITICAL: You MUST put a blank line BEFORE and AFTER every header (###).**
-**CRITICAL: Do NOT output headers inline with text.**
+**SCHEDULING FAILURES (Pending Pods):**
+- Insufficient cpu/memory: Node capacity exceeded - check resource requests
+- NodeNotReady: Node is unhealthy - check node conditions
+- Taints and tolerations: Pod doesn't tolerate node taint
+- NodeSelector/Affinity: No matching nodes - check labels
+- PodDisruptionBudget: Would violate PDB - check PDB status
+- TopologySpread: Cannot satisfy constraints
+
+**RESOURCE RELATIONSHIPS:**
+- Deployment → ReplicaSet → Pods (rollout chain)
+- Service → Endpoints → Pods (traffic routing)
+- Ingress → Service → Endpoints → Pods (external access)
+- Job → Pods (batch workloads)
+- CronJob → Jobs → Pods (scheduled batches)
+- StatefulSet → Pods + PVCs (stateful workloads)
+- DaemonSet → Pods (one per node)
+
+**NETWORKING DIAGNOSTICS:**
+- Service not routing: Check endpoints (kubectl get endpoints <svc>)
+- No endpoints: Pod selector doesn't match pod labels
+- ClusterIP vs NodePort vs LoadBalancer implications
+- NetworkPolicy blocking traffic: Check network policies in namespace
+- DNS resolution: CoreDNS logs, nslookup from pod
+
+**STORAGE ISSUES:**
+- PVC Pending: No matching PV or StorageClass provisioner issue
+- FailedMount: Volume not available on node, wrong path, permission denied
+- FailedAttachVolume: Cloud provider disk issue, wrong AZ
+
+═══════════════════════════════════════════════════════════════
+AUTONOMOUS INVESTIGATION PROTOCOL
+═══════════════════════════════════════════════════════════════
+
+**STEP 1 - OBSERVE:** Clearly state the symptom
+- What is failing? (pod, deployment, service, node)
+- What is the observed behavior vs expected?
+
+**STEP 2 - HYPOTHESIZE:** Generate 3-5 ranked hypotheses
+For each hypothesis, assign confidence (HIGH/MEDIUM/LOW) based on:
+- Symptom match (does this failure mode produce this symptom?)
+- Frequency (how common is this cause?)
+
+**STEP 3 - GATHER EVIDENCE:** Use tools to test each hypothesis
+- For crash: GET_LOGS, DESCRIBE (check exit code, events)
+- For pending: DESCRIBE (check scheduling events, resource requests)
+- For networking: LIST_ALL Service, LIST_ALL Endpoints
+- For storage: LIST_ALL PVC, DESCRIBE PVC
+
+**STEP 4 - DIAGNOSE:** Match evidence to hypothesis
+- Which hypothesis has strongest supporting evidence?
+- Are there contradicting findings?
+
+**STEP 5 - CONCLUDE:** State root cause with confidence level
+- HIGH CONFIDENCE: Direct evidence (exit code 137 + memory usage spike)
+- MEDIUM CONFIDENCE: Indirect evidence (timing correlation)
+- LOW CONFIDENCE: No clear evidence, needs more investigation
+
+═══════════════════════════════════════════════════════════════
+HARD RULES (FOLLOW EXACTLY OR FAIL)
+═══════════════════════════════════════════════════════════════
+
+**BE FULLY AUTONOMOUS:**
+- NEVER say "If you would like me to proceed" or "Let me know" or "Would you like me to"
+- NEVER ask permission - just DO the investigation
+- NEVER list tools without executing them - if you mention a tool, USE IT immediately
+- You are an autonomous investigator - investigate NOW, not later
+
+**TOOL SYNTAX (CRITICAL):**
+- TOOL: commands must use PLAIN TEXT only
+- NO markdown formatting (no ** or * or \` or _)
+- NO placeholders like [namespace] or <pod-name> or ... - use ACTUAL names from context
+- NO fake options like --show-all, -n, --all, -o wide - these are NOT valid tool arguments
+- Use EXACT resource names from LIST_ALL or context
+
+CORRECT EXAMPLES:
+  TOOL: LIST_ALL Pod
+  TOOL: DESCRIBE Pod kube-system coredns-abc123
+  TOOL: GET_LOGS kube-system coredns-abc123
+  TOOL: GET_EVENTS kube-system
+
+WRONG EXAMPLES (NEVER DO THIS):
+  TOOL: DESCRIBE Pod <namespace> <pod-name>    ❌ placeholders
+  TOOL: LIST_ALL **Pods**                      ❌ markdown
+  TOOL: GET_EVENTS [namespace]                 ❌ placeholder
+  TOOL: LIST_ALL Pods --show-all               ❌ fake option
+
+**READ-ONLY:** Never suggest kubectl apply, patch, delete, scale, or any mutating command
+**NEVER GIVE UP:** If resource not found, LIST_ALL to find correct name
+**CHAIN TOOLS:** Don't stop at first finding - drill down until root cause is clear
+
+**KNOWLEDGE BASE FIRST (MANDATORY):**
+BEFORE investigating ANY issue, ALWAYS search the knowledge base FIRST:
+TOOL: SEARCH_KNOWLEDGE <relevant keywords from the problem>
+
+Examples:
+- Pod crashing → TOOL: SEARCH_KNOWLEDGE pod crash container
+- Deployment issues → TOOL: SEARCH_KNOWLEDGE deployment rollout
+- Network problems → TOOL: SEARCH_KNOWLEDGE service networking dns
+- Storage issues → TOOL: SEARCH_KNOWLEDGE pvc storage volume
+- Node problems → TOOL: SEARCH_KNOWLEDGE node scheduling
+- Auth/RBAC errors → TOOL: SEARCH_KNOWLEDGE rbac forbidden
+
+The knowledge base contains expert diagnostic workflows - ALWAYS consult it first!
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════
 
 ### 📝 Summary
-(2-3 sentences describing the situation)
+(2-3 sentences: what's happening, severity assessment)
 
-### 🔍 Findings
-- **[CRITICAL]** ...
-- **[WARNING]** ...
-- **[INFO]** ...
+### 🔍 Investigation
+**Hypothesis 1:** [Description] - Confidence: HIGH/MEDIUM/LOW
+  - Evidence: [what supports/contradicts]
+
+### 🎯 Root Cause
+[Clear statement of the root cause with evidence]
 
 ### 💡 Recommendations
-- ...
+1. [Actionable fix with specific details]
 
 ### ⏭️ Next Steps
-(If you need more data, use TOOL: commands here)
+TOOL: [if more investigation needed]
 
-**AUTONOMOUS INVESTIGATION (CRITICAL):**
-- You drive the debugging process COMPLETELY on your own
-- After analyzing initial data, IMMEDIATELY use tools to investigate further
-- Don't wait for user input - call tools right away
-- Chain tools together: CLUSTER_HEALTH → GET_EVENTS → LIST_PODS → GET_LOGS
-- If you find an issue, drill down with more tools automatically
-- NEVER stop mid-investigation - keep using tools until you have a clear answer
-
-**SYSTEMATIC RESEARCH PROTOCOL (CRITICAL):**
-1. **BROAD SEARCH**: If you can't find a specific resource, DO NOT GIVE UP. List ALL resources of that kind.
-   - Example: Pod 'api-123' not found? -> Run LIST_PODS to see what IS there.
-2. **FILTER & IDENTIFY**: Look through the list for similar names or relevant services.
-   - Example: User asked for "payment", you see 'payment-service-v8-x9z'. That's your target.
-3. **DEEP DIVE**: Once identified, drill down immediately.
-   - Run DESCRIBE to check status/events.
-   - Run GET_LOGS to check for application errors.
-4. **FAILURE ANALYSIS**: Look for keywords: "Error", "Failed", "BackOff", "CrashLoop".
-   - If you see an error, explain it clearly.
-
-**ROOT CAUSE ANALYSIS EXPERT (CRITICAL):**
-Adopt a "Hypothesis-Driven Debugging" approach:
-1. **OBSERVE**: State the symptom clearly (e.g., "Pod is crashing").
-2. **HYPOTHESIZE**: List 2-3 potential causes.
-   - Example: "Is it an OOM kill? Application panic? Missing config?"
-3. **VERIFY**: Use tools to prove/disprove each hypothesis.
-   - Check Exit Codes: 137 = OOM (Check limits), 1 = App Error (Check logs).
-   - Check Events: "BackOff" often means image pull issue or crash loop.
-   - Check Dependencies: Are secrets/configmaps mounted? Is the DB reachable?
-4. **CONCLUSION**: Provide a "Final Verdict" on the root cause.
-
-**KNOWLEDGE BASE (PRIORITY):**
-- **ALWAYS** use \`SEARCH_KNOWLEDGE <query>\` FIRST for:
-    - "How do I..." questions.
-    - "What is..." questions.
-    - Requests for specific commands (e.g., "command to connect").
-    - Error explanations.
-- Example: \`SEARCH_KNOWLEDGE connect to vcluster\` or \`SEARCH_KNOWLEDGE PVC\`.
-
-        **SCENARIO GUIDELINES:**
-        - **CrashLoopBackOff**: Check logs (--previous), check exit code.
-        - **ImagePullBackOff**: Check image name spelling, check secret existence.
-        - **Pending**: Check describe pod for scheduling events (CPU/Mem limits, Taints).
-        - **Service Issues**: Check endpoints to see if backend pods are ready.
-
-        **SELF-CORRECTION:**
-        - If a tool fails, analyze WHY (typo? wrong ns?) and fix it immediately.
-        - You are responsible for finding the truth.
-
-        **NO PLACEHOLDERS (CRITICAL):**
-        - NEVER use [namespace], <pod>, or ... in commands.
-          - You MUST use actual names (e.g., default, nginx-pod-123).
-          - If you don't know the name, run LIST_PODS first to find it.
-
-          Keep responses concise and actionable. Focus on the most important issues.`;
+Keep responses focused and evidence-based.`;
 
       const finalPrompt = `
 === BACKGROUND CONTEXT (FOR INFORMATION ONLY) ===
@@ -4082,8 +4143,19 @@ ${message}
       const toolMatches = answer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
       const tools = Array.from(toolMatches);
 
-      const validTools = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_PODS', 'LIST_DEPLOYMENTS',
-        'LIST_SERVICES', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE'];
+      const validTools = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS'];
+
+      // Helper to sanitize tool arguments - remove markdown formatting
+      const sanitizeToolArgs = (args: string | undefined): string | undefined => {
+        if (!args) return args;
+        return args
+          .replace(/\*\*/g, '')  // Remove bold **
+          .replace(/\*/g, '')    // Remove italic *
+          .replace(/`/g, '')     // Remove code backticks
+          .replace(/_/g, ' ')    // Replace underscores with spaces
+          .replace(/\s+/g, ' ')  // Normalize whitespace
+          .trim();
+      };
 
       if (tools.length > 0) {
         // Show initial reasoning before tool execution (filter out raw TOOL: lines)
@@ -4100,7 +4172,7 @@ ${message}
 
         for (const toolMatch of tools) {
           const toolName = toolMatch[1];
-          let toolArgs: string | undefined = toolMatch[2]?.trim();
+          let toolArgs: string | undefined = sanitizeToolArgs(toolMatch[2]?.trim());
           let toolResult = '';
           let kubectlCommand = '';
 
@@ -4144,42 +4216,32 @@ ${message}
             } else if (toolName === 'GET_EVENTS') {
               const namespace = toolArgs || undefined;
               kubectlCommand = namespace ? `kubectl get events -n ${namespace}` : 'kubectl get events --all-namespaces';
-              const events = await invoke<ClusterEventSummary[]>("get_cluster_events_summary", { namespace, limit: 20 });
+              const events = await invoke<ClusterEventSummary[]>("get_cluster_events_summary", { namespace, limit: 100 });
               if (events.length === 0) {
                 toolResult = 'No warning events found.';
               } else {
-                toolResult = `## Recent Events (${events.length})\n${events.slice(0, 15).map(e =>
-                  `- [${e.event_type}] ${e.namespace}/${e.name} (${e.kind}): ${e.reason} - ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`
+                toolResult = `## Recent Events (${events.length})\n${events.slice(0, 50).map(e =>
+                  `- [${e.event_type}] ${e.namespace}/${e.name} (${e.kind}): ${e.reason} - ${e.message}${e.count > 1 ? ` (×${e.count})` : ''} ${e.last_seen ? `(${e.last_seen})` : ''}`
                 ).join('\n')}`;
               }
               if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
-            } else if (toolName === 'LIST_PODS') {
-              const namespace = toolArgs || undefined;
-              kubectlCommand = namespace ? `kubectl get pods -n ${namespace}` : 'kubectl get pods --all-namespaces';
-              const pods = await invoke<any[]>("list_resources", {
-                req: { group: "", version: "v1", kind: "Pod", namespace: namespace || null }
-              });
-              const summary = pods.slice(0, 20).map(p => `- ${p.namespace}/${p.name}: ${p.status}`).join('\n');
-              toolResult = `## Pods (${pods.length} total)\n${summary}${pods.length > 20 ? `\n... and ${pods.length - 20} more` : ''}`;
-              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
-            } else if (toolName === 'LIST_DEPLOYMENTS') {
-              const namespace = toolArgs || undefined;
-              kubectlCommand = namespace ? `kubectl get deployments -n ${namespace}` : 'kubectl get deployments --all-namespaces';
-              const deps = await invoke<any[]>("list_resources", {
-                req: { group: "apps", version: "v1", kind: "Deployment", namespace: namespace || null }
-              });
-              const summary = deps.slice(0, 20).map(d => `- ${d.namespace}/${d.name}: ${d.ready || '?'}/${d.replicas || '?'} ready`).join('\n');
-              toolResult = `## Deployments (${deps.length} total)\n${summary}`;
-              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
-            } else if (toolName === 'LIST_SERVICES') {
-              const namespace = toolArgs || undefined;
-              kubectlCommand = namespace ? `kubectl get services -n ${namespace}` : 'kubectl get services --all-namespaces';
-              const svcs = await invoke<any[]>("list_resources", {
-                req: { group: "", version: "v1", kind: "Service", namespace: namespace || null }
-              });
-              const summary = svcs.slice(0, 20).map(s => `- ${s.namespace}/${s.name}: ${s.status}`).join('\n');
-              toolResult = `## Services (${svcs.length} total)\n${summary}`;
-              if (autoCorrected) toolResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
+            } else if (toolName === 'LIST_ALL') {
+              // Extract kind from args. If args has namespace, warn or ignore it since LIST_ALL is cluster-wide by default in our impl, 
+              // or better, if the user asks for LIST_ALL Pods -n default, we can filter client side or just list all.
+              // My list_all_resources backend tool takes 'kind'.
+              const kind = (toolArgs || '').split(/\s+/)[0];
+              if (!kind || kind.includes('[') || kind.includes('<')) {
+                toolResult = '⚠️ Usage: LIST_ALL <kind> (e.g. LIST_ALL Pod, LIST_ALL PVC)';
+              } else {
+                kubectlCommand = `kubectl get ${kind.toLowerCase()} --all-namespaces`;
+                const resources = await invoke<any[]>("list_all_resources", { kind });
+                if (resources.length === 0) {
+                  toolResult = `No resources of kind '${kind}' found.`;
+                } else {
+                  const summary = resources.slice(0, 50).map(r => `- ${r.namespace}/${r.name}: ${r.status}`).join('\n');
+                  toolResult = `## ${kind} List (${resources.length} total)\n${summary}${resources.length > 50 ? `\n... ${resources.length - 50} more` : ''}`;
+                }
+              }
             } else if (toolName === 'DESCRIBE') {
               const [kind, ns, name] = (toolArgs || '').split(/\s+/);
               if (!kind || !ns || !name) {
@@ -4204,18 +4266,31 @@ ${message}
                 toolResult = `## Logs: ${ns}/${pod}${container ? ` (${container})` : ''}\n\`\`\`\n${logs.slice(-2000)}\n\`\`\``;
               }
             } else if (toolName === 'TOP_PODS') {
-              kubectlCommand = 'kubectl top pods --all-namespaces';
-              toolResult = '⚠️ Metrics API required. Check if metrics-server is installed.';
+              const topNs = toolArgs || undefined;
+              kubectlCommand = topNs ? `kubectl top pods -n ${topNs}` : 'kubectl top pods --all-namespaces';
+              try {
+                const metrics = await invoke<any[]>("get_pod_metrics", { namespace: topNs || null });
+                if (metrics.length === 0) {
+                  toolResult = '⚠️ No pod metrics available. Ensure metrics-server is installed and running.';
+                } else {
+                  const sorted = metrics.sort((a, b) => (b.cpu_millicores || 0) - (a.cpu_millicores || 0));
+                  toolResult = `## Pod Resource Usage (${metrics.length} pods)\n| Namespace | Pod | CPU | Memory |\n|-----------|-----|-----|--------|\n${sorted.slice(0, 30).map(m =>
+                    `| ${m.namespace} | ${m.name} | ${m.cpu_millicores || 0}m | ${m.memory_mib || 0}Mi |`
+                  ).join('\n')}`;
+                }
+              } catch {
+                toolResult = '⚠️ Metrics API not available. Install metrics-server: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml';
+              }
             } else if (toolName === 'FIND_ISSUES') {
-              kubectlCommand = 'kubectl get pods --all-namespaces --field-selector=status.phase!=Running';
-              const health = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
-              const issues = [...health.critical_issues, ...health.warnings].slice(0, 20);
-              if (issues.length === 0) {
+              kubectlCommand = 'custom-health-check';
+              const report = await invoke<UnhealthyReport>("find_unhealthy_resources");
+              if (report.issues.length === 0) {
                 toolResult = '✅ No issues found in the cluster.';
               } else {
-                toolResult = `## Issues Found (${issues.length})\n${issues.map(i =>
+                const issues = report.issues.slice(0, 50);
+                toolResult = `## Issues Found (${report.issues.length} total, showing ${issues.length})\n${issues.map(i =>
                   `- [${i.severity.toUpperCase()}] ${i.resource_kind} ${i.namespace}/${i.resource_name}: ${i.message}`
-                ).join('\n')}`;
+                ).join('\n')}${report.issues.length > 50 ? `\n... ${report.issues.length - 50} more issues` : ''}`;
               }
             } else if (toolName === 'SEARCH_KNOWLEDGE') {
               const query = toolArgs || '';
@@ -4227,6 +4302,31 @@ ${message}
                   toolResult = `No knowledge base articles found for "${query}".`;
                 } else {
                   toolResult = `## Knowledge Base Results for "${query}"\n${results.map(r => `### ${r.file} (Score: ${r.score})\n${r.content}`).join('\n\n')}`;
+                }
+              }
+            } else if (toolName === 'GET_ENDPOINTS') {
+              const [ns, svc] = (toolArgs || '').split(/\s+/);
+              if (!ns || !svc) {
+                toolResult = '⚠️ Usage: GET_ENDPOINTS <namespace> <service>';
+              } else {
+                kubectlCommand = `kubectl get endpoints -n ${ns} ${svc} -o yaml`;
+                try {
+                  const details = await invoke<string>("get_resource_details", {
+                    req: { group: "", version: "v1", kind: "Endpoints", namespace: ns },
+                    name: svc
+                  });
+                  const parsed = JSON.parse(details);
+                  const subsets = parsed.subsets || [];
+                  if (subsets.length === 0) {
+                    toolResult = `## Endpoints: ${ns}/${svc}\n⚠️ **No endpoints found!** This means no pods match the service selector.\n\nCheck:\n- Service selector matches pod labels\n- Pods are in Running state\n- Pods pass readiness probes`;
+                  } else {
+                    const addresses = subsets.flatMap((s: any) => (s.addresses || []).map((a: any) => `${a.ip} (${a.targetRef?.name || 'unknown'})`));
+                    const notReady = subsets.flatMap((s: any) => (s.notReadyAddresses || []).map((a: any) => `${a.ip} (${a.targetRef?.name || 'unknown'})`));
+                    const ports = subsets.flatMap((s: any) => (s.ports || []).map((p: any) => `${p.port}/${p.protocol}`));
+                    toolResult = `## Endpoints: ${ns}/${svc}\n**Ready:** ${addresses.length > 0 ? addresses.join(', ') : 'None'}\n**Not Ready:** ${notReady.length > 0 ? notReady.join(', ') : 'None'}\n**Ports:** ${ports.join(', ') || 'None'}`;
+                  }
+                } catch {
+                  toolResult = `⚠️ Endpoints not found for service ${ns}/${svc}. Check if the service exists.`;
                 }
               }
             }
@@ -4251,29 +4351,39 @@ ${message}
           const analysisAnswer = await invoke<string>("call_llm", {
             config: llmConfig,
             prompt: analysisPrompt,
-            systemPrompt: `You are analyzing Kubernetes cluster data autonomously.
+            systemPrompt: `You are an expert Kubernetes investigator continuing your analysis.
 
-                      **AUTO-CONTINUE RULE:**
-                      1. If you found issues but need more details → USE TOOLS immediately (GET_LOGS, DESCRIBE, etc.)
-                      2. If you have partial evidence → USE TOOLS to find more
-                      3. ONLY stop when you have HIGH CONFIDENCE or exhausted relevant tools
+**CURRENT INVESTIGATION STATUS:**
+Review your previous findings and determine:
+1. Which hypotheses have been CONFIRMED or RULED OUT?
+2. What evidence is still MISSING?
+3. What is your CONFIDENCE LEVEL? (HIGH/MEDIUM/LOW)
 
-                      Available tools: CLUSTER_HEALTH, GET_EVENTS [ns], LIST_PODS [ns], LIST_DEPLOYMENTS [ns], LIST_SERVICES [ns], DESCRIBE <kind> <ns> <name>, GET_LOGS <ns> <pod> [container], TOP_PODS, FIND_ISSUES, SEARCH_KNOWLEDGE <query>
+**DECISION TREE:**
+- CONFIDENCE HIGH + Root cause clear → Provide final answer (no TOOL:)
+- CONFIDENCE MEDIUM + Need more evidence → Use specific tools
+- CONFIDENCE LOW + Stuck → WIDEN search (LIST_ALL, GET_EVENTS)
 
-                        **SYSTEMATIC RESEARCH:**
-                        - If you hit a dead end, WIDEN your search.
-                        - List all pods/services to find the right target.
-                        - Drill down into the most likely candidate.
-                        - Don't stop until you have found the root cause or proven it's healthy.
+**KUBERNETES EXIT CODES (Reference):**
+- 137 = OOMKilled (increase memory limits)
+- 143 = SIGTERM (graceful shutdown)
+- 1 = Application error (check logs)
+- 127 = Command not found
 
-                        **ERROR HANDLING:**
-                        - If the last tool call failed, your HIGHEST PRIORITY is to fix it.
-                        - Ask yourself: "Why did it fail?" then try a different approach.
-- Example: "Pod not found" -> Call LIST_PODS to find the real name.
+**COMMON NEXT STEPS:**
+- Pod crashing? → GET_LOGS <ns> <pod> (check for stack traces)
+- Pod pending? → DESCRIBE Pod <ns> <pod> (check Events section)
+- Service not working? → LIST_ALL Endpoints (check if pods registered)
+- Need resource usage? → TOP_PODS [ns]
 
-                        To use a tool: TOOL: <tool_name> [args]
+**TOOLS:** CLUSTER_HEALTH, GET_EVENTS [ns], LIST_ALL <kind>, DESCRIBE <kind> <ns> <name>, GET_LOGS <ns> <pod> [container], TOP_PODS [ns], FIND_ISSUES, SEARCH_KNOWLEDGE <query>, GET_ENDPOINTS <ns> <svc>
 
-                          Be concise. Focus on actionable findings.`,
+**ERROR RECOVERY:**
+- "not found" → Use LIST_ALL to find correct name
+- Tool failed → Check argument format, try different approach
+
+To use: TOOL: <name> [args]
+Be concise. Focus on evidence.`,
             conversationHistory: chatHistory.filter(m => m.role !== 'tool'),
           });
 
@@ -4301,7 +4411,7 @@ ${message}
           const newToolResults: string[] = [];
           for (const toolMatch of nextTools) {
             const toolName = toolMatch[1];
-            const toolArgs = toolMatch[2]?.trim();
+            const toolArgs = sanitizeToolArgs(toolMatch[2]?.trim());
             let toolResult = '';
             let kubectlCommand = '';
 
@@ -4562,80 +4672,133 @@ ${message}
 
         {chatHistory.map((msg, i) => (
           <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* User Message - Task/Query */}
             {msg.role === 'user' && (
-              <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 bg-gradient-to-br from-violet-600/90 to-fuchsia-600/90 text-white text-sm shadow-lg shadow-purple-500/10">
-                  {msg.content}
+              <div className="relative pl-6 pb-4">
+                {/* Timeline dot */}
+                <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20" />
+                {/* Timeline line */}
+                <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
+
+                <div className="ml-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Task</span>
+                  </div>
+                  <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-3 py-2 border border-violet-500/30">
+                    <p className="text-sm text-white">{msg.content}</p>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Tool Execution - Agentic Style */}
             {msg.role === 'tool' && (
-              <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="bg-[#1e1e2e] rounded-lg border border-[#2d2d3d] overflow-hidden">
-                  {/* Tool Header */}
-                  <div className="px-3 py-2 bg-[#252535] border-b border-[#2d2d3d] flex items-center gap-2">
-                    <TerminalIcon size={14} className="text-cyan-400" />
-                    <span className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
+              <div className="relative pl-6 pb-3">
+                {/* Timeline dot */}
+                <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-cyan-500 ring-4 ring-cyan-500/20" />
+                {/* Timeline line */}
+                <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/50 to-transparent" />
+
+                <div className="ml-2 space-y-2">
+                  {/* Tool call header */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-medium text-cyan-400 uppercase tracking-wider">Tool Call</span>
+                    <span className="text-[10px] text-zinc-500">→</span>
+                    <span className="text-xs font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">{msg.toolName}</span>
                   </div>
-                  {/* kubectl equivalent */}
+
+                  {/* Command */}
                   {msg.command && (
-                    <div className="px-3 py-2 border-b border-[#2d2d3d]">
-                      <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">KUBECTL EQUIVALENT</div>
-                      <code className="text-xs text-cyan-400 font-mono">{msg.command}</code>
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] text-zinc-500 mt-1 shrink-0">$</span>
+                      <code className="text-xs text-emerald-400 font-mono bg-black/30 px-2 py-1 rounded break-all">{msg.command}</code>
                     </div>
                   )}
+
                   {/* Results */}
-                  <div className="px-3 py-3 prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
-                        strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                        code: ({ children }) => <code className="text-[11px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                        pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                        ul: ({ children }) => <ul className="text-xs list-disc ml-4 my-1 space-y-0.5">{children}</ul>,
-                        li: ({ children }) => <li className="text-zinc-300">{children}</li>,
-                        h2: ({ children }) => <h2 className="text-sm font-bold text-white mt-2 mb-1">{children}</h2>,
-                      }}
-                    >
-                      {msg.content}
-                    </ReactMarkdown>
+                  <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
+                    <div className="px-3 py-1.5 bg-[#161b22] border-b border-[#21262d] flex items-center gap-2">
+                      <div className="flex gap-1">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                      </div>
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Output</span>
+                    </div>
+                    <div className="px-3 py-2 max-h-[200px] overflow-y-auto">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
+                          strong: ({ children }) => <strong className="text-emerald-300 font-semibold">{children}</strong>,
+                          code: ({ children }) => <code className="text-[11px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                          pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2 rounded overflow-x-auto my-1 font-mono text-zinc-300">{children}</pre>,
+                          ul: ({ children }) => <ul className="text-xs list-none ml-0 my-1 space-y-0.5">{children}</ul>,
+                          li: ({ children }) => <li className="text-zinc-400 before:content-['•'] before:text-cyan-500 before:mr-2">{children}</li>,
+                          h2: ({ children }) => <h2 className="text-xs font-semibold text-cyan-300 mt-2 mb-1 uppercase tracking-wider">{children}</h2>,
+                          table: ({ children }) => <table className="text-xs w-full border-collapse">{children}</table>,
+                          th: ({ children }) => <th className="text-left text-zinc-400 border-b border-zinc-700 pb-1 pr-4">{children}</th>,
+                          td: ({ children }) => <td className="text-zinc-300 border-b border-zinc-800 py-1 pr-4">{children}</td>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
+
+            {/* Assistant Response - Thinking/Analysis */}
             {msg.role === 'assistant' && (
               (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="inline-flex items-center gap-2 px-3 py-2 bg-[#1e1e2e] rounded-lg border border-[#2d2d3d]">
-                    <Loader2 size={14} className="text-purple-400 animate-spin" />
-                    <span className="text-xs text-zinc-300">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
+                <div className="relative pl-6 pb-3">
+                  {/* Timeline dot - pulsing */}
+                  <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-amber-500 ring-4 ring-amber-500/20 animate-pulse" />
+                  {/* Timeline line */}
+                  <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/50 to-transparent" />
+
+                  <div className="ml-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-medium text-amber-400 uppercase tracking-wider">Thinking</span>
+                      <Loader2 size={10} className="text-amber-400 animate-spin" />
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1 italic">
+                      {msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing data...'}
+                    </p>
                   </div>
                 </div>
               ) : (
+                <div className="relative pl-6 pb-4">
+                  {/* Timeline dot */}
+                  <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
 
-                <div className="flex justify-start gap-2">
-                  <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-                    <Sparkles size={12} className="text-violet-400" />
-                  </div>
-                  <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
-                        strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                        code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                        pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                        ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
-                        ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
-                        li: ({ children }) => <li className="text-zinc-200">{children}</li>,
-                        h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 border-b border-white/10 pb-1">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-sm font-bold text-violet-200 mt-3 mb-1.5">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-sm font-semibold text-violet-300 mt-3 mb-1">{children}</h3>,
-                      }}
-                    >
-                      {fixMarkdownHeaders(msg.content)}
-                    </ReactMarkdown>
+                  <div className="ml-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">Analysis Complete</span>
+                      <Sparkles size={10} className="text-emerald-400" />
+                    </div>
+                    <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
+                      <div className="px-4 py-3 prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p className="text-[13px] text-zinc-300 my-1.5 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                            em: ({ children }) => <em className="text-zinc-400 not-italic">{children}</em>,
+                            code: ({ children }) => <code className="text-[11px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                            pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
+                            ul: ({ children }) => <ul className="text-[13px] list-none ml-0 my-1.5 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-2 before:font-bold">{children}</li>,
+                            h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-4 mb-2 flex items-center gap-2 border-b border-zinc-700 pb-2">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-bold text-emerald-300 mt-4 mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold text-cyan-300 mt-3 mb-1.5">{children}</h3>,
+                            blockquote: ({ children }) => <blockquote className="border-l-2 border-amber-500 pl-3 my-2 text-amber-200/80 italic">{children}</blockquote>,
+                          }}
+                        >
+                          {fixMarkdownHeaders(msg.content)}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )
@@ -4644,12 +4807,24 @@ ${message}
         ))
         }
 
+        {/* Loading State */}
         {
           llmLoading && (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <div className="inline-flex items-center gap-2 px-3 py-2 bg-[#1e1e2e] rounded-lg border border-[#2d2d3d]">
-                <Loader2 size={14} className="text-purple-400 animate-spin" />
-                <span className="text-xs text-zinc-300">Analyzing...</span>
+            <div className="relative pl-6 pb-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {/* Timeline dot - pulsing */}
+              <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20 animate-pulse" />
+              <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
+
+              <div className="ml-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Processing</span>
+                  <div className="flex gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 mt-1">Analyzing cluster data...</p>
               </div>
             </div>
           )
@@ -6759,9 +6934,9 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
           name: resource.name,
           uid: resource.id
         });
-        const last10 = events.slice(0, 10);
-        if (last10.length > 0) {
-          recentEvents = last10.map(e =>
+        const last30 = events.slice(0, 30);
+        if (last30.length > 0) {
+          recentEvents = last30.map(e =>
             `[${e.type_}] ${e.reason}: ${e.message}${e.count > 1 ? ` (×${e.count})` : ''}`
           ).join('\n');
         }
@@ -6813,7 +6988,7 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                               ${resource.kind === 'Deployment' && fullObject?.status ? `- Replicas: ${fullObject.status.replicas || 0}/${fullObject.spec?.replicas || 0} available: ${fullObject.status.availableReplicas || 0}` : ''}
                                                               ${resource.kind === 'Service' && fullObject?.spec?.type ? `- Type: ${fullObject.spec.type}, ClusterIP: ${fullObject.spec.clusterIP || 'N/A'}` : ''}
 
-                                                              Recent Events (last 10):
+                                                              Recent Events (last 30):
                                                               ${recentEvents || 'No recent events'}
 
                                                               Available READ-ONLY debugging tools:
@@ -6839,6 +7014,7 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                                 10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
                                                                   11. NODE_INFO - Get node details if pod is scheduled
                                                                   12. STORAGE_CHECK - Check PVC/PV status for pods
+                                                                  13. SEARCH_KNOWLEDGE <query> - Search knowledge base for debugging guides
 
                                                                   **All tools are read-only and safe - they only retrieve information, never modify resources.**
 
@@ -6893,6 +7069,32 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                                             Reply: "I am running in READ-ONLY Kubernetes analysis mode and cannot generate modifying commands."
 
                                                                             ------------------------------------------------
+                                                                            BE FULLY AUTONOMOUS (CRITICAL)
+                                                                            - NEVER say "If you would like me to proceed" or "Let me know" or "Would you like me to"
+                                                                            - NEVER ask permission - just DO the investigation immediately
+                                                                            - NEVER list tools without executing them - if you mention a tool, USE IT right away
+                                                                            - You are an autonomous investigator - investigate NOW, not later
+
+                                                                            ------------------------------------------------
+                                                                            TOOL SYNTAX (CRITICAL - FOLLOW EXACTLY)
+                                                                            - TOOL: commands must use PLAIN TEXT only
+                                                                            - NO markdown formatting (no ** or * or \` or _)
+                                                                            - NO placeholders like [namespace] or <pod-name> or ... - use ACTUAL names from context
+                                                                            - NO fake options like --show-all, -n, --all, -o wide - these are NOT valid tool arguments
+
+                                                                            CORRECT EXAMPLES:
+                                                                              TOOL: LOGS manager
+                                                                              TOOL: DESCRIBE
+                                                                              TOOL: EVENTS
+                                                                              TOOL: LIST_RESOURCES configmaps
+
+                                                                            WRONG EXAMPLES (NEVER DO THIS):
+                                                                              TOOL: LOGS [container]           ❌ placeholder
+                                                                              TOOL: LOGS **nginx**             ❌ markdown
+                                                                              TOOL: DESCRIBE --show-all        ❌ fake option
+                                                                              TOOL: LIST_RESOURCES <kind>      ❌ placeholder
+
+                                                                            ------------------------------------------------
                                                                             TOOL USAGE (AUTONOMOUS INVESTIGATION)
                                                                             You have access to READ-ONLY debugging tools. Use them autonomously to drive investigation.
 
@@ -6911,6 +7113,14 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                                               10. DESCRIBE_ANY <kind> <name> - Describe any resource in namespace
                                                                                 11. NODE_INFO - Get node details if pod is scheduled
                                                                                 12. STORAGE_CHECK - Check PVC/PV status for pods
+                                                                                13. SEARCH_KNOWLEDGE <query> - Search knowledge base for debugging guides
+
+                                                                                **KUBERNETES EXIT CODES (Reference):**
+                                                                                - Exit Code 0: Normal termination (success)
+                                                                                - Exit Code 1: Application error (check logs)
+                                                                                - Exit Code 137: OOMKilled (increase memory limits)
+                                                                                - Exit Code 143: SIGTERM (graceful shutdown)
+                                                                                - Exit Code 127: Command not found
 
                                                                                 To use a tool: TOOL: <tool_name> [args]
                                                                                   Multiple tools: List each on a new line
@@ -6927,6 +7137,21 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                                                                                   - If you see "TOOL SYNTAX ERROR", fix your syntax and retry immediately
                                                                                   - IGNORE tool execution errors - focus only on actual resource data
                                                                                   - Never confuse tool errors with pod/resource problems
+
+                                                                                  ------------------------------------------------
+                                                                                  KNOWLEDGE BASE FIRST (MANDATORY)
+                                                                                  BEFORE investigating ANY issue, ALWAYS search the knowledge base FIRST:
+                                                                                  TOOL: SEARCH_KNOWLEDGE <relevant keywords from the problem>
+
+                                                                                  Examples:
+                                                                                  - Pod crashing → TOOL: SEARCH_KNOWLEDGE pod crash container
+                                                                                  - Deployment issues → TOOL: SEARCH_KNOWLEDGE deployment rollout
+                                                                                  - Network problems → TOOL: SEARCH_KNOWLEDGE service networking dns
+                                                                                  - Storage issues → TOOL: SEARCH_KNOWLEDGE pvc storage volume
+                                                                                  - Node problems → TOOL: SEARCH_KNOWLEDGE node scheduling
+                                                                                  - Auth/RBAC errors → TOOL: SEARCH_KNOWLEDGE rbac forbidden
+
+                                                                                  The knowledge base contains expert diagnostic workflows - ALWAYS consult it first!
 
                                                                                   ------------------------------------------------
                                                                                   AUTONOMOUS INVESTIGATION LOOP
@@ -7073,14 +7298,20 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
       // Validate tool names to prevent treating syntax errors as real errors
       const validTools = ['DESCRIBE', 'EVENTS', 'LOGS', 'LOGS_PREVIOUS', 'RELATED_PODS',
         'PARENT_DETAILS', 'NETWORK_CHECK', 'RESOURCE_USAGE', 'LIST_RESOURCES',
-        'DESCRIBE_ANY', 'NODE_INFO', 'STORAGE_CHECK'];
+        'DESCRIBE_ANY', 'NODE_INFO', 'STORAGE_CHECK', 'SEARCH_KNOWLEDGE'];
+
+      // Sanitize tool arguments - remove markdown formatting
+      const sanitizeArgs = (args: string | undefined): string | undefined => {
+        if (!args) return args;
+        return args.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+      };
 
       if (tools.length > 0) {
         let allToolResults: string[] = [];
 
         for (const toolMatch of tools) {
           const toolName = toolMatch[1];
-          let toolArgs = toolMatch[2]?.trim();
+          let toolArgs = sanitizeArgs(toolMatch[2]?.trim());
           let toolResult = '';
           let kubectlCommand = '';
 
@@ -7316,6 +7547,20 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
               });
               toolResult = `**${pvcs.length} PVCs** in namespace\n${pvcs.slice(0, 10).map(p => `- ${p.name}: ${p.status}`).join('\n')}`;
             }
+            else if (toolName === 'SEARCH_KNOWLEDGE') {
+              const query = toolArgs || '';
+              kubectlCommand = `search-knowledge-base "${query}"`;
+              if (!query) {
+                toolResult = '⚠️ Usage: SEARCH_KNOWLEDGE <query>';
+              } else {
+                const results = await invoke<any[]>("search_knowledge_base", { query });
+                if (results.length === 0) {
+                  toolResult = `No knowledge base articles found for "${query}".`;
+                } else {
+                  toolResult = `## Knowledge Base Results for "${query}"\n${results.map(r => `### ${r.file} (Score: ${r.score})\n${r.content}`).join('\n\n')}`;
+                }
+              }
+            }
 
             // Add tool execution to chat with kubectl command
             setChatHistory(prev => [...prev, {
@@ -7494,7 +7739,7 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
           const newToolResults: string[] = [];
           for (const toolMatch of nextTools) {
             const toolName = toolMatch[1];
-            let toolArgs = toolMatch[2]?.trim();
+            let toolArgs = sanitizeArgs(toolMatch[2]?.trim());
             let toolResult = '';
             let kubectlCommand = '';
 
@@ -7676,6 +7921,20 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
                 kubectlCommand = `kubectl get pvc -n ${resource.namespace}`;
                 const pvcs = await invoke<any[]>("list_resources", { req: { group: "", version: "v1", kind: "PersistentVolumeClaim", namespace: resource.namespace } });
                 toolResult = `**${pvcs.length} PVCs** in namespace\n${pvcs.slice(0, 10).map(p => `- ${p.name}: ${p.status}`).join('\n')}`;
+              }
+              else if (toolName === 'SEARCH_KNOWLEDGE') {
+                const query = toolArgs || '';
+                kubectlCommand = `search-knowledge-base "${query}"`;
+                if (!query) {
+                  toolResult = '⚠️ Usage: SEARCH_KNOWLEDGE <query>';
+                } else {
+                  const results = await invoke<any[]>("search_knowledge_base", { query });
+                  if (results.length === 0) {
+                    toolResult = `No knowledge base articles found for "${query}".`;
+                  } else {
+                    toolResult = `## Knowledge Base Results for "${query}"\n${results.map(r => `### ${r.file} (Score: ${r.score})\n${r.content}`).join('\n\n')}`;
+                  }
+                }
               }
               else {
                 toolResult = `Tool ${toolName} not available in iteration mode`;
@@ -7865,84 +8124,130 @@ function OverviewTab({ resource, fullObject, loading, error, onDelete, currentCo
             )}
             {chatHistory.map((msg, i) => (
               <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                {/* User Message - Task */}
                 {msg.role === 'user' && (
-                  <div className="flex justify-end">
-                    <div className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 bg-gradient-to-br from-violet-600/90 to-fuchsia-600/90 text-white text-sm shadow-lg shadow-purple-500/10">
-                      {msg.content}
+                  <div className="relative pl-5 pb-3">
+                    <div className="absolute left-0 top-1 w-2.5 h-2.5 rounded-full bg-violet-500 ring-2 ring-violet-500/20" />
+                    <div className="absolute left-[4px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/40 to-transparent" />
+                    <div className="ml-2">
+                      <span className="text-[9px] font-medium text-violet-400 uppercase tracking-wider">Query</span>
+                      <div className="mt-1 bg-violet-600/20 rounded px-2.5 py-1.5 border border-violet-500/30">
+                        <p className="text-xs text-white">{msg.content}</p>
+                      </div>
                     </div>
                   </div>
                 )}
+
+                {/* Tool Execution */}
                 {msg.role === 'tool' && (
-                  <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
-                      <TerminalIcon size={10} className="text-cyan-400" />
-                    </div>
-                    <div className="bg-white/5 rounded-lg border border-white/5 overflow-hidden">
-                      <div className="px-3 py-1.5 bg-white/5 border-b border-white/5 flex items-center gap-2">
-                        <span className="text-[10px] font-semibold text-cyan-300 uppercase tracking-wider">{msg.toolName}</span>
-                        {msg.command && <code className="text-[10px] text-zinc-500 ml-auto font-mono truncate max-w-[200px] opacity-50">{msg.command}</code>}
+                  <div className="relative pl-5 pb-2">
+                    <div className="absolute left-0 top-1 w-2.5 h-2.5 rounded-full bg-cyan-500 ring-2 ring-cyan-500/20" />
+                    <div className="absolute left-[4px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/40 to-transparent" />
+                    <div className="ml-2 space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-medium text-cyan-400 uppercase tracking-wider">Tool</span>
+                        <span className="text-[9px] text-zinc-600">→</span>
+                        <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded">{msg.toolName}</span>
                       </div>
-                      <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            p: ({ children }) => <p className="text-[11px] text-zinc-400 my-0.5 leading-relaxed font-mono">{children}</p>,
-                            code: ({ children }) => <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded text-zinc-300 font-mono">{children}</code>,
-                            pre: ({ children }) => <pre className="text-[10px] bg-black/30 p-2 rounded-md overflow-x-auto my-1 font-mono">{children}</pre>,
-                            ul: ({ children }) => <ul className="text-[11px] list-disc ml-4 my-0.5 space-y-0.5">{children}</ul>,
-                            li: ({ children }) => <li className="text-zinc-400">{children}</li>,
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                      {msg.command && (
+                        <div className="flex items-start gap-1.5">
+                          <span className="text-[9px] text-zinc-600 mt-0.5">$</span>
+                          <code className="text-[10px] text-emerald-400 font-mono bg-black/30 px-1.5 py-0.5 rounded break-all">{msg.command}</code>
+                        </div>
+                      )}
+                      <div className="bg-[#0d1117] rounded border border-[#21262d] overflow-hidden">
+                        <div className="px-2 py-1 bg-[#161b22] border-b border-[#21262d] flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+                          <span className="text-[9px] text-zinc-500 uppercase tracking-wider">Output</span>
+                        </div>
+                        <div className="px-2 py-1.5 max-h-[150px] overflow-y-auto">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p className="text-[10px] text-zinc-400 my-0.5 leading-relaxed">{children}</p>,
+                              strong: ({ children }) => <strong className="text-emerald-300 font-semibold">{children}</strong>,
+                              code: ({ children }) => <code className="text-[9px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                              pre: ({ children }) => <pre className="text-[9px] bg-black/40 p-1.5 rounded overflow-x-auto my-1 font-mono">{children}</pre>,
+                              ul: ({ children }) => <ul className="text-[10px] list-none ml-0 my-0.5 space-y-0.5">{children}</ul>,
+                              li: ({ children }) => <li className="text-zinc-400 before:content-['•'] before:text-cyan-500 before:mr-1.5">{children}</li>,
+                              h2: ({ children }) => <h2 className="text-[10px] font-semibold text-cyan-300 mt-1.5 mb-0.5 uppercase tracking-wider">{children}</h2>,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
+
+                {/* Assistant Response */}
                 {msg.role === 'assistant' && (
                   (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
-                    <div className="relative ml-4 pl-6 border-l-2 border-white/10 pb-4 last:border-0 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="absolute -left-[9px] top-0 p-1 rounded-full bg-[#1a1a2e] border border-white/10">
-                        <Loader2 size={10} className="text-violet-400 animate-spin" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400 italic">{msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}</span>
+                    <div className="relative pl-5 pb-2">
+                      <div className="absolute left-0 top-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20 animate-pulse" />
+                      <div className="absolute left-[4px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/40 to-transparent" />
+                      <div className="ml-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-medium text-amber-400 uppercase tracking-wider">Thinking</span>
+                          <Loader2 size={8} className="text-amber-400 animate-spin" />
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-0.5 italic">
+                          {msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}
+                        </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex justify-start gap-2">
-                      <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20">
-                        <Sparkles size={12} className="text-violet-400" />
-                      </div>
-                      <div className="max-w-[85%] rounded-2xl rounded-tl-md px-4 py-2.5 bg-white/5 backdrop-blur-sm border border-white/10 prose prose-invert prose-sm max-w-none">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            p: ({ children }) => <p className="text-[13px] text-zinc-200 my-1.5 leading-relaxed">{children}</p>,
-                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                            code: ({ children }) => <code className="text-[11px] bg-black/30 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                            pre: ({ children }) => <pre className="text-[11px] bg-black/30 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                            ul: ({ children }) => <ul className="text-[13px] list-disc ml-4 my-1.5 space-y-1">{children}</ul>,
-                            ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
-                            li: ({ children }) => <li className="text-zinc-200">{children}</li>,
-                            h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 border-b border-white/10 pb-1">{children}</h1>,
-                            h2: ({ children }) => <h2 className="text-sm font-bold text-violet-200 mt-3 mb-1.5">{children}</h2>,
-                            h3: ({ children }) => <h3 className="text-sm font-semibold text-violet-300 mt-3 mb-1">{children}</h3>,
-                          }}
-                        >
-                          {fixMarkdownHeaders(msg.content)}
-                        </ReactMarkdown>
+                    <div className="relative pl-5 pb-3">
+                      <div className="absolute left-0 top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+                      <div className="ml-2">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-[9px] font-medium text-emerald-400 uppercase tracking-wider">Analysis</span>
+                          <Sparkles size={8} className="text-emerald-400" />
+                        </div>
+                        <div className="bg-[#0d1117] rounded border border-[#21262d] overflow-hidden">
+                          <div className="px-3 py-2 prose prose-invert prose-sm max-w-none">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                p: ({ children }) => <p className="text-[11px] text-zinc-300 my-1 leading-relaxed">{children}</p>,
+                                strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                                code: ({ children }) => <code className="text-[10px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                                pre: ({ children }) => <pre className="text-[10px] bg-black/40 p-2 rounded overflow-x-auto my-1.5 font-mono">{children}</pre>,
+                                ul: ({ children }) => <ul className="text-[11px] list-none ml-0 my-1 space-y-0.5">{children}</ul>,
+                                ol: ({ children }) => <ol className="text-[11px] list-decimal ml-3 my-1 space-y-0.5">{children}</ol>,
+                                li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-1.5 before:font-bold">{children}</li>,
+                                h1: ({ children }) => <h1 className="text-xs font-bold text-white mt-3 mb-1.5 border-b border-zinc-700 pb-1">{children}</h1>,
+                                h2: ({ children }) => <h2 className="text-xs font-bold text-emerald-300 mt-3 mb-1 flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-emerald-400" />{children}</h2>,
+                                h3: ({ children }) => <h3 className="text-[11px] font-semibold text-cyan-300 mt-2 mb-1">{children}</h3>,
+                                blockquote: ({ children }) => <blockquote className="border-l-2 border-amber-500 pl-2 my-1.5 text-amber-200/80 italic text-[10px]">{children}</blockquote>,
+                              }}
+                            >
+                              {fixMarkdownHeaders(msg.content)}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )
                 )}
               </div>
             ))}
+
+            {/* Loading State */}
             {llmLoading && (
-              <div className="flex justify-start">
-                <div className="bg-[#1e1e1e] border border-[#3e3e42] rounded px-3 py-2 text-xs text-[#cccccc] flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin text-purple-400" />
-                  <span>Analyzing...</span>
+              <div className="relative pl-5 pb-2 animate-in fade-in">
+                <div className="absolute left-0 top-1 w-2.5 h-2.5 rounded-full bg-violet-500 ring-2 ring-violet-500/20 animate-pulse" />
+                <div className="ml-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-medium text-violet-400 uppercase tracking-wider">Processing</span>
+                    <div className="flex gap-0.5">
+                      <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-600 mt-0.5">Analyzing resource...</p>
                 </div>
               </div>
             )}
