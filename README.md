@@ -24,57 +24,23 @@ A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeSc
 - 🔧 **Context Management**: Switch contexts, delete unused contexts, and manage kubeconfig
 - 🧩 **Easy AI Setup**: One-click provider selection with guided setup instructions
 
-## AI Debugging Assistant
+## AI Debugging Brain (v0.2.0 Upgrade)
 
-OpsPilot includes two AI assistants, both operating in strictly **READ-ONLY** mode:
+OpsPilot features a revamped autonomous AI engine:
 
-### Cluster-Wide AI Chat (Global)
-
-Access from anywhere via the floating purple button in the bottom-right corner. This assistant can:
-- Analyze cluster-wide health across all namespaces
-- Find crashlooping pods, unhealthy deployments, and resource issues
-- Investigate events, logs, and resource usage cluster-wide
-- Correlate issues across related resources
-
-**Cluster-Wide Tools:**
-
-| Tool | Purpose |
-|------|---------|
-| `CLUSTER_HEALTH` | Overall cluster health summary |
-| `GET_EVENTS [namespace]` | Cluster or namespace events |
-| `LIST_PODS [namespace]` | List pods across namespaces |
-| `LIST_DEPLOYMENTS [namespace]` | List deployments |
-| `LIST_SERVICES [namespace]` | List services |
-| `DESCRIBE <kind> <ns> <name>` | Get resource YAML details |
-| `GET_LOGS <ns> <pod> [container]` | Get pod logs |
-| `TOP_PODS [namespace]` | Pod resource usage |
-| `FIND_ISSUES` | Find all problematic resources |
-
-### Resource-Specific AI Chat
-
-Open from any resource's detail panel for context-aware debugging:
-
-**Resource Tools:**
-
-| Tool | Purpose |
-|------|---------|
-| `DESCRIBE` | YAML manifest excerpt |
-| `EVENTS` | Resource events (warnings highlighted) |
-| `LOGS [container]` | Recent pod logs |
-| `LOGS_PREVIOUS [container]` | Previous instance logs for crash diagnostics |
-| `RELATED_PODS` | Pod health in same namespace |
-| `PARENT_DETAILS` | Owner controller details |
-| `NETWORK_CHECK` | Service/Endpoints status |
-| `RESOURCE_USAGE` | CPU & memory snapshot |
-| `NODE_INFO` | Node details for scheduled pods |
-| `STORAGE_CHECK` | PVC presence and status |
+- 🧠 **Autonomous Investigation**: The AI executes iterative "thoughts" (up to 10 steps), gathering evidence, verifying hypotheses, and filtering noise before answering.
+- ⚡ **Quick Fixes**: Automatically detects and highlights "Quick Fix" one-liners from the Knowledge Base for common errors (e.g., `kubectl logs -p`, `rollout restart`).
+- 📚 **Specialized Knowledge**: Deep troubleshooting guides for **UiPath Automation Suite, Crossplane, Istio, vCluster, Cert-Manager**, and core K8s issues (OOMKilled, CrashLoop).
+- 🛡️ **Smart Tooling**:
+    - **Context Awareness**: Remembers previous tool outputs in the conversation.
+    - **Semantic Routing**: Intelligently selects the best tool from 20+ specialized options (e.g., `GET_CROSSPLANE`, `GET_ISTIO`, `CHECK_WEBHOOKS`).
+    - **Clean UI**: Hides internal reasoning complexity while showing clear tool execution status.
 
 ### Safety Guarantees
 
-- Never emits mutating commands (`apply`, `delete`, `patch`, `scale`, `rollout`)
-- Sanitizes container names and validates against actual pod containers
-- Explicit guidance when issues are detected
-- All tools are read-only with no cluster mutations
+- **Read-Only**: Strictly non-mutating.
+- **Secure Execution**: Validates all commands against a strict allowlist.
+- **Privacy**: **Local Ops**: Embeddings are bundled. The inference model (~25MB) is downloaded once to your machine and runs **offline** thereafter.
 
 ## AI Provider Setup
 
@@ -138,22 +104,28 @@ Artifacts appear in `src-tauri/target/release/bundle/`.
 
 ## Installation
 
-### NPM (Experimental)
-```bash
-npm install -g opspilot
-opspilot
-```
-
 ### Download Binaries
 Go to the [Releases](https://github.com/ankitjain91/opspilot/releases) page to download the latest installer for your OS:
 -   **macOS**: Download the `.dmg` file.
 -   **Windows**: Download the `.exe` or `.msi` file.
+-   **Linux**: Download the `.AppImage` or `.deb`.
 
-> **Note on Security Warnings**:
-> Since this is an open-source project not signed by Apple/Microsoft, you may see a security warning when installing.
+> **⚠️ Security & Permission Instructions**
 >
-> -   **macOS**: If you see "App cannot be opened because the developer cannot be verified", **Right-Click** the app -> Select **Open** -> Click **Open** again.
-> -   **Windows**: If you see "Windows protected your PC", click **More info** -> **Run anyway**.
+> Since this is an open-source project (unsigned), you may need to approve the app manually:
+>
+> **macOS ("App is damaged" error):**
+> 1. Open Terminal.
+> 2. Run: `xattr -cr /Applications/OpsPilot.app`
+> 3. Open the app normally.
+>
+> **Windows (SmartScreen warning):**
+> 1. Click **More info**.
+> 2. Click **Run anyway**.
+>
+> **Linux (.AppImage):**
+> 1. Right-click -> Properties -> Permissions -> Allow executing file as program.
+> 2. Or run: `chmod +x OpsPilot-*.AppImage`
 
 ### Build from Source
 

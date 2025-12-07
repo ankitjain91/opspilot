@@ -70,36 +70,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "OpsPilot ${{ github.ref_name }}"
           updaterJsonKeepUniversal: true
-          releaseBody: |
-            ## 📥 Installation
-
-            ### macOS Users 🍎
-            **"Apple could not verify..." Warning?**
-            Since this app is not notarized by Apple, you may see a warning. To open it:
-            1. **Right-click** (or Control-click) the app icon.
-            2. Select **Open**.
-            3. Click **Open** in the dialog box.
-
-            Alternatively, run this command in Terminal after dragging to Applications:
-            ```bash
-            xattr -cr /Applications/OpsPilot.app
-            ```
-
-            ### Windows Users 🪟
-            **"Windows protected your PC" Warning?**
-            This is Microsoft Defender SmartScreen. To run the app:
-            1. Click **More info**.
-            2. Click **Run anyway**.
-
-            ### Linux Users 🐧
-            **AppImage**:
-            1. Right-click the `.AppImage` file.
-            2. Go to **Properties** > **Permissions**.
-            3. Check **Allow executing file as program**.
-            4. Double-click to run.
-
-            **Debian/Ubuntu**:
-            Install with: `sudo dpkg -i OpsPilot_Linux_x64_*.deb`
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
@@ -238,3 +208,28 @@ jobs:
             OpsPilot_Linux_*.deb
             OpsPilot_Linux_*.AppImage
             latest.json
+          append_body: true
+          body: |
+            ## 📥 Installation
+
+            ### macOS Users 🍎
+            **"Apple could not verify..." Warning?**
+            1. **Right-click** the app icon -> **Open**.
+            2. Click **Open**.
+
+            Or run in Terminal:
+            ```bash
+            xattr -cr /Applications/OpsPilot.app
+            ```
+
+            ### Windows Users 🪟
+            **"Windows protected your PC" Warning?**
+            1. Click **More info**.
+            2. Click **Run anyway**.
+
+            ### Linux Users 🐧
+            **AppImage**:
+            1. Right-click -> Properties -> Permissions -> Allow executing file.
+
+            **Debian/Ubuntu**:
+            `sudo dpkg -i OpsPilot_Linux_x64_*.deb`
