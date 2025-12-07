@@ -1,0 +1,270 @@
+{
+  "id": "kb-206",
+  "title": "StatefulSet and Stateful Workload Troubleshooting",
+  "category": "troubleshooting",
+  "tags": ["statefulset", "stateful", "pvc", "headless", "ordinal", "databases", "persistent"],
+  "summary": "Guide for debugging StatefulSet issues including pod ordering, PVC binding, and headless services",
+
+  "statefulset_basics": {
+    "description": "How StatefulSets differ from Deployments",
+    "concepts": {
+      "stable_identity": {
+        "description": "Pods have predictable names: <statefulset>-<ordinal>",
+        "example": "mysql-0, mysql-1, mysql-2"
+      },
+      "ordered_deployment": {
+        "description": "Pods created in order 0, 1, 2...",
+        "impact": "Next pod waits for previous to be Ready"
+      },
+      "stable_storage": {
+        "description": "Each pod gets its own PVC",
+        "naming": "<volumeClaimTemplate.name>-<statefulset>-<ordinal>"
+      },
+      "headless_service": {
+        "description": "Service with clusterIP: None",
+        "dns": "<pod>.<service>.<namespace>.svc.cluster.local"
+      }
+    },
+    "commands": [
+      {
+        "command": "kubectl get statefulset -n <ns>",
+        "description": "List StatefulSets and their status",
+        "what_to_look_for": ["READY count", "AGE"]
+      },
+      {
+        "command": "kubectl get pods -l app=<statefulset> -n <ns>",
+        "description": "List StatefulSet pods"
+      },
+      {
+        "command": "kubectl get pvc -l app=<statefulset> -n <ns>",
+        "description": "List associated PVCs"
+      }
+    ]
+  },
+
+  "common_errors": [
+    {
+      "name": "StatefulSet pods stuck in Pending/ContainerCreating",
+      "error_patterns": [
+        "pod has unbound immediate PersistentVolumeClaims",
+        "waiting for a volume to be created"
+      ],
+      "symptoms": [
+        "First pod (ordinal 0) never starts",
+        "Pods stuck waiting for PVC"
+      ],
+      "likely_causes": [
+        "StorageClass doesn't exist or misconfigured",
+        "No PV available (for static provisioning)",
+        "CSI driver not working",
+        "Quota prevents PVC creation"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe pod <statefulset>-0 -n <ns>",
+        "kubectl get pvc -n <ns>",
+        "kubectl describe pvc <pvc-name> -n <ns>",
+        "kubectl get storageclass"
+      ],
+      "fix_steps": [
+        "Check StorageClass exists and is default: kubectl get sc",
+        "Verify CSI driver pods are running",
+        "Check PVC events for provisioning errors",
+        "Ensure enough quota for new PVCs"
+      ]
+    },
+    {
+      "name": "StatefulSet rollout stuck - pods not becoming Ready",
+      "error_patterns": [
+        "StatefulSet not progressing",
+        "Waiting for pod to be Ready"
+      ],
+      "symptoms": [
+        "Scale-up stuck after first pod",
+        "Only some pods Running, others Pending"
+      ],
+      "likely_causes": [
+        "Previous pod failing readiness probe",
+        "Application startup dependency on other pods",
+        "Resource constraints preventing scheduling"
+      ],
+      "diagnostic_commands": [
+        "kubectl get pods -l app=<statefulset> -n <ns>",
+        "kubectl describe pod <statefulset>-N -n <ns>",
+        "kubectl logs <statefulset>-N -n <ns>"
+      ],
+      "fix_steps": [
+        "Fix readiness probe for stuck pod",
+        "Check if app requires leader election or init",
+        "Use podManagementPolicy: Parallel if order not needed",
+        "Ensure enough cluster resources"
+      ]
+    },
+    {
+      "name": "Headless service DNS not resolving",
+      "error_patterns": [
+        "could not resolve hostname",
+        "Name does not resolve"
+      ],
+      "symptoms": [
+        "Cannot reach specific pod by DNS name",
+        "<pod>.<service> not working"
+      ],
+      "likely_causes": [
+        "Service not headless (has clusterIP)",
+        "Pod not Ready (not in endpoints)",
+        "Service selector doesn't match pod labels",
+        "DNS config issue"
+      ],
+      "diagnostic_commands": [
+        "kubectl get svc <service> -n <ns> -o yaml | grep clusterIP",
+        "kubectl get endpoints <service> -n <ns>",
+        "kubectl exec <pod> -- nslookup <pod>.<service>.<ns>.svc.cluster.local"
+      ],
+      "fix_steps": [
+        "Ensure service has clusterIP: None",
+        "Verify pod is Ready (in endpoints)",
+        "Check service selector matches pod labels",
+        "Test DNS from within cluster"
+      ],
+      "example": {
+        "description": "Correct headless service",
+        "yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: mysql\nspec:\n  clusterIP: None\n  selector:\n    app: mysql\n  ports:\n  - port: 3306"
+      }
+    },
+    {
+      "name": "PVC not deleted after StatefulSet deletion",
+      "error_patterns": [
+        "PVCs remain after StatefulSet deleted",
+        "Data persisting unexpectedly"
+      ],
+      "symptoms": [
+        "Old PVCs still exist",
+        "New StatefulSet reuses old data"
+      ],
+      "likely_causes": [
+        "This is intentional behavior - PVCs are retained by default",
+        "Prevents accidental data loss"
+      ],
+      "diagnostic_commands": [
+        "kubectl get pvc -n <ns>",
+        "kubectl get pv | grep <namespace>"
+      ],
+      "fix_steps": [
+        "Manually delete PVCs if data not needed: kubectl delete pvc <name>",
+        "Use persistentVolumeClaimRetentionPolicy (K8s 1.27+) for automatic deletion",
+        "Check PV reclaimPolicy for underlying storage cleanup"
+      ],
+      "note": "PVC retention is a safety feature - be careful deleting"
+    },
+    {
+      "name": "StatefulSet update stuck or slow",
+      "error_patterns": [
+        "Update taking too long",
+        "Pods not rolling"
+      ],
+      "symptoms": [
+        "Old pods remain after spec change",
+        "Rolling update not progressing"
+      ],
+      "likely_causes": [
+        "updateStrategy: OnDelete (manual deletion required)",
+        "Pod disruption budget blocking",
+        "New pods failing to start"
+      ],
+      "diagnostic_commands": [
+        "kubectl get statefulset <name> -n <ns> -o yaml | grep -A5 updateStrategy",
+        "kubectl rollout status statefulset/<name> -n <ns>",
+        "kubectl get pdb -n <ns>"
+      ],
+      "fix_steps": [
+        "For OnDelete: manually delete pods one by one",
+        "Use updateStrategy: RollingUpdate for automatic updates",
+        "Set partition field to control gradual rollout",
+        "Check PDB allows pod disruption"
+      ]
+    },
+    {
+      "name": "Pod ordinal gap / missing pods",
+      "error_patterns": [
+        "Pod ordinals have gaps",
+        "Pod N missing while N+1 exists"
+      ],
+      "symptoms": [
+        "StatefulSet shows incorrect ready count",
+        "Some ordinals skipped"
+      ],
+      "likely_causes": [
+        "Pod was deleted and not recreated",
+        "Node failure during recovery",
+        "Race condition during scaling"
+      ],
+      "diagnostic_commands": [
+        "kubectl get pods -l app=<statefulset> -n <ns> --sort-by=.metadata.name",
+        "kubectl describe statefulset <name> -n <ns>",
+        "kubectl get events -n <ns> | grep <statefulset>"
+      ],
+      "fix_steps": [
+        "Check if pod stuck in Terminating (force delete if needed)",
+        "Verify PVC for missing ordinal still exists",
+        "Scale down and up to force recreation",
+        "Check node status if pod was on specific node"
+      ]
+    }
+  ],
+
+  "common_workloads": {
+    "databases": {
+      "issues": [
+        "Leader election not completing",
+        "Replication lag between replicas",
+        "Data directory permissions"
+      ],
+      "tips": [
+        "Check init containers completed successfully",
+        "Verify persistent storage mounted correctly",
+        "Check database-specific logs for cluster status"
+      ]
+    },
+    "message_queues": {
+      "issues": [
+        "Cluster not forming",
+        "Nodes can't discover each other"
+      ],
+      "tips": [
+        "Ensure headless service DNS working",
+        "Check pod hostname matches expected format",
+        "Verify network policies allow pod-to-pod communication"
+      ]
+    }
+  },
+
+  "debugging_workflow": {
+    "statefulset_not_running": [
+      "kubectl get statefulset <name> -n <ns> → Check desired vs ready",
+      "kubectl get pods -l app=<statefulset> -n <ns> → Find stuck pods",
+      "kubectl describe pod <stuck-pod> → Check events",
+      "kubectl get pvc -l app=<statefulset> → Check storage",
+      "kubectl logs <pod> → Check application startup"
+    ],
+    "data_issues": [
+      "kubectl exec <pod> -- ls -la /data → Check mount",
+      "kubectl get pv,pvc → Verify binding",
+      "kubectl describe pvc <name> → Check storage class"
+    ]
+  },
+
+  "best_practices": {
+    "design": [
+      "Always use headless service for pod DNS",
+      "Set appropriate readiness probes",
+      "Consider podManagementPolicy: Parallel for faster scaling",
+      "Use anti-affinity for HA across nodes"
+    ],
+    "operations": [
+      "Backup data before scaling down",
+      "Use partition field for controlled rollouts",
+      "Monitor PVC space usage",
+      "Document PVC retention requirements"
+    ]
+  }
+}

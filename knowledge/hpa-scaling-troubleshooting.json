@@ -1,0 +1,242 @@
+{
+  "id": "kb-204",
+  "title": "HPA and Autoscaling Troubleshooting",
+  "category": "troubleshooting",
+  "tags": ["hpa", "autoscaling", "scaling", "metrics", "vpa", "keda", "replicas"],
+  "summary": "Guide for debugging Horizontal Pod Autoscaler, VPA, and scaling issues",
+
+  "hpa_basics": {
+    "description": "How HPA works in Kubernetes",
+    "concepts": {
+      "metrics_server": {
+        "description": "Required for CPU/memory-based HPA",
+        "check": "kubectl top pods should return data"
+      },
+      "target_metrics": {
+        "description": "What HPA scales on",
+        "types": ["Resource (CPU/memory)", "Custom metrics", "External metrics"]
+      },
+      "scaling_algorithm": {
+        "formula": "desiredReplicas = ceil(currentReplicas * (currentMetric / targetMetric))",
+        "cooldown": "Default: 5min for scale down, 3min for scale up"
+      }
+    },
+    "commands": [
+      {
+        "command": "kubectl get hpa -A",
+        "description": "List all HPAs and their current status",
+        "what_to_look_for": ["TARGETS showing <unknown>", "REPLICAS vs MIN/MAX"]
+      },
+      {
+        "command": "kubectl describe hpa <name> -n <ns>",
+        "description": "Get detailed HPA status and events",
+        "when_to_use": "HPA not scaling as expected"
+      },
+      {
+        "command": "kubectl get hpa <name> -n <ns> -o yaml",
+        "description": "View full HPA configuration"
+      }
+    ]
+  },
+
+  "common_errors": [
+    {
+      "name": "HPA showing <unknown> for metrics",
+      "error_patterns": [
+        "unable to get metrics for resource",
+        "missing request for",
+        "<unknown>/80%"
+      ],
+      "symptoms": [
+        "TARGETS column shows <unknown>",
+        "HPA not scaling despite load"
+      ],
+      "likely_causes": [
+        "Metrics server not installed or failing",
+        "Pod missing resource requests",
+        "Target deployment doesn't exist"
+      ],
+      "diagnostic_commands": [
+        "kubectl top pods -n <ns>",
+        "kubectl get deploy <name> -n <ns> -o yaml | grep -A5 resources",
+        "kubectl get apiservices | grep metrics",
+        "kubectl logs -n kube-system deploy/metrics-server"
+      ],
+      "fix_steps": [
+        "Install/fix metrics-server: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml",
+        "Add resource requests to deployment (required for CPU HPA)",
+        "Verify HPA scaleTargetRef matches deployment name"
+      ],
+      "note": "CPU HPA requires requests.cpu to be set - it measures usage relative to request"
+    },
+    {
+      "name": "HPA not scaling up under load",
+      "error_patterns": [
+        "No scaling events",
+        "Replicas stuck at minimum"
+      ],
+      "symptoms": [
+        "High CPU/memory usage but no scale up",
+        "Pods overloaded but HPA inactive"
+      ],
+      "likely_causes": [
+        "Already at maxReplicas",
+        "Target metric not exceeded",
+        "HPA stabilization window not elapsed",
+        "Scaling disabled via annotation"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe hpa <name> -n <ns>",
+        "kubectl get hpa <name> -n <ns> -o jsonpath='{.status.currentMetrics}'",
+        "kubectl get deploy <name> -n <ns> -o yaml | grep replicas"
+      ],
+      "fix_steps": [
+        "Check if current < target: describe hpa shows current/target percentages",
+        "Increase maxReplicas if limit reached",
+        "Verify stabilization window (default 5 min for scale up)",
+        "Check for cluster capacity to schedule new pods"
+      ]
+    },
+    {
+      "name": "HPA not scaling down",
+      "error_patterns": [
+        "Replicas stuck above minimum",
+        "Scale down not happening"
+      ],
+      "symptoms": [
+        "Low load but pods not removed",
+        "Replicas higher than expected"
+      ],
+      "likely_causes": [
+        "Scale down stabilization window (default 5 min)",
+        "PodDisruptionBudget preventing removal",
+        "Metrics still above target threshold"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe hpa <name> -n <ns>",
+        "kubectl get pdb -n <ns>",
+        "kubectl get hpa <name> -n <ns> -o yaml | grep -A5 behavior"
+      ],
+      "fix_steps": [
+        "Wait for stabilization window (300s default)",
+        "Adjust behavior.scaleDown.stabilizationWindowSeconds",
+        "Review PDB maxUnavailable/minAvailable settings"
+      ]
+    },
+    {
+      "name": "HPA flapping / thrashing",
+      "error_patterns": [
+        "Frequent scale up/down events",
+        "Replicas oscillating"
+      ],
+      "symptoms": [
+        "Pods constantly being created and removed",
+        "Events show repeated scaling"
+      ],
+      "likely_causes": [
+        "Metric too volatile",
+        "Target percentage too aggressive",
+        "Workload has spiky behavior"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe hpa <name> -n <ns> | grep -A20 'Events'",
+        "kubectl get hpa <name> -n <ns> -o yaml | grep -A10 behavior"
+      ],
+      "fix_steps": [
+        "Increase stabilization windows in behavior",
+        "Use scaleDown.policies to limit scale down rate",
+        "Consider averaging metrics over longer period",
+        "Set higher target utilization (e.g., 80% instead of 50%)"
+      ],
+      "example_fix": {
+        "description": "Slow down scale-down behavior",
+        "yaml": "behavior:\n  scaleDown:\n    stabilizationWindowSeconds: 300\n    policies:\n    - type: Percent\n      value: 10\n      periodSeconds: 60"
+      }
+    },
+    {
+      "name": "Custom metrics HPA not working",
+      "error_patterns": [
+        "unable to fetch metrics from custom metrics API",
+        "no custom metrics API"
+      ],
+      "symptoms": [
+        "HPA with custom metrics shows unknown",
+        "Prometheus-based HPA failing"
+      ],
+      "likely_causes": [
+        "Custom metrics adapter not installed",
+        "Prometheus adapter misconfigured",
+        "Metric name doesn't match"
+      ],
+      "diagnostic_commands": [
+        "kubectl get apiservices | grep custom.metrics",
+        "kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1'",
+        "kubectl logs -n <monitoring-ns> deploy/prometheus-adapter"
+      ],
+      "fix_steps": [
+        "Install prometheus-adapter or kube-metrics-adapter",
+        "Verify metric exists: kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1/namespaces/<ns>/pods/*/<metric>'",
+        "Check adapter configuration for metric mapping"
+      ]
+    }
+  ],
+
+  "vpa_troubleshooting": {
+    "description": "Vertical Pod Autoscaler issues",
+    "common_issues": [
+      {
+        "name": "VPA not providing recommendations",
+        "causes": [
+          "Insufficient historical data (wait 24h+)",
+          "VPA admission controller not running",
+          "Pod selector doesn't match"
+        ],
+        "diagnostic_commands": [
+          "kubectl get vpa -n <ns>",
+          "kubectl describe vpa <name> -n <ns>",
+          "kubectl get pods -n kube-system | grep vpa"
+        ]
+      },
+      {
+        "name": "VPA conflicting with HPA",
+        "causes": [
+          "Both trying to control CPU/memory",
+          "VPA UpdateMode=Auto with HPA"
+        ],
+        "fix": "Use VPA in 'Off' mode with HPA, or only use VPA for memory while HPA uses CPU"
+      }
+    ]
+  },
+
+  "debugging_workflow": {
+    "hpa_not_working": [
+      "kubectl get hpa <name> -n <ns> → Check TARGETS column",
+      "If <unknown> → Check metrics-server and resource requests",
+      "kubectl describe hpa <name> -n <ns> → Read events and conditions",
+      "kubectl top pods -n <ns> → Verify metrics are available",
+      "kubectl get deploy <name> -n <ns> -o yaml → Check resource requests set"
+    ],
+    "scaling_issues": [
+      "kubectl describe hpa → Check current vs target metrics",
+      "kubectl get hpa -o yaml → Review behavior configuration",
+      "kubectl get events -n <ns> → Look for scaling events",
+      "Check cluster capacity if scale-up pending"
+    ]
+  },
+
+  "best_practices": {
+    "hpa_configuration": [
+      "Always set resource requests for CPU-based HPA",
+      "Start with target 70-80%, adjust based on behavior",
+      "Configure scaleDown behavior to prevent thrashing",
+      "Use multiple metrics for better accuracy",
+      "Test scaling in staging before production"
+    ],
+    "monitoring": [
+      "Alert on HPA at maxReplicas",
+      "Track scaling events frequency",
+      "Monitor for <unknown> metrics",
+      "Compare desired vs actual replicas"
+    ]
+  }
+}

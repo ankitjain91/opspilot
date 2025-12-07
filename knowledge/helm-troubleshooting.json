@@ -1,0 +1,245 @@
+{
+  "id": "kb-201",
+  "title": "Helm Chart Troubleshooting Guide",
+  "category": "troubleshooting",
+  "tags": ["helm", "charts", "releases", "upgrades", "rollback"],
+  "summary": "Comprehensive guide for debugging Helm chart installations, upgrades, and rollbacks",
+
+  "helm_basics": {
+    "description": "Essential Helm commands for troubleshooting",
+    "commands": [
+      {
+        "command": "helm list -A",
+        "description": "List all releases across namespaces",
+        "what_to_look_for": ["STATUS column", "REVISION number", "APP VERSION"]
+      },
+      {
+        "command": "helm status <release> -n <namespace>",
+        "description": "Get detailed status of a release",
+        "when_to_use": "Check if release deployed successfully"
+      },
+      {
+        "command": "helm history <release> -n <namespace>",
+        "description": "View release revision history",
+        "when_to_use": "Need to see previous versions for rollback"
+      },
+      {
+        "command": "helm get values <release> -n <namespace>",
+        "description": "Get current values for a release",
+        "when_to_use": "Debug configuration issues"
+      },
+      {
+        "command": "helm get manifest <release> -n <namespace>",
+        "description": "Get rendered Kubernetes manifests",
+        "when_to_use": "See exactly what Helm deployed"
+      }
+    ]
+  },
+
+  "common_errors": [
+    {
+      "name": "Release stuck in pending-install or pending-upgrade",
+      "error_patterns": [
+        "another operation (install/upgrade/rollback) is in progress",
+        "release: pending-install",
+        "release: pending-upgrade"
+      ],
+      "symptoms": [
+        "helm install/upgrade hangs",
+        "Cannot perform any operations on the release"
+      ],
+      "likely_causes": [
+        "Previous Helm operation was interrupted",
+        "Helm tiller/controller crashed mid-operation",
+        "Network timeout during release"
+      ],
+      "diagnostic_commands": [
+        "helm list -A --pending",
+        "helm status <release> -n <namespace>",
+        "kubectl get secrets -n <namespace> -l owner=helm"
+      ],
+      "fix_steps": [
+        "Wait a few minutes for timeout to expire",
+        "If stuck: helm rollback <release> <previous-revision> -n <namespace>",
+        "As last resort: kubectl delete secret sh.helm.release.v1.<release>.v<revision>"
+      ],
+      "warning": "Deleting Helm secrets directly can cause inconsistent state"
+    },
+    {
+      "name": "Upgrade failed - cannot patch or update resource",
+      "error_patterns": [
+        "cannot patch",
+        "field is immutable",
+        "the object has been modified"
+      ],
+      "symptoms": [
+        "helm upgrade fails partway through",
+        "Some resources updated, others failed"
+      ],
+      "likely_causes": [
+        "Trying to change immutable fields (Service type, PVC size, etc.)",
+        "Resource was modified outside of Helm",
+        "Conflicting labels or annotations"
+      ],
+      "diagnostic_commands": [
+        "helm diff upgrade <release> <chart> -n <namespace>",
+        "kubectl get <resource> -o yaml",
+        "helm get manifest <release> -n <namespace>"
+      ],
+      "fix_steps": [
+        "For immutable fields: delete resource manually, then upgrade",
+        "Use --force flag (recreates resources) - CAUTION: causes downtime",
+        "Adopt orphaned resources with helm.sh/resource-policy: keep annotation"
+      ]
+    },
+    {
+      "name": "Values not being applied",
+      "error_patterns": [
+        "Configuration unchanged after upgrade",
+        "Environment variables not updated"
+      ],
+      "symptoms": [
+        "helm upgrade succeeds but pods have old config",
+        "Values file changes not reflected"
+      ],
+      "likely_causes": [
+        "Values precedence issue (--set overrides -f)",
+        "ConfigMap/Secret not triggering pod restart",
+        "Helm template logic not using the value"
+      ],
+      "diagnostic_commands": [
+        "helm get values <release> -n <namespace> --all",
+        "helm template <chart> -f values.yaml --debug",
+        "kubectl get deploy <name> -o yaml | grep -A5 env"
+      ],
+      "fix_steps": [
+        "Check values precedence: -f file1.yaml -f file2.yaml --set key=val",
+        "Add checksum annotation to trigger pod restart on config change",
+        "Verify template uses {{ .Values.yourKey }} correctly"
+      ]
+    },
+    {
+      "name": "Helm hooks failing",
+      "error_patterns": [
+        "pre-install hook failed",
+        "post-upgrade hook failed",
+        "timed out waiting for hook"
+      ],
+      "symptoms": [
+        "Release stuck or failed due to hook",
+        "Jobs from hooks not completing"
+      ],
+      "likely_causes": [
+        "Hook Job/Pod failing (check logs)",
+        "Hook timeout too short",
+        "Hook weight ordering issue"
+      ],
+      "diagnostic_commands": [
+        "kubectl get jobs -n <namespace>",
+        "kubectl logs job/<hook-job-name> -n <namespace>",
+        "helm get hooks <release> -n <namespace>"
+      ],
+      "fix_steps": [
+        "Check hook pod logs for errors",
+        "Increase hook timeout with --timeout flag",
+        "Add hook-delete-policy: before-hook-creation to clean up old hooks"
+      ]
+    },
+    {
+      "name": "Chart dependency issues",
+      "error_patterns": [
+        "found in Chart.yaml, but missing in charts/ directory",
+        "dependency update required",
+        "repository not found"
+      ],
+      "symptoms": [
+        "helm install fails before creating any resources",
+        "Missing subcharts"
+      ],
+      "likely_causes": [
+        "Dependencies not downloaded",
+        "Helm repo not added",
+        "Chart.lock out of sync"
+      ],
+      "diagnostic_commands": [
+        "helm dependency list <chart-path>",
+        "helm repo list",
+        "cat Chart.yaml | grep -A10 dependencies"
+      ],
+      "fix_steps": [
+        "Run helm dependency update <chart-path>",
+        "Add missing repos: helm repo add <name> <url>",
+        "Delete Chart.lock and re-run dependency update"
+      ]
+    }
+  ],
+
+  "rollback_guide": {
+    "description": "How to safely rollback Helm releases",
+    "steps": [
+      {
+        "step": 1,
+        "action": "helm history <release> -n <namespace>",
+        "purpose": "Find the revision to rollback to"
+      },
+      {
+        "step": 2,
+        "action": "helm diff rollback <release> <revision> -n <namespace>",
+        "purpose": "Preview what will change (requires helm-diff plugin)"
+      },
+      {
+        "step": 3,
+        "action": "helm rollback <release> <revision> -n <namespace>",
+        "purpose": "Perform the rollback"
+      },
+      {
+        "step": 4,
+        "action": "helm status <release> -n <namespace>",
+        "purpose": "Verify rollback succeeded"
+      },
+      {
+        "step": 5,
+        "action": "kubectl get pods -n <namespace> -w",
+        "purpose": "Watch pods restart with previous version"
+      }
+    ],
+    "important_notes": [
+      "Rollback creates a new revision (doesn't revert history)",
+      "PVCs and data are NOT rolled back",
+      "CRDs may not be rolled back if using crd-install hook"
+    ]
+  },
+
+  "debugging_workflow": {
+    "release_not_working": [
+      "helm status <release> -n <namespace> → Check deployment status",
+      "helm get values <release> -n <namespace> → Verify configuration",
+      "helm get manifest <release> -n <namespace> → Check rendered templates",
+      "kubectl get pods -n <namespace> → Check pod status",
+      "kubectl describe pod <pod> -n <namespace> → Get pod events",
+      "kubectl logs <pod> -n <namespace> → Check application logs"
+    ],
+    "upgrade_failing": [
+      "helm diff upgrade <release> <chart> → Preview changes",
+      "helm upgrade --dry-run --debug → Test without applying",
+      "Check for immutable field changes in diff output",
+      "If stuck: helm rollback <release> <previous-revision>"
+    ]
+  },
+
+  "best_practices": {
+    "operations": [
+      "Always use --dry-run first for critical releases",
+      "Install helm-diff plugin for upgrade previews",
+      "Keep values in version-controlled files, not --set flags",
+      "Use --atomic for automatic rollback on failure",
+      "Set --timeout appropriately for large deployments"
+    ],
+    "troubleshooting": [
+      "Check Helm version compatibility with chart",
+      "Verify Kubernetes version meets chart requirements",
+      "Review NOTES.txt after install for post-install steps",
+      "Use helm template locally to debug rendering issues"
+    ]
+  }
+}

@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 mod ai_local;
 mod knowledge;
+mod embeddings;
 
 // --- Data Structures ---
 
@@ -1060,8 +1061,8 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
             // 1. Check if it's a standard resource
             let category = if let Some(cat) = standard_categories.get(ar.kind.as_str()) {
                 cat.to_string()
-            } else if ar.group.contains("crossplane.io") || ar.group.contains("upbound.io") {
-                "Crossplane".to_string()
+            } else if ar.group.contains("crossplane.io") || ar.group.contains("upbound.io") || ar.group.contains("tf.upbound.io") || ar.group.contains("infra.contrib.fluxcd.io") || ar.group.contains("hashicorp.com") {
+                "IaC".to_string()
             } else {
                 // 2. If not standard, use the API Group as the category
                 // This ensures NOTHING is hidden.
@@ -1088,7 +1089,7 @@ async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<NavGro
 
     // Sort categories logic
     // We want standard categories first, then alphabetical for the rest
-    let standard_order = vec!["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "Crossplane"];
+    let standard_order = vec!["Cluster", "Workloads", "Config", "Network", "Storage", "Access Control", "IaC"];
     let mut result = Vec::new();
 
     // 1. Add Standard Categories
@@ -1279,6 +1280,31 @@ async fn list_resources(state: State<'_, AppState>, req: ResourceRequest) -> Res
         // Smart Status Extraction: Looks for 'phase', 'state', or 'conditions'
         let status = if is_terminating {
             "Terminating".to_string()
+        } else if req.kind == "Deployment" {
+            // For Deployments, compute rollout status from replica counts
+            let status_obj = obj.data.get("status");
+            let spec_obj = obj.data.get("spec");
+            let replicas = spec_obj.and_then(|s| s.get("replicas")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let ready_replicas = status_obj.and_then(|s| s.get("readyReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let available_replicas = status_obj.and_then(|s| s.get("availableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            // updatedReplicas defaults to replicas if not set (healthy state)
+            let updated_replicas = status_obj.and_then(|s| s.get("updatedReplicas")).and_then(|v| v.as_i64()).unwrap_or(replicas as i64) as i32;
+            // unavailableReplicas is only present when there are unavailable pods
+            let has_unavailable = status_obj.and_then(|s| s.get("unavailableReplicas")).is_some();
+            let unavailable_replicas = status_obj.and_then(|s| s.get("unavailableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+            // Primary check: if ready and available match desired, it's running
+            if ready_replicas >= replicas && available_replicas >= replicas && !has_unavailable {
+                "Running".to_string()
+            } else if has_unavailable && unavailable_replicas > 0 {
+                "Progressing".to_string()
+            } else if updated_replicas < replicas {
+                "Updating".to_string()
+            } else if ready_replicas < replicas || available_replicas < replicas {
+                "Scaling".to_string()
+            } else {
+                "Running".to_string()
+            }
         } else {
             obj.data.get("status")
                 .and_then(|s| s.get("phase").or(s.get("state")))
@@ -1391,7 +1417,8 @@ async fn get_resource_details(state: State<'_, AppState>, req: ResourceRequest, 
     };
 
     let obj = api.get(&name).await.map_err(|e| e.to_string())?;
-    Ok(serde_json::to_string_pretty(&obj).unwrap_or_default())
+    // Return YAML format for the YAML editor
+    Ok(serde_yaml::to_string(&obj).unwrap_or_default())
 }
 
 // 4. LOGS FETCHER (legacy: polling-based)
@@ -1555,6 +1582,28 @@ async fn start_resource_watch(
 
         let status = if is_terminating {
             "Terminating".to_string()
+        } else if kind == "Deployment" {
+            // For Deployments, compute rollout status from replica counts
+            let status_obj = obj.data.get("status");
+            let spec_obj = obj.data.get("spec");
+            let replicas = spec_obj.and_then(|s| s.get("replicas")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let ready_replicas = status_obj.and_then(|s| s.get("readyReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let available_replicas = status_obj.and_then(|s| s.get("availableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let updated_replicas = status_obj.and_then(|s| s.get("updatedReplicas")).and_then(|v| v.as_i64()).unwrap_or(replicas as i64) as i32;
+            let has_unavailable = status_obj.and_then(|s| s.get("unavailableReplicas")).is_some();
+            let unavailable_replicas = status_obj.and_then(|s| s.get("unavailableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+            if ready_replicas >= replicas && available_replicas >= replicas && !has_unavailable {
+                "Running".to_string()
+            } else if has_unavailable && unavailable_replicas > 0 {
+                "Progressing".to_string()
+            } else if updated_replicas < replicas {
+                "Updating".to_string()
+            } else if ready_replicas < replicas || available_replicas < replicas {
+                "Scaling".to_string()
+            } else {
+                "Running".to_string()
+            }
         } else {
             obj.data.get("status")
                 .and_then(|s| s.get("phase").or(s.get("state")))
@@ -2018,18 +2067,18 @@ async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String,
 async fn scale_deployment(state: State<'_, AppState>, namespace: String, name: String, replicas: i32) -> Result<String, String> {
     let client = create_client(state).await?;
 
-    // Create a patch for the replicas field
+    // Create a strategic merge patch for the replicas field
     let patch = serde_json::json!({
         "spec": {
             "replicas": replicas
         }
     });
 
-    let ar = kube::discovery::ApiResource::erase::<k8s_openapi::api::apps::v1::Deployment>(&());
-    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
+    let api: Api<k8s_openapi::api::apps::v1::Deployment> = Api::namespaced(client, &namespace);
 
-    let pp = PatchParams::apply("opspilot").force();
-    api.patch(&name, &pp, &Patch::Apply(&patch)).await.map_err(|e| e.to_string())?;
+    // Use strategic merge patch instead of server-side apply
+    let pp = PatchParams::default();
+    api.patch(&name, &pp, &Patch::Strategic(&patch)).await.map_err(|e| e.to_string())?;
 
     Ok(format!("Scaled deployment {} to {} replicas", name, replicas))
 }
@@ -2111,6 +2160,41 @@ async fn helm_uninstall(namespace: String, name: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Run a kubectl command with optional bash piping (grep, awk, etc.)
+/// Only kubectl commands are allowed for safety
+#[tauri::command]
+async fn run_kubectl_command(command: String) -> Result<String, String> {
+    // Security: only allow kubectl commands
+    let trimmed = command.trim();
+    if !trimmed.starts_with("kubectl ") {
+        return Err("Only kubectl commands are allowed. Command must start with 'kubectl '.".to_string());
+    }
+    
+    // Use shell to support piping (grep, awk, etc.)
+    let output = std::process::Command::new("sh")
+        .args(&["-c", trimmed])
+        .output()
+        .map_err(|e| format!("Failed to execute command: {}", e))?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    
+    if !output.status.success() && !stderr.is_empty() {
+        return Ok(format!("⚠️ Command exited with error:\n{}\n{}", stdout, stderr));
+    }
+    
+    // Limit output size
+    let result = if stdout.len() > 10000 {
+        format!("{}...\n\n(output truncated, {} total chars)", &stdout[..10000], stdout.len())
+    } else if stdout.is_empty() {
+        "(no output)".to_string()
+    } else {
+        stdout.to_string()
+    };
+    
+    Ok(result)
 }
 
 #[tauri::command]
@@ -2456,6 +2540,7 @@ pub fn run() {
             patch_resource,
             helm_list,
             helm_uninstall,
+            run_kubectl_command,
             get_current_context_name,
             start_local_shell,
             send_shell_input,
@@ -2467,6 +2552,7 @@ pub fn run() {
             get_cluster_events_summary,
             list_all_resources,
             find_unhealthy_resources,
+            list_resources_with_finalizers,
             get_initial_cluster_data,
             list_azure_subscriptions,
             list_aks_clusters,
@@ -2488,9 +2574,17 @@ pub fn run() {
             ai_local::call_llm,
             ai_local::check_llm_status,
             ai_local::get_default_llm_config,
+            ai_local::analyze_text,
             knowledge::search_knowledge_base,
+            knowledge::semantic_search_knowledge_base,
+            knowledge::suggest_tools_for_query,
+            embeddings::check_embedding_model_status,
+            embeddings::init_embedding_model,
             test_connectivity,
             get_cluster_cost_report,
+            check_claude_code_status,
+            call_claude_code,
+            call_claude_code_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -3468,6 +3562,62 @@ async fn find_unhealthy_resources(state: State<'_, AppState>) -> Result<Unhealth
         timestamp: chrono::Utc::now().to_rfc3339(),
         issues,
     })
+}
+
+// Struct for resources with finalizers
+#[derive(serde::Serialize)]
+struct ResourceWithFinalizer {
+    kind: String,
+    name: String,
+    namespace: String,
+    finalizers: Vec<String>,
+    deletion_timestamp: Option<String>,
+}
+
+// List resources with finalizers in a namespace (for debugging stuck terminating namespaces)
+#[tauri::command]
+async fn list_resources_with_finalizers(state: State<'_, AppState>, namespace: String) -> Result<Vec<ResourceWithFinalizer>, String> {
+    let client = create_client(state.clone()).await?;
+    let discovery = get_cached_discovery(&state, client.clone()).await?;
+    let mut results = Vec::new();
+
+    // Get all API groups and iterate through them
+    for group in discovery.groups() {
+        for (ar, caps) in group.recommended_resources() {
+            // Only check namespaced resources
+            if caps.scope != kube::discovery::Scope::Namespaced {
+                continue;
+            }
+
+            let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), &namespace, &ar);
+
+            if let Ok(list) = api.list(&ListParams::default()).await {
+                for obj in list.items {
+                    let finalizers = obj.metadata.finalizers.clone().unwrap_or_default();
+                    if !finalizers.is_empty() {
+                        results.push(ResourceWithFinalizer {
+                            kind: ar.kind.clone(),
+                            name: obj.metadata.name.clone().unwrap_or_default(),
+                            namespace: namespace.clone(),
+                            finalizers,
+                            deletion_timestamp: obj.metadata.deletion_timestamp.map(|t| t.0.to_rfc3339()),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by deletion_timestamp (stuck resources first)
+    results.sort_by(|a, b| {
+        match (&a.deletion_timestamp, &b.deletion_timestamp) {
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => a.kind.cmp(&b.kind),
+        }
+    });
+
+    Ok(results)
 }
 
 fn parse_cpu_to_milli(cpu: &str) -> u64 {
@@ -4606,4 +4756,290 @@ async fn list_crds(state: State<'_, AppState>) -> Result<Vec<CrdInfo>, String> {
         CrdInfo { name, group, versions, scope }
     }).collect();
     Ok(infos)
+}
+
+// ============================================================================
+// Claude Code CLI Integration
+// ============================================================================
+
+#[derive(Serialize)]
+struct ClaudeCodeStatus {
+    available: bool,
+    version: Option<String>,
+    error: Option<String>,
+}
+
+/// Check if Claude Code CLI is available
+#[tauri::command]
+async fn check_claude_code_status() -> Result<ClaudeCodeStatus, String> {
+    use std::process::Command;
+
+    // Try to run 'claude --version' to check if it's installed
+    let output = Command::new("claude")
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Ok(ClaudeCodeStatus {
+                available: true,
+                version: Some(version),
+                error: None,
+            })
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            Ok(ClaudeCodeStatus {
+                available: false,
+                version: None,
+                error: Some(format!("Claude Code error: {}", stderr)),
+            })
+        }
+        Err(e) => {
+            let error_msg = if e.kind() == std::io::ErrorKind::NotFound {
+                "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code".to_string()
+            } else {
+                format!("Failed to run Claude Code: {}", e)
+            };
+            Ok(ClaudeCodeStatus {
+                available: false,
+                version: None,
+                error: Some(error_msg),
+            })
+        }
+    }
+}
+
+/// Call Claude Code CLI with a prompt (READ-ONLY mode)
+#[tauri::command]
+async fn call_claude_code(
+    prompt: String,
+    system_prompt: Option<String>,
+) -> Result<String, String> {
+    use std::process::Command;
+    use std::io::Write;
+
+    // Prepend read-only instructions to the system prompt
+    let readonly_instruction = r#"CRITICAL SAFETY RULES - READ CAREFULLY:
+
+1. You are in READ-ONLY mode. You MUST NOT execute any commands that modify state.
+
+2. BEFORE running ANY command, ask yourself: "Could this modify anything?"
+   - If YES: DO NOT RUN IT. Instead, show the user what command you WOULD run and ask for permission.
+   - If NO: You may proceed with read-only commands.
+
+3. ALWAYS ASK THE USER FOR PERMISSION before:
+   - Any kubectl apply, delete, patch, scale, edit, create, replace, or set commands
+   - Any file write, edit, or create operations
+   - Any bash commands that modify state
+   - ANY command you're not 100% certain is read-only
+
+4. SAFE commands you CAN run without asking:
+   - kubectl get, describe, logs, top, explain, api-resources
+   - File reads and searches
+   - Analysis and information gathering
+
+5. FORBIDDEN - Never run these, even if asked:
+   - kubectl apply/delete/patch/scale/edit/create/replace/set
+   - File modifications (write, edit, create, mv, rm)
+   - Any destructive operations
+
+If the user asks you to make changes, explain EXACTLY what commands would be needed, show them the full command, and state: "I cannot execute this command in read-only mode. Would you like to run this yourself?""#;
+
+    // Build the full prompt with read-only system context
+    let full_prompt = if let Some(sys) = system_prompt {
+        format!("{}\n\n{}\n\n---\n\n{}", readonly_instruction, sys, prompt)
+    } else {
+        format!("{}\n\n---\n\n{}", readonly_instruction, prompt)
+    };
+
+    // Use claude CLI in print mode (non-interactive)
+    // The --print flag outputs the response directly without interactive UI
+    // Use --dangerously-skip-permissions so it can run kubectl commands
+    // The read-only instructions in the prompt prevent modifications
+    let mut child = Command::new("claude")
+        .arg("--print")
+        .arg("--dangerously-skip-permissions")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code".to_string()
+            } else {
+                format!("Failed to start Claude Code: {}", e)
+            }
+        })?;
+
+    // Write the prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(full_prompt.as_bytes())
+            .map_err(|e| format!("Failed to write to Claude Code stdin: {}", e))?;
+    }
+
+    // Wait for the process to complete and get output
+    let output = child.wait_with_output()
+        .map_err(|e| format!("Failed to wait for Claude Code: {}", e))?;
+
+    if output.status.success() {
+        let response = String::from_utf8_lossy(&output.stdout).to_string();
+        if response.trim().is_empty() {
+            Err("Claude Code returned empty response".to_string())
+        } else {
+            Ok(response)
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Err(format!("Claude Code error: {} {}", stderr, stdout))
+    }
+}
+
+/// Streaming event payload for Claude Code
+#[derive(Clone, Serialize)]
+struct ClaudeCodeStreamEvent {
+    stream_id: String,
+    event_type: String, // "start", "chunk", "done", "error"
+    content: String,
+}
+
+/// Call Claude Code CLI with streaming output (READ-ONLY mode)
+#[tauri::command]
+async fn call_claude_code_stream(
+    prompt: String,
+    system_prompt: Option<String>,
+    stream_id: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    // Emit start event
+    let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+        stream_id: stream_id.clone(),
+        event_type: "start".to_string(),
+        content: "".to_string(),
+    });
+
+    // Prepend read-only instructions to the system prompt
+    let readonly_instruction = r#"CRITICAL SAFETY RULES - READ CAREFULLY:
+
+1. You are in READ-ONLY mode. You MUST NOT execute any commands that modify state.
+
+2. BEFORE running ANY command, ask yourself: "Could this modify anything?"
+   - If YES: DO NOT RUN IT. Instead, show the user what command you WOULD run and ask for permission.
+   - If NO: You may proceed with read-only commands.
+
+3. ALWAYS ASK THE USER FOR PERMISSION before:
+   - Any kubectl apply, delete, patch, scale, edit, create, replace, or set commands
+   - Any file write, edit, or create operations
+   - Any bash commands that modify state
+   - ANY command you're not 100% certain is read-only
+
+4. SAFE commands you CAN run without asking:
+   - kubectl get, describe, logs, top, explain, api-resources
+   - File reads and searches
+   - Analysis and information gathering
+
+5. FORBIDDEN - Never run these, even if asked:
+   - kubectl apply/delete/patch/scale/edit/create/replace/set
+   - File modifications (write, edit, create, mv, rm)
+   - Any destructive operations
+
+If the user asks you to make changes, explain EXACTLY what commands would be needed, show them the full command, and state: "I cannot execute this command in read-only mode. Would you like to run this yourself?""#;
+
+    // Build the full prompt with read-only system context
+    let full_prompt = if let Some(sys) = system_prompt {
+        format!("{}\n\n{}\n\n---\n\n{}", readonly_instruction, sys, prompt)
+    } else {
+        format!("{}\n\n---\n\n{}", readonly_instruction, prompt)
+    };
+
+    // Spawn claude CLI process with streaming
+    // Use --dangerously-skip-permissions so it can run kubectl commands
+    // The read-only instructions in the prompt prevent modifications
+    let mut child = Command::new("claude")
+        .arg("--print")
+        .arg("--dangerously-skip-permissions")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            let err_msg = if e.kind() == std::io::ErrorKind::NotFound {
+                "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code".to_string()
+            } else {
+                format!("Failed to start Claude Code: {}", e)
+            };
+            let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+                stream_id: stream_id.clone(),
+                event_type: "error".to_string(),
+                content: err_msg.clone(),
+            });
+            err_msg
+        })?;
+
+    // Write prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(full_prompt.as_bytes()).await
+            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+        drop(stdin); // Close stdin to signal EOF
+    }
+
+    // Stream stdout line by line
+    let stdout = child.stdout.take()
+        .ok_or("Failed to capture stdout")?;
+    let mut reader = BufReader::new(stdout).lines();
+
+    // Also capture stderr for errors
+    let stderr = child.stderr.take();
+
+    // Stream output
+    while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
+        let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+            stream_id: stream_id.clone(),
+            event_type: "chunk".to_string(),
+            content: format!("{}\n", line),
+        });
+    }
+
+    // Check for any stderr output
+    if let Some(stderr) = stderr {
+        let mut stderr_reader = BufReader::new(stderr).lines();
+        let mut stderr_content = String::new();
+        while let Some(line) = stderr_reader.next_line().await.map_err(|e| e.to_string())? {
+            stderr_content.push_str(&line);
+            stderr_content.push('\n');
+        }
+        if !stderr_content.trim().is_empty() {
+            // Emit stderr as part of the stream (could be warnings or progress)
+            let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+                stream_id: stream_id.clone(),
+                event_type: "chunk".to_string(),
+                content: stderr_content,
+            });
+        }
+    }
+
+    // Wait for process to complete
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+
+    if status.success() {
+        let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+            stream_id: stream_id.clone(),
+            event_type: "done".to_string(),
+            content: "".to_string(),
+        });
+        Ok(())
+    } else {
+        let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+            stream_id: stream_id.clone(),
+            event_type: "error".to_string(),
+            content: format!("Process exited with status: {}", status),
+        });
+        Err(format!("Claude Code exited with status: {}", status))
+    }
 }

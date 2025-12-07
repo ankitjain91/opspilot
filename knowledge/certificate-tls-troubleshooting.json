@@ -1,0 +1,263 @@
+{
+  "id": "kb-203",
+  "title": "Certificate and TLS Troubleshooting",
+  "category": "troubleshooting",
+  "tags": ["certificates", "tls", "ssl", "cert-manager", "secrets", "https", "x509"],
+  "summary": "Guide for debugging TLS certificate issues in Kubernetes including cert-manager, ingress TLS, and mTLS",
+
+  "certificate_basics": {
+    "description": "How TLS certificates work in Kubernetes",
+    "concepts": {
+      "tls_secret": {
+        "description": "Kubernetes secret containing cert and key",
+        "keys": ["tls.crt", "tls.key", "ca.crt (optional)"]
+      },
+      "cert_manager": {
+        "description": "Automated certificate management",
+        "resources": ["Certificate", "Issuer", "ClusterIssuer", "CertificateRequest"]
+      },
+      "ingress_tls": {
+        "description": "TLS termination at ingress controller",
+        "config": "spec.tls[].secretName references TLS secret"
+      }
+    },
+    "commands": [
+      {
+        "command": "kubectl get certificates -A",
+        "description": "List all cert-manager certificates",
+        "what_to_look_for": ["READY status", "AGE vs expiry"]
+      },
+      {
+        "command": "kubectl get secret <name> -n <ns> -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -text -noout",
+        "description": "Decode and inspect certificate",
+        "when_to_use": "Check expiry, issuer, SANs"
+      },
+      {
+        "command": "kubectl describe certificate <name> -n <ns>",
+        "description": "Get certificate status and events"
+      }
+    ]
+  },
+
+  "common_errors": [
+    {
+      "name": "Certificate not ready / stuck pending",
+      "error_patterns": [
+        "Certificate not ready",
+        "Waiting for CertificateRequest to complete",
+        "Issuing certificate"
+      ],
+      "symptoms": [
+        "Certificate READY=False",
+        "Ingress showing default certificate",
+        "SSL errors in browser"
+      ],
+      "likely_causes": [
+        "Issuer/ClusterIssuer not configured correctly",
+        "DNS challenge failing (for Let's Encrypt)",
+        "HTTP challenge pod not accessible",
+        "Rate limiting by CA"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe certificate <name> -n <ns>",
+        "kubectl get certificaterequest -n <ns>",
+        "kubectl describe certificaterequest <name> -n <ns>",
+        "kubectl logs -n cert-manager deploy/cert-manager"
+      ],
+      "fix_steps": [
+        "Check Issuer is Ready: kubectl get issuer,clusterissuer",
+        "For HTTP-01: Ensure port 80 accessible, no network policies blocking",
+        "For DNS-01: Verify DNS credentials and permissions",
+        "Check cert-manager logs for specific error messages"
+      ]
+    },
+    {
+      "name": "Certificate expired",
+      "error_patterns": [
+        "x509: certificate has expired",
+        "NET::ERR_CERT_DATE_INVALID",
+        "certificate is not yet valid"
+      ],
+      "symptoms": [
+        "HTTPS connections failing",
+        "Browser showing certificate warning",
+        "API calls failing with TLS errors"
+      ],
+      "likely_causes": [
+        "Cert-manager not renewing certificates",
+        "Manual certificate not updated",
+        "Clock skew on client or server"
+      ],
+      "diagnostic_commands": [
+        "kubectl get certificate -A -o wide",
+        "openssl s_client -connect <host>:443 2>/dev/null | openssl x509 -dates",
+        "kubectl get secret <tls-secret> -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -enddate -noout"
+      ],
+      "fix_steps": [
+        "For cert-manager: kubectl delete certificate <name> -n <ns> to force renewal",
+        "For manual: Update secret with new cert/key",
+        "Check renewal time settings (default: 30 days before expiry)",
+        "Fix clock sync issues: check NTP on nodes"
+      ]
+    },
+    {
+      "name": "Certificate hostname mismatch",
+      "error_patterns": [
+        "x509: certificate is valid for X, not Y",
+        "hostname mismatch",
+        "NET::ERR_CERT_COMMON_NAME_INVALID"
+      ],
+      "symptoms": [
+        "TLS works for some domains but not others",
+        "Browser shows hostname mismatch error"
+      ],
+      "likely_causes": [
+        "Certificate SANs don't include requested hostname",
+        "Ingress using wrong certificate",
+        "Wildcard cert doesn't cover subdomain depth"
+      ],
+      "diagnostic_commands": [
+        "kubectl get secret <tls-secret> -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -text | grep -A1 'Subject Alternative Name'",
+        "kubectl get ingress <name> -n <ns> -o yaml | grep -A5 tls",
+        "openssl s_client -connect <host>:443 -servername <host> 2>/dev/null | openssl x509 -subject -noout"
+      ],
+      "fix_steps": [
+        "Add missing hostname to Certificate dnsNames",
+        "Ensure ingress spec.tls[].hosts matches secret",
+        "Use separate certificates for different domains",
+        "Note: *.example.com doesn't match example.com or *.sub.example.com"
+      ]
+    },
+    {
+      "name": "TLS secret not found",
+      "error_patterns": [
+        "secret not found",
+        "error getting SSL certificate",
+        "using default certificate"
+      ],
+      "symptoms": [
+        "Ingress using fallback certificate",
+        "Wrong certificate served"
+      ],
+      "likely_causes": [
+        "Secret doesn't exist in correct namespace",
+        "Secret name typo in ingress",
+        "Certificate not yet issued by cert-manager"
+      ],
+      "diagnostic_commands": [
+        "kubectl get secret <name> -n <ns>",
+        "kubectl get ingress <name> -n <ns> -o jsonpath='{.spec.tls}'",
+        "kubectl logs -n ingress-nginx deploy/ingress-nginx-controller"
+      ],
+      "fix_steps": [
+        "Verify secret exists: kubectl get secret <name> -n <ns>",
+        "Check secret has correct type: kubernetes.io/tls",
+        "Ensure secret and ingress in same namespace",
+        "For cert-manager: check Certificate secretName matches"
+      ]
+    },
+    {
+      "name": "mTLS / client certificate failures",
+      "error_patterns": [
+        "bad certificate",
+        "certificate verify failed",
+        "client certificate required"
+      ],
+      "symptoms": [
+        "Service-to-service calls failing",
+        "Istio/Linkerd showing mTLS errors"
+      ],
+      "likely_causes": [
+        "Client certificate not trusted by server CA",
+        "Certificate chain incomplete",
+        "mTLS mode mismatch (strict vs permissive)"
+      ],
+      "diagnostic_commands": [
+        "For Istio: istioctl proxy-status",
+        "For Istio: istioctl analyze -n <namespace>",
+        "openssl verify -CAfile ca.crt client.crt"
+      ],
+      "fix_steps": [
+        "Ensure CA certificate is distributed correctly",
+        "Check PeerAuthentication/DestinationRule for Istio",
+        "Verify certificate chain is complete",
+        "Check clock sync between services"
+      ]
+    }
+  ],
+
+  "cert_manager_debugging": {
+    "description": "Step-by-step cert-manager troubleshooting",
+    "flow": [
+      {
+        "step": 1,
+        "check": "Issuer/ClusterIssuer exists and is Ready",
+        "command": "kubectl get issuer,clusterissuer -A"
+      },
+      {
+        "step": 2,
+        "check": "Certificate resource exists and references correct issuer",
+        "command": "kubectl describe certificate <name> -n <ns>"
+      },
+      {
+        "step": 3,
+        "check": "CertificateRequest was created",
+        "command": "kubectl get certificaterequest -n <ns>"
+      },
+      {
+        "step": 4,
+        "check": "Order/Challenge status (for ACME)",
+        "command": "kubectl get order,challenge -n <ns>"
+      },
+      {
+        "step": 5,
+        "check": "cert-manager controller logs",
+        "command": "kubectl logs -n cert-manager deploy/cert-manager --tail=100"
+      }
+    ],
+    "common_issuer_issues": {
+      "letsencrypt": [
+        "Rate limit exceeded - wait or use staging",
+        "HTTP-01: ingress-class or service issue",
+        "DNS-01: API credentials wrong or lacking permissions"
+      ],
+      "self_signed": [
+        "CA secret not found",
+        "CA certificate expired"
+      ],
+      "vault": [
+        "Vault authentication failing",
+        "PKI role permissions"
+      ]
+    }
+  },
+
+  "ingress_tls_checklist": {
+    "description": "Checklist for ingress TLS issues",
+    "checks": [
+      "Secret exists in same namespace as Ingress",
+      "Secret type is kubernetes.io/tls",
+      "Secret has tls.crt and tls.key keys",
+      "Certificate SANs include all ingress hosts",
+      "Certificate is not expired",
+      "Ingress spec.tls[].secretName matches secret name",
+      "Ingress spec.tls[].hosts matches certificate SANs",
+      "Ingress controller has reloaded (check logs)"
+    ]
+  },
+
+  "best_practices": {
+    "certificate_management": [
+      "Use cert-manager for automated renewal",
+      "Set up monitoring for certificate expiry",
+      "Use separate certificates for prod/non-prod",
+      "Avoid wildcard certs when possible for security"
+    ],
+    "troubleshooting": [
+      "Always check certificate dates first",
+      "Use openssl s_client to test from client perspective",
+      "Check ingress controller logs for reload errors",
+      "Verify DNS resolves correctly for ACME challenges"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+{
+    "id": "webhook-troubleshooting",
+    "title": "Admission Webhook Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "webhook",
+        "admission",
+        "validating",
+        "mutating",
+        "certificate",
+        "timeout",
+        "blocking",
+        "cannot create"
+    ],
+    "summary": "Troubleshooting validating and mutating admission webhooks that block resource creation",
+    "error_patterns": [
+        "admission webhook.*denied",
+        "failed calling webhook",
+        "connection refused.*webhook",
+        "timeout.*webhook",
+        "x509.*certificate"
+    ],
+    "recommended_tools": [
+        "GET_WEBHOOKS",
+        "DESCRIBE",
+        "GET_EVENTS",
+        "RUN_KUBECTL"
+    ],
+    "quick_fix": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations",
+    "symptoms": [
+        "Cannot create/update resources",
+        "Error mentions 'admission webhook denied'",
+        "Timeout errors on resource creation",
+        "Certificate errors in webhook calls"
+    ],
+    "common_causes": [
+        {
+            "cause": "Webhook service unavailable",
+            "description": "Webhook controller pod is down",
+            "diagnosis": "Check pods in webhook's namespace",
+            "fix": "Restart webhook controller, check pod health"
+        },
+        {
+            "cause": "Certificate expired",
+            "description": "Webhook TLS certificate is invalid",
+            "diagnosis": "Events show x509/certificate errors",
+            "fix": "Renew certificate, check cert-manager"
+        },
+        {
+            "cause": "Timeout",
+            "description": "Webhook taking too long to respond",
+            "diagnosis": "Events show 'context deadline exceeded'",
+            "fix": "Increase timeoutSeconds in webhook config, fix webhook performance"
+        },
+        {
+            "cause": "Webhook blocking legitimate resources",
+            "description": "Policy too strict",
+            "diagnosis": "Error message shows what validation failed",
+            "fix": "Adjust webhook policy or add exception"
+        }
+    ],
+    "emergency_fix": {
+        "description": "Temporarily disable blocking webhook (USE WITH CAUTION)",
+        "command": "kubectl delete validatingwebhookconfiguration <name>"
+    },
+    "diagnostic_commands": [
+        "kubectl get validatingwebhookconfigurations",
+        "kubectl get mutatingwebhookconfigurations",
+        "kubectl describe validatingwebhookconfiguration <name>",
+        "kubectl get pods -n <webhook-namespace>"
+    ],
+    "investigation_flow": [
+        "1. GET_WEBHOOKS to list all webhooks",
+        "2. Identify which webhook is blocking",
+        "3. Check webhook controller pod is running",
+        "4. Describe webhook for service endpoint",
+        "5. Check certificate expiration",
+        "6. Review failure policy (Fail vs Ignore)"
+    ]
+}

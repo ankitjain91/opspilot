@@ -1,0 +1,94 @@
+{
+    "id": "uipath-asea-troubleshooting",
+    "title": "UiPath Automation Suite Express on Azure (ASEA) Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "uipath",
+        "asea",
+        "azure",
+        "automation",
+        "suite",
+        "express",
+        "aks",
+        "marketplace"
+    ],
+    "summary": "Troubleshooting UiPath Automation Suite Express deployed via Azure Marketplace on AKS",
+    "symptoms": [
+        "ASEA deployment fails in Azure",
+        "Cannot access UiPath portal after deployment",
+        "AKS node pool issues",
+        "Storage or networking problems",
+        "Certificate renewal failures",
+        "Upgrade or patching issues"
+    ],
+    "azure_components": {
+        "aks": "Azure Kubernetes Service hosting the suite",
+        "app_gateway": "Application Gateway for ingress",
+        "key_vault": "Azure Key Vault for secrets and certificates",
+        "storage": "Azure Files/Disks for persistent storage",
+        "managed_identity": "Workload identity for Azure resource access"
+    },
+    "common_causes": [
+        {
+            "cause": "AKS node pool scaling issues",
+            "description": "Nodes not scaling or stuck in provisioning",
+            "diagnosis": "az aks nodepool list, kubectl get nodes",
+            "fix": "Check Azure quotas, VM availability in region, scale manually if needed"
+        },
+        {
+            "cause": "Application Gateway misconfiguration",
+            "description": "Ingress not routing traffic correctly",
+            "diagnosis": "Check App Gateway health probes, backend pool status",
+            "fix": "Verify backend pool IPs, check probe paths, review WAF rules"
+        },
+        {
+            "cause": "Key Vault access denied",
+            "description": "Pods cannot access secrets from Key Vault",
+            "diagnosis": "Check managed identity, Key Vault access policies",
+            "fix": "Grant identity access to Key Vault, verify CSI driver"
+        },
+        {
+            "cause": "Azure Files mount failures",
+            "description": "PVCs failing to mount Azure Files shares",
+            "diagnosis": "kubectl describe pvc, check mount errors in pod events",
+            "fix": "Verify storage account connectivity, firewall rules, CSI driver"
+        },
+        {
+            "cause": "DNS resolution issues",
+            "description": "Cannot resolve UiPath endpoints",
+            "diagnosis": "Check Azure Private DNS zones, nslookup from pod",
+            "fix": "Verify DNS zone links, check VNet peering if applicable"
+        },
+        {
+            "cause": "Certificate expiration",
+            "description": "TLS certificates expired, causes auth failures",
+            "diagnosis": "kubectl get certificates, check Key Vault cert expiry",
+            "fix": "Renew certificates in Key Vault, trigger cert-manager sync"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl get nodes -o wide",
+        "kubectl get pods -n uipath -o wide",
+        "az aks show -n <cluster> -g <rg> --query 'provisioningState'",
+        "az aks nodepool list -g <rg> --cluster-name <cluster>",
+        "kubectl get ingress -n uipath",
+        "kubectl logs -n uipath <pod>",
+        "kubectl get pvc -n uipath",
+        "az keyvault secret list --vault-name <vault>"
+    ],
+    "azure_specific_checks": [
+        "Check Azure resource health in portal",
+        "Review Activity Log for deployment errors",
+        "Verify Service Principal/Managed Identity permissions",
+        "Check NSG rules on AKS subnet",
+        "Verify private endpoint connectivity if using private networking"
+    ],
+    "fix_steps": [
+        "1. Verify AKS cluster health: az aks show",
+        "2. Check all UiPath pods are running",
+        "3. Verify Application Gateway health probes pass",
+        "4. Check Key Vault access from pods",
+        "5. Review Azure Activity Log for resource errors",
+        "6. Check certificate validity and DNS resolution"
+    ]
+}

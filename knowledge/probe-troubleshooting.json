@@ -1,0 +1,272 @@
+{
+  "id": "kb-210",
+  "title": "Liveness, Readiness, and Startup Probe Troubleshooting",
+  "category": "troubleshooting",
+  "tags": ["probes", "liveness", "readiness", "startup", "health", "restarts"],
+  "summary": "Guide for debugging Kubernetes probe issues that cause pod restarts, service disruptions, and deployment failures",
+
+  "probe_basics": {
+    "description": "Understanding Kubernetes probes",
+    "types": {
+      "liveness": {
+        "description": "Is the container alive?",
+        "action": "Container restarted if probe fails",
+        "use_case": "Detect deadlocks, hangs, corrupted state"
+      },
+      "readiness": {
+        "description": "Is the container ready to serve traffic?",
+        "action": "Pod removed from Service endpoints",
+        "use_case": "Temporary inability to serve (loading data, dependencies down)"
+      },
+      "startup": {
+        "description": "Has the container started successfully?",
+        "action": "Other probes disabled until startup passes",
+        "use_case": "Slow-starting containers, legacy apps"
+      }
+    },
+    "probe_types": {
+      "httpGet": "HTTP GET request to endpoint",
+      "tcpSocket": "TCP connection attempt",
+      "exec": "Execute command in container",
+      "grpc": "gRPC health check (K8s 1.24+)"
+    },
+    "commands": [
+      {
+        "command": "kubectl describe pod <pod> -n <ns>",
+        "description": "View probe configuration and failure events"
+      },
+      {
+        "command": "kubectl get events -n <ns> --field-selector reason=Unhealthy",
+        "description": "Find probe failure events"
+      },
+      {
+        "command": "kubectl logs <pod> -n <ns> --previous",
+        "description": "Check logs before restart"
+      }
+    ]
+  },
+
+  "common_errors": [
+    {
+      "name": "Liveness probe causing container restarts",
+      "error_patterns": [
+        "Liveness probe failed",
+        "Container killed due to failed liveness probe",
+        "CrashLoopBackOff due to liveness"
+      ],
+      "symptoms": [
+        "Container keeps restarting",
+        "High restart count",
+        "Events show liveness probe failures"
+      ],
+      "likely_causes": [
+        "Probe timing too aggressive",
+        "Application slow to respond under load",
+        "Endpoint returns error status",
+        "Application has temporary slowdowns"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe pod <pod> -n <ns> | grep -A10 'Liveness:'",
+        "kubectl get events -n <ns> | grep Liveness",
+        "kubectl exec <pod> -- curl -v localhost:<port>/<path>"
+      ],
+      "fix_steps": [
+        "Increase initialDelaySeconds if starting slow",
+        "Increase periodSeconds and timeoutSeconds",
+        "Increase failureThreshold before restart",
+        "Simplify liveness endpoint (should be fast)",
+        "Use startup probe for slow-starting apps"
+      ],
+      "example": {
+        "description": "More forgiving liveness probe",
+        "yaml": "livenessProbe:\n  httpGet:\n    path: /healthz\n    port: 8080\n  initialDelaySeconds: 30\n  periodSeconds: 10\n  timeoutSeconds: 5\n  failureThreshold: 3"
+      }
+    },
+    {
+      "name": "Readiness probe keeping pod out of service",
+      "error_patterns": [
+        "Readiness probe failed",
+        "No endpoints for service"
+      ],
+      "symptoms": [
+        "Pod is Running but not receiving traffic",
+        "Service endpoints empty or incomplete",
+        "Intermittent 503 errors"
+      ],
+      "likely_causes": [
+        "Application not fully ready",
+        "Dependencies not available",
+        "Probe checking wrong endpoint",
+        "Probe too strict"
+      ],
+      "diagnostic_commands": [
+        "kubectl get endpoints <service> -n <ns>",
+        "kubectl describe pod <pod> | grep -A10 'Readiness:'",
+        "kubectl exec <pod> -- curl -v localhost:<port>/<ready-path>"
+      ],
+      "fix_steps": [
+        "Verify readiness endpoint is correct",
+        "Check if dependencies are available",
+        "Adjust probe thresholds",
+        "Ensure readiness returns 200 when actually ready"
+      ],
+      "note": "Readiness probe failure doesn't restart container - it just removes from service"
+    },
+    {
+      "name": "Startup probe preventing other probes from running",
+      "error_patterns": [
+        "Startup probe failed",
+        "Container killed before startup complete"
+      ],
+      "symptoms": [
+        "Slow-starting container never becomes ready",
+        "Container killed during initialization"
+      ],
+      "likely_causes": [
+        "failureThreshold * periodSeconds < actual startup time",
+        "Startup endpoint not working",
+        "Startup takes variable time"
+      ],
+      "diagnostic_commands": [
+        "kubectl describe pod <pod> | grep -A10 'Startup:'",
+        "kubectl logs <pod> -n <ns> → Check startup progress"
+      ],
+      "fix_steps": [
+        "Calculate needed time: failureThreshold * periodSeconds >= startup time",
+        "Use higher failureThreshold for slow apps",
+        "Ensure startup endpoint returns 200 when ready"
+      ],
+      "example": {
+        "description": "Startup probe allowing 5 minutes startup",
+        "yaml": "startupProbe:\n  httpGet:\n    path: /started\n    port: 8080\n  periodSeconds: 10\n  failureThreshold: 30  # 30 * 10 = 300 seconds"
+      }
+    },
+    {
+      "name": "Exec probe causing resource issues",
+      "error_patterns": [
+        "Probe command slow",
+        "High CPU during probe"
+      ],
+      "symptoms": [
+        "Container CPU spikes on probe interval",
+        "Probe command timing out"
+      ],
+      "likely_causes": [
+        "Exec command too resource-intensive",
+        "Script spawns many processes",
+        "Database query in probe too heavy"
+      ],
+      "fix_steps": [
+        "Use httpGet or tcpSocket instead of exec",
+        "Simplify probe command",
+        "Cache expensive checks",
+        "Increase probe timeout"
+      ],
+      "note": "Prefer httpGet over exec for performance and reliability"
+    },
+    {
+      "name": "Probe working locally but failing in cluster",
+      "error_patterns": [
+        "Connection refused",
+        "Probe failed: connection reset"
+      ],
+      "symptoms": [
+        "Probe fails but manual curl works",
+        "Intermittent probe failures"
+      ],
+      "likely_causes": [
+        "Probe using wrong port",
+        "Application not binding to 0.0.0.0",
+        "Network policy blocking probe traffic"
+      ],
+      "diagnostic_commands": [
+        "kubectl exec <pod> -- netstat -tlnp",
+        "kubectl exec <pod> -- curl -v localhost:<port>/<path>"
+      ],
+      "fix_steps": [
+        "Ensure app binds to 0.0.0.0, not 127.0.0.1",
+        "Verify probe port matches container port",
+        "Check network policies allow probe traffic"
+      ]
+    }
+  ],
+
+  "probe_design_guidelines": {
+    "liveness_probe": {
+      "should_do": [
+        "Return quickly (< 1 second)",
+        "Check only critical internal state",
+        "Be simple and deterministic"
+      ],
+      "should_not_do": [
+        "Check external dependencies (use readiness for that)",
+        "Perform expensive operations",
+        "Return failure for recoverable conditions"
+      ]
+    },
+    "readiness_probe": {
+      "should_do": [
+        "Check if can handle requests",
+        "Verify critical dependencies",
+        "Return failure during initialization"
+      ],
+      "should_not_do": [
+        "Be too strict (causes traffic disruption)",
+        "Check non-critical dependencies"
+      ]
+    },
+    "startup_probe": {
+      "should_do": [
+        "Use for slow-starting containers",
+        "Allow enough time for worst-case startup",
+        "Return success once initialization complete"
+      ]
+    }
+  },
+
+  "debugging_workflow": {
+    "container_restarting": [
+      "kubectl describe pod <pod> → Check Last State and Events",
+      "kubectl get events | grep Unhealthy → Find probe failures",
+      "kubectl logs <pod> --previous → Check app state before restart",
+      "Test probe manually: kubectl exec <pod> -- curl localhost:<port>/<path>",
+      "Adjust probe settings based on findings"
+    ],
+    "not_receiving_traffic": [
+      "kubectl get endpoints <service> → Check if pod in endpoints",
+      "kubectl describe pod <pod> → Check readiness probe status",
+      "kubectl exec <pod> -- curl localhost:<port>/ready → Test readiness endpoint",
+      "Check if dependencies are available"
+    ]
+  },
+
+  "common_configurations": {
+    "web_application": {
+      "description": "Standard web app probe configuration",
+      "yaml": "livenessProbe:\n  httpGet:\n    path: /healthz\n    port: 8080\n  initialDelaySeconds: 15\n  periodSeconds: 20\n  failureThreshold: 3\nreadinessProbe:\n  httpGet:\n    path: /ready\n    port: 8080\n  periodSeconds: 5\n  failureThreshold: 3"
+    },
+    "slow_starting_app": {
+      "description": "App with long initialization",
+      "yaml": "startupProbe:\n  httpGet:\n    path: /started\n    port: 8080\n  failureThreshold: 30\n  periodSeconds: 10\nlivenessProbe:\n  httpGet:\n    path: /healthz\n    port: 8080\n  periodSeconds: 10"
+    },
+    "grpc_service": {
+      "description": "gRPC service with grpc health check",
+      "yaml": "livenessProbe:\n  grpc:\n    port: 50051\n  initialDelaySeconds: 10\nreadinessProbe:\n  grpc:\n    port: 50051"
+    }
+  },
+
+  "best_practices": {
+    "design": [
+      "Use startup probe for slow-starting apps instead of long initialDelaySeconds",
+      "Keep liveness check simple and fast",
+      "Use readiness for dependency checks",
+      "Prefer httpGet over exec probes"
+    ],
+    "configuration": [
+      "Set initialDelaySeconds based on actual startup time",
+      "Use failureThreshold > 1 to handle transient failures",
+      "Set timeoutSeconds slightly higher than expected response time",
+      "Document expected startup/response times"
+    ]
+  }
+}

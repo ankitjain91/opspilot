@@ -1,0 +1,245 @@
+{
+  "id": "kb-211",
+  "title": "Namespace Stuck in Terminating State",
+  "category": "troubleshooting",
+  "tags": ["namespace", "terminating", "finalizers", "deletion", "stuck"],
+  "summary": "Complete guide for resolving namespaces that are stuck in Terminating state",
+
+  "problem_overview": {
+    "description": "Why namespaces get stuck in Terminating",
+    "causes": [
+      "Resources with finalizers that can't be processed",
+      "API resources from CRDs that no longer exist",
+      "Webhooks blocking deletion",
+      "Controllers not running to process finalizers"
+    ],
+    "impact": [
+      "Namespace cannot be reused",
+      "Resources remain but inaccessible",
+      "Cluster clutter"
+    ]
+  },
+
+  "diagnostic_workflow": {
+    "description": "Step-by-step diagnosis",
+    "steps": [
+      {
+        "step": 1,
+        "action": "Check namespace status",
+        "command": "kubectl get namespace <namespace> -o yaml",
+        "what_to_look_for": ["status.phase: Terminating", "status.conditions", "spec.finalizers"]
+      },
+      {
+        "step": 2,
+        "action": "Check namespace conditions",
+        "command": "kubectl get namespace <namespace> -o jsonpath='{.status.conditions}' | jq",
+        "what_to_look_for": "Conditions showing what's blocking deletion"
+      },
+      {
+        "step": 3,
+        "action": "Find resources still in namespace",
+        "command": "kubectl api-resources --verbs=list --namespaced -o name | xargs -n 1 kubectl get --show-kind --ignore-not-found -n <namespace>",
+        "purpose": "Identify any remaining resources"
+      },
+      {
+        "step": 4,
+        "action": "Find resources with finalizers",
+        "command": "kubectl get all -n <namespace> -o json | jq '.items[] | select(.metadata.finalizers != null) | {kind: .kind, name: .metadata.name, finalizers: .metadata.finalizers}'",
+        "purpose": "Find resources blocking deletion"
+      }
+    ]
+  },
+
+  "common_causes_and_fixes": [
+    {
+      "name": "CRD deleted before CR instances",
+      "symptoms": [
+        "kubectl get shows resources but api-resources missing",
+        "Error: the server doesn't have a resource type"
+      ],
+      "diagnosis": "Custom resources exist but their CRD was deleted first",
+      "fix_steps": [
+        {
+          "step": 1,
+          "action": "Find stuck API resources",
+          "command": "kubectl get namespace <namespace> -o json | jq '.status.conditions[] | select(.type==\"NamespaceDeletionDiscoveryFailure\")'"
+        },
+        {
+          "step": 2,
+          "action": "Reinstall the CRD temporarily",
+          "command": "kubectl apply -f <crd.yaml>"
+        },
+        {
+          "step": 3,
+          "action": "Delete the CR instances",
+          "command": "kubectl delete <resource> --all -n <namespace>"
+        },
+        {
+          "step": 4,
+          "action": "Delete the CRD again",
+          "command": "kubectl delete crd <crd-name>"
+        }
+      ]
+    },
+    {
+      "name": "Finalizer controller not running",
+      "symptoms": [
+        "Resources have finalizers but controller pod is crashed or missing"
+      ],
+      "diagnosis": "Controller that handles finalizers is not processing them",
+      "fix_steps": [
+        {
+          "step": 1,
+          "action": "Identify the finalizer",
+          "command": "kubectl get <resource> <name> -n <namespace> -o jsonpath='{.metadata.finalizers}'"
+        },
+        {
+          "step": 2,
+          "action": "Find and fix the controller",
+          "note": "Look for controller pod in controller's namespace (often same name as finalizer prefix)"
+        },
+        {
+          "step": 3,
+          "action": "If controller can't be fixed, remove finalizer manually",
+          "command": "kubectl patch <resource> <name> -n <namespace> -p '{\"metadata\":{\"finalizers\":null}}' --type=merge"
+        }
+      ],
+      "warning": "Removing finalizers manually may leave external resources orphaned"
+    },
+    {
+      "name": "Webhook blocking deletion",
+      "symptoms": [
+        "Resources can't be deleted",
+        "Errors about webhook failing"
+      ],
+      "diagnosis": "ValidatingWebhook or MutatingWebhook preventing deletion",
+      "fix_steps": [
+        {
+          "step": 1,
+          "action": "Find blocking webhook",
+          "command": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations | grep <namespace-or-related>"
+        },
+        {
+          "step": 2,
+          "action": "Temporarily delete webhook",
+          "command": "kubectl delete validatingwebhookconfiguration <name>",
+          "warning": "This may have cluster-wide impact"
+        },
+        {
+          "step": 3,
+          "action": "Delete stuck resources",
+          "command": "kubectl delete <resource> --all -n <namespace>"
+        },
+        {
+          "step": 4,
+          "action": "Restore webhook if needed",
+          "command": "kubectl apply -f <webhook.yaml>"
+        }
+      ]
+    },
+    {
+      "name": "Namespace finalizer itself stuck",
+      "symptoms": [
+        "No resources in namespace but still Terminating",
+        "spec.finalizers has kubernetes"
+      ],
+      "diagnosis": "Namespace has finalizer but nothing to clean up",
+      "fix_steps": [
+        {
+          "step": 1,
+          "action": "Verify namespace is empty",
+          "command": "kubectl api-resources --verbs=list --namespaced -o name | xargs -n 1 kubectl get --show-kind --ignore-not-found -n <namespace>"
+        },
+        {
+          "step": 2,
+          "action": "Check for API server issues",
+          "command": "kubectl get namespace <namespace> -o yaml | grep -A5 conditions"
+        },
+        {
+          "step": 3,
+          "action": "Remove namespace finalizer (last resort)",
+          "command": "kubectl get namespace <namespace> -o json | jq '.spec.finalizers = []' | kubectl replace --raw '/api/v1/namespaces/<namespace>/finalize' -f -"
+        }
+      ],
+      "warning": "Only use this after confirming namespace is truly empty"
+    }
+  ],
+
+  "force_delete_procedure": {
+    "description": "Last resort procedure to force namespace deletion",
+    "warning": "May orphan external resources - use only when necessary",
+    "steps": [
+      {
+        "step": 1,
+        "action": "Export namespace JSON",
+        "command": "kubectl get namespace <namespace> -o json > ns.json"
+      },
+      {
+        "step": 2,
+        "action": "Remove finalizers from JSON",
+        "command": "jq '.spec.finalizers = []' ns.json > ns-clean.json"
+      },
+      {
+        "step": 3,
+        "action": "Apply via finalize endpoint",
+        "command": "kubectl replace --raw '/api/v1/namespaces/<namespace>/finalize' -f ns-clean.json"
+      }
+    ],
+    "alternative_one_liner": "kubectl get namespace <namespace> -o json | jq '.spec.finalizers = []' | kubectl replace --raw '/api/v1/namespaces/<namespace>/finalize' -f -"
+  },
+
+  "prevention": {
+    "description": "How to avoid stuck namespaces",
+    "best_practices": [
+      "Delete CR instances before deleting CRDs",
+      "Ensure controller pods are healthy before namespace deletion",
+      "Use cascading delete carefully",
+      "Document which controllers manage which finalizers",
+      "Monitor for stuck namespaces",
+      "Have runbook for common finalizers in your cluster"
+    ],
+    "deletion_order": [
+      "Workloads (Deployments, StatefulSets, etc.)",
+      "Custom Resources",
+      "ConfigMaps, Secrets, Services",
+      "PVCs (if not needed)",
+      "Finally: Namespace"
+    ]
+  },
+
+  "debugging_commands": {
+    "all_resources_in_namespace": "kubectl api-resources --verbs=list --namespaced -o name | xargs -n 1 kubectl get --show-kind --ignore-not-found -n <namespace>",
+    "resources_with_finalizers": "kubectl get all -n <namespace> -o json | jq -r '.items[] | select(.metadata.finalizers) | \"\\(.kind)/\\(.metadata.name): \\(.metadata.finalizers)\"'",
+    "namespace_conditions": "kubectl get namespace <namespace> -o jsonpath='{.status.conditions}' | jq",
+    "find_blocking_webhooks": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json | jq '.items[] | select(.webhooks[].namespaceSelector != null)'",
+    "force_delete_namespace": "kubectl get namespace <namespace> -o json | jq '.spec.finalizers = []' | kubectl replace --raw '/api/v1/namespaces/<namespace>/finalize' -f -"
+  },
+
+  "common_finalizers": {
+    "kubernetes": {
+      "finalizer": "kubernetes",
+      "controller": "Kubernetes namespace controller",
+      "purpose": "Clean up namespace resources"
+    },
+    "foregroundDeletion": {
+      "finalizer": "foregroundDeletion",
+      "controller": "Garbage collector",
+      "purpose": "Wait for dependents to be deleted first"
+    },
+    "orphan": {
+      "finalizer": "orphan",
+      "controller": "Garbage collector",
+      "purpose": "Orphan dependents instead of deleting"
+    },
+    "crossplane": {
+      "finalizer": "finalizer.apiextensions.crossplane.io",
+      "controller": "Crossplane",
+      "purpose": "Clean up external cloud resources"
+    },
+    "helm": {
+      "finalizer": "helm.sh/hook",
+      "controller": "Helm",
+      "purpose": "Run pre/post hooks"
+    }
+  }
+}

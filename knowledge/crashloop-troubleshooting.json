@@ -1,0 +1,107 @@
+{
+    "id": "crashloop-troubleshooting",
+    "title": "CrashLoopBackOff Complete Troubleshooting Guide",
+    "category": "troubleshooting",
+    "tags": [
+        "crashloop",
+        "crashloopbackoff",
+        "restart",
+        "crash",
+        "exit",
+        "error",
+        "pod",
+        "container",
+        "oomkilled",
+        "backoff"
+    ],
+    "summary": "Comprehensive guide to diagnosing and fixing containers that crash repeatedly (CrashLoopBackOff)",
+    "error_patterns": [
+        "CrashLoopBackOff",
+        "Back-off restarting failed container",
+        "container.*exited with code",
+        "Liveness probe failed",
+        "OOMKilled",
+        "Error: container.*not found"
+    ],
+    "recommended_tools": [
+        "GET_LOGS",
+        "DESCRIBE",
+        "FIND_ISSUES",
+        "TOP_PODS"
+    ],
+    "quick_fix": "kubectl logs <pod> -n <ns> --previous && kubectl describe pod <pod> -n <ns>",
+    "symptoms": [
+        "Pod status shows CrashLoopBackOff",
+        "Container restarts multiple times",
+        "Backoff delay increasing between restarts",
+        "Application never becomes ready"
+    ],
+    "common_causes": [
+        {
+            "cause": "Application error on startup",
+            "exit_code": "1",
+            "description": "Application crashes due to bug or missing dependency",
+            "diagnosis": "kubectl logs <pod> --previous to see crash logs",
+            "fix": "Fix application bug, ensure all dependencies available"
+        },
+        {
+            "cause": "OOMKilled - Out of Memory",
+            "exit_code": "137",
+            "description": "Container killed because it exceeded memory limit",
+            "diagnosis": "kubectl describe pod shows 'OOMKilled' reason, exit code 137",
+            "fix": "Increase memory limit in resources.limits.memory or fix memory leak"
+        },
+        {
+            "cause": "Missing configuration",
+            "exit_code": "1",
+            "description": "Required environment variable or config file missing",
+            "diagnosis": "Check logs for 'config not found' or 'env required'",
+            "fix": "Add ConfigMap/Secret and reference in pod spec"
+        },
+        {
+            "cause": "Command/entrypoint error",
+            "exit_code": "127",
+            "description": "Container command not found or script has error",
+            "diagnosis": "Exit code 127 means command not found",
+            "fix": "Fix command/args in pod spec, ensure script is executable"
+        },
+        {
+            "cause": "Liveness probe failing",
+            "description": "App starts but fails liveness probe, causing restarts",
+            "diagnosis": "Events show 'Liveness probe failed'",
+            "fix": "Adjust probe timing, fix health endpoint, increase failureThreshold"
+        },
+        {
+            "cause": "Segmentation fault",
+            "exit_code": "139",
+            "description": "Application crashed with segfault",
+            "diagnosis": "Exit code 139 = SIGSEGV",
+            "fix": "Debug application, check for memory corruption"
+        }
+    ],
+    "exit_code_reference": {
+        "0": "Success - normal exit",
+        "1": "Application error - check logs",
+        "126": "Permission denied - check securityContext",
+        "127": "Command not found - check entrypoint/image",
+        "137": "SIGKILL (OOMKilled) - increase memory",
+        "139": "SIGSEGV (segfault) - debug app",
+        "143": "SIGTERM - graceful shutdown"
+    },
+    "diagnostic_commands": [
+        "kubectl get pod <pod> -n <ns> -o wide",
+        "kubectl logs <pod> -n <ns>",
+        "kubectl logs <pod> -n <ns> --previous",
+        "kubectl describe pod <pod> -n <ns>",
+        "kubectl get pod <pod> -o jsonpath='{.status.containerStatuses[0].lastState}'"
+    ],
+    "investigation_flow": [
+        "1. Check pod status and restart count: kubectl get pod <pod>",
+        "2. Get current logs: kubectl logs <pod>",
+        "3. Get PREVIOUS crash logs: kubectl logs <pod> --previous",
+        "4. Describe pod for events: kubectl describe pod <pod>",
+        "5. Check exit code in lastState (137=OOM, 1=app, 127=cmd not found)",
+        "6. Verify ConfigMaps/Secrets exist",
+        "7. Check liveness probe configuration"
+    ]
+}

@@ -1,0 +1,75 @@
+{
+    "id": "scheduling-troubleshooting",
+    "title": "Pod Scheduling and Pending Issues",
+    "category": "troubleshooting",
+    "tags": [
+        "scheduling",
+        "pending",
+        "unschedulable",
+        "nodeaffinity",
+        "taint",
+        "toleration",
+        "resources",
+        "nodeSelector"
+    ],
+    "summary": "Diagnosing why pods are stuck in Pending state and cannot be scheduled",
+    "symptoms": [
+        "Pod stuck in Pending state",
+        "FailedScheduling events",
+        "No nodes available message",
+        "Insufficient cpu/memory warnings"
+    ],
+    "common_causes": [
+        {
+            "cause": "Insufficient resources",
+            "description": "No node has enough CPU or memory for pod requests",
+            "diagnosis": "kubectl describe pod - look for 'Insufficient' in events",
+            "fix": "Reduce resource requests, add nodes, or free up existing capacity"
+        },
+        {
+            "cause": "Node selector mismatch",
+            "description": "Pod requires labels that no node has",
+            "diagnosis": "Compare pod nodeSelector to node labels",
+            "fix": "Add labels to nodes or remove/modify nodeSelector"
+        },
+        {
+            "cause": "Taints without tolerations",
+            "description": "All nodes are tainted and pod lacks tolerations",
+            "diagnosis": "kubectl describe node - check Taints section",
+            "fix": "Add matching tolerations to pod spec"
+        },
+        {
+            "cause": "Node affinity rules",
+            "description": "Required affinity rules cannot be satisfied",
+            "diagnosis": "kubectl get pod -o yaml | grep -A10 affinity",
+            "fix": "Adjust affinity rules or node labels"
+        },
+        {
+            "cause": "PersistentVolumeClaim not bound",
+            "description": "Pod waiting for PVC to be bound",
+            "diagnosis": "kubectl get pvc - check if status is Bound",
+            "fix": "Create matching PV or fix StorageClass"
+        },
+        {
+            "cause": "Pod priority preemption",
+            "description": "Higher priority pods preventing scheduling",
+            "diagnosis": "Check pod priorityClassName and preemption events",
+            "fix": "Adjust priority or increase cluster capacity"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl describe pod <pod-name> | grep -A20 Events",
+        "kubectl get nodes --show-labels",
+        "kubectl describe nodes | grep -A5 'Allocated resources'",
+        "kubectl get pvc -n <namespace>",
+        "kubectl describe node <node> | grep -A10 Taints"
+    ],
+    "fix_steps": [
+        "1. Run kubectl describe pod to see scheduling events",
+        "2. Check for resource constraints (Insufficient cpu/memory)",
+        "3. Verify nodeSelector matches available nodes",
+        "4. Check node taints vs pod tolerations",
+        "5. Verify any PVCs are bound",
+        "6. Consider adding nodes or reducing requests"
+    ]
+}

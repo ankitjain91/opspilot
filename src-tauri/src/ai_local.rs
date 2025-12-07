@@ -706,3 +706,10 @@ pub fn get_default_llm_config(provider: String) -> LLMConfig {
         _ => LLMConfig::default(), // Ollama
     }
 }
+
+/// Analyze text using the configured LLM
+#[tauri::command]
+pub async fn analyze_text(text: String, context: String) -> Result<String, String> {
+    let system_prompt = format!("You are a Kubernetes expert. Analyze the provided text. Context: {}. Be concise, highlight errors, and suggest fixes.", context);
+    call_local_llm(text, Some(system_prompt)).await
+}

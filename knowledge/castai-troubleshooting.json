@@ -1,0 +1,75 @@
+{
+    "id": "castai-troubleshooting",
+    "title": "CAST AI Kubernetes Optimization Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "castai",
+        "cast",
+        "optimization",
+        "autoscaler",
+        "cost",
+        "nodes",
+        "rebalancing",
+        "hibernation",
+        "spot"
+    ],
+    "summary": "Troubleshooting CAST AI for Kubernetes cluster optimization, autoscaling, and cost reduction",
+    "resources": {
+        "aksclusters": "CAST AI managed AKS cluster connection",
+        "autoscalers": "Autoscaling configuration for node management",
+        "nodeconfigurations": "Node configuration templates",
+        "nodetemplates": "Templates for provisioning nodes",
+        "rebalancingjobs": "Workload rebalancing jobs",
+        "rebalancingschedules": "Scheduled rebalancing",
+        "hibernationschedules": "Cluster hibernation schedules for cost savings",
+        "evictoradvancedconfigs": "Advanced pod eviction configuration"
+    },
+    "common_causes": [
+        {
+            "cause": "Cluster not connected",
+            "description": "CAST AI agent not connecting to CAST AI platform",
+            "diagnosis": "kubectl get aksclusters.castai.upbound.io, check agent pod logs",
+            "fix": "Verify API token, check network connectivity to api.cast.ai"
+        },
+        {
+            "cause": "Autoscaler not scaling",
+            "description": "Nodes not being added or removed as expected",
+            "diagnosis": "kubectl describe autoscaler, check policies and constraints",
+            "fix": "Review autoscaler settings, check node templates, verify spot availability"
+        },
+        {
+            "cause": "NodeConfiguration errors",
+            "description": "Nodes failing to provision with template",
+            "diagnosis": "kubectl describe nodeconfiguration <name>",
+            "fix": "Verify VM types are available, check quota limits"
+        },
+        {
+            "cause": "Rebalancing not working",
+            "description": "Workloads not being redistributed",
+            "diagnosis": "kubectl get rebalancingjobs, check schedules",
+            "fix": "Verify rebalancing schedule, check pod disruption budgets"
+        },
+        {
+            "cause": "Hibernation issues",
+            "description": "Cluster not hibernating or waking on schedule",
+            "diagnosis": "kubectl get hibernationschedules",
+            "fix": "Check schedule times, verify no critical workloads blocking"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl get aksclusters.castai.upbound.io -A",
+        "kubectl get autoscalers.castai.upbound.io -A",
+        "kubectl get nodeconfigurations.castai.upbound.io -A",
+        "kubectl get nodetemplates.castai.upbound.io -A",
+        "kubectl get rebalancingjobs.castai.upbound.io -A",
+        "kubectl get hibernationschedules.castai.upbound.io -A",
+        "kubectl describe <castai-resource> <name>"
+    ],
+    "fix_steps": [
+        "1. Check CAST AI cluster connection status",
+        "2. Verify autoscaler configuration and policies",
+        "3. Check node templates for valid VM configurations",
+        "4. Review rebalancing and hibernation schedules",
+        "5. Check CAST AI dashboard for additional insights"
+    ]
+}

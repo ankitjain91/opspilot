@@ -1,0 +1,99 @@
+{
+    "id": "vcluster-troubleshooting",
+    "title": "vCluster Virtual Cluster Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "vcluster",
+        "virtual",
+        "cluster",
+        "multitenancy",
+        "syncer",
+        "host",
+        "nested",
+        "management-cluster",
+        "find-vclusters",
+        "list-vclusters"
+    ],
+    "summary": "Troubleshooting vCluster virtual Kubernetes clusters - how to find, connect, and debug vclusters",
+    "error_patterns": [
+        "vcluster.*not found",
+        "failed to connect.*vcluster",
+        "syncer.*error",
+        "cannot reach.*vcluster"
+    ],
+    "recommended_tools": [
+        "VCLUSTER_CMD",
+        "GET_UIPATH_CRD",
+        "LIST_ALL",
+        "DESCRIBE",
+        "GET_LOGS"
+    ],
+    "quick_fix": "vcluster list && kubectl get vclusters -A",
+    "what_is_vcluster": "vCluster creates virtual Kubernetes clusters inside host namespaces. Each has its own API server but shares host nodes.",
+    "how_to_find_vclusters": {
+        "cli": "vcluster list",
+        "kubectl": "kubectl get vclusters -A",
+        "pods": "kubectl get pods -A -l app=vcluster"
+    },
+    "how_to_connect": {
+        "interactive": "vcluster connect <name> -n <namespace>",
+        "run_command": "vcluster connect <name> -n <namespace> -- kubectl get pods",
+        "via_tool": "VCLUSTER_CMD <namespace> <vcluster-name> get pods -A"
+    },
+    "symptoms": [
+        "vCluster pod not running",
+        "Cannot connect to virtual cluster",
+        "Resources not syncing to host",
+        "Networking issues between vCluster and host",
+        "vcluster list shows no clusters"
+    ],
+    "common_causes": [
+        {
+            "cause": "vCluster pod failing",
+            "description": "The vCluster syncer/API server pod is crashlooping",
+            "diagnosis": "kubectl get pods -n <vcluster-namespace> -l app=vcluster",
+            "fix": "Check pod logs, verify storage class, check resource limits"
+        },
+        {
+            "cause": "Kubeconfig not working",
+            "description": "Cannot connect to virtual cluster API",
+            "diagnosis": "vcluster connect <name> -n <ns>",
+            "fix": "Regenerate kubeconfig, verify vCluster pod is healthy"
+        },
+        {
+            "cause": "Cannot find vclusters",
+            "description": "vcluster list shows empty or error",
+            "diagnosis": "Use kubectl get vclusters -A instead",
+            "fix": "Check if vcluster operator is installed, verify namespace"
+        },
+        {
+            "cause": "Sync issues",
+            "description": "Resources in vCluster not appearing on host",
+            "diagnosis": "Check syncer logs for errors",
+            "fix": "Verify sync patterns in vcluster config, check RBAC"
+        },
+        {
+            "cause": "Storage issues",
+            "description": "vCluster needs PVC but storage not provisioned",
+            "diagnosis": "kubectl get pvc -n <vcluster-namespace>",
+            "fix": "Create StorageClass or use --distro k3s with in-memory"
+        }
+    ],
+    "diagnostic_commands": [
+        "vcluster list",
+        "kubectl get vclusters -A",
+        "kubectl get pods -A -l app=vcluster",
+        "kubectl get pods -n <vcluster-namespace>",
+        "kubectl logs -n <ns> -l app=vcluster",
+        "vcluster connect <name> -n <ns> -- kubectl get pods -A",
+        "kubectl get pvc -n <vcluster-namespace>"
+    ],
+    "investigation_flow": [
+        "1. Find vclusters: vcluster list OR kubectl get vclusters -A",
+        "2. Check vCluster pod status in namespace",
+        "3. Check pod logs for errors",
+        "4. Test connection: vcluster connect <name> -n <ns>",
+        "5. Once connected, check internal cluster state",
+        "6. Check PVC if using persistent storage"
+    ]
+}

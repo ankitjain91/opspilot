@@ -1,0 +1,87 @@
+{
+    "id": "crossplane-troubleshooting",
+    "title": "Crossplane Managed Resources Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "crossplane",
+        "managed",
+        "provider",
+        "claim",
+        "xr",
+        "composite",
+        "azure",
+        "aws",
+        "gcp",
+        "infrastructure"
+    ],
+    "summary": "Troubleshooting Crossplane providers and managed infrastructure resources",
+    "error_patterns": [
+        "cannot.*provision",
+        "provider.*not healthy",
+        "Synced.*False",
+        "Ready.*False",
+        "cannot resolve.*reference"
+    ],
+    "recommended_tools": [
+        "GET_CROSSPLANE",
+        "DESCRIBE",
+        "GET_EVENTS",
+        "RUN_KUBECTL"
+    ],
+    "quick_fix": "kubectl get managed && kubectl get providers",
+    "what_is_crossplane": "Crossplane extends Kubernetes to provision and manage cloud infrastructure using K8s-style APIs",
+    "key_concepts": {
+        "Provider": "Connects to cloud API (aws, azure, gcp)",
+        "ProviderConfig": "Credentials for provider",
+        "Managed Resource": "Individual cloud resource (VPC, Bucket, etc)",
+        "Composite Resource (XR)": "Composition of multiple managed resources",
+        "Claim": "Application-level request for infrastructure"
+    },
+    "symptoms": [
+        "Managed resource stuck in Creating",
+        "Provider shows Unhealthy",
+        "Synced: False on resources",
+        "Ready: False after long time"
+    ],
+    "common_causes": [
+        {
+            "cause": "Provider not healthy",
+            "description": "Provider controller pod is failing",
+            "diagnosis": "kubectl get providers, check pod status in crossplane-system",
+            "fix": "Check provider pod logs, verify ProviderConfig credentials"
+        },
+        {
+            "cause": "Invalid credentials",
+            "description": "ProviderConfig has wrong or expired credentials",
+            "diagnosis": "Events show 'unauthorized' or 'access denied'",
+            "fix": "Update Secret referenced by ProviderConfig"
+        },
+        {
+            "cause": "Cloud API quota exceeded",
+            "description": "Cloud provider rejects creation due to quotas",
+            "diagnosis": "Describe managed resource, check events for quota errors",
+            "fix": "Request quota increase from cloud provider"
+        },
+        {
+            "cause": "Reference not found",
+            "description": "Managed resource references non-existent resource",
+            "diagnosis": "Events show 'cannot resolve reference'",
+            "fix": "Create referenced resource first or fix reference"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl get providers",
+        "kubectl get managed",
+        "kubectl describe <managed-resource> -n <ns>",
+        "kubectl get providerconfig",
+        "kubectl logs -n crossplane-system -l app=crossplane",
+        "kubectl get pods -n crossplane-system"
+    ],
+    "investigation_flow": [
+        "1. GET_CROSSPLANE to see all providers and managed resources",
+        "2. Check provider health status",
+        "3. Describe failing managed resource for events",
+        "4. Check ProviderConfig credentials",
+        "5. Verify cloud quotas and permissions"
+    ]
+}

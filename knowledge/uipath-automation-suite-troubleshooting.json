@@ -1,0 +1,107 @@
+{
+    "id": "uipath-automation-suite-troubleshooting",
+    "title": "UiPath Automation Suite on Kubernetes Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "uipath",
+        "automation",
+        "suite",
+        "orchestrator",
+        "robot",
+        "rpa",
+        "action",
+        "center",
+        "insights",
+        "aicenter",
+        "eks",
+        "aks",
+        "uipathctl"
+    ],
+    "summary": "Troubleshooting UiPath Automation Suite components running on managed Kubernetes (EKS/AKS)",
+    "symptoms": [
+        "Orchestrator pods not ready",
+        "Robot connectivity issues",
+        "Action Center not responding",
+        "AI Center training failures",
+        "Certificate or auth errors",
+        "Database connection issues",
+        "uipathctl commands failing"
+    ],
+    "components": {
+        "orchestrator": "Main UiPath Orchestrator managing robots and processes",
+        "identity-server": "Authentication and SSO handling via Identity Server",
+        "action-center": "Manages exceptions, errors, decisions requiring human intervention",
+        "automation-ops": "Governance policies and feed management",
+        "data-service": "Persistent no-code data storage for automations",
+        "document-understanding": "Pre-trained models for document extraction and categorization",
+        "insights": "Analytics platform for operational insights and robot performance",
+        "integration-service": "API connections and SaaS platform integrations",
+        "aicenter": "AI/ML model training and deployment"
+    },
+    "diagnostic_tools": {
+        "uipathctl": "Primary CLI tool for installation, upgrade, and troubleshooting",
+        "health_check": "uipathctl health check - runs cluster health validation",
+        "prereq_check": "uipathctl prereq check - validates prerequisites",
+        "manifest_apply": "uipathctl manifest apply - applies configuration"
+    },
+    "common_causes": [
+        {
+            "cause": "Database connectivity",
+            "description": "Cannot connect to SQL Server or PostgreSQL",
+            "diagnosis": "Check orchestrator logs for SQL connection errors",
+            "fix": "Verify connection string secret, network access, credentials"
+        },
+        {
+            "cause": "Identity server issues",
+            "description": "Authentication failing, cannot login",
+            "diagnosis": "Check identity-service pods, verify OIDC config",
+            "fix": "Restart identity pods, check certificate validity"
+        },
+        {
+            "cause": "Certificate problems",
+            "description": "TLS certs expired or misconfigured",
+            "diagnosis": "kubectl get certificates, check cert-manager",
+            "fix": "Renew certificates, verify issuer is working"
+        },
+        {
+            "cause": "License issues",
+            "description": "License expired or not activated",
+            "diagnosis": "Check orchestrator logs for license errors",
+            "fix": "Update license, verify license server connectivity"
+        },
+        {
+            "cause": "Resource exhaustion",
+            "description": "Pods OOMKilled or CPU throttled",
+            "diagnosis": "kubectl top pods, check resource limits",
+            "fix": "Increase resource limits for affected components"
+        },
+        {
+            "cause": "Storage issues",
+            "description": "PVC not bound or storage full",
+            "diagnosis": "kubectl get pvc, check storage usage",
+            "fix": "Expand PVC or clean up old data"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl get pods -n uipath",
+        "kubectl logs -n uipath <pod-name>",
+        "kubectl describe pod -n uipath <pod-name>",
+        "kubectl get certificates -n uipath",
+        "kubectl get pvc -n uipath",
+        "kubectl get ingress -n uipath",
+        "kubectl top pods -n uipath"
+    ],
+    "common_namespaces": [
+        "uipath",
+        "automation-suite",
+        "uipath-infra"
+    ],
+    "fix_steps": [
+        "1. Check all pods in UiPath namespace are running",
+        "2. Verify database connectivity from pods",
+        "3. Check certificates are valid and not expired",
+        "4. Review ingress configuration for external access",
+        "5. Check resource usage (CPU/memory/storage)",
+        "6. Review application logs for specific errors"
+    ]
+}

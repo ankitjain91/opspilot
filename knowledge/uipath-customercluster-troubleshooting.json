@@ -1,0 +1,101 @@
+{
+    "id": "uipath-customercluster-troubleshooting",
+    "title": "UiPath CustomerCluster Custom Resource Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "customercluster",
+        "uipath",
+        "dedicated",
+        "cluster",
+        "asfailed",
+        "infrainprogress",
+        "provisioning",
+        "automation-suite",
+        "crd"
+    ],
+    "summary": "Troubleshooting UiPath CustomerCluster CRD (dedicated.uipath.com/v1alpha1) - covers ASFailed, InfraInProgress, and provisioning issues",
+    "error_patterns": [
+        "ASFailed",
+        "InfraInProgress",
+        "CustomerCluster.*Failed",
+        "ManagementCluster.*not ready",
+        "provisioning.*failed"
+    ],
+    "recommended_tools": [
+        "GET_UIPATH_CRD",
+        "GET_CAPI",
+        "DESCRIBE",
+        "VCLUSTER_CMD",
+        "GET_EVENTS"
+    ],
+    "quick_fix": "kubectl get customercluster -A && kubectl get managementcluster -A",
+    "states": {
+        "InfraInProgress": {
+            "meaning": "Infrastructure being provisioned (cluster, nodes, networking)",
+            "normal_duration": "15-30 minutes",
+            "stuck_after": "45+ minutes indicates problem"
+        },
+        "ASFailed": {
+            "meaning": "Automation Suite installation failed",
+            "action": "Check AS controller logs, verify prerequisites"
+        },
+        "Ready": {
+            "meaning": "CustomerCluster fully operational",
+            "action": "No action needed"
+        },
+        "Failed": {
+            "meaning": "General failure - check conditions",
+            "action": "kubectl describe customercluster <name>"
+        }
+    },
+    "common_causes": [
+        {
+            "cause": "ASFailed state",
+            "description": "Automation Suite installation failed during deployment",
+            "diagnosis": "kubectl describe customercluster <name> -n <namespace>",
+            "fix": "Check AS pod logs on target cluster, verify prerequisites, check resource availability"
+        },
+        {
+            "cause": "InfraInProgress stuck > 45 min",
+            "description": "Infrastructure provisioning stuck or taking too long",
+            "diagnosis": "kubectl get clusters.cluster.x-k8s.io -n <namespace>",
+            "fix": "Check ManagementCluster health, verify Azure quotas, check MachineDeployments"
+        },
+        {
+            "cause": "ManagementCluster not ready",
+            "description": "Dependency on ManagementCluster being healthy",
+            "diagnosis": "kubectl get managementcluster -n <namespace>",
+            "fix": "Wait for ManagementClusterReady state, troubleshoot vCluster if needed"
+        },
+        {
+            "cause": "Node provisioning failure",
+            "description": "Worker nodes failed to provision in Azure",
+            "diagnosis": "kubectl get machines -n <namespace>",
+            "fix": "Check Azure VM quotas, spot availability, network config, NSG rules"
+        },
+        {
+            "cause": "vCluster syncer issues",
+            "description": "ManagementCluster's vCluster not syncing properly",
+            "diagnosis": "VCLUSTER_CMD <ns> management-cluster get pods -A",
+            "fix": "Check vCluster pod logs, PVC storage"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl get customercluster -A",
+        "kubectl describe customercluster <name> -n <namespace>",
+        "kubectl get managementcluster -A",
+        "kubectl describe managementcluster <name> -n <namespace>",
+        "kubectl get clusters.cluster.x-k8s.io -n <namespace>",
+        "kubectl get machines -n <namespace>",
+        "kubectl get machinedeployments -n <namespace>",
+        "VCLUSTER_CMD <ns> management-cluster get pods -A"
+    ],
+    "investigation_flow": [
+        "1. Check CustomerCluster state: GET_UIPATH_CRD",
+        "2. Check ManagementCluster state (dependency)",
+        "3. Check underlying CAPI Cluster: GET_CAPI",
+        "4. If InfraInProgress: check Machines and MachineDeployments",
+        "5. If ASFailed: connect to vCluster and check AS pods",
+        "6. Review controller logs for specific errors"
+    ]
+}

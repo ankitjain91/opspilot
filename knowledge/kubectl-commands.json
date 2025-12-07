@@ -8,7 +8,7 @@
   "vcluster_management": {
     "description": "Commands for managing vCluster connections",
     "commands": [
-      {
+    {
         "command": "vcluster list",
         "description": "List all available vclusters",
         "output": "Shows vcluster name, namespace, status, and age",

@@ -1,0 +1,62 @@
+{
+    "id": "rbac-permissions-troubleshooting",
+    "title": "RBAC and Permissions Troubleshooting",
+    "category": "troubleshooting",
+    "tags": [
+        "rbac",
+        "permissions",
+        "forbidden",
+        "unauthorized",
+        "serviceaccount",
+        "role",
+        "clusterrole",
+        "rolebinding"
+    ],
+    "summary": "Diagnosing and fixing RBAC permission issues for pods, users, and service accounts",
+    "symptoms": [
+        "Forbidden error when accessing resources",
+        "User cannot list/get/create resources",
+        "Pod service account lacks permissions",
+        "API calls return 403 status"
+    ],
+    "common_causes": [
+        {
+            "cause": "Missing RoleBinding",
+            "description": "Role exists but not bound to user/serviceaccount",
+            "diagnosis": "kubectl get rolebindings,clusterrolebindings -A | grep <name>",
+            "fix": "Create RoleBinding or ClusterRoleBinding"
+        },
+        {
+            "cause": "Wrong namespace scope",
+            "description": "Using Role when ClusterRole is needed (or vice versa)",
+            "diagnosis": "Role only works in its namespace, ClusterRole is cluster-wide",
+            "fix": "Use ClusterRole+ClusterRoleBinding for cluster-wide access"
+        },
+        {
+            "cause": "ServiceAccount not specified",
+            "description": "Pod using default SA which lacks permissions",
+            "diagnosis": "kubectl get pod <name> -o jsonpath='{.spec.serviceAccountName}'",
+            "fix": "Create ServiceAccount with proper bindings, set in pod spec"
+        },
+        {
+            "cause": "Insufficient verbs",
+            "description": "Role doesn't include required verb (get, list, watch, create, etc.)",
+            "diagnosis": "kubectl describe role <name> - check verbs and resources",
+            "fix": "Add missing verbs to the Role rules"
+        }
+    ],
+    "diagnostic_commands": [
+        "kubectl auth can-i <verb> <resource> --as=system:serviceaccount:<ns>:<sa>",
+        "kubectl get clusterrolebindings -o wide | grep <name>",
+        "kubectl describe role <role-name> -n <namespace>",
+        "kubectl get serviceaccount <sa-name> -n <namespace> -o yaml",
+        "kubectl auth can-i --list --as=<user>"
+    ],
+    "fix_steps": [
+        "1. Identify what permission is needed from error message",
+        "2. Check if role/clusterrole exists with required permissions",
+        "3. Verify binding exists connecting role to user/sa",
+        "4. Use 'kubectl auth can-i' to test permissions",
+        "5. Create or modify role/binding as needed"
+    ]
+}
