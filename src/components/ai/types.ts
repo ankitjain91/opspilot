@@ -68,8 +68,8 @@ export interface InvestigationState {
     hypotheses: Hypothesis[];
     /** Consecutive unproductive iterations (not just errors) */
     consecutiveUnproductive: number;
-    /** Additional unproductive counter for reflection logic */
-    unproductiveIterations?: number;
+    /** Total unproductive iterations in current investigation leg */
+    unproductiveIterations: number;
     /** Tools that have failed (for alternative suggestions) */
     failedTools: Map<string, number>;
     /** Executed tool signatures to prevent duplicates */
@@ -965,8 +965,8 @@ export function extractHypotheses(
 
         const status: HypothesisStatus =
             statusText.includes('confirm') ? 'confirmed' :
-            statusText.includes('refut') ? 'refuted' :
-            'investigating';
+                statusText.includes('refut') ? 'refuted' :
+                    'investigating';
 
         // Update existing or add new
         const existingIdx = hypotheses.findIndex(h => h.id === id);
@@ -1146,8 +1146,8 @@ export function formatHypothesesForPrompt(hypotheses: Hypothesis[]): string {
     const lines = hypotheses.map(h => {
         const emoji =
             h.status === 'confirmed' ? '✅' :
-            h.status === 'refuted' ? '❌' :
-            '🔍';
+                h.status === 'refuted' ? '❌' :
+                    '🔍';
 
         const evidenceStr = h.evidence.length > 0
             ? ` | Evidence: ${h.evidence.slice(-2).join('; ')}`
