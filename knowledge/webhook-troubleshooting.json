@@ -1,80 +1,81 @@
 {
-    "id": "webhook-troubleshooting",
-    "title": "Admission Webhook Troubleshooting",
-    "category": "troubleshooting",
-    "tags": [
-        "webhook",
-        "admission",
-        "validating",
-        "mutating",
-        "certificate",
-        "timeout",
-        "blocking",
-        "cannot create"
-    ],
-    "summary": "Troubleshooting validating and mutating admission webhooks that block resource creation",
-    "error_patterns": [
-        "admission webhook.*denied",
-        "failed calling webhook",
-        "connection refused.*webhook",
-        "timeout.*webhook",
-        "x509.*certificate"
-    ],
-    "recommended_tools": [
-        "GET_WEBHOOKS",
-        "DESCRIBE",
-        "GET_EVENTS",
-        "RUN_KUBECTL"
-    ],
-    "quick_fix": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations",
-    "symptoms": [
-        "Cannot create/update resources",
-        "Error mentions 'admission webhook denied'",
-        "Timeout errors on resource creation",
-        "Certificate errors in webhook calls"
-    ],
-    "common_causes": [
-        {
-            "cause": "Webhook service unavailable",
-            "description": "Webhook controller pod is down",
-            "diagnosis": "Check pods in webhook's namespace",
-            "fix": "Restart webhook controller, check pod health"
-        },
-        {
-            "cause": "Certificate expired",
-            "description": "Webhook TLS certificate is invalid",
-            "diagnosis": "Events show x509/certificate errors",
-            "fix": "Renew certificate, check cert-manager"
-        },
-        {
-            "cause": "Timeout",
-            "description": "Webhook taking too long to respond",
-            "diagnosis": "Events show 'context deadline exceeded'",
-            "fix": "Increase timeoutSeconds in webhook config, fix webhook performance"
-        },
-        {
-            "cause": "Webhook blocking legitimate resources",
-            "description": "Policy too strict",
-            "diagnosis": "Error message shows what validation failed",
-            "fix": "Adjust webhook policy or add exception"
-        }
-    ],
-    "emergency_fix": {
-        "description": "Temporarily disable blocking webhook (USE WITH CAUTION)",
-        "command": "kubectl delete validatingwebhookconfiguration <name>"
+  "id": "webhook-troubleshooting",
+  "title": "Mutating/Validating Webhook Failures",
+  "category": "troubleshooting",
+  "tags": [
+    "webhook",
+    "admission",
+    "tls",
+    "timeout",
+    "certificate",
+    "api-server"
+  ],
+  "summary": "Resolve webhook errors (timeouts, x509, connection refused) blocking creates/updates.",
+  "error_patterns": [
+    "failed calling webhook",
+    "no such host",
+    "x509: certificate signed by unknown authority",
+    "context deadline exceeded",
+    "connection refused"
+  ],
+  "recommended_tools": [
+    "LIST_ALL ValidatingWebhookConfiguration",
+    "LIST_ALL MutatingWebhookConfiguration",
+    "DESCRIBE ValidatingWebhookConfiguration <name>",
+    "GET_EVENTS <ns>",
+    "RUN_KUBECTL get pods -A | grep webhook"
+  ],
+  "quick_fix": "Identify failing webhook from error; ensure service/pod exists and certs are valid; patch or delete webhook if owner app is gone (with caution).",
+  "symptoms": [
+    "kubectl apply/create fails with webhook error",
+    "Timeout/x509 when talking to webhook service",
+    "Cluster installs/CRDs blocked"
+  ],
+  "decision_tree": [
+    "If service/pod missing → restore webhook service or remove webhook config if app uninstalled.",
+    "If x509 unknown authority → fix CABundle/service cert; restart webhook pods.",
+    "If timeout → check service endpoints; NetworkPolicy; ensure port correct.",
+    "If DNS no such host → service/namespace wrong in webhook URL/service reference."
+  ],
+  "common_causes": [
+    {
+      "cause": "Webhook service not running",
+      "description": "Service/Deployment missing or crashed.",
+      "diagnosis": "kubectl get svc/deploy for webhook target; endpoints empty.",
+      "fix": "Restore/redeploy webhook; or remove webhook config if app is gone."
     },
-    "diagnostic_commands": [
-        "kubectl get validatingwebhookconfigurations",
-        "kubectl get mutatingwebhookconfigurations",
-        "kubectl describe validatingwebhookconfiguration <name>",
-        "kubectl get pods -n <webhook-namespace>"
-    ],
-    "investigation_flow": [
-        "1. GET_WEBHOOKS to list all webhooks",
-        "2. Identify which webhook is blocking",
-        "3. Check webhook controller pod is running",
-        "4. Describe webhook for service endpoint",
-        "5. Check certificate expiration",
-        "6. Review failure policy (Fail vs Ignore)"
-    ]
+    {
+      "cause": "Bad TLS/CABundle",
+      "description": "API server cannot validate webhook cert.",
+      "diagnosis": "Error shows x509 unknown authority; check CABundle in webhook config.",
+      "fix": "Patch CABundle with correct CA; restart webhook pods."
+    },
+    {
+      "cause": "NetworkPolicy/port issues",
+      "description": "API server cannot reach webhook over network/port.",
+      "diagnosis": "Timeouts; endpoints exist; check NetworkPolicy blocking apiserver->webhook.",
+      "fix": "Allow traffic to webhook port; verify service port/targetPort."
+    },
+    {
+      "cause": "Stale webhook after uninstall",
+      "description": "Webhook config remains but backend removed.",
+      "diagnosis": "No matching service/deploy; errors mention old webhook.",
+      "fix": "Remove webhook configs if the app is uninstalled and safe to do so."
+    }
+  ],
+  "diagnostic_commands": [
+    "kubectl get validatingwebhookconfiguration,mutatingwebhookconfiguration",
+    "kubectl describe validatingwebhookconfiguration <name>",
+    "kubectl get svc -A | grep webhook",
+    "kubectl get endpoints -A | grep webhook",
+    "kubectl logs -n <ns> deploy/<webhook-deploy> | tail -n 100"
+  ],
+  "investigation_flow": [
+    "1) Capture exact webhook name from error.",
+    "2) List/describe webhook configuration to see service URL/CABundle.",
+    "3) Check service/endpoints/pods for the webhook; ensure Ready.",
+    "4) If x509 → patch CABundle with correct CA; restart webhook pods.",
+    "5) If timeout/no endpoints → fix service/pod or remove stale webhook.",
+    "6) Retry the blocked operation; confirm no webhook errors."
+  ]
 }

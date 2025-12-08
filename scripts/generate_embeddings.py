@@ -67,7 +67,16 @@ TOOL_DESCRIPTIONS = {
     "GET_UIPATH_CRD": "customercluster managementcluster uipath dedicated crds custom resources asfailed infrainprogress customer cluster management cluster provisioning customercluster status managementcluster status uipath crd dedicated.uipath.com customer cluster state management cluster ready",
     
     # Power tools
-    "RUN_KUBECTL": "run kubectl command custom query bash pipe grep awk sed filter search sort head tail wc count advanced query jsonpath custom format output transform data shell command line powerful flexible custom kubectl command run any kubectl arbitrary kubectl shell pipe filter results"
+    "RUN_KUBECTL": "run kubectl command custom query bash pipe grep awk sed filter search sort head tail wc count advanced query jsonpath custom format output transform data shell command line powerful flexible custom kubectl command run any kubectl arbitrary kubectl shell pipe filter results",
+
+    # Advanced tools (bash, file, url)
+    "RUN_BASH": "bash shell command execute run pipe filter grep awk sed jq sort head tail wc kubectl helm advanced query complex command chain multiple commands json processing text filtering combine tools powerful shell scripting command line automation kubectl get -o json jq filter events timeline recent errors",
+
+    "READ_FILE": "read file local yaml json config manifest deployment service configmap secret file contents cat open file read yaml read json local file system debugging manifest compare file view configuration check config file",
+
+    "FETCH_URL": "fetch url web http https download content documentation external manifest github raw yaml remote file web content api endpoint external documentation upstream manifest compare online reference",
+
+    "WEB_SEARCH": "web search google internet lookup error message unknown error unfamiliar issue stack overflow github issues documentation online help find solution search for error troubleshooting guide external search web lookup internet search"
 }
 
 

@@ -1,0 +1,258 @@
+{
+    "id": "advanced-tools-guide",
+    "title": "Advanced Investigation Tools Guide",
+    "category": "tools",
+    "tags": [
+        "tools",
+        "bash",
+        "shell",
+        "advanced",
+        "power-user",
+        "jq",
+        "filtering",
+        "mcp",
+        "file",
+        "url"
+    ],
+    "summary": "Guide for using advanced investigation tools like RUN_BASH, READ_FILE, FETCH_URL, and WEB_SEARCH for complex Kubernetes debugging scenarios.",
+
+    "tools": {
+        "RUN_BASH": {
+            "description": "Execute shell commands with pipes and filters. Combines kubectl with grep, awk, jq, sort, head, tail for powerful analysis.",
+            "syntax": "RUN_BASH <shell command>",
+            "capabilities": [
+                "Pipe kubectl output through grep, awk, sed, jq",
+                "Sort and filter results",
+                "Extract specific JSON fields with jq",
+                "Chain multiple commands",
+                "Count and aggregate results"
+            ],
+            "examples": [
+                {
+                    "scenario": "Find all pending pods with details",
+                    "command": "RUN_BASH kubectl get pods -A -o json | jq '.items[] | select(.status.phase==\"Pending\") | {name:.metadata.name, ns:.metadata.namespace, reason:.status.conditions[0].reason}'",
+                    "when_to_use": "When you need structured output of specific pod states"
+                },
+                {
+                    "scenario": "Find recent errors in events",
+                    "command": "RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -iE 'error|fail|crash' | tail -30",
+                    "when_to_use": "When looking for recent error patterns across the cluster"
+                },
+                {
+                    "scenario": "Find deployments with unavailable replicas",
+                    "command": "RUN_BASH kubectl get deploy -A -o json | jq '.items[] | select(.status.replicas != .status.readyReplicas) | {name:.metadata.name,ns:.metadata.namespace,desired:.status.replicas,ready:.status.readyReplicas}'",
+                    "when_to_use": "When checking for deployment health across namespaces"
+                },
+                {
+                    "scenario": "Top memory consuming pods",
+                    "command": "RUN_BASH kubectl top pods -A --sort-by=memory | head -15",
+                    "when_to_use": "When investigating memory pressure or OOM issues"
+                },
+                {
+                    "scenario": "Find failed Helm releases",
+                    "command": "RUN_BASH helm list -A --failed",
+                    "when_to_use": "When checking for failed Helm deployments"
+                },
+                {
+                    "scenario": "Count pods by status",
+                    "command": "RUN_BASH kubectl get pods -A -o json | jq -r '.items[].status.phase' | sort | uniq -c",
+                    "when_to_use": "When getting a quick overview of pod states"
+                },
+                {
+                    "scenario": "Find containers with high restart counts",
+                    "command": "RUN_BASH kubectl get pods -A -o json | jq '.items[] | select(.status.containerStatuses[0].restartCount > 5) | {name:.metadata.name,ns:.metadata.namespace,restarts:.status.containerStatuses[0].restartCount}'",
+                    "when_to_use": "When looking for unstable pods"
+                }
+            ],
+            "allowed_commands": [
+                "kubectl", "helm", "jq", "yq", "grep", "awk", "sed",
+                "cat", "head", "tail", "wc", "sort", "uniq", "cut",
+                "ls", "find", "file", "stat", "du", "df",
+                "date", "hostname", "whoami", "pwd", "env",
+                "curl", "wget", "vcluster", "argocd", "istioctl", "cilium"
+            ],
+            "blocked_commands": [
+                "rm", "mv", "cp (to system paths)", "chmod", "chown",
+                "kubectl delete", "kubectl apply", "kubectl patch",
+                "helm install", "helm upgrade", "helm delete"
+            ]
+        },
+
+        "READ_FILE": {
+            "description": "Read local files for debugging manifests, configs, or comparing with cluster state.",
+            "syntax": "READ_FILE <file path>",
+            "examples": [
+                {
+                    "scenario": "Read a local deployment manifest",
+                    "command": "READ_FILE ./deployment.yaml",
+                    "when_to_use": "When comparing local manifest with cluster state"
+                },
+                {
+                    "scenario": "Check kube-apiserver static pod manifest",
+                    "command": "READ_FILE /etc/kubernetes/manifests/kube-apiserver.yaml",
+                    "when_to_use": "When debugging control plane issues"
+                },
+                {
+                    "scenario": "Read kubeconfig",
+                    "command": "READ_FILE ~/.kube/config",
+                    "when_to_use": "When debugging context or cluster connection issues"
+                }
+            ],
+            "supported_formats": ["yaml", "yml", "json", "txt", "sh", "bash", "conf", "cfg"]
+        },
+
+        "FETCH_URL": {
+            "description": "Fetch content from URLs - documentation, raw manifests from GitHub, API responses.",
+            "syntax": "FETCH_URL <url>",
+            "examples": [
+                {
+                    "scenario": "Fetch upstream manifest from GitHub",
+                    "command": "FETCH_URL https://raw.githubusercontent.com/kubernetes/examples/master/guestbook/all-in-one/guestbook-all-in-one.yaml",
+                    "when_to_use": "When comparing cluster state with upstream defaults"
+                },
+                {
+                    "scenario": "Check Kubernetes documentation",
+                    "command": "FETCH_URL https://kubernetes.io/docs/concepts/workloads/pods/",
+                    "when_to_use": "When you need to reference official documentation"
+                }
+            ]
+        },
+
+        "WEB_SEARCH": {
+            "description": "Search the web for error messages, Stack Overflow solutions, GitHub issues.",
+            "syntax": "WEB_SEARCH <search query>",
+            "examples": [
+                {
+                    "scenario": "Search for OOM exit code",
+                    "command": "WEB_SEARCH pod crashloopbackoff exit code 137 OOM kubernetes",
+                    "when_to_use": "When you see an exit code you don't recognize"
+                },
+                {
+                    "scenario": "Search for container runtime error",
+                    "command": "WEB_SEARCH kubernetes OCI runtime create failed permission denied",
+                    "when_to_use": "When you encounter unfamiliar container errors"
+                },
+                {
+                    "scenario": "Search for webhook timeout",
+                    "command": "WEB_SEARCH kubernetes webhook timeout failed calling webhook",
+                    "when_to_use": "When admission webhooks are causing issues"
+                }
+            ],
+            "when_to_use": [
+                "Knowledge base doesn't have the answer",
+                "Unfamiliar error messages or exit codes",
+                "Looking for community solutions or workarounds",
+                "Need recent information about known issues"
+            ]
+        }
+    },
+
+    "tool_combinations": {
+        "description": "Powerful patterns combining multiple tools for comprehensive analysis",
+        "patterns": [
+            {
+                "name": "Filter → Deep Dive",
+                "description": "First filter to find problematic resources, then examine each in detail",
+                "steps": [
+                    "RUN_BASH kubectl get pods -A --field-selector=status.phase=Pending -o name",
+                    "DESCRIBE Pod <namespace> <pod-name> (for each result)"
+                ],
+                "when_to_use": "When you have many resources and need to narrow down"
+            },
+            {
+                "name": "Events Timeline → Logs",
+                "description": "Find when issues started from events, then get logs from that timeframe",
+                "steps": [
+                    "RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -i error | tail -20",
+                    "GET_LOGS <namespace> <pod> (for pods mentioned in events)"
+                ],
+                "when_to_use": "When investigating incident timeline"
+            },
+            {
+                "name": "Compare Cluster vs Manifest",
+                "description": "Fetch upstream manifest and compare with what's deployed",
+                "steps": [
+                    "FETCH_URL https://raw.githubusercontent.com/org/repo/main/deploy.yaml",
+                    "RUN_BASH kubectl get deployment <name> -o yaml"
+                ],
+                "when_to_use": "When suspecting drift from expected configuration"
+            },
+            {
+                "name": "Error → Search → Fix",
+                "description": "Get error from logs, search for solution, apply fix",
+                "steps": [
+                    "GET_LOGS <namespace> <pod>",
+                    "WEB_SEARCH <error message from logs>",
+                    "Apply solution from search results"
+                ],
+                "when_to_use": "When encountering unknown errors"
+            }
+        ]
+    },
+
+    "mcp_servers": {
+        "description": "MCP (Model Context Protocol) servers extend investigation capabilities",
+        "available_servers": [
+            {
+                "name": "kubernetes",
+                "description": "Additional Kubernetes operations via MCP protocol",
+                "command": "uvx mcp-server-kubernetes"
+            },
+            {
+                "name": "git",
+                "description": "Git operations for checking repository history",
+                "command": "uvx mcp-server-git"
+            },
+            {
+                "name": "shell",
+                "description": "General shell command execution with security controls",
+                "command": "uvx mcp-shell-server"
+            },
+            {
+                "name": "github",
+                "description": "GitHub API access for issues, PRs, actions",
+                "command": "npx @modelcontextprotocol/server-github"
+            }
+        ],
+        "how_to_use": "MCP tools appear with server prefix like 'kubernetes__list_pods'. They're automatically available when connected in AI Settings → MCP Extensions."
+    },
+
+    "troubleshooting": {
+        "RUN_BASH_fails": {
+            "symptoms": ["Command not allowed", "Permission denied", "Command blocked"],
+            "causes": [
+                "Command not in allowlist",
+                "Trying to run write operations (delete, apply, patch)",
+                "Path not accessible"
+            ],
+            "solutions": [
+                "Use allowed commands only (kubectl, helm, jq, grep, etc.)",
+                "For write operations, use RUN_KUBECTL with explicit command",
+                "Check file paths are accessible"
+            ]
+        },
+        "jq_syntax_errors": {
+            "symptoms": ["jq parse error", "Invalid JSON", "null output"],
+            "causes": [
+                "kubectl output not in JSON format",
+                "jq filter syntax error",
+                "Empty result set"
+            ],
+            "solutions": [
+                "Ensure -o json flag is used with kubectl",
+                "Test jq filter with simpler query first",
+                "Check if resources exist before filtering"
+            ]
+        }
+    },
+
+    "best_practices": [
+        "Start with simple queries, add complexity as needed",
+        "Use jq for structured JSON extraction instead of grep on JSON",
+        "Limit results with head/tail to avoid overwhelming output",
+        "Chain tools logically: discover → filter → deep-dive",
+        "Use WEB_SEARCH as fallback when knowledge base lacks answers",
+        "Prefer RUN_BASH over multiple individual tool calls when filtering",
+        "Always verify tool output before drawing conclusions"
+    ]
+}

@@ -1,277 +1,78 @@
 {
-  "id": "kb-209",
-  "title": "CronJob and Job Troubleshooting",
+  "id": "cronjob-job-troubleshooting",
+  "title": "CronJob / Job Failures",
   "category": "troubleshooting",
-  "tags": ["cronjob", "job", "batch", "scheduling", "cron", "backoff"],
-  "summary": "Guide for debugging Kubernetes batch workloads including CronJobs, Jobs, and scheduling issues",
-
-  "job_basics": {
-    "description": "How Jobs and CronJobs work",
-    "concepts": {
-      "job": {
-        "description": "Runs a pod to completion once",
-        "completions": "How many successful completions needed",
-        "parallelism": "How many pods run simultaneously"
-      },
-      "cronjob": {
-        "description": "Creates Jobs on a schedule",
-        "schedule": "Cron format: minute hour day month weekday",
-        "concurrency_policy": ["Allow", "Forbid", "Replace"]
-      },
-      "restart_policy": {
-        "description": "Jobs must use Never or OnFailure",
-        "note": "Always is not valid for Jobs"
-      }
-    },
-    "commands": [
-      {
-        "command": "kubectl get jobs -n <ns>",
-        "description": "List jobs and their completion status"
-      },
-      {
-        "command": "kubectl get cronjobs -n <ns>",
-        "description": "List CronJobs with last schedule time"
-      },
-      {
-        "command": "kubectl get pods -l job-name=<job> -n <ns>",
-        "description": "List pods created by a specific Job"
-      },
-      {
-        "command": "kubectl logs job/<job-name> -n <ns>",
-        "description": "Get logs from Job's pod"
-      }
-    ]
-  },
-
-  "common_errors": [
+  "tags": ["cronjob", "job", "batch", "backoff", "deadline"],
+  "summary": "Fix batch workloads that fail, don’t run, or pile up: backoff limits, deadlines, schedules, and cleanup.",
+  "error_patterns": [
+    "BackoffLimitExceeded",
+    "DeadlineExceeded",
+    "no Jobs created",
+    "concurrencyPolicy",
+    "suspend: true"
+  ],
+  "recommended_tools": [
+    "DESCRIBE Job <ns>/<name>",
+    "DESCRIBE CronJob <ns>/<name>",
+    "LIST_ALL Job <ns>",
+    "GET_LOGS job/<name> -n <ns>",
+    "GET_EVENTS <ns>"
+  ],
+  "quick_fix": "Describe the Job/CronJob to see failures; check pod logs; adjust backoffLimit/activeDeadlineSeconds; validate schedule/concurrencyPolicy.",
+  "symptoms": [
+    "Jobs fail repeatedly (BackoffLimitExceeded)",
+    "Jobs time out (DeadlineExceeded)",
+    "CronJob not creating Jobs",
+    "CronJob creates overlapping Jobs",
+    "Old Jobs/Pods not cleaned up"
+  ],
+  "decision_tree": [
+    "If BackoffLimitExceeded → inspect pod logs; fix app/config; raise backoffLimit only if transient.",
+    "If DeadlineExceeded → increase activeDeadlineSeconds or optimize job runtime.",
+    "If no Jobs created → validate cron schedule; check suspend/startingDeadlineSeconds; controller health.",
+    "If overlapping → set concurrencyPolicy: Forbid or Replace; increase interval.",
+    "If too many old Jobs → set history limits and ttlSecondsAfterFinished."
+  ],
+  "common_causes": [
     {
-      "name": "Job failing repeatedly - BackoffLimitExceeded",
-      "error_patterns": [
-        "BackoffLimitExceeded",
-        "Job has reached the specified backoff limit"
-      ],
-      "symptoms": [
-        "Job shows FAILED status",
-        "Multiple failed pod attempts"
-      ],
-      "likely_causes": [
-        "Application error causing non-zero exit",
-        "Configuration issue",
-        "Missing dependencies",
-        "Resource constraints"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe job <name> -n <ns>",
-        "kubectl get pods -l job-name=<name> -n <ns>",
-        "kubectl logs job/<name> -n <ns>",
-        "kubectl logs <failed-pod> -n <ns> --previous"
-      ],
-      "fix_steps": [
-        "Check pod logs for the actual error",
-        "Fix application code or configuration",
-        "Increase backoffLimit if transient failures expected",
-        "Consider setting activeDeadlineSeconds for timeout"
-      ]
+      "cause": "Application/config error",
+      "description": "Job pods exit non-zero repeatedly.",
+      "diagnosis": "kubectl logs job/<name> -n <ns>; describe job for conditions.",
+      "fix": "Fix app/config; optionally increase backoffLimit if transient."
     },
     {
-      "name": "Job never completes - DeadlineExceeded",
-      "error_patterns": [
-        "DeadlineExceeded",
-        "Job was active longer than specified deadline"
-      ],
-      "symptoms": [
-        "Job terminated without completing",
-        "Pod was killed mid-execution"
-      ],
-      "likely_causes": [
-        "activeDeadlineSeconds too short",
-        "Job taking longer than expected",
-        "Pod stuck or hanging"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe job <name> -n <ns>",
-        "kubectl get job <name> -n <ns> -o yaml | grep activeDeadline",
-        "kubectl logs <pod> -n <ns>"
-      ],
-      "fix_steps": [
-        "Increase activeDeadlineSeconds",
-        "Optimize job to complete faster",
-        "Check if job is actually stuck (add progress logging)"
-      ]
+      "cause": "Schedule issues",
+      "description": "Cron expression invalid or missed deadlines; suspend true.",
+      "diagnosis": "Describe cronjob; check suspend/startingDeadlineSeconds; validate cron at crontab.guru.",
+      "fix": "Correct schedule; set suspend: false; adjust startingDeadlineSeconds."
     },
     {
-      "name": "CronJob not creating Jobs",
-      "error_patterns": [
-        "No Jobs created",
-        "LAST SCHEDULE is old or never"
-      ],
-      "symptoms": [
-        "CronJob exists but Jobs aren't being created",
-        "Schedule time passes with no action"
-      ],
-      "likely_causes": [
-        "Invalid cron expression",
-        "startingDeadlineSeconds missed",
-        "suspend: true",
-        "CronJob controller not running"
-      ],
-      "diagnostic_commands": [
-        "kubectl get cronjob <name> -n <ns> -o yaml",
-        "kubectl describe cronjob <name> -n <ns>",
-        "kubectl get jobs -l cronjob-name=<name> -n <ns>",
-        "kubectl get pods -n kube-system | grep controller"
-      ],
-      "fix_steps": [
-        "Validate cron expression (use crontab.guru)",
-        "Check if suspend: false",
-        "Verify startingDeadlineSeconds allows for scheduling",
-        "Check controller-manager is running"
-      ],
-      "cron_examples": {
-        "every_minute": "* * * * *",
-        "every_hour": "0 * * * *",
-        "daily_midnight": "0 0 * * *",
-        "weekly_sunday": "0 0 * * 0",
-        "every_5_min": "*/5 * * * *"
-      }
+      "cause": "Overlapping runs",
+      "description": "Jobs pile up when previous hasn’t finished.",
+      "diagnosis": "Multiple Jobs with same cronjob-name label.",
+      "fix": "Set concurrencyPolicy: Forbid/Replace; increase interval; speed up job."
     },
     {
-      "name": "CronJob running multiple times",
-      "error_patterns": [
-        "Concurrent jobs running",
-        "Jobs piling up"
-      ],
-      "symptoms": [
-        "Multiple Jobs from same CronJob running",
-        "Resource exhaustion from parallel runs"
-      ],
-      "likely_causes": [
-        "concurrencyPolicy: Allow (default)",
-        "Previous job still running when next triggers",
-        "Jobs take longer than schedule interval"
-      ],
-      "diagnostic_commands": [
-        "kubectl get jobs -l cronjob-name=<name> -n <ns>",
-        "kubectl get cronjob <name> -n <ns> -o yaml | grep concurrency"
-      ],
-      "fix_steps": [
-        "Set concurrencyPolicy: Forbid to skip if running",
-        "Set concurrencyPolicy: Replace to kill previous",
-        "Increase schedule interval",
-        "Optimize job to complete faster"
-      ]
-    },
-    {
-      "name": "Old Jobs/Pods not cleaned up",
-      "error_patterns": [
-        "Too many old jobs",
-        "Namespace filled with completed pods"
-      ],
-      "symptoms": [
-        "Many completed/failed Job objects",
-        "Resource quota consumed by old jobs"
-      ],
-      "likely_causes": [
-        "successfulJobsHistoryLimit/failedJobsHistoryLimit too high",
-        "TTL controller not cleaning up",
-        "Manual jobs without TTL"
-      ],
-      "diagnostic_commands": [
-        "kubectl get jobs -n <ns> | wc -l",
-        "kubectl get cronjob <name> -n <ns> -o yaml | grep History"
-      ],
-      "fix_steps": [
-        "Set successfulJobsHistoryLimit: 3 (default)",
-        "Set failedJobsHistoryLimit: 1",
-        "Use ttlSecondsAfterFinished for automatic cleanup",
-        "Manually clean: kubectl delete jobs -n <ns> --field-selector status.successful=1"
-      ],
-      "example": {
-        "description": "CronJob with cleanup settings",
-        "yaml": "spec:\n  successfulJobsHistoryLimit: 3\n  failedJobsHistoryLimit: 1\n  jobTemplate:\n    spec:\n      ttlSecondsAfterFinished: 3600"
-      }
-    },
-    {
-      "name": "Job pods stuck in Terminating",
-      "error_patterns": [
-        "Pod stuck in Terminating",
-        "Job not completing"
-      ],
-      "symptoms": [
-        "Pod shows Terminating for long time",
-        "Job status doesn't update"
-      ],
-      "likely_causes": [
-        "Pod not responding to SIGTERM",
-        "Finalizers blocking deletion",
-        "Node issues"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe pod <pod> -n <ns>",
-        "kubectl get pod <pod> -n <ns> -o yaml | grep finalizers"
-      ],
-      "fix_steps": [
-        "Add proper signal handling in application",
-        "Set terminationGracePeriodSeconds appropriately",
-        "Force delete if stuck: kubectl delete pod <pod> --force --grace-period=0"
-      ]
+      "cause": "No cleanup",
+      "description": "Old Jobs/Pods consume resources.",
+      "diagnosis": "Many completed/failed Jobs present.",
+      "fix": "Set successfulJobsHistoryLimit/failedJobsHistoryLimit; use ttlSecondsAfterFinished."
     }
   ],
-
-  "job_patterns": {
-    "parallel_processing": {
-      "description": "Run multiple pods in parallel",
-      "example": {
-        "completions": 10,
-        "parallelism": 3,
-        "explanation": "10 total completions, 3 at a time"
-      }
-    },
-    "work_queue": {
-      "description": "Process items from a queue until empty",
-      "example": {
-        "parallelism": 5,
-        "completions": null,
-        "explanation": "5 parallel workers, exit when queue empty"
-      }
-    },
-    "one_shot": {
-      "description": "Single execution to completion",
-      "example": {
-        "completions": 1,
-        "parallelism": 1,
-        "explanation": "Default: one pod, one success"
-      }
-    }
-  },
-
-  "debugging_workflow": {
-    "job_failing": [
-      "kubectl describe job <name> -n <ns> → Check conditions",
-      "kubectl get pods -l job-name=<name> -n <ns> → Find pod",
-      "kubectl logs <pod> -n <ns> → Check application logs",
-      "kubectl logs <pod> -n <ns> --previous → Check previous attempt"
-    ],
-    "cronjob_not_running": [
-      "kubectl get cronjob <name> -n <ns> → Check LAST SCHEDULE",
-      "kubectl describe cronjob <name> -n <ns> → Check events",
-      "Validate schedule with crontab.guru",
-      "Check if suspend: true"
-    ]
-  },
-
-  "best_practices": {
-    "reliability": [
-      "Set reasonable backoffLimit (default 6)",
-      "Configure activeDeadlineSeconds for timeout",
-      "Add proper logging for debugging",
-      "Handle SIGTERM gracefully"
-    ],
-    "operations": [
-      "Set history limits to prevent Job accumulation",
-      "Use ttlSecondsAfterFinished for automatic cleanup",
-      "Monitor Job success/failure rates",
-      "Alert on CronJob not running on schedule"
-    ]
-  }
+  "diagnostic_commands": [
+    "kubectl describe job -n <ns> <name>",
+    "kubectl describe cronjob -n <ns> <name>",
+    "kubectl get pods -l job-name=<job> -n <ns>",
+    "kubectl logs job/<name> -n <ns>",
+    "kubectl get jobs -n <ns> | wc -l"
+  ],
+  "investigation_flow": [
+    "1) Describe Job/CronJob to see conditions/events (BackoffLimitExceeded/DeadlineExceeded).",
+    "2) Get pod logs for the job: kubectl logs job/<name> -n <ns> (--previous if retries).",
+    "3) If BackoffLimitExceeded → fix app/config; adjust backoffLimit if needed.",
+    "4) If DeadlineExceeded → raise activeDeadlineSeconds or optimize job.",
+    "5) If CronJob not running → validate cron; ensure suspend: false; startingDeadlineSeconds reasonable.",
+    "6) If overlapping → set concurrencyPolicy: Forbid/Replace; adjust schedule.",
+    "7) Add history limits/ttlSecondsAfterFinished to clean old Jobs."
+  ]
 }

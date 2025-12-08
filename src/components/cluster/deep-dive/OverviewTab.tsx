@@ -35,6 +35,13 @@ interface ChatMessage {
     isActivity?: boolean;
 }
 
+// Normalize timestamps coming from YAML/Date/string
+const formatTimestamp = (ts: any): string => {
+    if (!ts) return 'Unknown';
+    const str = typeof ts === 'string' ? ts : ts instanceof Date ? ts.toISOString() : String(ts);
+    return str.replace('T', ' ').split('.')[0].replace('Z', '');
+};
+
 // Modal component for viewing/copying content with optional edit mode
 function DetailModal({ isOpen, onClose, title, content, type, onSave, resourceName, resourceNamespace, resourceKind }: {
     isOpen: boolean;
@@ -406,30 +413,34 @@ function InfoCard({ icon: Icon, label, value, fullValue, copyable = false, onCli
 
     const handleCopy = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        await navigator.clipboard.writeText(fullValue || value);
+        await navigator.clipboard.writeText(copyValue);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
+    const baseVal = value !== undefined && value !== null ? String(value) : '';
+    const displayValue = baseVal.trim().length > 0 ? baseVal : 'Unknown';
+    const copyValue = fullValue || displayValue;
+
     return (
         <div
-            className={`flex items-center gap-2 p-2.5 bg-zinc-900/80 rounded-xl border border-zinc-800/80 hover:border-zinc-700 transition-all hover:shadow-lg group ${onClick ? 'cursor-pointer' : ''}`}
+            className={`flex items-center gap-2 p-2.5 bg-[#0b0b10] rounded-xl border border-[#1a1a22] hover:border-[#242433] transition-all hover:shadow-lg group ${onClick ? 'cursor-pointer' : ''}`}
             onClick={onClick}
         >
-            <div className="p-1.5 bg-zinc-800 rounded-lg border border-zinc-700/50 shrink-0">
-                <Icon size={12} className="text-zinc-400" />
+            <div className="p-1.5 bg-[#11111a] rounded-lg border border-[#1f1f2b] shrink-0">
+                <Icon size={12} className="text-zinc-300" />
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
                 <div className="text-[9px] text-zinc-600 uppercase tracking-wider font-medium truncate">{label}</div>
-                <div className="text-xs text-zinc-200 font-medium truncate" title={fullValue || value}>{value}</div>
+                <div className="text-xs text-zinc-100 font-medium truncate" title={copyValue}>{displayValue}</div>
             </div>
             {copyable && (
                 <button
                     onClick={handleCopy}
-                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-zinc-700 rounded transition-all shrink-0"
+                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-[#1f1f2b] rounded transition-all shrink-0"
                     title="Copy"
                 >
-                    {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} className="text-zinc-400" />}
+                    {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} className="text-zinc-300" />}
                 </button>
             )}
         </div>
@@ -475,37 +486,48 @@ function LabelChip({ name, value, type = "label", onClick }: {
     );
 }
 
+// Normalize event payload from core/v1 or events.k8s.io
+const normalizeEvent = (event: any) => {
+    const ts = event.lastTimestamp || event.eventTime || event.age || event.firstTimestamp;
+    return {
+        ...event,
+        type: event.type || event.type_ || event.eventType || 'Normal',
+        timestamp: ts,
+    };
+};
+
 // Event item component - compact version
 function EventItem({ event, onClick }: { event: any; onClick?: () => void }) {
-    const isWarning = event.type === 'Warning';
+    const e = normalizeEvent(event);
+    const isWarning = e.type === 'Warning';
     const Icon = isWarning ? AlertTriangle : Info;
 
     return (
         <div
             className={`flex items-start gap-2 p-2.5 rounded-lg border transition-all cursor-pointer ${isWarning
-                ? 'bg-orange-500/5 border-orange-500/20 hover:border-orange-500/40'
-                : 'bg-zinc-900/80 border-zinc-800/80 hover:border-zinc-700'
+                ? 'bg-orange-500/5 border-orange-500/25 hover:border-orange-500/40'
+                : 'bg-[#0f0f16] border-[#1a1a22] hover:border-[#2b2b38]'
                 }`}
             onClick={onClick}
         >
-            <div className={`p-1.5 rounded-lg shrink-0 ${isWarning ? 'bg-orange-500/20' : 'bg-zinc-700/50'}`}>
+            <div className={`p-1.5 rounded-lg shrink-0 ${isWarning ? 'bg-orange-500/20' : 'bg-[#11111a]'}`}>
                 <Icon size={12} className={isWarning ? 'text-orange-400' : 'text-zinc-400'} />
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center gap-2 mb-0.5">
                     <span className={`text-[11px] font-bold truncate ${isWarning ? 'text-orange-400' : 'text-zinc-300'}`}>
-                        {event.reason || event.type}
+                        {e.reason || e.type}
                     </span>
-                    {event.count && event.count > 1 && (
+                    {e.count && e.count > 1 && (
                         <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1 py-0.5 rounded-full shrink-0">
-                            {event.count}x
+                            {e.count}x
                         </span>
                     )}
                 </div>
-                <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">{event.message}</p>
+                <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">{e.message}</p>
                 <div className="flex items-center gap-1 mt-1.5 text-[9px] text-zinc-500">
                     <Clock size={9} />
-                    <span className="truncate">{event.lastTimestamp || event.eventTime || 'Unknown'}</span>
+                    <span className="truncate">{e.timestamp || 'Unknown'}</span>
                 </div>
             </div>
         </div>
@@ -557,7 +579,7 @@ function ConditionRow({ condition, onClick }: { condition: any; onClick?: () => 
                 )}
             </div>
             <div className="text-[8px] text-zinc-600 whitespace-nowrap shrink-0 hidden sm:block">
-                {condition.lastTransitionTime?.split('T')[0]}
+                {formatTimestamp(condition.lastTransitionTime).split(' ')[0]}
             </div>
         </div>
     );
@@ -573,19 +595,19 @@ function Section({ title, icon, count, children, onExpand, className = "" }: {
     className?: string;
 }) {
     return (
-        <div className={`bg-zinc-900/80 rounded-xl border border-zinc-800/80 overflow-hidden ${className}`}>
-            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80 bg-zinc-800/30">
+        <div className={`bg-[#0b0b10] rounded-xl border border-[#1a1a22] overflow-hidden ${className}`}>
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[#1a1a22] bg-[#0f0f16]">
                 <div className="flex items-center gap-2 min-w-0">
                     {icon}
                     <h3 className="text-xs font-semibold text-white truncate">{title}</h3>
                     {count !== undefined && count > 0 && (
-                        <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded-full shrink-0">{count}</span>
+                        <span className="text-[9px] text-zinc-500 bg-[#14141c] px-1.5 py-0.5 rounded-full shrink-0">{count}</span>
                     )}
                 </div>
                 {onExpand && (
                     <button
                         onClick={onExpand}
-                        className="p-1 text-zinc-500 hover:text-white hover:bg-zinc-700 rounded transition-colors shrink-0"
+                        className="p-1 text-zinc-500 hover:text-white hover:bg-[#1f1f2b] rounded transition-colors shrink-0"
                         title="Expand"
                     >
                         <Maximize2 size={12} />
@@ -931,7 +953,7 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
     };
 
     // Recent Events
-    const { data: recentEvents } = useQuery({
+    const { data: recentEventsRaw } = useQuery({
         queryKey: ["recent_events", resource.namespace, resource.name],
         queryFn: async () => {
             const all: any[] = await invoke("list_events", { namespace: resource.namespace, name: resource.name, uid: resource.id });
@@ -940,6 +962,7 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
         enabled: !!resource,
         staleTime: 10000,
     });
+    const recentEvents = (recentEventsRaw || []).map(normalizeEvent);
 
     const labels = fullObject?.metadata?.labels || {};
     const annotations = fullObject?.metadata?.annotations || {};
@@ -952,12 +975,14 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
     const labelEntries = Object.entries(labels);
 
     // Calculate age
-    const creationTime = fullObject?.metadata?.creationTimestamp;
-
-    function formatTimestamp(ts: string): string {
-        if (!ts) return 'Unknown';
-        return ts.replace('T', ' ').split('.')[0].replace('Z', '');
-    }
+    const rawCreationTime = fullObject?.metadata?.creationTimestamp;
+    const creationTime = typeof rawCreationTime === 'string'
+        ? rawCreationTime
+        : rawCreationTime instanceof Date
+            ? rawCreationTime.toISOString()
+            : rawCreationTime
+                ? String(rawCreationTime)
+                : '';
 
     return (
         <div className="space-y-4">

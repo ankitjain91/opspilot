@@ -213,7 +213,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
             </div>
 
             {/* Grid Pattern Overlay */}
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_50%_50%_at_50%_50%,black_40%,transparent_100%)]" />
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(closest-side_at_50%_50%,black_40%,transparent_100%)]" />
 
             <div className="w-full max-w-2xl z-10 animate-in fade-in zoom-in-95 duration-700 px-4">
                 {/* Hero Section */}

@@ -121,9 +121,13 @@ export const SpeedometerGauge = ({ value, max, label, color, unit, size = 160 }:
 
 // Vertical Bar Meter - like an audio VU meter
 // inverseColors: when true, 0% is green (healthy), higher is worse
-export const VerticalMeter = ({ value, max, label, color, icon: Icon, inverseColors = false }: { value: number, max: number, label: string, color: string, icon?: React.ComponentType<{ size?: number, className?: string }>, inverseColors?: boolean }) => {
+// positiveMetric: when true, higher is good (e.g., healthy nodes) so thresholds are not treated as warnings
+export const VerticalMeter = ({ value, max, label, color, icon: Icon, inverseColors = false, positiveMetric = false }: { value: number, max: number, label: string, color: string, icon?: React.ComponentType<{ size?: number, className?: string }>, inverseColors?: boolean, positiveMetric?: boolean }) => {
     const percentage = max > 0 ? Math.min((value / max) * 100, 100) : 0;
     const getColor = () => {
+        if (positiveMetric) {
+            return color;
+        }
         if (inverseColors) {
             // For "bad" metrics like unhealthy nodes: 0% is green, higher is red
             if (percentage === 0) return COLORS.healthy;

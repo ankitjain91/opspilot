@@ -1,11 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import {
     Eye, FileText, Terminal as TerminalIcon, Activity, FileCode,
     Maximize2, Minimize2, X, Trash2, EthernetPort, ChevronLeft, ChevronRight
 } from 'lucide-react';
+import yaml from 'js-yaml';
 import { K8sObject } from '../../types/k8s';
 import { Tab } from '../../types/ui';
 import { TabButton } from './deep-dive/shared';
@@ -107,11 +108,12 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
     }, [activeTabId, tabs, onTabClose, onTabChange]);
 
     // Fetch full details for current resource
-    const { data: fullObject, error: detailsError, isLoading: detailsLoading } = useQuery({
+    // Fetch YAML once and derive structured object so we don't get cache collisions with YamlTab
+    const { data: resourceYaml, error: detailsError, isLoading: detailsLoading } = useQuery({
         queryKey: ["resource_details", currentContext, resource?.namespace, resource?.group, resource?.version, resource?.kind, resource?.name],
         queryFn: async () => {
             if (!resource) return null;
-            const jsonStr = await invoke<string>("get_resource_details", {
+            return await invoke<string>("get_resource_details", {
                 req: {
                     group: resource.group,
                     version: resource.version,
@@ -120,11 +122,21 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                 },
                 name: resource.name
             });
-            return JSON.parse(jsonStr);
         },
         enabled: !!resource,
         staleTime: 10000,
     });
+
+    // Parse YAML (or JSON) into an object for detail views; keep YAML string for YamlTab
+    const fullObject = useMemo(() => {
+        if (!resourceYaml) return null;
+        try {
+            return yaml.load(resourceYaml) as any;
+        } catch (err) {
+            console.error('Failed to parse resource details', err);
+            return null;
+        }
+    }, [resourceYaml]);
 
     const handleDelete = () => {
         setShowDeleteModal(true);

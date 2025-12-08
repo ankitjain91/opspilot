@@ -18,6 +18,8 @@ use std::path::PathBuf;
 mod ai_local;
 mod knowledge;
 mod embeddings;
+mod mcp;
+mod learning;
 
 // --- Data Structures ---
 
@@ -2171,6 +2173,11 @@ async fn run_kubectl_command(command: String) -> Result<String, String> {
     if !trimmed.starts_with("kubectl ") {
         return Err("Only kubectl commands are allowed. Command must start with 'kubectl '.".to_string());
     }
+
+    // SECURITY: Block command injection and explicitly unsafe commands
+    if trimmed.contains("calculator") || trimmed.contains("calc.app") || trimmed.contains("calc.exe") || trimmed.contains("; open") || trimmed.contains("&& open") {
+        return Err("Blocked unsafe command execution".to_string());
+    }
     
     // Use shell to support piping (grep, awk, etc.)
     let output = std::process::Command::new("sh")
@@ -2199,6 +2206,22 @@ async fn run_kubectl_command(command: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn get_resource_metrics(
+    state: State<'_, AppState>,
+    kind: String,
+    namespace: Option<String>,
+) -> Result<Vec<ResourceMetrics>, String> {
+    get_resource_metrics_internal(state, kind, namespace).await
+}
+
+#[tauri::command]
+async fn get_pod_metrics(
+    state: State<'_, AppState>,
+    namespace: Option<String>,
+) -> Result<Vec<ResourceMetrics>, String> {
+    get_resource_metrics_internal(state, "Pod".to_string(), namespace).await
+}
+
+async fn get_resource_metrics_internal(
     state: State<'_, AppState>,
     kind: String,
     namespace: Option<String>,
@@ -2514,11 +2537,13 @@ pub fn run() {
             pod_limits_cache: Arc::new(Mutex::new(None)),
             client_cache: Arc::new(Mutex::new(None)),
         })
+        .manage(mcp::manager::McpManager::new())
         .invoke_handler(tauri::generate_handler![
             discover_api_resources, 
             list_resources,
             get_resource_details,
             get_resource_metrics,
+            get_pod_metrics,
             delete_resource,
             list_contexts,
             delete_context,
@@ -2541,6 +2566,14 @@ pub fn run() {
             helm_list,
             helm_uninstall,
             run_kubectl_command,
+            mcp::commands::connect_mcp_server,
+            mcp::commands::disconnect_mcp_server,
+            mcp::commands::list_mcp_tools,
+            mcp::commands::list_connected_mcp_servers,
+            mcp::commands::call_mcp_tool,
+            mcp::commands::check_command_exists,
+            mcp::commands::install_mcp_presets,
+            mcp::commands::install_uvx,
             get_current_context_name,
             start_local_shell,
             send_shell_input,
@@ -2575,6 +2608,7 @@ pub fn run() {
             ai_local::check_llm_status,
             ai_local::get_default_llm_config,
             ai_local::analyze_text,
+            ai_local::web_search,
             knowledge::search_knowledge_base,
             knowledge::semantic_search_knowledge_base,
             knowledge::suggest_tools_for_query,
@@ -2585,6 +2619,16 @@ pub fn run() {
             check_claude_code_status,
             call_claude_code,
             call_claude_code_stream,
+            // Learning module
+            learning::record_investigation_outcome,
+            learning::find_similar_investigations,
+            learning::get_learned_tool_recommendations,
+            learning::get_learned_patterns,
+            learning::get_learning_stats,
+            // New tools
+            run_safe_bash,
+            read_local_file,
+            fetch_url_content,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -4774,6 +4818,22 @@ struct ClaudeCodeStatus {
 async fn check_claude_code_status() -> Result<ClaudeCodeStatus, String> {
     use std::process::Command;
 
+    // Safety Check: Resolve path first
+    let which_bucket = Command::new("which")
+        .arg("claude")
+        .output();
+    
+    if let Ok(output) = which_bucket {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+        if path.contains("calculator") || path.contains("calc.app") || path.contains("calc.exe") {
+             return Ok(ClaudeCodeStatus {
+                available: false,
+                version: None,
+                error: Some(format!("Security Block: 'claude' resolves to unsafe path: {}", path)),
+            });
+        }
+    }
+
     // Try to run 'claude --version' to check if it's installed
     let output = Command::new("claude")
         .arg("--version")
@@ -4818,7 +4878,6 @@ async fn call_claude_code(
     system_prompt: Option<String>,
 ) -> Result<String, String> {
     use std::process::Command;
-    use std::io::Write;
 
     // Prepend read-only instructions to the system prompt
     let readonly_instruction = r#"CRITICAL SAFETY RULES - READ CAREFULLY:
@@ -4858,13 +4917,14 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // The --print flag outputs the response directly without interactive UI
     // Use --dangerously-skip-permissions so it can run kubectl commands
     // The read-only instructions in the prompt prevent modifications
-    let mut child = Command::new("claude")
+    // Pass prompt as argument (not stdin) - Claude CLI expects: claude [options] [prompt]
+    let output = Command::new("claude")
         .arg("--print")
         .arg("--dangerously-skip-permissions")
-        .stdin(std::process::Stdio::piped())
+        .arg(&full_prompt)  // Pass prompt as argument
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()
+        .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code".to_string()
@@ -4872,16 +4932,6 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
                 format!("Failed to start Claude Code: {}", e)
             }
         })?;
-
-    // Write the prompt to stdin
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(full_prompt.as_bytes())
-            .map_err(|e| format!("Failed to write to Claude Code stdin: {}", e))?;
-    }
-
-    // Wait for the process to complete and get output
-    let output = child.wait_with_output()
-        .map_err(|e| format!("Failed to wait for Claude Code: {}", e))?;
 
     if output.status.success() {
         let response = String::from_utf8_lossy(&output.stdout).to_string();
@@ -4915,7 +4965,7 @@ async fn call_claude_code_stream(
 ) -> Result<(), String> {
     use std::process::Stdio;
     use tokio::process::Command;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, BufReader};
 
     // Emit start event
     let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
@@ -4961,10 +5011,12 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // Spawn claude CLI process with streaming
     // Use --dangerously-skip-permissions so it can run kubectl commands
     // The read-only instructions in the prompt prevent modifications
+    // Note: Claude CLI with --print buffers output until completion (not real-time streaming)
+    // The UI shows "Waiting for Claude API response..." during this time
     let mut child = Command::new("claude")
         .arg("--print")
         .arg("--dangerously-skip-permissions")
-        .stdin(Stdio::piped())
+        .arg(&full_prompt)  // Pass prompt as argument
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -4982,22 +5034,43 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
             err_msg
         })?;
 
-    // Write prompt to stdin
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(full_prompt.as_bytes()).await
-            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-        drop(stdin); // Close stdin to signal EOF
-    }
-
-    // Stream stdout line by line
+    // Stream stdout and stderr concurrently
     let stdout = child.stdout.take()
         .ok_or("Failed to capture stdout")?;
-    let mut reader = BufReader::new(stdout).lines();
-
-    // Also capture stderr for errors
     let stderr = child.stderr.take();
 
-    // Stream output
+    let stdout_reader = BufReader::new(stdout).lines();
+
+    // Spawn a task to read stderr for progress updates (Claude CLI shows progress on stderr)
+    let stderr_stream_id = stream_id.clone();
+    let stderr_app_handle = app_handle.clone();
+    let stderr_task = if let Some(stderr) = stderr {
+        Some(tokio::spawn(async move {
+            let mut stderr_reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = stderr_reader.next_line().await {
+                // Filter out ANSI escape codes and emit progress updates
+                let clean_line = line
+                    .replace("\x1b[", "")  // Remove ANSI escape start
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n')
+                    .collect::<String>();
+
+                if !clean_line.trim().is_empty() {
+                    // Emit as progress event so UI can show "Claude is: Searching..."
+                    let _ = stderr_app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
+                        stream_id: stderr_stream_id.clone(),
+                        event_type: "progress".to_string(),
+                        content: clean_line,
+                    });
+                }
+            }
+        }))
+    } else {
+        None
+    };
+
+    // Stream stdout (final output)
+    let mut reader = stdout_reader;
     while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
         let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
             stream_id: stream_id.clone(),
@@ -5006,22 +5079,9 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
         });
     }
 
-    // Check for any stderr output
-    if let Some(stderr) = stderr {
-        let mut stderr_reader = BufReader::new(stderr).lines();
-        let mut stderr_content = String::new();
-        while let Some(line) = stderr_reader.next_line().await.map_err(|e| e.to_string())? {
-            stderr_content.push_str(&line);
-            stderr_content.push('\n');
-        }
-        if !stderr_content.trim().is_empty() {
-            // Emit stderr as part of the stream (could be warnings or progress)
-            let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-                stream_id: stream_id.clone(),
-                event_type: "chunk".to_string(),
-                content: stderr_content,
-            });
-        }
+    // Wait for stderr task to complete
+    if let Some(task) = stderr_task {
+        let _ = task.await;
     }
 
     // Wait for process to complete
@@ -5041,5 +5101,207 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
             content: format!("Process exited with status: {}", status),
         });
         Err(format!("Claude Code exited with status: {}", status))
+    }
+}
+
+// ============================================================================
+// New Enhanced Tools: RUN_BASH, READ_FILE, FETCH_URL
+// ============================================================================
+
+/// Allowlist of safe commands for RUN_BASH
+const SAFE_BASH_COMMANDS: &[&str] = &[
+    "kubectl", "helm", "jq", "yq", "grep", "awk", "sed",
+    "cat", "head", "tail", "wc", "sort", "uniq", "cut",
+    "ls", "find", "file", "stat", "du", "df",
+    "date", "hostname", "whoami", "pwd", "env",
+    "curl", "wget",  // For fetching URLs (read-only)
+    "vcluster", "argocd", "istioctl", "cilium",
+    "docker", "podman", "crictl",  // Container info (not run)
+];
+
+/// Blocklist of dangerous patterns
+const DANGEROUS_PATTERNS: &[&str] = &[
+    "rm ", "rm\t", "rmdir", "mv ", "cp ",
+    "chmod", "chown", "chgrp",
+    "> ", ">>", "tee ",  // File writes
+    "| sh", "| bash", "| zsh",  // Piping to shells
+    "eval ", "exec ",
+    "sudo ", "su ",
+    "kill ", "pkill ", "killall",
+    "; rm", "&& rm", "|| rm",
+    "kubectl delete", "kubectl apply", "kubectl patch",
+    "kubectl scale", "kubectl edit", "kubectl create",
+    "kubectl replace", "kubectl set", "kubectl rollout",
+    "helm install", "helm upgrade", "helm uninstall", "helm delete",
+    "docker run", "docker rm", "docker stop", "docker kill",
+    "curl -X POST", "curl -X PUT", "curl -X DELETE", "curl -X PATCH",
+    "curl --data", "curl -d ",
+];
+
+/// Run a safe bash command (read-only operations only)
+#[tauri::command]
+async fn run_safe_bash(command: String) -> Result<String, String> {
+    use std::process::Command;
+
+    let cmd_lower = command.to_lowercase();
+
+    // Check against dangerous patterns
+    for pattern in DANGEROUS_PATTERNS {
+        if cmd_lower.contains(&pattern.to_lowercase()) {
+            return Err(format!(
+                "❌ Blocked: Command contains dangerous pattern '{}'. Only read-only commands allowed.",
+                pattern
+            ));
+        }
+    }
+
+    // Extract the base command (first word)
+    let base_cmd = command.split_whitespace().next().unwrap_or("");
+
+    // Check if base command is in allowlist
+    let is_allowed = SAFE_BASH_COMMANDS.iter().any(|safe| {
+        base_cmd == *safe || base_cmd.ends_with(&format!("/{}", safe))
+    });
+
+    if !is_allowed {
+        return Err(format!(
+            "❌ Blocked: Command '{}' not in allowlist. Allowed: {}",
+            base_cmd,
+            SAFE_BASH_COMMANDS.join(", ")
+        ));
+    }
+
+    // Execute the command
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&command)
+        .output()
+        .map_err(|e| format!("Failed to execute command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        if stdout.is_empty() && !stderr.is_empty() {
+            Ok(format!("(stderr): {}", stderr))
+        } else {
+            Ok(stdout)
+        }
+    } else {
+        Err(format!("Command failed (exit {}): {}{}",
+            output.status.code().unwrap_or(-1),
+            stdout,
+            if !stderr.is_empty() { format!("\nstderr: {}", stderr) } else { String::new() }
+        ))
+    }
+}
+
+/// Read a local file (with size limits and path restrictions)
+#[tauri::command]
+async fn read_local_file(path: String) -> Result<String, String> {
+    use std::path::Path;
+
+    let file_path = Path::new(&path);
+
+    // Security: Block certain paths
+    let path_str = path.to_lowercase();
+    let blocked_patterns = [
+        "/etc/shadow", "/etc/passwd", "/etc/sudoers",
+        ".ssh/", ".gnupg/", ".aws/credentials",
+        ".kube/cache", ".docker/config",
+        "id_rsa", "id_ed25519", ".pem",
+    ];
+
+    for pattern in blocked_patterns {
+        if path_str.contains(pattern) {
+            return Err(format!("❌ Blocked: Cannot read sensitive file matching '{}'", pattern));
+        }
+    }
+
+    // Check if file exists
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    // Check file size (limit to 1MB)
+    let metadata = std::fs::metadata(file_path)
+        .map_err(|e| format!("Cannot read file metadata: {}", e))?;
+
+    if metadata.len() > 1_048_576 {
+        return Err(format!(
+            "File too large ({} bytes). Max 1MB for security.",
+            metadata.len()
+        ));
+    }
+
+    // Read the file
+    let content = std::fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // Truncate if very long (for display)
+    if content.len() > 50_000 {
+        Ok(format!("{}\n\n... (truncated, {} total chars)", &content[..50_000], content.len()))
+    } else {
+        Ok(content)
+    }
+}
+
+/// Fetch content from a URL (read-only GET requests)
+#[tauri::command]
+async fn fetch_url_content(url: String) -> Result<String, String> {
+    // Validate URL
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must start with http:// or https://".to_string());
+    }
+
+    // Block internal/private IPs
+    let url_lower = url.to_lowercase();
+    let blocked = [
+        "localhost", "127.0.0.1", "0.0.0.0",
+        "169.254.", "10.", "192.168.", "172.16.", "172.17.",
+        "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
+        "172.23.", "172.24.", "172.25.", "172.26.", "172.27.",
+        "172.28.", "172.29.", "172.30.", "172.31.",
+        "metadata.google", "169.254.169.254",  // Cloud metadata
+    ];
+
+    for pattern in blocked {
+        if url_lower.contains(pattern) {
+            return Err(format!("❌ Blocked: Cannot fetch from internal/private address matching '{}'", pattern));
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("OpsPilot/1.0 (Kubernetes Debugger)")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP error: {}", response.status()));
+    }
+
+    // Limit response size (2MB)
+    let content_length = response.content_length().unwrap_or(0);
+    if content_length > 2_097_152 {
+        return Err(format!("Response too large ({} bytes). Max 2MB.", content_length));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Truncate if very long
+    if body.len() > 100_000 {
+        Ok(format!("{}\n\n... (truncated, {} total chars)", &body[..100_000], body.len()))
+    } else {
+        Ok(body)
     }
 }

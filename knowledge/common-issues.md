@@ -1,53 +1,12 @@
-# Common Kubernetes Issues & Solutions
+### Common Kubernetes Issues Cheat Sheet
 
-## CrashLoopBackOff
-**Symptom**: Pod status is `CrashLoopBackOff`.
-**Causes**:
-1. Application error (check logs).
-2. Misconfiguration (missing env vars, wrong config file).
-3. Liveness probe failing.
-**Solution**:
-- Run `kubectl logs -p <pod>` to see previous logs.
-- Check exit code: `137` = OOM (increase limits), `1` = App Error.
-- Fix configuration or increase resources.
-
-## ImagePullBackOff / ErrImagePull
-**Symptom**: Pod status is `ImagePullBackOff`.
-**Causes**:
-1. Image name/tag is wrong.
-2. Image does not exist.
-3. Missing image pull secret (for private registries).
-**Solution**:
-- Verify image name on DockerHub/Registry.
-- Check if secret exists: `kubectl get secrets`.
-- Patch service account or pod with `imagePullSecrets`.
-
-## Pending
-**Symptom**: Pod stays in `Pending` state.
-**Causes**:
-1. Insufficient cluster resources (CPU/Memory).
-2. Taints/Tolerations mismatch.
-3. Node affinity rules not met.
-**Solution**:
-- Run `kubectl describe pod <pod>` and look at "Events".
-- If "Insufficient cpu/memory", scale up cluster or reduce requests.
-- If "Taint", add toleration to pod.
-
-## OOMKilled
-**Symptom**: Pod restarts with exit code 137.
-**Causes**:
-- Container used more memory than the limit.
-**Solution**:
-- Check current usage: `kubectl top pod`.
-- Increase memory limit in Deployment YAML.
-- Debug memory leak in application.
-
-## Service Connection Refused
-**Symptom**: Cannot connect to service IP/DNS.
-**Causes**:
-1. Selector mismatch (Service selector != Pod labels).
-2. Application not listening on the configured port.
-3. Network Policy blocking traffic.
-**Solution**:
-- Check endpoints: `kubectl get endpoints <service>`. If empty, fix selector.
-- Check targetPort matches container port.
+- CrashLoopBackOff: Logs/describe; exit codes (1 app, 127 cmd, 137 OOM); fix app/config/limits.
+- ImagePullBackOff: Describe pod events; fix image:tag, pull secrets, registry reachability, CA.
+- Pending/Unschedulable: Describe pod events; fix resources, selectors/affinity, taints/tolerations, PVCs.
+- Service 503/no endpoints: GET_ENDPOINTS; fix selector/readiness/ports; check NetworkPolicy.
+- DNS failures: CoreDNS health; nslookup from debug pod; endpoints; NetworkPolicy for DNS/app ports.
+- OOMKilled: Describe pod; top usage vs limits; raise limits or fix leaks; check node pressure.
+- RBAC forbidden: kubectl auth can-i; ensure proper Role/ClusterRole + binding; set serviceAccount.
+- Namespace terminating: List finalizers; fix controller; patch finalizers if safe.
+- Webhook errors: Service/CABundle; endpoints; certs; remove stale webhook if backend gone.
+- Helm failures: Inspect hook jobs; CRD conflicts; immutable fields; rerun with fixes.

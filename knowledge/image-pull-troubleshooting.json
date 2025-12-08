@@ -1,74 +1,86 @@
 {
-    "id": "image-pull-troubleshooting",
-    "title": "ImagePullBackOff and ErrImagePull Troubleshooting",
-    "category": "troubleshooting",
-    "tags": [
-        "imagepull",
-        "imagepullbackoff",
-        "errimagepull",
-        "registry",
-        "authentication",
-        "image",
-        "notfound",
-        "docker"
-    ],
-    "summary": "Troubleshooting container image pull failures (ImagePullBackOff, ErrImagePull)",
-    "error_patterns": [
-        "ImagePullBackOff",
-        "ErrImagePull",
-        "Failed to pull image",
-        "unauthorized.*authentication required",
-        "manifest.*not found",
-        "repository does not exist"
-    ],
-    "recommended_tools": [
-        "DESCRIBE",
-        "GET_EVENTS",
-        "LIST_ALL"
-    ],
-    "quick_fix": "kubectl describe pod <pod> | grep -A10 Events",
-    "symptoms": [
-        "Pod stuck in ImagePullBackOff",
-        "ErrImagePull status",
-        "Events show 'Failed to pull image'"
-    ],
-    "common_causes": [
-        {
-            "cause": "Image doesn't exist",
-            "description": "Image name or tag is wrong",
-            "diagnosis": "Check exact image:tag in pod spec, try docker pull locally",
-            "fix": "Correct image name/tag, verify in registry"
-        },
-        {
-            "cause": "Authentication required",
-            "description": "Private registry needs credentials",
-            "diagnosis": "Events show 'unauthorized' or 'authentication required'",
-            "fix": "Create imagePullSecret and reference in pod spec"
-        },
-        {
-            "cause": "Registry unreachable",
-            "description": "Network issue reaching registry",
-            "diagnosis": "Test connectivity to registry from node",
-            "fix": "Check network policies, firewall, DNS resolution"
-        },
-        {
-            "cause": "Image tag doesn't exist",
-            "description": "Specified tag not found in repository",
-            "diagnosis": "Events show 'manifest not found'",
-            "fix": "Use correct tag, check if image was deleted/overwritten"
-        }
-    ],
-    "diagnostic_commands": [
-        "kubectl describe pod <pod> -n <ns>",
-        "kubectl get pod <pod> -o yaml | grep image:",
-        "kubectl get secrets -n <ns> | grep docker",
-        "kubectl get pod <pod> -o jsonpath='{.spec.imagePullSecrets}'"
-    ],
-    "investigation_flow": [
-        "1. Describe pod to see exact error in Events",
-        "2. Check image name and tag are correct",
-        "3. If 'unauthorized': check imagePullSecrets",
-        "4. If 'not found': verify image exists in registry",
-        "5. If timeout: check network connectivity to registry"
-    ]
+  "id": "image-pull-troubleshooting",
+  "title": "ImagePullBackOff / ErrImagePull",
+  "category": "troubleshooting",
+  "tags": [
+    "imagepull",
+    "imagepullbackoff",
+    "errimagepull",
+    "registry",
+    "authentication",
+    "image",
+    "notfound",
+    "docker"
+  ],
+  "summary": "Actionable checklist for image pull failures: name/tag correctness, auth, registry reachability, and pull secrets.",
+  "error_patterns": [
+    "ImagePullBackOff",
+    "ErrImagePull",
+    "Failed to pull image",
+    "unauthorized.*authentication required",
+    "manifest.*not found",
+    "repository does not exist",
+    "dial .* i/o timeout",
+    "x509: certificate signed by unknown authority"
+  ],
+  "recommended_tools": [
+    "DESCRIBE Pod <ns>/<pod>",
+    "GET_EVENTS <ns>",
+    "LIST_ALL Pod <ns>",
+    "SEARCH_KNOWLEDGE imagepull auth not found"
+  ],
+  "quick_fix": "kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p' — fix exact image:tag and imagePullSecrets based on the event message.",
+  "symptoms": [
+    "Pod stuck in ImagePullBackOff/ErrImagePull",
+    "Events show 'Failed to pull image'",
+    "Private registry auth errors"
+  ],
+  "decision_tree": [
+    "If Events say 'unauthorized/authentication required' → create imagePullSecret and reference it; verify secret type dockerconfigjson.",
+    "If Events say 'manifest not found'/'repository does not exist' → fix image name/tag; confirm with docker pull.",
+    "If Events show timeout/dial errors → check cluster egress, DNS, and registry URL; test from node.",
+    "If x509/unknown authority → add registry CA to nodes or imagePullSecret (ca.crt)."
+  ],
+  "common_causes": [
+    {
+      "cause": "Image/tag does not exist",
+      "description": "Wrong image name or tag.",
+      "diagnosis": "Check Events for 'manifest not found'; docker pull <image:tag> from a machine with registry access.",
+      "fix": "Use correct image:tag; ensure image is pushed/present in registry."
+    },
+    {
+      "cause": "Authentication required",
+      "description": "Private registry needs credentials.",
+      "diagnosis": "Events show 'unauthorized'/'authentication required'.",
+      "fix": "Create imagePullSecret (type kubernetes.io/dockerconfigjson) and add to pod spec or namespace default serviceAccount."
+    },
+    {
+      "cause": "Registry unreachable",
+      "description": "Network/DNS/firewall blocking registry.",
+      "diagnosis": "Events show timeout/connection refused; test: kubectl debug/node shell -> curl <registry>.",
+      "fix": "Open egress to registry, fix DNS, verify proxy settings."
+    },
+    {
+      "cause": "TLS/CA mismatch",
+      "description": "Custom CA or self-signed cert not trusted.",
+      "diagnosis": "Events show x509 unknown authority.",
+      "fix": "Add CA to nodes/docker or include ca.crt in imagePullSecret; use correct registry URL (https vs http)."
+    }
+  ],
+  "diagnostic_commands": [
+    "kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'",
+    "kubectl get pod -n <ns> <pod> -o jsonpath='{.spec.containers[*].image}'",
+    "kubectl get secret -n <ns> | grep -i docker",
+    "kubectl get pod -n <ns> <pod> -o jsonpath='{.spec.imagePullSecrets}'",
+    "kubectl debug node/<node> -it --image=ghcr.io/curl/curl -- curl -v https://<registry>/v2/"
+  ],
+  "investigation_flow": [
+    "1) Discover pod: FIND_ISSUES or LIST_ALL Pod to get <ns>/<pod>.",
+    "2) Describe for exact error: kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'.",
+    "3) If unauthorized → create imagePullSecret and attach (spec.imagePullSecrets or serviceAccount).",
+    "4) If manifest not found → verify image:tag exists; docker pull <image:tag>.",
+    "5) If timeout/connection refused → test connectivity from node (kubectl debug node/... curl registry).",
+    "6) If x509 → add trusted CA or use correct registry endpoint.",
+    "7) Confirm fix: delete/restart pod; ensure status goes Running/Ready."
+  ]
 }

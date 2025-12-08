@@ -1,280 +1,69 @@
 {
-  "id": "kb-208",
-  "title": "Pod Security and SecurityContext Troubleshooting",
+  "id": "pod-security-troubleshooting",
+  "title": "Pod Security (PSP/PSS/SCC) Denials",
   "category": "troubleshooting",
-  "tags": ["security", "securitycontext", "psp", "psa", "rbac", "capabilities", "runasuser"],
-  "summary": "Guide for debugging pod security issues including PSP/PSA, SecurityContext, and privilege escalation",
-
-  "security_basics": {
-    "description": "Kubernetes pod security concepts",
-    "concepts": {
-      "security_context": {
-        "description": "Security settings for pods/containers",
-        "levels": ["Pod level", "Container level (overrides pod)"]
-      },
-      "pod_security_standards": {
-        "privileged": "Unrestricted, allows all",
-        "baseline": "Minimally restrictive, prevents known escalations",
-        "restricted": "Heavily restricted, follows hardening best practices"
-      },
-      "pod_security_admission": {
-        "description": "Enforces PSS via namespace labels (K8s 1.25+)",
-        "modes": ["enforce", "audit", "warn"]
-      }
-    },
-    "commands": [
-      {
-        "command": "kubectl get ns <ns> --show-labels | grep pod-security",
-        "description": "Check PSA labels on namespace"
-      },
-      {
-        "command": "kubectl auth can-i use podsecuritypolicy/<psp>",
-        "description": "Check if can use a PSP (pre-1.25)"
-      },
-      {
-        "command": "kubectl get pod <pod> -o yaml | grep -A20 securityContext",
-        "description": "View pod security context"
-      }
-    ]
-  },
-
-  "common_errors": [
+  "tags": [
+    "pod security",
+    "psp",
+    "pss",
+    "scc",
+    "forbidden"
+  ],
+  "summary": "Resolve pod admission denials from PodSecurity (restricted/baseline) or legacy PSP/SCC.",
+  "error_patterns": [
+    "violates PodSecurity",
+    "forbidden: unable to validate against any pod security policy",
+    "SCC",
+    "privileged escalation",
+    "hostPath not allowed"
+  ],
+  "recommended_tools": [
+    "GET_EVENTS <ns>",
+    "RUN_KUBECTL auth can-i create pod --as=<user> -n <ns>",
+    "RUN_KUBECTL get psp",
+    "RUN_KUBECTL get podsecuritypolicy/podsecurityadmission"
+  ],
+  "quick_fix": "Align pod spec with the enforced profile (restricted/baseline): drop privileged/hostPath/capabilities; set runAsNonRoot; match allowed seccomp.",
+  "symptoms": [
+    "Pod creation/update forbidden due to security policy",
+    "Events mention PodSecurity restricted/baseline violation",
+    "Legacy PSP/SCC errors"
+  ],
+  "decision_tree": [
+    "If PodSecurity restricted/baseline → adjust pod spec to comply (no privileged/hostPath; drop caps; runAsNonRoot).",
+    "If PSP/SCC legacy → ensure correct PSP/SCC bound to SA; adjust pod spec to PSP constraints.",
+    "If hostPath needed → define allowed paths or use PVC instead; avoid privileged unless required."
+  ],
+  "common_causes": [
     {
-      "name": "Pod rejected by Pod Security Admission",
-      "error_patterns": [
-        "violates PodSecurity",
-        "forbidden: violates",
-        "would violate PodSecurity"
-      ],
-      "symptoms": [
-        "Pod creation rejected",
-        "Warning about security violation"
-      ],
-      "likely_causes": [
-        "Namespace has restricted policy",
-        "Pod running as root",
-        "Privileged container",
-        "Dangerous capabilities"
-      ],
-      "diagnostic_commands": [
-        "kubectl get ns <ns> -o yaml | grep pod-security",
-        "kubectl describe ns <ns>",
-        "kubectl get pod <pod> -o yaml | grep -E 'runAs|privileged|capabilities'"
-      ],
-      "fix_steps": [
-        "Modify pod to comply with policy (preferred)",
-        "Add securityContext with runAsNonRoot: true",
-        "Remove privileged: true",
-        "Drop all capabilities and add only needed ones",
-        "Or: Request namespace policy change (less preferred)"
-      ],
-      "example": {
-        "description": "Restricted-compliant SecurityContext",
-        "yaml": "securityContext:\n  runAsNonRoot: true\n  runAsUser: 1000\n  seccompProfile:\n    type: RuntimeDefault\n  capabilities:\n    drop: [ALL]"
-      }
+      "cause": "Privileged/host access blocked",
+      "description": "Pod requests privileged, hostNetwork, hostPath.",
+      "diagnosis": "Events show forbidden for these fields.",
+      "fix": "Remove privileged/host*; use PVC; drop capabilities."
     },
     {
-      "name": "Container cannot run as root",
-      "error_patterns": [
-        "container has runAsNonRoot and image will run as root",
-        "Error: container has runAsNonRoot and image has non-numeric user"
-      ],
-      "symptoms": [
-        "Pod fails to start",
-        "CrashLoopBackOff with permission error"
-      ],
-      "likely_causes": [
-        "Image defaults to root user",
-        "runAsNonRoot: true but image uses root",
-        "No USER specified in Dockerfile"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe pod <pod>",
-        "docker inspect <image> | grep User",
-        "kubectl get pod <pod> -o yaml | grep runAs"
-      ],
-      "fix_steps": [
-        "Specify runAsUser in securityContext",
-        "Rebuild image with non-root USER",
-        "Use allowPrivilegeEscalation: false"
-      ],
-      "example": {
-        "description": "Force specific non-root user",
-        "yaml": "securityContext:\n  runAsNonRoot: true\n  runAsUser: 65534\n  runAsGroup: 65534"
-      }
+      "cause": "runAsNonRoot enforced",
+      "description": "Pod runs as root when policy requires non-root.",
+      "diagnosis": "Events mention runAsNonRoot violation.",
+      "fix": "Set runAsNonRoot: true; runAsUser to non-zero UID."
     },
     {
-      "name": "Permission denied on filesystem",
-      "error_patterns": [
-        "Permission denied",
-        "cannot create directory",
-        "Read-only file system"
-      ],
-      "symptoms": [
-        "Application cannot write to expected paths",
-        "Logs show permission errors"
-      ],
-      "likely_causes": [
-        "Running as non-root without proper fsGroup",
-        "readOnlyRootFilesystem enabled",
-        "Volume permissions not matching user"
-      ],
-      "diagnostic_commands": [
-        "kubectl exec <pod> -- id",
-        "kubectl exec <pod> -- ls -la /path",
-        "kubectl get pod <pod> -o yaml | grep -A10 securityContext"
-      ],
-      "fix_steps": [
-        "Set fsGroup to match files ownership",
-        "Mount writable volumes for app paths",
-        "Use init container to fix permissions"
-      ],
-      "example": {
-        "description": "Set fsGroup for volume permissions",
-        "yaml": "spec:\n  securityContext:\n    fsGroup: 1000\n  containers:\n  - name: app\n    securityContext:\n      runAsUser: 1000"
-      }
-    },
-    {
-      "name": "Capability denied",
-      "error_patterns": [
-        "operation not permitted",
-        "EPERM",
-        "cannot set"
-      ],
-      "symptoms": [
-        "Application cannot perform specific operations",
-        "Network operations failing"
-      ],
-      "likely_causes": [
-        "Required capability dropped",
-        "Policy doesn't allow needed capability",
-        "Running as non-root without capability"
-      ],
-      "diagnostic_commands": [
-        "kubectl exec <pod> -- cat /proc/1/status | grep Cap",
-        "kubectl get pod <pod> -o yaml | grep -A5 capabilities"
-      ],
-      "fix_steps": [
-        "Add required capability (if policy allows)",
-        "Use NET_BIND_SERVICE for ports < 1024",
-        "Consider if operation really needs privilege"
-      ],
-      "common_capabilities": {
-        "NET_BIND_SERVICE": "Bind to ports below 1024",
-        "NET_ADMIN": "Network configuration",
-        "SYS_PTRACE": "Debugging other processes",
-        "SYS_ADMIN": "Various admin operations (avoid if possible)"
-      }
-    },
-    {
-      "name": "Seccomp profile violations",
-      "error_patterns": [
-        "operation not permitted",
-        "seccomp filter"
-      ],
-      "symptoms": [
-        "System calls being blocked",
-        "Application failing unexpectedly"
-      ],
-      "likely_causes": [
-        "Seccomp profile blocking required syscall",
-        "RuntimeDefault profile too restrictive for app"
-      ],
-      "diagnostic_commands": [
-        "kubectl get pod <pod> -o yaml | grep seccomp",
-        "Check audit logs for seccomp violations"
-      ],
-      "fix_steps": [
-        "Use RuntimeDefault first (covers most apps)",
-        "If needed, use Unconfined temporarily to debug",
-        "Create custom seccomp profile for specific needs"
-      ]
-    },
-    {
-      "name": "ServiceAccount token not mounted",
-      "error_patterns": [
-        "serviceaccount not found",
-        "token file missing"
-      ],
-      "symptoms": [
-        "Cannot authenticate to Kubernetes API",
-        "In-cluster config fails"
-      ],
-      "likely_causes": [
-        "automountServiceAccountToken: false",
-        "ServiceAccount doesn't exist",
-        "Token projection disabled"
-      ],
-      "diagnostic_commands": [
-        "kubectl get pod <pod> -o yaml | grep automount",
-        "kubectl exec <pod> -- ls -la /var/run/secrets/kubernetes.io/serviceaccount/",
-        "kubectl get sa -n <ns>"
-      ],
-      "fix_steps": [
-        "Set automountServiceAccountToken: true if needed",
-        "Create ServiceAccount if missing",
-        "Check if token volume is properly projected"
-      ]
+      "cause": "Missing PSP/SCC binding",
+      "description": "ServiceAccount not bound to required PSP/SCC.",
+      "diagnosis": "Check RBAC bindings to PSP/SCC.",
+      "fix": "Bind SA to appropriate PSP/SCC or migrate to PodSecurity admission."
     }
   ],
-
-  "psa_migration": {
-    "description": "Migrating from PSP to Pod Security Admission",
-    "steps": [
-      {
-        "step": 1,
-        "action": "Audit current workloads",
-        "command": "kubectl label ns <ns> pod-security.kubernetes.io/audit=restricted"
-      },
-      {
-        "step": 2,
-        "action": "Fix violations shown in audit logs"
-      },
-      {
-        "step": 3,
-        "action": "Enable warn mode",
-        "command": "kubectl label ns <ns> pod-security.kubernetes.io/warn=restricted"
-      },
-      {
-        "step": 4,
-        "action": "Fix remaining warnings"
-      },
-      {
-        "step": 5,
-        "action": "Enable enforce mode",
-        "command": "kubectl label ns <ns> pod-security.kubernetes.io/enforce=restricted"
-      }
-    ]
-  },
-
-  "debugging_workflow": {
-    "pod_rejected": [
-      "kubectl get ns <ns> --show-labels → Check PSA labels",
-      "kubectl create -f pod.yaml --dry-run=server → Test without applying",
-      "Compare pod spec against PSS requirements",
-      "Modify securityContext to comply"
-    ],
-    "permission_issues": [
-      "kubectl exec <pod> -- id → Check running user/group",
-      "kubectl exec <pod> -- ls -la <path> → Check file ownership",
-      "Check fsGroup and runAsUser settings",
-      "Verify volume permissions"
-    ]
-  },
-
-  "best_practices": {
-    "security": [
-      "Always run as non-root when possible",
-      "Drop all capabilities, add only what's needed",
-      "Use readOnlyRootFilesystem where possible",
-      "Enable seccomp with RuntimeDefault",
-      "Set allowPrivilegeEscalation: false"
-    ],
-    "operations": [
-      "Start with restricted PSS in new namespaces",
-      "Use audit mode before enforce",
-      "Document why any exceptions are needed",
-      "Regularly audit security contexts"
-    ]
-  }
+  "diagnostic_commands": [
+    "kubectl get events -n <ns> --sort-by=.lastTimestamp | tail -n 20",
+    "kubectl auth can-i create pod --as=<user> -n <ns>",
+    "kubectl get psp",
+    "kubectl get scc"
+  ],
+  "investigation_flow": [
+    "1) Check event/error for exact violation (privileged, hostPath, runAsNonRoot, caps).",
+    "2) Adjust pod spec to comply: drop privileged/host*, set runAsNonRoot, drop caps, set seccompProfile.",
+    "3) For legacy PSP/SCC: ensure SA bound to correct policy; align pod spec to policy constraints.",
+    "4) Retry creation; confirm admission passes."
+  ]
 }

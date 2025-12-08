@@ -475,10 +475,14 @@ pub async fn semantic_search_knowledge_base(
     
     // Perform semantic search
     let semantic_results = embeddings::search_documents(&query_embedding, &kb_embeddings, 8);
-    eprintln!("[DEBUG] Got {} semantic results, top score: {:.4}", 
-        semantic_results.len(),
-        semantic_results.first().map(|r| r.score).unwrap_or(0.0)
-    );
+    let top_score = semantic_results.first().map(|r| r.score).unwrap_or(0.0);
+    eprintln!("[DEBUG] Got {} semantic results, top score: {:.4}", semantic_results.len(), top_score);
+
+    // If embeddings are stale (no/low matches), fall back to keyword search so new docs still appear
+    if semantic_results.is_empty() || top_score < 0.05 {
+        eprintln!("[DEBUG] Semantic results empty/low-confidence, falling back to keyword search");
+        return search_knowledge_base(query, app_handle).await;
+    }
     
     // Load file content to build full SearchResult
     let resource_path = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
@@ -561,9 +565,55 @@ pub async fn semantic_search_knowledge_base(
 #[tauri::command]
 pub async fn suggest_tools_for_query(
     query: String,
-    app_handle: tauri::AppHandle
+    app_handle: tauri::AppHandle,
+    mcp_manager: tauri::State<'_, crate::mcp::manager::McpManager>,
 ) -> Result<Vec<embeddings::ToolSuggestion>, String> {
     let kb_embeddings = embeddings::load_embeddings(&app_handle)?;
     let query_embedding = embeddings::embed_query(&query)?;
-    Ok(embeddings::suggest_tools(&query_embedding, &kb_embeddings, 5))
+    
+    // Get built-in tool suggestions
+    let mut suggestions = embeddings::suggest_tools(&query_embedding, &kb_embeddings, 5);
+
+    // Get MCP tools and add them if relevant (simple keyword matching for now)
+    let mcp_tools = mcp_manager.list_all_tools().await;
+    let query_lower = query.to_lowercase();
+    let query_parts: Vec<&str> = query_lower.split_whitespace().collect();
+
+    for tool_val in mcp_tools {
+        if let Some(tool) = tool_val.as_object() {
+            let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let desc = tool.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            
+            // Simple relevance check
+            let mut score = 0.0;
+            let name_lower = name.to_lowercase();
+            let desc_lower = desc.to_lowercase();
+
+            if name_lower.contains(&query_lower) {
+                score = 0.9;
+            } else if desc_lower.contains(&query_lower) {
+                score = 0.7;
+            } else {
+                // Check for partial keyword matches
+                let matches = query_parts.iter().filter(|&&part| name_lower.contains(part) || desc_lower.contains(part)).count();
+                if matches > 0 {
+                    score = 0.3 + (0.1 * matches as f32);
+                }
+            }
+
+            if score > 0.4 {
+                suggestions.push(embeddings::ToolSuggestion {
+                    name: name.to_string(),
+                    description: desc.chars().take(100).collect::<String>(), // Truncate description
+                    confidence: score,
+                });
+            }
+        }
+    }
+
+    // sort again
+    suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    suggestions.truncate(8); // Limit total suggestions
+
+    Ok(suggestions)
 }

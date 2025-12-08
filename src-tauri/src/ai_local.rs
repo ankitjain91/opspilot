@@ -713,3 +713,110 @@ pub async fn analyze_text(text: String, context: String) -> Result<String, Strin
     let system_prompt = format!("You are a Kubernetes expert. Analyze the provided text. Context: {}. Be concise, highlight errors, and suggest fixes.", context);
     call_local_llm(text, Some(system_prompt)).await
 }
+
+// ============================================================================
+// Web Search for Investigation
+// ============================================================================
+
+#[derive(Serialize, Deserialize)]
+pub struct WebSearchResult {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+/// Perform a web search using DuckDuckGo Instant Answers API
+/// This is a free, no-API-key-required search that returns relevant results
+#[tauri::command]
+pub async fn web_search(query: String) -> Result<Vec<WebSearchResult>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("OpsPilot/1.0 (Kubernetes Debugger)")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Use DuckDuckGo Instant Answers API (no API key needed, returns JSON)
+    // Adding "kubernetes" to narrow results to relevant content
+    let search_query = if query.to_lowercase().contains("kubernetes") || query.to_lowercase().contains("k8s") {
+        query.clone()
+    } else {
+        format!("kubernetes {}", query)
+    };
+
+    let encoded_query = urlencoding::encode(&search_query);
+    let url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
+        encoded_query
+    );
+
+    let resp = client.get(&url).send().await.map_err(|e| format!("Search request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Search API returned status: {}", resp.status()));
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
+
+    let mut results: Vec<WebSearchResult> = Vec::new();
+
+    // Parse DuckDuckGo response format
+    // AbstractText/AbstractURL for main result
+    if let Some(abstract_text) = body.get("AbstractText").and_then(|v| v.as_str()) {
+        if !abstract_text.is_empty() {
+            let abstract_url = body.get("AbstractURL").and_then(|v| v.as_str()).unwrap_or("");
+            let abstract_source = body.get("AbstractSource").and_then(|v| v.as_str()).unwrap_or("DuckDuckGo");
+            results.push(WebSearchResult {
+                title: format!("{} (Abstract)", abstract_source),
+                url: abstract_url.to_string(),
+                snippet: abstract_text.to_string(),
+            });
+        }
+    }
+
+    // RelatedTopics for additional results
+    if let Some(related) = body.get("RelatedTopics").and_then(|v| v.as_array()) {
+        for topic in related.iter().take(5) {
+            if let (Some(text), Some(first_url)) = (
+                topic.get("Text").and_then(|v| v.as_str()),
+                topic.get("FirstURL").and_then(|v| v.as_str()),
+            ) {
+                results.push(WebSearchResult {
+                    title: text.chars().take(80).collect::<String>() + if text.len() > 80 { "..." } else { "" },
+                    url: first_url.to_string(),
+                    snippet: text.to_string(),
+                });
+            }
+            // Handle nested topics (categories)
+            if let Some(topics) = topic.get("Topics").and_then(|v| v.as_array()) {
+                for sub_topic in topics.iter().take(2) {
+                    if let (Some(text), Some(first_url)) = (
+                        sub_topic.get("Text").and_then(|v| v.as_str()),
+                        sub_topic.get("FirstURL").and_then(|v| v.as_str()),
+                    ) {
+                        results.push(WebSearchResult {
+                            title: text.chars().take(80).collect::<String>() + if text.len() > 80 { "..." } else { "" },
+                            url: first_url.to_string(),
+                            snippet: text.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // If DuckDuckGo returns nothing useful, return a helpful message with fallback URLs
+    if results.is_empty() {
+        results.push(WebSearchResult {
+            title: "Search Kubernetes Docs".to_string(),
+            url: format!("https://kubernetes.io/docs/search/?q={}", encoded_query),
+            snippet: "No instant answers found. Click to search Kubernetes documentation.".to_string(),
+        });
+        results.push(WebSearchResult {
+            title: "Search Stack Overflow".to_string(),
+            url: format!("https://stackoverflow.com/search?q={}", encoded_query),
+            snippet: "Search Stack Overflow for community solutions.".to_string(),
+        });
+    }
+
+    Ok(results)
+}

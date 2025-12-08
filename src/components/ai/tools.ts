@@ -2,8 +2,37 @@
 import { invoke } from '@tauri-apps/api/core';
 import yaml from 'js-yaml';
 import { ClusterHealthSummary, ClusterEventSummary, UnhealthyReport } from '../../types/ai';
+import { ToolOutcome, ToolOutcomeStatus, evaluateToolOutcome, categorizeError, getRecoverySuggestions, ErrorCategory } from './types';
+import { getAlternatives, getFailureGuidance } from './playbooks';
 
-export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD'];
+export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD', 'WEB_SEARCH', 'RUN_BASH', 'READ_FILE', 'FETCH_URL'];
+
+// =============================================================================
+// ENHANCED PLACEHOLDER DETECTION
+// =============================================================================
+
+// Comprehensive placeholder patterns - catches more edge cases
+const PLACEHOLDER_PATTERNS = [
+    /\[[\w\s-]+\]/,           // [pod-name]
+    /<[\w\s-]+>/,             // <pod-name>
+    /\{[\w\s-]+\}/,           // {pod-name}
+    /\{\{[\w\s-]+\}\}/,       // {{pod-name}}
+    /\$\{[\w\s-]+\}/,         // ${pod-name}
+    /\.\.\./,                 // ...
+    /xxx+/i,                  // xxx
+    /\bexample\b/i,           // example
+    /\byour-/i,               // your-pod
+    /\bmy-(?!sql)/i,          // my-deployment (but not mysql)
+    /\bsample-/i,             // sample-app
+    /\btest-(?!runner|suite|framework)/i,  // test- (but not test-runner which could be real)
+    /"[\w\s-]+-name"/i,       // "pod-name" in quotes
+    /'[\w\s-]+-name'/i,       // 'pod-name' in quotes
+];
+
+/** Check if text contains placeholder patterns */
+export function containsPlaceholder(text: string): boolean {
+    return PLACEHOLDER_PATTERNS.some(p => p.test(text));
+}
 
 // Common patterns that indicate the AI is confused about arguments
 const BAD_ARG_PATTERNS = [
@@ -11,6 +40,8 @@ const BAD_ARG_PATTERNS = [
     /\b(the|to|from|for|with|and|or|in)\s/i,  // Prepositions followed by more text
     /\[.*?\]|<.*?>/,  // Placeholder brackets
     /^\s*$/,  // Empty
+    /\{.*?\}/,  // Curly brace placeholders
+    /\$\{.*?\}/,  // Variable placeholders
 ];
 
 // Valid resource kinds that should NOT be rejected
@@ -25,8 +56,8 @@ const VALID_KINDS = ['pod', 'pods', 'deployment', 'deployments', 'service', 'ser
 export function validateToolArgs(toolName: string, args: string | undefined): string | null {
     if (!args) return null;
 
-    // Skip validation for these tools - they handle their own args
-    if (['SEARCH_KNOWLEDGE', 'RUN_KUBECTL', 'VCLUSTER_CMD', 'LIST_ALL'].includes(toolName)) return null;
+    // Skip validation for MCP tools and special tools
+    if (isMcpTool(toolName) || ['SEARCH_KNOWLEDGE', 'RUN_KUBECTL', 'VCLUSTER_CMD', 'LIST_ALL'].includes(toolName)) return null;
 
     // For LIST_ALL, check if it's a valid kind
     if (toolName === 'LIST_ALL') {
@@ -47,6 +78,13 @@ export interface ToolResult {
     command: string;
 }
 
+// Web search result interface
+interface WebSearchResult {
+    title: string;
+    url: string;
+    snippet: string;
+}
+
 // Tool result cache to avoid redundant calls during investigation
 interface CacheEntry {
     result: ToolResult;
@@ -58,6 +96,14 @@ const CACHE_TTL_MS = 30000; // 30 seconds
 // Tools that should NOT be cached (always fresh)
 const NO_CACHE_TOOLS = ['SEARCH_KNOWLEDGE', 'RUN_KUBECTL', 'VCLUSTER_CMD'];
 
+// Mutating kubectl verbs that must be rejected in read-only mode
+const MUTATING_KUBECTL_PATTERNS = [
+    /\b(apply|patch|replace|delete|edit|scale|annotate|label|cordon|uncordon|drain|taint|untaint)\b/i,
+    /\bcreate\b/i,
+    /\brollout\s+(restart|undo)\b/i,
+    /\bexpose\b/i,
+];
+
 // Clear expired cache entries periodically
 function cleanExpiredCache() {
     const now = Date.now();
@@ -68,10 +114,44 @@ function cleanExpiredCache() {
     }
 }
 
+// MCP Tool Handling
+interface McpToolDef {
+    name: string;
+    server: string;
+    original_name: string;
+    input_schema: any;
+    description?: string;
+}
+
+let mcpTools: Map<string, McpToolDef> = new Map();
+
+export function registerMcpTools(tools: any[]) {
+    mcpTools.clear();
+    for (const t of tools) {
+        if (t.name) {
+            mcpTools.set(t.name, t);
+        }
+    }
+    console.log(`[MCP] Registered ${mcpTools.size} tools`);
+}
+
+export function isMcpTool(name: string): boolean {
+    return mcpTools.has(name);
+}
+
+export function listRegisteredMcpTools(): McpToolDef[] {
+    return Array.from(mcpTools.values());
+}
+
+export function isValidTool(name: string): boolean {
+    return VALID_TOOLS.includes(name) || isMcpTool(name);
+}
+
 // Export for testing/debugging
 export function clearToolCache() {
     toolCache.clear();
 }
+
 
 export async function executeTool(toolName: string, toolArgs: string | undefined): Promise<ToolResult> {
     // Check cache first (for cacheable tools)
@@ -92,6 +172,77 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
         const validationError = validateToolArgs(toolName, toolArgs);
         if (validationError) {
             return { result: validationError, command: 'Validation failed' };
+        }
+
+        // Enforce read-only guardrails for RUN_KUBECTL
+        if (toolName === 'RUN_KUBECTL' && toolArgs) {
+            const lower = toolArgs.toLowerCase();
+            const isMutating = MUTATING_KUBECTL_PATTERNS.some(p => p.test(lower));
+            if (isMutating) {
+                return {
+                    result: '❌ Rejected: RUN_KUBECTL may only execute read-only commands. Mutating verbs detected. Use DESCRIBE/GET/LOGS instead.',
+                    command: 'Blocked mutating kubectl command',
+                };
+            }
+        }
+
+        if (isMcpTool(toolName)) {
+            const toolDef = mcpTools.get(toolName);
+            if (toolDef) {
+                kubectlCommand = `mcp:${toolDef.server} ${toolDef.original_name} ${toolArgs || ''}`;
+                let args: any = {};
+                try {
+                    if (toolArgs) {
+                        // Try to parse as JSON first
+                        if (toolArgs.trim().startsWith('{')) {
+                            args = JSON.parse(toolArgs.trim());
+                        } else {
+                            // If simple string, map to the first property in schema
+                            const props = toolDef.input_schema?.properties || {};
+                            const keys = Object.keys(props);
+                            if (keys.length > 0) {
+                                args = { [keys[0]]: toolArgs.trim() };
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // If JSON parse fails, try to map to single prop
+                    const props = toolDef.input_schema?.properties || {};
+                    const keys = Object.keys(props);
+                    if (keys.length > 0) {
+                        args = { [keys[0]]: toolArgs?.trim() || "" };
+                    }
+                }
+
+                const res = await invoke("call_mcp_tool", {
+                    serverName: toolDef.server,
+                    toolName: toolDef.original_name,
+                    args
+                });
+
+                // Handle MCP response content
+                // Expected: { content: [ { type: 'text', text: '...' }, ... ], isError: boolean }
+                let output = "";
+                if (typeof res === 'object' && res !== null) {
+                    const anyRes = res as any;
+                    if (anyRes.content && Array.isArray(anyRes.content)) {
+                        output = anyRes.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
+                    } else {
+                        output = JSON.stringify(res, null, 2);
+                    }
+
+                    if (anyRes.isError) {
+                        output = "❌ MCP Error:\n" + output;
+                    }
+                } else {
+                    output = String(res);
+                }
+
+                toolResult = `## ${toolDef.original_name} Output\n${output}`;
+
+                const result: ToolResult = { result: toolResult, command: kubectlCommand };
+                return result;
+            }
         }
 
         if (toolName === 'CLUSTER_HEALTH') {
@@ -451,10 +602,13 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
             }
         } else if (toolName === 'RUN_KUBECTL') {
             // Power tool: run arbitrary kubectl command with bash piping
-            const cmd = toolArgs?.trim();
+            let cmd = toolArgs?.trim();
             if (!cmd) {
                 toolResult = '⚠️ Usage: RUN_KUBECTL <kubectl command>\nExamples:\n- RUN_KUBECTL kubectl get pods -A | grep -i error\n- RUN_KUBECTL kubectl get events --sort-by=.lastTimestamp | head -20\n- RUN_KUBECTL kubectl get pods -o wide | awk \'{print $1, $7}\'';
             } else {
+                // Fix: Strip potential markdown code blocks or brackets if the AI hallucinates them
+                cmd = cmd.replace(/^`+|`+$/g, '').replace(/^\[|\]$/g, '').trim();
+
                 // Ensure it starts with kubectl
                 const fullCmd = cmd.startsWith('kubectl ') ? cmd : `kubectl ${cmd}`;
                 kubectlCommand = fullCmd;
@@ -515,6 +669,78 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
                 toolResult = `## UiPath Custom Resources\n\`\`\`\n${output}\n\`\`\`\n\n**States:** ASFailed=AS failed, InfraInProgress=provisioning, ManagementClusterReady=ready`;
             } catch (e) {
                 toolResult = `❌ Error checking UiPath CRDs: ${e}`;
+            }
+        } else if (toolName === 'WEB_SEARCH') {
+            // Web search tool for looking up Kubernetes issues, docs, Stack Overflow, etc.
+            const query = toolArgs?.trim();
+            if (!query) {
+                toolResult = '⚠️ Usage: WEB_SEARCH <search query>\nExamples:\n- WEB_SEARCH kubernetes pod crashloopbackoff exit code 137\n- WEB_SEARCH istio gateway 503 service unavailable';
+            } else {
+                kubectlCommand = `web-search "${query}"`;
+                try {
+                    const results = await invoke<WebSearchResult[]>("web_search", { query });
+                    if (results.length === 0) {
+                        toolResult = `🔍 No web results found for "${query}".`;
+                    } else {
+                        toolResult = `## 🌐 Web Search Results for "${query}"\n\n${results.slice(0, 5).map((r, i) =>
+                            `### ${i + 1}. ${r.title}\n**URL:** ${r.url}\n${r.snippet}\n`
+                        ).join('\n---\n\n')}`;
+                    }
+                } catch (e) {
+                    // Fallback: search via knowledge base if web search fails
+                    toolResult = `⚠️ Web search unavailable (${e}). Try SEARCH_KNOWLEDGE "${query}" instead.`;
+                }
+            }
+        } else if (toolName === 'RUN_BASH') {
+            // Safe bash command execution (read-only, allowlisted commands)
+            const cmd = toolArgs?.trim();
+            if (!cmd) {
+                toolResult = '⚠️ Usage: RUN_BASH <command>\nExamples:\n- RUN_BASH kubectl get pods -A | grep -i error\n- RUN_BASH helm list -A\n- RUN_BASH jq ".items[].metadata.name" pods.json';
+            } else {
+                kubectlCommand = `bash: ${cmd}`;
+                try {
+                    const output = await invoke<string>("run_safe_bash", { command: cmd });
+                    toolResult = `## 🖥️ Bash Output\n\`\`\`\n${cmd}\n\`\`\`\n\n\`\`\`\n${output}\n\`\`\``;
+                } catch (e) {
+                    toolResult = `❌ Bash command failed: ${e}`;
+                }
+            }
+        } else if (toolName === 'READ_FILE') {
+            // Read local file (YAML manifests, configs, etc.)
+            const filePath = toolArgs?.trim();
+            if (!filePath) {
+                toolResult = '⚠️ Usage: READ_FILE <path>\nExamples:\n- READ_FILE ./deployment.yaml\n- READ_FILE /etc/kubernetes/manifests/kube-apiserver.yaml';
+            } else {
+                kubectlCommand = `read: ${filePath}`;
+                try {
+                    const content = await invoke<string>("read_local_file", { path: filePath });
+                    // Detect file type for syntax highlighting
+                    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+                    const lang = ['yaml', 'yml'].includes(ext) ? 'yaml' :
+                                 ['json'].includes(ext) ? 'json' :
+                                 ['sh', 'bash'].includes(ext) ? 'bash' : '';
+                    toolResult = `## 📄 File: ${filePath}\n\`\`\`${lang}\n${content}\n\`\`\``;
+                } catch (e) {
+                    toolResult = `❌ Cannot read file: ${e}`;
+                }
+            }
+        } else if (toolName === 'FETCH_URL') {
+            // Fetch content from URL (documentation, APIs, etc.)
+            const url = toolArgs?.trim();
+            if (!url) {
+                toolResult = '⚠️ Usage: FETCH_URL <url>\nExamples:\n- FETCH_URL https://kubernetes.io/docs/concepts/workloads/pods/\n- FETCH_URL https://raw.githubusercontent.com/kubernetes/examples/master/guestbook/all-in-one/guestbook-all-in-one.yaml';
+            } else {
+                kubectlCommand = `fetch: ${url}`;
+                try {
+                    const content = await invoke<string>("fetch_url_content", { url });
+                    // Detect content type
+                    const isYaml = url.endsWith('.yaml') || url.endsWith('.yml');
+                    const isJson = url.endsWith('.json');
+                    const lang = isYaml ? 'yaml' : isJson ? 'json' : '';
+                    toolResult = `## 🌐 Fetched: ${url}\n\`\`\`${lang}\n${content}\n\`\`\``;
+                } catch (e) {
+                    toolResult = `❌ Cannot fetch URL: ${e}`;
+                }
             }
         } else {
             // Only if called with unknown tool
@@ -611,3 +837,184 @@ export const sanitizeToolArgs = (args: string | undefined): string | undefined =
         .replace(/\s+/g, ' ')  // Normalize whitespace
         .trim();
 };
+
+// =============================================================================
+// ENHANCED TOOL EXECUTION WITH OUTCOME TRACKING
+// =============================================================================
+
+export interface ExecuteToolWithTrackingResult {
+    result: ToolResult;
+    outcome: ToolOutcome;
+    errorCategory?: ErrorCategory;
+    recoverySuggestions?: string[];
+}
+
+/**
+ * Execute a tool and return both the result and outcome tracking info.
+ * This is used by the autonomous investigation loop.
+ */
+export async function executeToolWithTracking(
+    toolName: string,
+    toolArgs: string | undefined
+): Promise<ExecuteToolWithTrackingResult> {
+    const startTime = Date.now();
+
+    // Execute the tool
+    const result = await executeTool(toolName, toolArgs);
+
+    // Evaluate the outcome
+    const { status, useful } = evaluateToolOutcome(result.result, toolName);
+
+    // Build outcome record
+    const outcome: ToolOutcome = {
+        tool: toolName,
+        args: toolArgs,
+        result: result.result,
+        status,
+        timestamp: startTime,
+        useful,
+    };
+
+    let errorCategory: ErrorCategory | undefined;
+    let recoverySuggestions: string[] | undefined;
+
+    // If error, categorize and include alternatives
+    if (status === 'error' || status === 'empty') {
+        outcome.alternatives = getAlternatives(toolName, toolArgs);
+        outcome.errorMessage = result.result.split('\n')[0]; // First line of error
+
+        // Categorize the error for better recovery
+        errorCategory = categorizeError(result.result);
+        recoverySuggestions = getRecoverySuggestions(errorCategory, toolName);
+    }
+
+    return { result, outcome, errorCategory, recoverySuggestions };
+}
+
+/**
+ * Execute multiple tools in parallel with concurrency limit
+ */
+export async function executeToolsBatch(
+    tools: Array<{ toolName: string; args: string | undefined }>,
+    maxConcurrency: number = 3
+): Promise<ExecuteToolWithTrackingResult[]> {
+    const results: ExecuteToolWithTrackingResult[] = [];
+
+    // Process in batches to limit concurrency
+    for (let i = 0; i < tools.length; i += maxConcurrency) {
+        const batch = tools.slice(i, i + maxConcurrency);
+        const batchResults = await Promise.all(
+            batch.map(tool => executeToolWithTracking(tool.toolName, tool.args))
+        );
+        results.push(...batchResults);
+    }
+
+    return results;
+}
+
+/**
+ * Get specific guidance for placeholder errors
+ */
+export function getPlaceholderGuidance(toolName: string, invalidArgs: string): string {
+    const resourceKind = invalidArgs.split(/\s+/)[0] || 'Pod';
+
+    const guidance: Record<string, string> = {
+        'DESCRIBE': `To describe a specific resource, first discover actual names:
+→ TOOL: LIST_ALL ${resourceKind}
+→ Then use: TOOL: DESCRIBE ${resourceKind} <namespace> <actual-name>`,
+
+        'GET_LOGS': `To get logs, first find actual pod names:
+→ TOOL: FIND_ISSUES (shows unhealthy pods)
+→ TOOL: LIST_ALL Pod
+→ Then use: TOOL: GET_LOGS <namespace> <actual-pod-name>`,
+
+        'GET_ENDPOINTS': `To check service endpoints, first find service names:
+→ TOOL: LIST_ALL Service
+→ Then use: TOOL: GET_ENDPOINTS <namespace> <actual-service-name>`,
+
+        'GET_NAMESPACE': `To check namespace status:
+→ TOOL: CLUSTER_HEALTH (shows namespaces with issues)
+→ Then use: TOOL: GET_NAMESPACE <actual-namespace-name>`,
+
+        'LIST_FINALIZERS': `To find stuck finalizers:
+→ TOOL: FIND_ISSUES (shows terminating resources)
+→ Then use: TOOL: LIST_FINALIZERS <actual-namespace-name>`,
+
+        'VCLUSTER_CMD': `To run commands in a vCluster, first find vCluster names:
+→ TOOL: GET_UIPATH_CRD (shows CustomerClusters)
+→ Then use: TOOL: VCLUSTER_CMD <namespace> <vcluster-name> <kubectl command>`,
+    };
+
+    return guidance[toolName] || `Run TOOL: LIST_ALL ${resourceKind} to discover actual resource names first.`;
+}
+
+/**
+ * Format failed tools context for LLM feedback loop
+ */
+export function formatFailedToolsContext(failedOutcomes: ToolOutcome[]): string {
+    if (failedOutcomes.length === 0) return '';
+
+    const entries = failedOutcomes.map(o => {
+        const alternatives = o.alternatives?.slice(0, 3).join(', ') || 'FIND_ISSUES, LIST_ALL';
+        return `❌ ${o.tool}(${o.args || 'no args'}): ${o.errorMessage || 'Failed'}
+   💡 Alternatives: ${alternatives}`;
+    });
+
+    return `
+=== FAILED APPROACHES (DO NOT RETRY) ===
+${entries.join('\n\n')}
+=== END FAILED APPROACHES ===
+`;
+}
+
+/**
+ * Check if a tool+args combination should be auto-corrected
+ * Returns the corrected args or null if no correction possible
+ */
+export function autoCorrectToolArgs(
+    toolName: string,
+    toolArgs: string | undefined
+): { corrected: boolean; newArgs: string | undefined; message?: string } {
+    if (!toolArgs) return { corrected: false, newArgs: toolArgs };
+
+    // Check for placeholder patterns
+    if (!containsPlaceholder(toolArgs)) {
+        return { corrected: false, newArgs: toolArgs };
+    }
+
+    // Tools that can work without args (list all)
+    const listTools = ['GET_EVENTS', 'TOP_PODS', 'FIND_ISSUES', 'CLUSTER_HEALTH'];
+    if (listTools.includes(toolName)) {
+        return {
+            corrected: true,
+            newArgs: undefined,
+            message: 'Cleared placeholder args - will list all',
+        };
+    }
+
+    // LIST_ALL - keep just the resource kind
+    if (toolName === 'LIST_ALL') {
+        const parts = toolArgs.split(/\s+/);
+        const kind = parts[0];
+        // Check if kind itself is a placeholder
+        if (containsPlaceholder(kind)) {
+            return {
+                corrected: true,
+                newArgs: 'Pod', // Default to Pod
+                message: 'Defaulted to listing Pods',
+            };
+        }
+        return {
+            corrected: true,
+            newArgs: kind,
+            message: `Cleared placeholder - listing all ${kind}`,
+        };
+    }
+
+    // Can't auto-correct - requires actual names
+    return {
+        corrected: false,
+        newArgs: toolArgs,
+        message: getPlaceholderGuidance(toolName, toolArgs),
+    };
+}

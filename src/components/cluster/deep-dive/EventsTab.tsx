@@ -8,6 +8,15 @@ import { Loader2, AlertCircle, CheckCircle2, HelpCircle, Activity, ChevronDown, 
 import { K8sObject } from '../../../types/k8s';
 import { fixMarkdownHeaders } from '../../../utils/markdown';
 
+const normalizeEvent = (event: any) => {
+    const ts = event.lastTimestamp || event.eventTime || event.age || event.firstTimestamp;
+    return {
+        ...event,
+        type: event.type || event.type_ || event.eventType || 'Normal',
+        timestamp: ts,
+    };
+};
+
 export function EventsTab({ resource }: { resource: K8sObject }) {
     const [analyzingEvent, setAnalyzingEvent] = useState<string | null>(null);
     const [expandedExplanations, setExpandedExplanations] = useState<Record<number, string>>({});
@@ -18,11 +27,12 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
         queryKey: ["resource_events", resource.namespace, resource.name, resource.group, resource.version, resource.kind],
         queryFn: async () => {
             // Pass UID to filter events correctly
-            return await invoke<any[]>("list_events", {
+            const raw = await invoke<any[]>("list_events", {
                 namespace: resource.namespace,
                 name: resource.name,
                 uid: resource.id
             });
+            return raw.map(normalizeEvent);
         },
         refetchInterval: 5000,
     });
@@ -82,8 +92,8 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
     }
 
     return (
-        <div className="flex flex-col h-full bg-[#1e1e1e] border border-[#3e3e42] rounded overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 bg-[#252526] border-b border-[#3e3e42]">
+        <div className="flex flex-col h-full bg-[#0b0b10] border border-[#1a1a22] rounded overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#0f0f16] border-b border-[#1a1a22]">
                 <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-white">{events.length} Events</span>
                     {isRefetching && <Loader2 size={10} className="animate-spin text-[#007acc]" />}
@@ -91,7 +101,7 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                 <div className="flex gap-2">
                     <button
                         onClick={() => refetch()}
-                        className="p-1.5 text-[#cccccc] hover:bg-[#3e3e42] rounded transition-colors"
+                        className="p-1.5 text-[#cccccc] hover:bg-[#1f1f2b] rounded transition-colors"
                         title="Refresh Events"
                     >
                         <RefreshCw size={12} className={isRefetching ? "animate-spin" : ""} />
@@ -99,7 +109,7 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                     <button
                         onClick={analyzeAllEvents}
                         disabled={analyzingAll}
-                        className="flex items-center gap-1.5 px-3 py-1 bg-[#865fc9]/20 text-[#d2a8ff] hover:bg-[#865fc9]/30 text-xs rounded transition-colors border border-[#865fc9]/30 disabled:opacity-50"
+                        className="flex items-center gap-1.5 px-3 py-1 bg-[#865fc9]/15 text-[#d2a8ff] hover:bg-[#865fc9]/25 text-xs rounded transition-colors border border-[#865fc9]/30 disabled:opacity-50"
                     >
                         {analyzingAll ? <Loader2 size={10} className="animate-spin" /> : <Activity size={12} />}
                         Analyze All
@@ -107,10 +117,10 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+            <div className="flex-1 overflow-auto p-4 space-y-4 bg-[#0b0b10]">
                 {/* All Events Analysis Result */}
                 {analysisResult && (
-                    <div className="bg-[#1e1e1e] border border-purple-500/30 rounded p-4 mb-4 relative group">
+                    <div className="bg-[#11111a] border border-purple-500/30 rounded p-4 mb-4 relative group">
                         <h4 className="flex items-center gap-2 text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">
                             <Activity size={14} /> AI Analysis
                         </h4>
@@ -119,7 +129,7 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                         </div>
                         <button
                             onClick={() => setAnalysisResult(null)}
-                            className="absolute top-2 right-2 p-1 text-[#858585] hover:text-white rounded hover:bg-[#3e3e42]"
+                            className="absolute top-2 right-2 p-1 text-[#858585] hover:text-white rounded hover:bg-[#1f1f2b]"
                         >
                             <ChevronUp size={12} />
                         </button>
@@ -128,7 +138,7 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
 
                 {/* Event List */}
                 {events.map((event: any, i: number) => (
-                    <div key={event.metadata.uid || i} className="flex flex-col gap-2 p-3 bg-[#252526] border border-[#3e3e42] rounded hover:border-[#505050] transition-colors">
+                    <div key={event.metadata?.uid || i} className="flex flex-col gap-2 p-3 bg-[#11111a] border border-[#1f1f2b] rounded hover:border-[#2b2b38] transition-colors">
                         <div className="flex items-start gap-3">
                             {event.type === 'Warning' ? (
                                 <AlertCircle size={16} className="text-[#f48771] shrink-0 mt-0.5" />
@@ -139,9 +149,8 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                                 <div className="flex items-center justify-between mb-0.5">
                                     <span className="text-xs font-semibold text-white truncate">{event.reason}</span>
                                     <span className="text-[10px] text-[#858585] whitespace-nowrap ml-2">
-                                        {event.count > 1 && <span className="mr-2 px-1.5 py-0.5 bg-[#3e3e42] rounded text-[#cccccc]">{event.count}x</span>}
-                                        {/* Use event.lastTimestamp or formatting function */}
-                                        {event.lastTimestamp || event.eventTime || '-'}
+                                        {event.count > 1 && <span className="mr-2 px-1.5 py-0.5 bg-[#1f1f2b] rounded text-[#cccccc]">{event.count}x</span>}
+                                        {event.timestamp || '-'}
                                     </span>
                                 </div>
                                 <p className="text-xs text-[#cccccc] leading-relaxed break-words">{event.message}</p>
@@ -151,10 +160,10 @@ export function EventsTab({ resource }: { resource: K8sObject }) {
                                     </div>
                                     <button
                                         onClick={() => analyzeEvent(event, i)}
-                                        disabled={analyzingEvent === (event.metadata.uid || String(i))}
-                                        className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors ${expandedExplanations[i] ? 'bg-[#865fc9]/20 text-[#d2a8ff]' : 'text-[#858585] hover:text-[#d2a8ff] hover:bg-[#3e3e42]'}`}
+                                        disabled={analyzingEvent === (event.metadata?.uid || String(i))}
+                                        className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-colors ${expandedExplanations[i] ? 'bg-[#865fc9]/20 text-[#d2a8ff]' : 'text-[#858585] hover:text-[#d2a8ff] hover:bg-[#1f1f2b]'}`}
                                     >
-                                        {analyzingEvent === (event.metadata.uid || String(i)) ? (
+                                        {analyzingEvent === (event.metadata?.uid || String(i)) ? (
                                             <Loader2 size={10} className="animate-spin" />
                                         ) : (
                                             <HelpCircle size={10} />

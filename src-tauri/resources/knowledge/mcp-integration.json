@@ -1,0 +1,13 @@
+{
+    "title": "Using Model Context Protocol (MCP) in OpsPilot",
+    "category": "Features",
+    "tags": [
+        "mcp",
+        "integration",
+        "tools",
+        "settings"
+    ],
+    "content": "OpsPilot supports the Model Context Protocol (MCP), allowing you to extend the AI's capabilities by connecting to external MCP servers.\n\n### What is MCP?\nMCP is a standard open protocol that enables AI models to interact with external data and tools. By connecting an MCP server, you can give OpsPilot access to:\n- Git repositories (read/write code)\n- Databases (PostgreSQL, SQLite)\n- Cloud platforms (AWS, Azure, GCP)\n- Issue trackers (Jira, GitHub Issues)\n- And much more!\n\n### How to Add an MCP Server\n1. Go to **Settings** -> **AI Settings**\n2. Click on the **MCP Extensions** tab\n3. Click **Add Custom Server** or use one of the Quick Add presets\n4. Enter the detailed configuration:\n   - **Name**: A unique identifier (e.g., `git-server`)\n   - **Command**: The executable to run (e.g., `uvx`, `docker`, `npx`)\n   - **Args**: Arguments for the command (e.g., `mcp-server-git`, `--repository`, `/path/to/repo`)\n   - **Environment Variables**: Key-value pairs if needed (e.g., `GITHUB_TOKEN`)\n5. Click **Connect**\n\n### Using MCP Tools\nOnce connected, OpsPilot automatically discovers the tools provided by the server. You can ask for them naturally in the chat.\nFor example, if you added the Git server:\n'List the latest commits in this repo'\n'Create a new branch called feat/login'\n\nOpsPilot will intelligently select the right tool for your request.",
+    "quick_fix": "Add an MCP server in Settings -> AI Settings -> MCP Extensions",
+    "recommended_tools": []
+}

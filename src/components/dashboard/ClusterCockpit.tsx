@@ -794,8 +794,19 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                         <span className="text-[10px] text-zinc-500 mt-1">pod slots used</span>
                     </div>
                     <div className="flex flex-col items-center">
-                        <VerticalMeter value={cockpit.total_nodes - cockpit.healthy_nodes} max={cockpit.total_nodes} label="Unhealthy" color={COLORS.critical} icon={AlertCircle} inverseColors={true} />
-                        <span className="text-[10px] text-zinc-500 mt-1">nodes with issues</span>
+                        <VerticalMeter
+                            value={cockpit.healthy_nodes}
+                            max={cockpit.total_nodes || 1}
+                            label="Healthy"
+                            color={COLORS.healthy}
+                            icon={Check}
+                            positiveMetric={true}
+                        />
+                        <span className="text-[10px] text-zinc-500 mt-1">
+                            {cockpit.total_nodes > 0 && cockpit.healthy_nodes === cockpit.total_nodes
+                                ? 'All nodes ready'
+                                : `${cockpit.healthy_nodes}/${cockpit.total_nodes} ready`}
+                        </span>
                     </div>
 
                     {/* Divider */}

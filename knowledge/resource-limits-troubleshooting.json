@@ -1,266 +1,78 @@
 {
-  "id": "kb-202",
-  "title": "Resource Limits and Quotas Troubleshooting",
+  "id": "resource-limits-troubleshooting",
+  "title": "Resource Limits & Requests (CPU/Memory/Evictions)",
   "category": "troubleshooting",
-  "tags": ["resources", "limits", "requests", "quota", "oom", "cpu", "memory", "throttling"],
-  "summary": "Guide for debugging resource-related issues including OOM kills, CPU throttling, and quota violations",
-
-  "resource_basics": {
-    "description": "Understanding Kubernetes resource management",
-    "concepts": {
-      "requests": {
-        "description": "Guaranteed minimum resources for scheduling",
-        "impact": "Used by scheduler to find nodes with capacity",
-        "example": "resources.requests.memory: 256Mi"
-      },
-      "limits": {
-        "description": "Maximum resources container can use",
-        "impact": "Container killed (OOM) or throttled (CPU) if exceeded",
-        "example": "resources.limits.memory: 512Mi"
-      },
-      "qos_classes": {
-        "Guaranteed": "requests == limits for all containers",
-        "Burstable": "requests < limits, or only requests set",
-        "BestEffort": "no requests or limits set - first to be evicted"
-      }
-    },
-    "commands": [
-      {
-        "command": "kubectl top pods -n <namespace>",
-        "description": "View current resource usage",
-        "when_to_use": "Check if pods are near their limits"
-      },
-      {
-        "command": "kubectl describe node <node>",
-        "description": "View node capacity and allocations",
-        "what_to_look_for": ["Allocatable", "Allocated resources", "Conditions"]
-      },
-      {
-        "command": "kubectl get pod <pod> -n <ns> -o jsonpath='{.spec.containers[*].resources}'",
-        "description": "Get resource specs for a pod"
-      }
-    ]
-  },
-
-  "common_errors": [
+  "tags": [
+    "cpu",
+    "memory",
+    "limits",
+    "requests",
+    "eviction",
+    "throttling",
+    "oom"
+  ],
+  "summary": "Diagnose CPU throttling, memory pressure, and evictions by comparing usage vs requests/limits and node capacity.",
+  "error_patterns": [
+    "evicted",
+    "ExceededGracePeriod",
+    "cpu throttling",
+    "Out of memory",
+    "memory pressure",
+    "Insufficient cpu/memory"
+  ],
+  "recommended_tools": [
+    "TOP_PODS",
+    "TOP_NODES (via RUN_KUBECTL top nodes)",
+    "DESCRIBE Pod <ns>/<pod>",
+    "GET_EVENTS <ns>",
+    "FIND_ISSUES"
+  ],
+  "quick_fix": "Check pod usage vs requests/limits (kubectl top pod; get pod -o yaml | grep resources). Adjust requests/limits to match reality; add capacity if nodes are saturated.",
+  "symptoms": [
+    "Pods throttled or slow",
+    "Evictions under memory pressure",
+    "Pending due to Insufficient cpu/memory",
+    "OOMKilled"
+  ],
+  "decision_tree": [
+    "If throttling (CPU) → raise CPU limit or reduce CPU load; consider HPA.",
+    "If OOM/eviction → raise memory request/limit or reduce footprint; add capacity.",
+    "If Pending for Insufficient cpu/memory → lower requests or add nodes; binpack sensibly.",
+    "If node pressure events → spread workload; check noisy neighbors."
+  ],
+  "common_causes": [
     {
-      "name": "OOMKilled - Container killed for exceeding memory limit",
-      "error_patterns": [
-        "OOMKilled",
-        "Container killed due to OOM",
-        "Exit code 137"
-      ],
-      "symptoms": [
-        "Pod restarts with OOMKilled reason",
-        "Application crashes under load",
-        "Exit code 137 in container status"
-      ],
-      "likely_causes": [
-        "Memory limit too low for application",
-        "Memory leak in application",
-        "JVM heap not configured to respect container limits",
-        "Multiple processes in container exceeding combined limit"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe pod <pod> -n <ns> → Last State: OOMKilled",
-        "kubectl top pod <pod> -n <ns> → Current usage",
-        "kubectl get pod <pod> -n <ns> -o yaml | grep -A5 limits"
-      ],
-      "fix_steps": [
-        "Increase memory limit if legitimately needed",
-        "For JVM: Set -XX:MaxRAMPercentage=75.0 to respect limits",
-        "Profile application to find memory leaks",
-        "Consider using VPA for automatic right-sizing"
-      ],
-      "example_fix": {
-        "description": "Increase memory limit",
-        "yaml": "resources:\n  requests:\n    memory: 256Mi\n  limits:\n    memory: 1Gi"
-      }
+      "cause": "Under-requesting/overusing resources",
+      "description": "Actual usage > limits/requests.",
+      "diagnosis": "kubectl top pod vs spec resources.",
+      "fix": "Adjust requests/limits to match real usage; optimize app."
     },
     {
-      "name": "CPU Throttling - Container performance degraded",
-      "error_patterns": [
-        "High latency",
-        "Slow response times",
-        "nr_throttled in container stats"
-      ],
-      "symptoms": [
-        "Application slow but not crashing",
-        "Latency spikes correlating with load",
-        "CPU usage hitting limit in metrics"
-      ],
-      "likely_causes": [
-        "CPU limit too restrictive",
-        "Burstable workload hitting ceiling",
-        "Inefficient code causing high CPU usage"
-      ],
-      "diagnostic_commands": [
-        "kubectl top pod <pod> -n <ns>",
-        "kubectl exec <pod> -- cat /sys/fs/cgroup/cpu/cpu.stat",
-        "kubectl describe pod <pod> → Check CPU limits"
-      ],
-      "fix_steps": [
-        "Increase CPU limit (or remove for burstable workloads)",
-        "Profile application for CPU hotspots",
-        "Consider removing CPU limits entirely (controversial but effective)",
-        "Use HPA to scale out instead of up"
-      ],
-      "note": "Many teams remove CPU limits and only set requests, letting containers burst"
+      "cause": "Node-level pressure",
+      "description": "Nodes out of memory/CPU; kubelet evicts.",
+      "diagnosis": "kubectl top nodes; events show eviction due to pressure.",
+      "fix": "Add nodes; rebalance; set realistic limits to avoid eviction."
     },
     {
-      "name": "Pending pods - Insufficient resources",
-      "error_patterns": [
-        "Insufficient cpu",
-        "Insufficient memory",
-        "0/N nodes are available"
-      ],
-      "symptoms": [
-        "Pods stuck in Pending state",
-        "Events show scheduling failures"
-      ],
-      "likely_causes": [
-        "Cluster doesn't have enough total capacity",
-        "Resource requests too high",
-        "Node affinity/selector limiting available nodes",
-        "Resource fragmentation across nodes"
-      ],
-      "diagnostic_commands": [
-        "kubectl describe pod <pod> → Events section",
-        "kubectl describe nodes | grep -A5 'Allocated resources'",
-        "kubectl top nodes"
-      ],
-      "fix_steps": [
-        "Scale up cluster (add more nodes)",
-        "Right-size pod requests based on actual usage",
-        "Use cluster autoscaler for dynamic scaling",
-        "Check for zombie pods consuming resources"
-      ]
-    },
-    {
-      "name": "ResourceQuota exceeded",
-      "error_patterns": [
-        "exceeded quota",
-        "forbidden: exceeded quota",
-        "must specify limits"
-      ],
-      "symptoms": [
-        "Cannot create new pods/deployments in namespace",
-        "Quota prevents scaling"
-      ],
-      "likely_causes": [
-        "Namespace quota reached",
-        "LimitRange requires unset fields",
-        "Too many objects of a type"
-      ],
-      "diagnostic_commands": [
-        "kubectl get resourcequota -n <namespace>",
-        "kubectl describe resourcequota <name> -n <namespace>",
-        "kubectl get limitrange -n <namespace>"
-      ],
-      "fix_steps": [
-        "Request quota increase from cluster admin",
-        "Clean up unused resources in namespace",
-        "Ensure pods have required fields (requests/limits)",
-        "Consolidate workloads if hitting object count limits"
-      ]
-    },
-    {
-      "name": "LimitRange violations",
-      "error_patterns": [
-        "must be less than or equal to",
-        "must be greater than or equal to",
-        "default limits"
-      ],
-      "symptoms": [
-        "Pod creation rejected by admission",
-        "Resources don't match expected values"
-      ],
-      "likely_causes": [
-        "Pod requests/limits outside allowed range",
-        "Container missing required resource specs",
-        "LimitRange applying unexpected defaults"
-      ],
-      "diagnostic_commands": [
-        "kubectl get limitrange -n <namespace> -o yaml",
-        "kubectl describe limitrange <name> -n <namespace>"
-      ],
-      "fix_steps": [
-        "Adjust pod resources to fall within LimitRange bounds",
-        "Request LimitRange modification if too restrictive",
-        "Explicitly set resources to avoid default application"
-      ]
+      "cause": "Aggressive limits causing throttling",
+      "description": "CPU limit too low; throttling.",
+      "diagnosis": "Metrics show throttling; high CPU usage vs low limits.",
+      "fix": "Increase CPU limit; tune requests; enable HPA."
     }
   ],
-
-  "right_sizing_guide": {
-    "description": "How to determine correct resource values",
-    "steps": [
-      {
-        "step": 1,
-        "action": "Deploy with generous limits initially",
-        "purpose": "Avoid OOM/throttling while gathering data"
-      },
-      {
-        "step": 2,
-        "action": "Monitor with kubectl top and metrics-server",
-        "purpose": "Collect actual usage data over time"
-      },
-      {
-        "step": 3,
-        "action": "Analyze P99 usage, not just average",
-        "purpose": "Account for spikes and bursts"
-      },
-      {
-        "step": 4,
-        "action": "Set requests = P99 usage + 20% buffer",
-        "purpose": "Guarantee scheduling with headroom"
-      },
-      {
-        "step": 5,
-        "action": "Set limits = 2x requests (or remove for CPU)",
-        "purpose": "Allow bursting without immediate kill"
-      }
-    ],
-    "tools": [
-      "Vertical Pod Autoscaler (VPA) - Automatic recommendations",
-      "Goldilocks - VPA-based dashboard",
-      "kubectl top - Basic real-time metrics",
-      "Prometheus/Grafana - Historical analysis"
-    ]
-  },
-
-  "jvm_specific": {
-    "description": "Special considerations for Java applications",
-    "issues": [
-      "JVM doesn't respect container memory limits by default (older versions)",
-      "Heap + metaspace + native memory can exceed limit",
-      "GC behavior affected by container constraints"
-    ],
-    "recommended_settings": [
-      "-XX:+UseContainerSupport (default in JDK 10+)",
-      "-XX:MaxRAMPercentage=75.0 (leave room for non-heap)",
-      "-XX:InitialRAMPercentage=50.0 (faster startup)",
-      "-XX:+ExitOnOutOfMemoryError (fail fast)"
-    ],
-    "example": {
-      "description": "JVM container resource configuration",
-      "env_vars": "JAVA_OPTS: -XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport"
-    }
-  },
-
-  "best_practices": {
-    "setting_resources": [
-      "Always set requests - critical for scheduling",
-      "Set memory limits to prevent runaway processes",
-      "Consider removing CPU limits for latency-sensitive apps",
-      "Use same value for request/limit for Guaranteed QoS",
-      "Account for sidecar containers in total"
-    ],
-    "monitoring": [
-      "Alert on containers using >80% of limits",
-      "Track OOMKilled events cluster-wide",
-      "Monitor node-level pressure conditions",
-      "Use VPA recommendations even if not in auto mode"
-    ]
-  }
+  "diagnostic_commands": [
+    "kubectl top pod -n <ns> <pod>",
+    "kubectl get pod -n <ns> <pod> -o jsonpath='{.spec.containers[*].resources}'",
+    "kubectl top nodes",
+    "kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'",
+    "kubectl get events -A --sort-by=.lastTimestamp | tail -n 30"
+  ],
+  "investigation_flow": [
+    "1) Check usage: kubectl top pod -n <ns> <pod> (CPU/mem).",
+    "2) Check spec: kubectl get pod -n <ns> <pod> -o yaml | grep -A5 resources.",
+    "3) If usage > limits → increase limits/requests or optimize.",
+    "4) If node pressure/evictions → check top nodes; add capacity or rebalance.",
+    "5) If Pending Insufficient cpu/memory → lower requests or add nodes.",
+    "6) Validate: monitor after changes; ensure no throttling/evictions."
+  ]
 }

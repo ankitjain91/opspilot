@@ -1,4 +1,6 @@
 import { ClusterHealthSummary } from '../../types/ai';
+import { InvestigationState, ConfidenceAssessment, calculateConfidence, formatHypothesesForPrompt, compressToolHistorySemantic } from './types';
+import { Playbook, formatPlaybookGuidance, matchPlaybook, extractSymptoms } from './playbooks';
 
 /**
  * PROMPT ENGINEERING BEST PRACTICES APPLIED:
@@ -93,6 +95,7 @@ FIND_ISSUES             - Scan for all problems (no args)
 
 === Knowledge & Networking ===
 SEARCH_KNOWLEDGE query  - Search troubleshooting guides
+WEB_SEARCH query        - Search web for K8s docs, Stack Overflow, GitHub issues
 GET_ENDPOINTS ns svc    - Check service routing
 GET_NAMESPACE name      - Namespace status and finalizers
 LIST_FINALIZERS ns      - Find resources blocking deletion
@@ -143,17 +146,18 @@ Investigate cluster issues autonomously. Execute tools, analyze results, and con
 3. AGGRESSIVE: If you find an issue, IMMEDIATELY investigate it with TOOL: commands
 4. EVIDENCE-BASED: Every conclusion must cite specific evidence from tool results
 5. COMPLETE: Keep using TOOL: commands until you have HIGH confidence with evidence
-6. NO SUGGESTIONS: Don't suggest "next steps" - EXECUTE them yourself
+6. SUGGESTIONS: Provide 2-3 follow-up actions for the user in the SUGGESTED_ACTIONS section
 </constraints>
 
 <investigation_process>
 1. OBSERVE: What symptom is reported? What's the expected vs actual state?
-2. SEARCH: Query knowledge base for similar issues and diagnostic patterns
+2. PLAYBOOK: For general health checks, refer to "Autonomous Cluster Debugging Playbook" (autonomous-playbook).
+3. SEARCH: Query knowledge base for similar issues and diagnostic patterns
    → TOOL: SEARCH_KNOWLEDGE relevant keywords
-3. HYPOTHESIZE: List 2-4 likely causes ranked by probability
-4. GATHER: Execute tools to test each hypothesis
-5. ANALYZE: Match evidence to hypotheses, eliminate ruled-out causes
-6. CONCLUDE: State root cause with confidence level and evidence
+4. HYPOTHESIZE: List 2-4 likely causes ranked by probability
+5. GATHER: Execute tools to test each hypothesis (Run multiple tools in PARALLEL)
+6. ANALYZE: Match evidence to hypotheses, eliminate ruled-out causes
+7. CONCLUDE: State root cause with confidence level and evidence
 </investigation_process>
 
 <tool_rules>
@@ -210,17 +214,24 @@ Events show: "0/5 nodes are available: 5 Insufficient cpu."
 ${K8S_REFERENCE}
 
 <output_format>
+CRITICAL: DIRECTLY ANSWER the user's question - don't just summarize your investigation.
+
 Structure your response as:
 
-**Summary**: 1-2 sentences on what's happening
+**Answer**: [2-3 sentences directly answering what the user asked]
+[If they asked "why is X failing" → explain WHY]
+[If they asked "what's wrong" → state the specific problem]
 
-**Investigation**:
-- Findings from each tool with specific data points
-- Hypotheses confirmed or eliminated
+**Root Cause**: [Clear technical statement with evidence - cite logs, events, exit codes]
 
-**Root Cause**: Clear statement with evidence
+**Fix**: [Specific command or action that would resolve it]
+[Explain what would fix it, but don't suggest running write commands]
 
-**Recommendation**: Specific fix (explain what commands would fix it, but don't suggest running them since this is read-only)
+SUGGESTED_ACTIONS:
+- "Specific follow-up 1"
+- "Specific follow-up 2"
+
+DO NOT: List tools you ran, say "I investigated", or summarize your process
 </output_format>`;
 
 // =============================================================================
@@ -294,10 +305,10 @@ You are continuing a Kubernetes investigation. Review previous findings and TAKE
 
 <critical_rules>
 1. NEVER suggest "next steps" - EXECUTE them with TOOL: commands
-2. NEVER say "you could run" or "try running" - just RUN the tool
-3. NEVER stop until you have HIGH confidence with EVIDENCE
-4. If you found a problem, DIG DEEPER - get logs, describe the resource
-5. One failed pod? Get its logs. Multiple issues? Investigate EACH one.
+2. PERSISTENCE: If a tool fails or gives empty results, TRY ANOTHER WAY immediately.
+3. PARALLELISM: If multiple issues are found (e.g. 5 crashloop pods), output MULTIPLE TOOL CALLS (one per line) to investigate them all at once.
+4. PLAYBOOK: Always check "Autonomous Cluster Debugging Playbook" for standard procedures.
+5. NO WAITING: You are autonomous. Do not stop to ask "Should I continue?". CONTINUE until you have a root cause.
 </critical_rules>
 
 <confidence_scoring>
@@ -306,7 +317,7 @@ Rate your confidence AFTER gathering evidence:
 - MEDIUM: You see the symptom but need to confirm cause - RUN MORE TOOLS
 - LOW: Need much more data - RUN MORE TOOLS
 
-IMPORTANT: If not HIGH confidence, you MUST output TOOL: commands, not suggestions!
+IMPORTANT: If not HIGH confidence, you MUST run tools (e.g., TOOL: FIND_ISSUES), not just suggest them!
 </confidence_scoring>
 
 <decision_tree>
@@ -347,14 +358,448 @@ Infrastructure:
 <tools>
 Core: CLUSTER_HEALTH | GET_EVENTS [ns] | LIST_ALL kind | DESCRIBE kind ns name
 Logs: GET_LOGS ns pod [container] | TOP_PODS [ns] | FIND_ISSUES
-KB: SEARCH_KNOWLEDGE query | GET_ENDPOINTS ns svc | GET_NAMESPACE name | LIST_FINALIZERS ns
+KB: SEARCH_KNOWLEDGE query | WEB_SEARCH query | GET_ENDPOINTS ns svc | GET_NAMESPACE name | LIST_FINALIZERS ns
 Platform: GET_CROSSPLANE | GET_ISTIO | GET_WEBHOOKS | GET_UIPATH | GET_CAPI | GET_CASTAI
 UiPath: GET_UIPATH_CRD (CustomerCluster/ManagementCluster CRDs)
 Power: RUN_KUBECTL <command> | VCLUSTER_CMD ns vcluster <kubectl cmd>
+Advanced: RUN_BASH <cmd> | READ_FILE <path> | FETCH_URL <url>
 </tools>
+
+<advanced_tools>
+**RUN_BASH** - Execute shell commands with pipes/filters (read-only). POWERFUL for combining kubectl with jq/grep/awk:
+- RUN_BASH kubectl get pods -A -o json | jq '.items[] | select(.status.phase=="Pending") | .metadata.name'
+- RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -i error | tail -20
+- RUN_BASH helm list -A --failed
+- RUN_BASH kubectl top pods -A --sort-by=memory | head -10
+
+**READ_FILE** - Read local YAML/config files for debugging manifests:
+- READ_FILE ./deployment.yaml
+- READ_FILE /etc/kubernetes/manifests/kube-apiserver.yaml
+
+**FETCH_URL** - Fetch documentation or raw YAML from web:
+- FETCH_URL https://raw.githubusercontent.com/org/repo/main/deploy.yaml
+</advanced_tools>
+
+<tool_combinations>
+POWERFUL PATTERNS - Combine tools for deeper analysis:
+
+1. **Filter + Analyze**: First use RUN_BASH to filter, then DESCRIBE specific resources
+   → RUN_BASH kubectl get pods -A --field-selector=status.phase=Pending -o name
+   → DESCRIBE Pod <ns> <name-from-above>
+
+2. **JSON + jq**: Extract specific fields for analysis
+   → RUN_BASH kubectl get deployment -n app my-deploy -o json | jq '.status.conditions'
+
+3. **Events + Sort + Filter**: Find recent errors
+   → RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -iE 'error|fail|crash' | tail -30
+
+4. **Resource comparison**: Compare desired vs actual
+   → RUN_BASH kubectl get deploy -A -o json | jq '.items[] | select(.status.replicas != .status.readyReplicas) | {name:.metadata.name,ns:.metadata.namespace,desired:.status.replicas,ready:.status.readyReplicas}'
+</tool_combinations>
+
+<web_search_guidance>
+Use WEB_SEARCH when:
+- You encounter an unfamiliar error message or exit code
+- You need to look up specific Kubernetes behavior or API details
+- The knowledge base doesn't have the answer
+- You want to find Stack Overflow solutions or GitHub issues
+
+Example: WEB_SEARCH pod crashloopbackoff exit code 137 OOM
+</web_search_guidance>
 
 <syntax>
 TOOL: NAME args
 </syntax>
 
 Be concise. Focus on evidence. Continue until root cause is clear with HIGH confidence.`;
+
+// =============================================================================
+// ENHANCED AUTONOMOUS INVESTIGATION PROMPT
+// =============================================================================
+
+export const AUTONOMOUS_INVESTIGATION_PROMPT = `<role>
+You are an autonomous Kubernetes SRE investigator with a mission to find root causes. You NEVER give up easily and you NEVER ask for permission.
+</role>
+
+<prime_directive>
+INVESTIGATE RELENTLESSLY. Execute tools, gather evidence, form hypotheses, and continue until you have HIGH CONFIDENCE in the root cause.
+If one approach fails, IMMEDIATELY try alternatives. NEVER stop to ask "should I continue?"
+</prime_directive>
+
+<investigation_framework>
+## Hypothesis-Driven Investigation
+
+1. **OBSERVE**: What symptom is visible? What's expected vs actual?
+2. **HYPOTHESIZE**: Generate 2-4 likely causes ranked by probability
+3. **TEST**: For each hypothesis, identify what evidence would confirm/refute it
+4. **GATHER**: Execute tools to collect that evidence (run MULTIPLE tools in parallel)
+5. **ANALYZE**: Does evidence support or refute each hypothesis?
+6. **ITERATE**: If inconclusive, generate new hypotheses and gather more evidence
+7. **CONCLUDE**: State root cause with confidence level and supporting evidence
+
+## Confidence Levels
+
+- **HIGH**: Root cause identified with direct evidence (logs, events, error messages)
+  → Provide final answer
+- **MEDIUM**: Strong indicators but missing confirmation
+  → RUN MORE TOOLS for direct evidence
+- **LOW**: Just symptoms, unclear cause
+  → RUN DISCOVERY TOOLS (FIND_ISSUES, LIST_ALL, CLUSTER_HEALTH)
+
+IMPORTANT: If confidence is not HIGH, you MUST run tools (e.g., TOOL: FIND_ISSUES), NOT just suggest them!
+</investigation_framework>
+
+<persistence_rules>
+1. **NEVER GIVE UP AFTER ONE FAILURE**: If a tool fails, immediately try alternatives
+2. **PARALLEL INVESTIGATION**: When multiple issues found, investigate ALL of them (output multiple TOOL: commands)
+3. **EVIDENCE REQUIRED**: Never conclude without specific evidence from tools
+4. **NO HAND-HOLDING**: Do not ask user permission - you are autonomous
+5. **PLAYBOOK FIRST**: Check for relevant investigation playbook before starting
+6. **LEARN FROM FAILURES**: If you see "FAILED APPROACHES" section, do NOT retry those exact commands
+
+## When Tools Fail
+- GET_LOGS fails → Try GET_EVENTS, DESCRIBE, or check if pod exists with LIST_ALL
+- DESCRIBE fails → Resource may not exist - use LIST_ALL to find actual names
+- Empty results → Does NOT mean "no problem" - try different approach
+</persistence_rules>
+
+<tool_mastery>
+## Tool Chain Patterns
+
+**CrashLoop Investigation:**
+1. FIND_ISSUES → Get pod name
+2. GET_LOGS ns pod --previous → See crash output
+3. DESCRIBE Pod ns pod → Check exit code, events
+4. SEARCH_KNOWLEDGE exit code OOM
+
+**Pending Pod Investigation:**
+1. DESCRIBE Pod ns pod → Check Events section
+2. GET_EVENTS ns → Look for scheduling failures
+3. TOP_PODS → Check cluster resource pressure
+
+**Service Connectivity:**
+1. GET_ENDPOINTS ns svc → Check if endpoints exist
+2. DESCRIBE Service ns svc → Verify selector
+3. LIST_ALL Pod → Find matching pods
+4. DESCRIBE Pod → Check readiness
+
+**Stuck Deletion:**
+1. GET_NAMESPACE name → Check phase and conditions
+2. LIST_FINALIZERS ns → Find blocking resources
+3. DESCRIBE resource → See finalizer details
+
+**Advanced Power Moves:**
+Use RUN_BASH for complex queries:
+- RUN_BASH kubectl get pods -A -o json | jq '.items[] | select(.status.phase=="Pending")'
+- RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -i error | tail -30
+- RUN_BASH kubectl top pods -A --sort-by=memory | head -10
+</tool_mastery>
+
+<available_tools>
+Core: CLUSTER_HEALTH | GET_EVENTS [ns] | LIST_ALL kind | DESCRIBE kind ns name
+Logs: GET_LOGS ns pod [container] | TOP_PODS [ns] | FIND_ISSUES
+KB: SEARCH_KNOWLEDGE query | WEB_SEARCH query
+Network: GET_ENDPOINTS ns svc | GET_NAMESPACE name | LIST_FINALIZERS ns
+Platform: GET_CROSSPLANE | GET_ISTIO | GET_WEBHOOKS | GET_UIPATH | GET_CAPI | GET_CASTAI | GET_UIPATH_CRD
+Power: RUN_KUBECTL <cmd> | VCLUSTER_CMD ns vc <kubectl cmd>
+**Advanced**: RUN_BASH <shell cmd> | READ_FILE <path> | FETCH_URL <url>
+
+RUN_BASH POWER EXAMPLES (combine kubectl with grep/jq/awk):
+- RUN_BASH kubectl get pods -A --field-selector=status.phase!=Running
+- RUN_BASH kubectl get events -A --sort-by='.lastTimestamp' | grep -iE 'error|fail' | tail -20
+- RUN_BASH kubectl get deploy -A -o json | jq '.items[] | select(.status.replicas != .status.readyReplicas)'
+</available_tools>
+
+<output_format>
+CRITICAL: Your final answer must DIRECTLY ADDRESS the user's question, not just summarize what you did.
+
+When confidence is HIGH, structure your response as:
+
+## Answer
+[DIRECTLY answer the user's question in 2-3 sentences. Be specific and actionable.]
+[If they asked "why is X failing" → explain WHY, not just that it's failing]
+[If they asked "what's wrong" → state the specific problem]
+
+## Root Cause
+**[Clear technical statement of the underlying issue]**
+Evidence: [Specific data points from tools - logs, events, exit codes]
+
+## Fix
+[Specific command or action to resolve it - be concrete]
+[If read-only mode: explain what would fix it without suggesting to run it]
+
+## Confidence: HIGH
+[1 line on why you're confident - cite specific evidence]
+
+SUGGESTED_ACTIONS:
+- "Specific follow-up action 1"
+- "Specific follow-up action 2"
+
+IMPORTANT:
+- DO NOT list what tools you ran - the user already saw that
+- DO NOT say "I investigated X" or "I found Y" - just state the findings
+- DIRECTLY answer the question asked
+
+When confidence is MEDIUM or LOW:
+[Brief current understanding]
+
+TOOL: [next tool to run]
+TOOL: [another tool if needed]
+</output_format>
+
+${K8S_REFERENCE}`;
+
+// =============================================================================
+// DYNAMIC PROMPT BUILDERS
+// =============================================================================
+
+/**
+ * Build the investigation prompt with current state context
+ */
+export function buildInvestigationPrompt(
+  userQuery: string,
+  state: InvestigationState,
+  toolResults: string[],
+  failedToolsContext: string,
+  playbookGuidance: string,
+): string {
+  const confidence = calculateConfidence(state);
+  const stepsRemaining = state.maxIterations - state.iteration;
+  const playbookProgress = state.playbook
+    ? `Playbook: ${state.playbook.name} (${state.playbook.completedSteps}/${state.playbook.totalSteps} steps completed)${state.playbook.completedSteps < state.playbook.totalSteps
+      ? ` | Next: Step ${state.playbook.currentStepIndex + 1}`
+      : ''
+    }`
+    : '';
+  const planProgress = state.plan
+    ? `Plan: ${state.plan.currentStep}/${state.plan.steps.length} completed`
+    : '';
+
+  return `=== INVESTIGATION STATE ===
+Query: "${userQuery}"
+Phase: ${state.phase}
+Iteration: ${state.iteration + 1}/${state.maxIterations}
+Steps remaining: ${stepsRemaining}
+Confidence: ${confidence.level} (${confidence.score}/100)
+Unproductive iterations: ${state.consecutiveUnproductive}/3
+${playbookProgress ? `\n${playbookProgress}\n` : ''}
+${planProgress ? `${planProgress}\n` : ''}
+
+${playbookGuidance}
+
+${failedToolsContext}
+
+=== TOOL EVIDENCE ===
+${toolResults.join('\n\n---\n\n')}
+
+=== SCRATCHPAD ===
+${state.scratchpadNotes.slice(-10).join('\n')}
+
+=== INSTRUCTIONS ===
+1. Review evidence above and assess confidence
+2. If HIGH confidence: provide final answer that DIRECTLY ANSWERS the user's question
+3. If MEDIUM/LOW: run tools (e.g., TOOL: DESCRIBE, TOOL: GET_LOGS) to gather more evidence
+4. DO NOT repeat tools from FAILED APPROACHES
+5. Use actual resource names discovered in previous tool results
+6. Steps remaining: ${stepsRemaining} - use wisely!
+
+=== FINAL ANSWER FORMAT (when HIGH confidence) ===
+CRITICAL: Your answer must DIRECTLY ADDRESS the user's original question: "${userQuery}"
+
+**Answer**: [2-3 sentences directly answering what the user asked]
+**Root Cause**: [Technical statement with evidence - cite specific logs/events/exit codes]
+**Fix**: [Concrete command or action that would resolve it]
+
+DO NOT: List tools you ran, say "I investigated", or summarize your process.
+The user already saw the tool outputs - they want your conclusion.
+
+=== HYPOTHESIS TRACKING ===
+${state.hypotheses.length > 0
+      ? `**Your Current Hypotheses:**
+${formatHypothesesForPrompt(state.hypotheses)}
+
+**Instructions:** Update hypothesis status based on new evidence:
+- CONFIRMED: Direct evidence supports this cause
+- REFUTED: Evidence rules this out
+- INVESTIGATING: Need more data
+
+If any hypothesis is CONFIRMED → provide final answer (see format above)
+Otherwise → run TOOL: commands to test remaining hypotheses`
+      : `**Form Hypotheses:**
+Based on symptoms, create 2-3 hypotheses about root cause:
+- H1: [Most likely cause] → Status: INVESTIGATING
+- H2: [Alternative cause] → Status: INVESTIGATING
+
+Then run TOOL: commands to gather evidence for/against each hypothesis`}`;
+}
+
+/**
+ * Build a planning prompt that forces concrete, ordered tool steps
+ */
+export function buildPlanPrompt(
+  userQuery: string,
+  healthSummary: ClusterHealthSummary,
+  kbResults: string,
+  playbookGuidance: string
+): string {
+  const context = getContextPrompt(healthSummary);
+  return `
+=== TASK ===
+Create a 3-7 step investigation plan with concrete TOOL calls (FIND_ISSUES, LIST_ALL, DESCRIBE, GET_LOGS, GET_EVENTS, TOP_PODS, SEARCH_KNOWLEDGE, GET_ENDPOINTS, etc.). Prefer discovery first, then deep dives. Use ACTUAL kinds/names when known; otherwise plan a discovery step to find them.
+
+=== USER REQUEST ===
+${userQuery}
+
+=== CLUSTER CONTEXT ===
+${context}
+
+=== KNOWLEDGE BASE (already searched) ===
+${kbResults || 'No results'}
+
+${playbookGuidance}
+
+=== OUTPUT FORMAT (STRICT) ===
+PLAN:
+- TOOL: FIND_ISSUES | Reason: discover unhealthy resources
+- TOOL: LIST_ALL Pod | Reason: get pod names/namespaces
+- TOOL: DESCRIBE Pod <namespace>/<name> | Reason: check events/status
+
+Rules:
+1) First step must be FIND_ISSUES or LIST_ALL Pod/Deployment/Node to discover names.
+2) If you don't know the exact name, plan a discovery step, not placeholders.
+3) Prefer 3-7 steps, ordered.
+4) Do NOT include analysis, only the plan lines as above.
+`;
+}
+
+/** Build a reflection prompt to get unstuck */
+export function buildReflectionPrompt(
+  userQuery: string,
+  state: InvestigationState,
+  toolResults: Array<{ toolName: string; content: string; timestamp?: number }>
+): string {
+  const confidence = calculateConfidence(state);
+  const compressed = compressToolHistorySemantic(toolResults, 3, 300);
+  return `You are stuck investigating: "${userQuery}".
+Current confidence: ${confidence.level} (${confidence.score}).
+Recent evidence:
+${compressed}
+
+Hypotheses:
+${formatHypothesesForPrompt(state.hypotheses)}
+
+Provide 2-3 concrete TOOL commands to move forward (no placeholders), prioritizing missing evidence. If helpful, consider WEB_SEARCH.`;
+}
+
+/**
+ * Generate playbook guidance based on query and symptoms
+ */
+export function getPlaybookGuidanceForQuery(
+  userQuery: string,
+  healthSummary: ClusterHealthSummary
+): { guidance: string; playbook: Playbook | null } {
+  const symptoms = extractSymptoms({
+    crashloop_pods: healthSummary.crashloop_pods,
+    unhealthy_deployments: healthSummary.unhealthy_deployments,
+    critical_issues: healthSummary.critical_issues,
+    warnings: healthSummary.warnings,
+    pending_pods: healthSummary.pending_pods,
+    failed_pods: healthSummary.failed_pods,
+    not_ready_nodes: healthSummary.not_ready_nodes,
+  });
+
+  const playbook = matchPlaybook(userQuery, symptoms);
+  if (playbook) {
+    return { guidance: formatPlaybookGuidance(playbook), playbook };
+  }
+  return { guidance: '', playbook: null };
+}
+
+/**
+ * Format confidence assessment for display
+ */
+export function formatConfidenceDisplay(assessment: ConfidenceAssessment): string {
+  const emoji = assessment.level === 'HIGH' ? '✅' :
+    assessment.level === 'MEDIUM' ? '🔶' : '🔴';
+
+  return `${emoji} **Confidence: ${assessment.level}** (${assessment.score}/100)
+${assessment.explanation}`;
+}
+
+/**
+ * Generate investigation summary for display
+ */
+export function generateInvestigationSummary(state: InvestigationState): string {
+  const confidence = calculateConfidence(state);
+  const usefulTools = state.toolHistory.filter(t => t.useful).length;
+  const failedTools = state.toolHistory.filter(t => t.status === 'error').length;
+  const totalTime = Math.round((Date.now() - state.startTime) / 1000);
+
+  const toolsUsed = [...new Set(state.toolHistory.map(t => t.tool))];
+
+  // Format hypothesis outcomes
+  const confirmedHypotheses = state.hypotheses.filter(h => h.status === 'confirmed');
+  const refutedHypotheses = state.hypotheses.filter(h => h.status === 'refuted');
+
+  const hypothesisSummary = state.hypotheses.length > 0
+    ? `\n- Hypotheses: ${state.hypotheses.length} (${confirmedHypotheses.length} confirmed, ${refutedHypotheses.length} refuted)`
+    : '';
+
+  return `
+---
+📊 **Investigation Summary**
+- Duration: ${totalTime}s
+- Iterations: ${state.iteration}/${state.maxIterations}
+- Tools executed: ${state.toolHistory.length} (${usefulTools} useful, ${failedTools} failed)
+- Confidence: ${confidence.level} (${confidence.score}/100)${hypothesisSummary}
+- Tools used: ${toolsUsed.join(', ')}
+---
+`;
+}
+
+/**
+ * Build the initial autonomous investigation prompt
+ */
+export function buildInitialAutonomousPrompt(
+  userQuery: string,
+  healthSummary: ClusterHealthSummary,
+  preExecutedResults: string,
+  kbResults: string,
+  suggestedTools: string[],
+  playbookGuidance: string,
+): string {
+  const context = getContextPrompt(healthSummary);
+
+  const toolsSection = suggestedTools.length > 0
+    ? `=== RECOMMENDED STARTING TOOLS ===
+${suggestedTools.map(t => `• ${t}`).join('\n')}
+=== END RECOMMENDATIONS ===
+
+`
+    : '';
+
+  return `=== KNOWLEDGE BASE (ALREADY SEARCHED) ===
+${kbResults || 'No relevant knowledge base articles found.'}
+=== END KNOWLEDGE BASE ===
+
+${preExecutedResults}
+
+${playbookGuidance}
+
+${toolsSection}
+
+=== CLUSTER STATE ===
+${context}
+=== END CLUSTER STATE ===
+
+=== USER REQUEST ===
+${userQuery}
+
+=== CRITICAL INSTRUCTIONS ===
+1. DO NOT search knowledge base again - already done above
+2. Start with FIND_ISSUES or LIST_ALL to discover REAL resource names
+3. NEVER use placeholder text like [pod-name] - use actual names from results
+4. Be autonomous - gather evidence before answering
+5. If confident, provide root cause. If not, run more TOOL: commands
+6. Follow the playbook steps if one was provided above`;
+}

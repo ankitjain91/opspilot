@@ -7,8 +7,8 @@
 
   color-scheme: dark;
   color: rgba(255, 255, 255, 0.90);
-  background-color: #09090b;
-  /* Zinc 950 */
+  background-color: #050507;
+  /* Near-black base */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -16,13 +16,13 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* Semantic Colors (Zinc Palette) */
-  --bg-primary: #09090b;
-  /* Zinc 950 */
-  --bg-secondary: #18181b;
-  /* Zinc 900 */
-  --bg-tertiary: #27272a;
-  /* Zinc 800 */
-  --bg-surface: rgba(24, 24, 27, 0.6);
+  --bg-primary: #050507;
+  /* Base */
+  --bg-secondary: #0d0d11;
+  /* Panels */
+  --bg-tertiary: #17171c;
+  /* Elevated */
+  --bg-surface: rgba(13, 13, 17, 0.7);
   /* Glass effect base */
 
   --border-subtle: #27272a;
@@ -47,7 +47,7 @@
 }
 
 body {
-  @apply bg-[#09090b] text-zinc-50 antialiased overflow-hidden selection:bg-cyan-500/30;
+  @apply bg-[#050507] text-zinc-50 antialiased overflow-hidden selection:bg-cyan-500/30;
   font-size: 13px;
 }
 

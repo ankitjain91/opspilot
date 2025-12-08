@@ -1,68 +1,94 @@
 {
-    "id": "dns-networking-troubleshooting",
-    "title": "DNS and Networking Troubleshooting",
-    "category": "troubleshooting",
-    "tags": [
-        "dns",
-        "networking",
-        "coredns",
-        "service",
-        "connectivity",
-        "resolution",
-        "nslookup",
-        "curl"
-    ],
-    "summary": "Diagnosing DNS resolution and network connectivity issues in Kubernetes",
-    "symptoms": [
-        "Cannot resolve service names",
-        "Connection timeouts between pods",
-        "nslookup fails inside pod",
-        "Service not accessible by name"
-    ],
-    "common_causes": [
-        {
-            "cause": "CoreDNS not running",
-            "description": "DNS pods are crashed or not scheduled",
-            "diagnosis": "kubectl get pods -n kube-system -l k8s-app=kube-dns",
-            "fix": "Check CoreDNS pod logs, restart if needed, check node resources"
-        },
-        {
-            "cause": "Service name wrong",
-            "description": "Using incorrect service name or namespace",
-            "diagnosis": "Full DNS name: <service>.<namespace>.svc.cluster.local",
-            "fix": "Use correct format: service-name.namespace or FQDN"
-        },
-        {
-            "cause": "NetworkPolicy blocking traffic",
-            "description": "Network policy denying pod-to-pod or pod-to-service traffic",
-            "diagnosis": "kubectl get networkpolicy -n <namespace>",
-            "fix": "Add ingress/egress rules to allow required traffic"
-        },
-        {
-            "cause": "Pod not ready",
-            "description": "Target pod not passing readiness probe",
-            "diagnosis": "Service won't route to pods that aren't ready",
-            "fix": "Fix readiness probe or underlying health issue"
-        },
-        {
-            "cause": "Wrong port",
-            "description": "Service port doesn't match container port",
-            "diagnosis": "Compare service spec.ports to pod containerPort",
-            "fix": "Ensure service targetPort matches container port"
-        }
-    ],
-    "diagnostic_commands": [
-        "kubectl run debug --rm -it --image=busybox -- nslookup <service-name>",
-        "kubectl run debug --rm -it --image=curlimages/curl -- curl -v <service-name>:<port>",
-        "kubectl get endpoints <service-name> -n <namespace>",
-        "kubectl get svc <service-name> -n <namespace> -o yaml",
-        "kubectl logs -n kube-system -l k8s-app=kube-dns"
-    ],
-    "fix_steps": [
-        "1. Verify CoreDNS pods are running: kubectl get pods -n kube-system",
-        "2. Test DNS from inside a pod: kubectl exec <pod> -- nslookup <service>",
-        "3. Check service has endpoints: kubectl get endpoints <service>",
-        "4. Verify no NetworkPolicy blocking: kubectl get netpol",
-        "5. Check pod readiness: kubectl get pods -o wide"
-    ]
+  "id": "dns-networking-troubleshooting",
+  "title": "DNS & Pod-to-Pod/Service Networking",
+  "category": "troubleshooting",
+  "tags": [
+    "dns",
+    "networking",
+    "service",
+    "endpoint",
+    "cni",
+    "kube-dns",
+    "core-dns",
+    "connection refused",
+    "timeout"
+  ],
+  "summary": "Diagnose DNS resolution failures and pod-to-service connectivity (timeouts/connection refused) by checking CoreDNS, endpoints, CNI, and NetworkPolicy.",
+  "error_patterns": [
+    "no such host",
+    "i/o timeout",
+    "connection refused",
+    "SERVFAIL",
+    "NXDOMAIN",
+    "dns lookup .* failed"
+  ],
+  "recommended_tools": [
+    "RUN_KUBECTL get pods -n kube-system -l k8s-app=kube-dns",
+    "GET_ENDPOINTS <ns> <service>",
+    "DESCRIBE Service <ns> <service>",
+    "LIST_ALL Pod <ns>",
+    "GET_EVENTS <ns>",
+    "RUN_KUBECTL run -it dns-diag --image=ghcr.io/curl/curl --restart=Never -- nslookup <svc>.<ns>.svc.cluster.local"
+  ],
+  "quick_fix": "Check CoreDNS is Running, verify Service endpoints exist, then nslookup/curl from a debug pod. If NetworkPolicy blocks, allow DNS (53/udp,tcp) and app ports.",
+  "symptoms": [
+    "DNS lookups return NXDOMAIN/SERVFAIL/no such host",
+    "Pods cannot reach Services (timeout/connection refused)",
+    "Only some namespaces/pods affected"
+  ],
+  "decision_tree": [
+    "If CoreDNS pods not Ready → restart/fix kube-system (resources, CrashLoop).",
+    "If Service has no endpoints → fix selector/readiness; scale pods.",
+    "If DNS works in kube-system but not app ns → NetworkPolicy blocking DNS/app ports.",
+    "If only external names fail → check upstream resolvers/stub domains."
+  ],
+  "common_causes": [
+    {
+      "cause": "CoreDNS not running/health issues",
+      "description": "CoreDNS pods CrashLoop or not Ready.",
+      "diagnosis": "kubectl get pods -n kube-system -l k8s-app=kube-dns; describe CoreDNS pods.",
+      "fix": "Ensure resources, fix image/configmap, restart deployment."
+    },
+    {
+      "cause": "No endpoints for Service",
+      "description": "Service points to zero Ready pods.",
+      "diagnosis": "GET_ENDPOINTS shows 0 addresses; pods CrashLoop/NotReady.",
+      "fix": "Fix pod health/readiness; align selectors."
+    },
+    {
+      "cause": "NetworkPolicy blocking DNS or app traffic",
+      "description": "Policies deny egress to DNS or ingress to app.",
+      "diagnosis": "Review NetworkPolicies in ns; test from allowed namespace.",
+      "fix": "Allow UDP/TCP 53 to kube-dns and app ports between client/pod namespaces."
+    },
+    {
+      "cause": "CNI issues",
+      "description": "Overlay/host networking broken on nodes.",
+      "diagnosis": "Pod-to-pod ping/HTTP fails across nodes; check CNI pods (kube-system).",
+      "fix": "Restart CNI pods; check node routing; ensure IP pools not exhausted."
+    },
+    {
+      "cause": "Bad DNS config/upstream",
+      "description": "Stub domains/upstream resolvers unreachable.",
+      "diagnosis": "CoreDNS logs show upstream errors; external lookups fail.",
+      "fix": "Fix stubDomain/upstream resolvers; allow egress."
+    }
+  ],
+  "diagnostic_commands": [
+    "kubectl get pods -n kube-system -l k8s-app=kube-dns",
+    "kubectl logs -n kube-system deploy/coredns | tail -n 50",
+    "kubectl get endpoints -n <ns> <svc>",
+    "kubectl describe svc -n <ns> <svc>",
+    "kubectl run -it dns-diag --image=ghcr.io/curl/curl --restart=Never -- nslookup <svc>.<ns>.svc.cluster.local",
+    "kubectl get networkpolicy -n <ns> -o yaml"
+  ],
+  "investigation_flow": [
+    "1) Check CoreDNS: kubectl get pods -n kube-system -l k8s-app=kube-dns; ensure Running/Ready.",
+    "2) Test DNS from a debug pod: kubectl run -it dns-diag --image=ghcr.io/curl/curl --restart=Never -- nslookup <svc>.<ns>.svc.cluster.local.",
+    "3) Endpoints: GET_ENDPOINTS <ns> <svc>; if none, fix selectors/readiness/scale.",
+    "4) NetworkPolicy: inspect policies in <ns>; ensure egress to kube-dns:53 and ingress/egress between client and pods.",
+    "5) Ports: verify Service port/targetPort matches containerPort.",
+    "6) If cross-node issues: check CNI pods/logs in kube-system; ensure node routes and IPAM healthy.",
+    "7) Confirm: retry nslookup/curl; Service reachable without 503/timeouts."
+  ]
 }
