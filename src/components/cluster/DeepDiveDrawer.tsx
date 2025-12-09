@@ -331,16 +331,16 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                 </div>
 
                 {/* Content Tabs (Overview, Logs, Events, YAML) */}
-                <div className="flex border-b border-zinc-800 px-4 gap-1 shrink-0 bg-zinc-900/50 overflow-x-auto no-scrollbar">
-                    <TabButton active={activeContentTab === "overview"} onClick={() => setActiveContentTab("overview")} icon={<Eye size={12} />} label="Overview" />
+                <div className="flex border-b border-zinc-800 px-4 gap-4 shrink-0 bg-zinc-900/50 overflow-x-auto no-scrollbar">
+                    <TabButton active={activeContentTab === "overview"} onClick={() => setActiveContentTab("overview")} icon={<Eye size={14} />} label="Overview" />
                     {(kind === 'Pod' || kind === 'Deployment' || kind === 'Service') && (
-                        <TabButton active={activeContentTab === "logs"} onClick={() => setActiveContentTab("logs")} icon={<FileText size={12} />} label="Logs" />
+                        <TabButton active={activeContentTab === "logs"} onClick={() => setActiveContentTab("logs")} icon={<FileText size={14} />} label="Logs" />
                     )}
                     {kind === 'Pod' && (
-                        <TabButton active={activeContentTab === "terminal"} onClick={() => setActiveContentTab("terminal")} icon={<TerminalIcon size={12} />} label="Terminal" />
+                        <TabButton active={activeContentTab === "terminal"} onClick={() => setActiveContentTab("terminal")} icon={<TerminalIcon size={14} />} label="Terminal" />
                     )}
-                    <TabButton active={activeContentTab === "events"} onClick={() => setActiveContentTab("events")} icon={<Activity size={12} />} label="Events" />
-                    <TabButton active={activeContentTab === "yaml"} onClick={() => setActiveContentTab("yaml")} icon={<FileCode size={12} />} label="YAML" />
+                    <TabButton active={activeContentTab === "events"} onClick={() => setActiveContentTab("events")} icon={<Activity size={14} />} label="Events" />
+                    <TabButton active={activeContentTab === "yaml"} onClick={() => setActiveContentTab("yaml")} icon={<FileCode size={14} />} label="YAML" />
                 </div>
 
                 {/* Content Area */}

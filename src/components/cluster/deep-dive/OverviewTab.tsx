@@ -16,7 +16,7 @@ import { ResourceDetails } from './ResourceDetails';
 import { MetricsChart } from './MetricsChart';
 import { executeTool, sanitizeToolArgs, VALID_TOOLS } from '../../ai/tools';
 import { loadLLMConfig } from '../../ai/utils';
-import { SYSTEM_PROMPT, ITERATIVE_SYSTEM_PROMPT } from '../../ai/prompts';
+import { QUICK_MODE_SYSTEM_PROMPT, ITERATIVE_SYSTEM_PROMPT } from '../../ai/prompts';
 
 interface OverviewTabProps {
     resource: K8sObject;
@@ -424,23 +424,23 @@ function InfoCard({ icon: Icon, label, value, fullValue, copyable = false, onCli
 
     return (
         <div
-            className={`flex items-center gap-2 p-2.5 bg-[#0b0b10] rounded-xl border border-[#1a1a22] hover:border-[#242433] transition-all hover:shadow-lg group ${onClick ? 'cursor-pointer' : ''}`}
+            className={`flex items-center gap-3 p-3 bg-[#0b0b10] rounded-xl border border-[#1a1a22] hover:border-[#242433] transition-all hover:shadow-lg group ${onClick ? 'cursor-pointer' : ''}`}
             onClick={onClick}
         >
-            <div className="p-1.5 bg-[#11111a] rounded-lg border border-[#1f1f2b] shrink-0">
-                <Icon size={12} className="text-zinc-300" />
+            <div className="p-2 bg-[#11111a] rounded-lg border border-[#1f1f2b] shrink-0">
+                <Icon size={14} className="text-zinc-300" />
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
-                <div className="text-[9px] text-zinc-600 uppercase tracking-wider font-medium truncate">{label}</div>
-                <div className="text-xs text-zinc-100 font-medium truncate" title={copyValue}>{displayValue}</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-wider font-medium truncate">{label}</div>
+                <div className="text-sm text-zinc-100 font-medium truncate" title={copyValue}>{displayValue}</div>
             </div>
             {copyable && (
                 <button
                     onClick={handleCopy}
-                    className="p-1 opacity-0 group-hover:opacity-100 hover:bg-[#1f1f2b] rounded transition-all shrink-0"
+                    className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-[#1f1f2b] rounded-lg transition-all shrink-0"
                     title="Copy"
                 >
-                    {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} className="text-zinc-300" />}
+                    {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-zinc-300" />}
                 </button>
             )}
         </div>
@@ -475,13 +475,13 @@ function LabelChip({ name, value, type = "label", onClick }: {
     return (
         <span
             onClick={handleCopy}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] cursor-pointer transition-all ${colors} max-w-full`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${colors} max-w-full`}
             title={`${name}=${value}\nClick to copy`}
         >
             <span className="font-medium truncate">{displayName}</span>
             <span className="text-zinc-500 shrink-0">=</span>
             <span className="font-mono truncate">{displayValue}</span>
-            {copied && <Check size={9} className="text-green-400 shrink-0" />}
+            {copied && <Check size={12} className="text-green-400 shrink-0" />}
         </span>
     );
 }
@@ -504,29 +504,29 @@ function EventItem({ event, onClick }: { event: any; onClick?: () => void }) {
 
     return (
         <div
-            className={`flex items-start gap-2 p-2.5 rounded-lg border transition-all cursor-pointer ${isWarning
+            className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${isWarning
                 ? 'bg-orange-500/5 border-orange-500/25 hover:border-orange-500/40'
                 : 'bg-[#0f0f16] border-[#1a1a22] hover:border-[#2b2b38]'
                 }`}
             onClick={onClick}
         >
-            <div className={`p-1.5 rounded-lg shrink-0 ${isWarning ? 'bg-orange-500/20' : 'bg-[#11111a]'}`}>
-                <Icon size={12} className={isWarning ? 'text-orange-400' : 'text-zinc-400'} />
+            <div className={`p-2 rounded-lg shrink-0 ${isWarning ? 'bg-orange-500/20' : 'bg-[#11111a]'}`}>
+                <Icon size={14} className={isWarning ? 'text-orange-400' : 'text-zinc-400'} />
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
-                <div className="flex items-center gap-2 mb-0.5">
-                    <span className={`text-[11px] font-bold truncate ${isWarning ? 'text-orange-400' : 'text-zinc-300'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-sm font-semibold truncate ${isWarning ? 'text-orange-400' : 'text-zinc-300'}`}>
                         {e.reason || e.type}
                     </span>
                     {e.count && e.count > 1 && (
-                        <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1 py-0.5 rounded-full shrink-0">
+                        <span className="text-xs text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded-full shrink-0">
                             {e.count}x
                         </span>
                     )}
                 </div>
-                <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">{e.message}</p>
-                <div className="flex items-center gap-1 mt-1.5 text-[9px] text-zinc-500">
-                    <Clock size={9} />
+                <p className="text-sm text-zinc-400 line-clamp-2 leading-relaxed">{e.message}</p>
+                <div className="flex items-center gap-1.5 mt-2 text-xs text-zinc-500">
+                    <Clock size={12} />
                     <span className="truncate">{e.timestamp || 'Unknown'}</span>
                 </div>
             </div>
@@ -541,7 +541,7 @@ function ConditionRow({ condition, onClick }: { condition: any; onClick?: () => 
 
     return (
         <div
-            className={`flex items-center gap-2 p-2.5 rounded-lg border transition-all cursor-pointer ${isTrue
+            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${isTrue
                 ? 'bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40'
                 : isFalse
                     ? 'bg-red-500/5 border-red-500/20 hover:border-red-500/40'
@@ -549,36 +549,36 @@ function ConditionRow({ condition, onClick }: { condition: any; onClick?: () => 
                 }`}
             onClick={onClick}
         >
-            <div className={`p-1.5 rounded-lg shrink-0 ${isTrue
+            <div className={`p-2 rounded-lg shrink-0 ${isTrue
                 ? 'bg-emerald-500/20'
                 : isFalse
                     ? 'bg-red-500/20'
                     : 'bg-yellow-500/20'
                 }`}>
                 {isTrue ? (
-                    <CheckCircle2 size={12} className="text-emerald-400" />
+                    <CheckCircle2 size={14} className="text-emerald-400" />
                 ) : isFalse ? (
-                    <XCircle size={12} className="text-red-400" />
+                    <XCircle size={14} className="text-red-400" />
                 ) : (
-                    <AlertCircle size={12} className="text-yellow-400" />
+                    <AlertCircle size={14} className="text-yellow-400" />
                 )}
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-white truncate">{condition.type}</span>
+                    <span className="text-sm font-medium text-white truncate">{condition.type}</span>
                     {condition.reason && (
-                        <span className="text-[9px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded-full truncate max-w-[100px]">
+                        <span className="text-xs text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-full truncate max-w-[120px]">
                             {condition.reason}
                         </span>
                     )}
                 </div>
                 {condition.message && (
-                    <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-1" title={condition.message}>
+                    <p className="text-xs text-zinc-500 mt-1 line-clamp-1" title={condition.message}>
                         {condition.message}
                     </p>
                 )}
             </div>
-            <div className="text-[8px] text-zinc-600 whitespace-nowrap shrink-0 hidden sm:block">
+            <div className="text-xs text-zinc-600 whitespace-nowrap shrink-0 hidden sm:block">
                 {formatTimestamp(condition.lastTransitionTime).split(' ')[0]}
             </div>
         </div>
@@ -596,25 +596,25 @@ function Section({ title, icon, count, children, onExpand, className = "" }: {
 }) {
     return (
         <div className={`bg-[#0b0b10] rounded-xl border border-[#1a1a22] overflow-hidden ${className}`}>
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[#1a1a22] bg-[#0f0f16]">
-                <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1a1a22] bg-[#0f0f16]">
+                <div className="flex items-center gap-2.5 min-w-0">
                     {icon}
-                    <h3 className="text-xs font-semibold text-white truncate">{title}</h3>
+                    <h3 className="text-sm font-semibold text-white truncate">{title}</h3>
                     {count !== undefined && count > 0 && (
-                        <span className="text-[9px] text-zinc-500 bg-[#14141c] px-1.5 py-0.5 rounded-full shrink-0">{count}</span>
+                        <span className="text-xs text-zinc-500 bg-[#14141c] px-2 py-0.5 rounded-full shrink-0">{count}</span>
                     )}
                 </div>
                 {onExpand && (
                     <button
                         onClick={onExpand}
-                        className="p-1 text-zinc-500 hover:text-white hover:bg-[#1f1f2b] rounded transition-colors shrink-0"
+                        className="p-1.5 text-zinc-500 hover:text-white hover:bg-[#1f1f2b] rounded-lg transition-colors shrink-0"
                         title="Expand"
                     >
-                        <Maximize2 size={12} />
+                        <Maximize2 size={14} />
                     </button>
                 )}
             </div>
-            <div className="p-3">
+            <div className="p-4">
                 {children}
             </div>
         </div>
@@ -766,21 +766,70 @@ export function OverviewTab({ resource, fullObject, loading, error, onDelete, cu
             const { result: kbResult, command: kbCommand } = await executeTool('SEARCH_KNOWLEDGE', keywords);
             setChatHistory(prev => [...prev, { role: 'tool', content: kbResult, toolName: 'SEARCH_KNOWLEDGE', command: kbCommand }]);
 
-            // Build resource-specific context
+            // Build resource-specific context with FULL resource data
+            // Truncate large objects to avoid token limits but include essential details
+            const getResourceSummary = () => {
+                if (!fullObject) return 'Resource data not loaded';
+
+                const summary: any = {
+                    apiVersion: fullObject.apiVersion,
+                    kind: fullObject.kind,
+                    metadata: {
+                        name: fullObject.metadata?.name,
+                        namespace: fullObject.metadata?.namespace,
+                        labels: fullObject.metadata?.labels,
+                        annotations: Object.fromEntries(
+                            Object.entries(fullObject.metadata?.annotations || {})
+                                .filter(([k]) => !k.includes('last-applied-configuration'))
+                        ),
+                        creationTimestamp: fullObject.metadata?.creationTimestamp,
+                        uid: fullObject.metadata?.uid,
+                    },
+                    spec: fullObject.spec,
+                    status: fullObject.status,
+                };
+
+                // Convert to YAML-like string, truncate if too long
+                const yamlStr = JSON.stringify(summary, null, 2);
+                if (yamlStr.length > 8000) {
+                    // For very large objects, only include key parts
+                    return JSON.stringify({
+                        apiVersion: summary.apiVersion,
+                        kind: summary.kind,
+                        metadata: summary.metadata,
+                        status: summary.status,
+                        spec: '... (truncated, use DESCRIBE tool for full spec)'
+                    }, null, 2);
+                }
+                return yamlStr;
+            };
+
             const resourceContext = `
 === KNOWLEDGE BASE RESULTS (ALREADY SEARCHED) ===
 ${kbResult}
 === END KNOWLEDGE BASE ===
 
-CURRENT RESOURCE CONTEXT:
-- Kind: ${resource.kind}
-- Name: ${resource.name}
-- Namespace: ${resource.namespace === '-' ? '(cluster-scoped)' : resource.namespace}
-- Status: ${resource.status}
-${fullObject ? `- Full YAML available in context` : ''}
+=== CLUSTER CONTEXT ===
+Kubernetes Context: ${currentContext || 'default'}
+=== END CLUSTER CONTEXT ===
 
-You are investigating this specific resource. Use the tools available to gather more information as needed.
-The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDGE again.
+=== CURRENT RESOURCE (YOU ARE INVESTIGATING THIS) ===
+Kind: ${resource.kind}
+Name: ${resource.name}
+Namespace: ${resource.namespace === '-' ? '(cluster-scoped)' : resource.namespace}
+Status: ${resource.status}
+
+FULL RESOURCE DATA:
+\`\`\`json
+${getResourceSummary()}
+\`\`\`
+=== END RESOURCE ===
+
+IMPORTANT: You already have the full resource data above.
+- You do NOT need to run DESCRIBE for basic information - it's already here!
+- Only use DESCRIBE if you need fresh/updated data
+- Use GET_LOGS, GET_EVENTS, or other tools to investigate issues
+- The knowledge base has ALREADY been searched - DO NOT call SEARCH_KNOWLEDGE again
 `;
 
             const finalPrompt = `${resourceContext}\n\nUser Request: ${message}`;
@@ -789,7 +838,7 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
             const answer = await callLLM(
                 llmConfig,
                 finalPrompt,
-                SYSTEM_PROMPT,
+                QUICK_MODE_SYSTEM_PROMPT,
                 chatHistory.filter(m => m.role !== 'tool')
             );
 
@@ -1163,25 +1212,25 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
             </div>
 
             {/* Labels & Annotations - Side by side */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
                 <Section
                     title="Labels"
-                    icon={<Tag size={12} className="text-cyan-400" />}
+                    icon={<Tag size={14} className="text-cyan-400" />}
                     count={labelEntries.length}
                     onExpand={() => setLabelsModalOpen(true)}
                 >
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-2">
                         {labelEntries.length > 0 ? (
                             labelEntries.slice(0, 4).map(([k, v]) => (
                                 <LabelChip key={k} name={k} value={String(v)} type="label" />
                             ))
                         ) : (
-                            <span className="text-[10px] text-zinc-500 italic">No labels</span>
+                            <span className="text-sm text-zinc-500 italic">No labels</span>
                         )}
                         {labelEntries.length > 4 && (
                             <button
                                 onClick={() => setLabelsModalOpen(true)}
-                                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium px-2 py-1"
+                                className="text-xs text-cyan-400 hover:text-cyan-300 font-medium px-2 py-1 rounded-lg hover:bg-cyan-500/10 transition-colors"
                             >
                                 +{labelEntries.length - 4} more
                             </button>
@@ -1191,22 +1240,22 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
 
                 <Section
                     title="Annotations"
-                    icon={<Info size={12} className="text-purple-400" />}
+                    icon={<Info size={14} className="text-purple-400" />}
                     count={Object.keys(filteredAnnotations).length}
                     onExpand={() => setAnnotationsModalOpen(true)}
                 >
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-2">
                         {Object.keys(filteredAnnotations).length > 0 ? (
                             Object.entries(filteredAnnotations).slice(0, 3).map(([k, v]) => (
                                 <LabelChip key={k} name={k} value={String(v)} type="annotation" />
                             ))
                         ) : (
-                            <span className="text-[10px] text-zinc-500 italic">No annotations</span>
+                            <span className="text-sm text-zinc-500 italic">No annotations</span>
                         )}
                         {Object.keys(filteredAnnotations).length > 3 && (
                             <button
                                 onClick={() => setAnnotationsModalOpen(true)}
-                                className="text-[10px] text-purple-400 hover:text-purple-300 font-medium px-2 py-1"
+                                className="text-xs text-purple-400 hover:text-purple-300 font-medium px-2 py-1 rounded-lg hover:bg-purple-500/10 transition-colors"
                             >
                                 +{Object.keys(filteredAnnotations).length - 3} more
                             </button>
@@ -1222,7 +1271,7 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
             {resource.kind === 'Node' && (
                 <Section
                     title="Metrics"
-                    icon={<Activity size={12} className="text-green-400" />}
+                    icon={<Activity size={14} className="text-green-400" />}
                 >
                     <MetricsChart resourceKind={resource.kind} namespace={resource.namespace} name={resource.name} currentContext={currentContext} />
                 </Section>
@@ -1232,15 +1281,15 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
             {conditions.length > 0 && (
                 <Section
                     title="Conditions"
-                    icon={<Activity size={12} className="text-blue-400" />}
+                    icon={<Activity size={14} className="text-blue-400" />}
                     count={conditions.length}
                 >
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                         {conditions.slice(0, 4).map((c: any, i: number) => (
                             <ConditionRow key={i} condition={c} onClick={() => setSelectedCondition(c)} />
                         ))}
                         {conditions.length > 4 && (
-                            <div className="text-center text-[10px] text-zinc-500 pt-1">
+                            <div className="text-center text-xs text-zinc-500 pt-2">
                                 +{conditions.length - 4} more conditions
                             </div>
                         )}
@@ -1251,24 +1300,24 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
             {/* Recent Events */}
             <Section
                 title="Events"
-                icon={<AlertCircle size={12} className="text-orange-400" />}
+                icon={<AlertCircle size={14} className="text-orange-400" />}
                 count={recentEvents?.length}
             >
                 {recentEvents && recentEvents.length > 0 ? (
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                         {recentEvents.slice(0, 3).map((e: any, i: number) => (
                             <EventItem key={i} event={e} onClick={() => setSelectedEvent(e)} />
                         ))}
                         {recentEvents.length > 3 && (
-                            <div className="text-center text-[10px] text-zinc-500 pt-1">
+                            <div className="text-center text-xs text-zinc-500 pt-2">
                                 +{recentEvents.length - 3} more events
                             </div>
                         )}
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center py-4 text-zinc-500">
-                        <CheckCircle2 size={16} className="mr-2 opacity-30" />
-                        <span className="text-xs">No recent events</span>
+                    <div className="flex items-center justify-center py-6 text-zinc-500">
+                        <CheckCircle2 size={18} className="mr-2 opacity-30" />
+                        <span className="text-sm">No recent events</span>
                     </div>
                 )}
             </Section>
@@ -1278,35 +1327,35 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
                 {/* Decorative background effects */}
                 <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-purple-500/5 to-transparent pointer-events-none" />
 
-                <div className="flex items-center justify-between px-3 py-2 bg-purple-500/10 border-b border-purple-500/20 relative">
-                    <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between px-4 py-3 bg-purple-500/10 border-b border-purple-500/20 relative">
+                    <div className="flex items-center gap-2.5">
                         <div className="relative">
                             <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg blur-sm opacity-40" />
-                            <div className="relative p-1.5 bg-gradient-to-br from-violet-500/80 to-fuchsia-500/80 rounded-lg">
-                                <Sparkles size={12} className="text-white" />
+                            <div className="relative p-2 bg-gradient-to-br from-violet-500/80 to-fuchsia-500/80 rounded-lg">
+                                <Sparkles size={14} className="text-white" />
                             </div>
                         </div>
-                        <span className="text-xs font-semibold text-white">AI Assistant</span>
-                        <span className="text-[8px] text-purple-400 bg-purple-500/20 px-1 py-0.5 rounded-full">BETA</span>
+                        <span className="text-sm font-semibold text-white">AI Assistant</span>
+                        <span className="text-xs text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded-full">BETA</span>
                     </div>
-                    {llmLoading && <Loader2 size={12} className="animate-spin text-purple-400" />}
+                    {llmLoading && <Loader2 size={14} className="animate-spin text-purple-400" />}
                 </div>
-                <div className="h-[200px] overflow-y-auto p-3 space-y-3" ref={scrollContainerRef}>
+                <div className="h-[220px] overflow-y-auto p-4 space-y-4" ref={scrollContainerRef}>
                     {chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-zinc-500">
-                            <div className="relative mb-3">
+                            <div className="relative mb-4">
                                 <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-xl blur-lg opacity-15" />
-                                <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/15 to-cyan-500/15 flex items-center justify-center border border-violet-500/15">
-                                    <Sparkles size={20} className="text-violet-400/60" />
+                                <div className="relative w-14 h-14 rounded-xl bg-gradient-to-br from-violet-500/15 to-cyan-500/15 flex items-center justify-center border border-violet-500/15">
+                                    <Sparkles size={24} className="text-violet-400/60" />
                                 </div>
                             </div>
-                            <p className="text-xs font-medium text-zinc-400">Ask about this {resource.kind}</p>
-                            <div className="flex flex-wrap gap-1.5 justify-center mt-2 max-w-[200px]">
-                                {['Why failing?', 'Explain config'].map(q => (
+                            <p className="text-sm font-medium text-zinc-400">Ask about this {resource.kind}</p>
+                            <div className="flex flex-wrap gap-2 justify-center mt-3 max-w-[250px]">
+                                {['Why failing?', 'Explain config', 'Check health', 'Show logs'].map(q => (
                                     <button
                                         key={q}
                                         onClick={() => sendMessage(q)}
-                                        className="px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-lg transition-all border border-white/5"
+                                        className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-lg transition-colors border border-white/10"
                                     >
                                         {q}
                                     </button>
@@ -1318,13 +1367,13 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
                         <div key={i} className="animate-in fade-in slide-in-from-bottom-1 duration-200">
                             {/* User Message - Task/Query */}
                             {msg.role === 'user' && (
-                                <div className="relative pl-4 pb-2">
-                                    <div className="absolute left-0 top-1 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-violet-500/20" />
-                                    <div className="absolute left-[3px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/40 to-transparent" />
-                                    <div className="ml-2">
-                                        <span className="text-[9px] font-medium text-violet-400 uppercase tracking-wider">Task</span>
-                                        <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-2.5 py-1.5 border border-violet-500/30 mt-0.5">
-                                            <p className="text-[11px] text-white">{msg.content}</p>
+                                <div className="relative pl-5 pb-3">
+                                    <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-violet-500 ring-2 ring-violet-500/20" />
+                                    <div className="absolute left-[4px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/40 to-transparent" />
+                                    <div className="ml-3">
+                                        <span className="text-xs font-medium text-violet-400 uppercase tracking-wider">Task</span>
+                                        <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-3 py-2 border border-violet-500/30 mt-1">
+                                            <p className="text-sm text-white">{msg.content}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1332,33 +1381,33 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
 
                             {/* Tool Execution */}
                             {msg.role === 'tool' && (
-                                <div className="relative pl-4 pb-2">
-                                    <div className="absolute left-0 top-1 w-2 h-2 rounded-full bg-cyan-500 ring-2 ring-cyan-500/20" />
-                                    <div className="absolute left-[3px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/40 to-transparent" />
-                                    <div className="ml-2 space-y-1">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-[9px] font-medium text-cyan-400 uppercase tracking-wider">Tool</span>
-                                            <span className="text-[9px] text-zinc-600">→</span>
-                                            <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded">{msg.toolName}</span>
+                                <div className="relative pl-5 pb-3">
+                                    <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-cyan-500 ring-2 ring-cyan-500/20" />
+                                    <div className="absolute left-[4px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/40 to-transparent" />
+                                    <div className="ml-3 space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-medium text-cyan-400 uppercase tracking-wider">Tool</span>
+                                            <span className="text-xs text-zinc-600">→</span>
+                                            <span className="text-xs font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">{msg.toolName}</span>
                                         </div>
                                         {msg.command && (
-                                            <code className="block text-[9px] text-emerald-400 font-mono bg-black/30 px-2 py-0.5 rounded break-all">$ {msg.command}</code>
+                                            <code className="block text-xs text-emerald-400 font-mono bg-black/30 px-2.5 py-1 rounded-lg break-all">$ {msg.command}</code>
                                         )}
                                         <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
-                                            <div className="px-2 py-1 bg-[#161b22] border-b border-[#21262d] flex items-center gap-1.5">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
-                                                <span className="text-[8px] text-zinc-500 uppercase tracking-wider">Output</span>
+                                            <div className="px-3 py-1.5 bg-[#161b22] border-b border-[#21262d] flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full bg-emerald-500/80" />
+                                                <span className="text-xs text-zinc-500 uppercase tracking-wider">Output</span>
                                             </div>
-                                            <div className="px-2 py-1.5 max-h-[100px] overflow-y-auto">
+                                            <div className="px-3 py-2 max-h-[120px] overflow-y-auto">
                                                 <ReactMarkdown
                                                     remarkPlugins={[remarkGfm]}
                                                     components={{
-                                                        p: ({ children }) => <p className="text-[10px] text-zinc-300 my-0.5 leading-relaxed">{children}</p>,
+                                                        p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
                                                         strong: ({ children }) => <strong className="text-emerald-300 font-semibold">{children}</strong>,
-                                                        code: ({ children }) => <code className="text-[9px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                        ul: ({ children }) => <ul className="text-[10px] list-none ml-0 my-0.5 space-y-0">{children}</ul>,
-                                                        li: ({ children }) => <li className="text-zinc-400 before:content-['•'] before:text-cyan-500 before:mr-1">{children}</li>,
-                                                        h2: ({ children }) => <h2 className="text-[10px] font-semibold text-cyan-300 mt-1 mb-0.5">{children}</h2>,
+                                                        code: ({ children }) => <code className="text-xs bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                                                        ul: ({ children }) => <ul className="text-xs list-none ml-0 my-1 space-y-0.5">{children}</ul>,
+                                                        li: ({ children }) => <li className="text-zinc-400 before:content-['•'] before:text-cyan-500 before:mr-1.5">{children}</li>,
+                                                        h2: ({ children }) => <h2 className="text-xs font-semibold text-cyan-300 mt-1.5 mb-1">{children}</h2>,
                                                     }}
                                                 >
                                                     {msg.content}
@@ -1372,39 +1421,39 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
                             {/* Assistant Response */}
                             {msg.role === 'assistant' && (
                                 (msg.isActivity || msg.content.includes('🔄 Investigating') || msg.content.includes('Continuing investigation')) ? (
-                                    <div className="relative pl-4 pb-2">
-                                        <div className="absolute left-0 top-1 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-amber-500/20 animate-pulse" />
-                                        <div className="absolute left-[3px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/40 to-transparent" />
-                                        <div className="ml-2">
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-[9px] font-medium text-amber-400 uppercase tracking-wider">Thinking</span>
-                                                <Loader2 size={8} className="text-amber-400 animate-spin" />
+                                    <div className="relative pl-5 pb-3">
+                                        <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20 animate-pulse" />
+                                        <div className="absolute left-[4px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/40 to-transparent" />
+                                        <div className="ml-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-medium text-amber-400 uppercase tracking-wider">Thinking</span>
+                                                <Loader2 size={12} className="text-amber-400 animate-spin" />
                                             </div>
-                                            <p className="text-[10px] text-zinc-400 mt-0.5 italic">
+                                            <p className="text-xs text-zinc-400 mt-1 italic">
                                                 {msg.content.replace(/\*|🔄/g, '').replace(/Investigating\.\.\.|Continuing investigation\.\.\./, '').trim() || 'Analyzing...'}
                                             </p>
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="relative pl-4 pb-2">
-                                        <div className="absolute left-0 top-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-                                        <div className="ml-2">
-                                            <div className="flex items-center gap-1.5 mb-1">
-                                                <span className="text-[9px] font-medium text-emerald-400 uppercase tracking-wider">Analysis</span>
-                                                <Sparkles size={8} className="text-emerald-400" />
+                                    <div className="relative pl-5 pb-3">
+                                        <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+                                        <div className="ml-3">
+                                            <div className="flex items-center gap-2 mb-1.5">
+                                                <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Analysis</span>
+                                                <Sparkles size={12} className="text-emerald-400" />
                                             </div>
                                             <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
-                                                <div className="px-2.5 py-2 prose prose-invert prose-xs max-w-none">
+                                                <div className="px-3 py-2.5 prose prose-invert prose-sm max-w-none">
                                                     <ReactMarkdown
                                                         remarkPlugins={[remarkGfm]}
                                                         components={{
-                                                            p: ({ children }) => <p className="text-[11px] text-zinc-300 my-1 leading-relaxed">{children}</p>,
+                                                            p: ({ children }) => <p className="text-sm text-zinc-300 my-1.5 leading-relaxed">{children}</p>,
                                                             strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                                                            code: ({ children }) => <code className="text-[10px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                            ul: ({ children }) => <ul className="text-[11px] list-none ml-0 my-1 space-y-0.5">{children}</ul>,
-                                                            li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-1.5 before:font-bold">{children}</li>,
-                                                            h2: ({ children }) => <h2 className="text-[11px] font-bold text-emerald-300 mt-2 mb-1 flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-emerald-400" />{children}</h2>,
-                                                            h3: ({ children }) => <h3 className="text-[11px] font-semibold text-cyan-300 mt-1.5 mb-0.5">{children}</h3>,
+                                                            code: ({ children }) => <code className="text-xs bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
+                                                            ul: ({ children }) => <ul className="text-sm list-none ml-0 my-1.5 space-y-1">{children}</ul>,
+                                                            li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-2 before:font-bold">{children}</li>,
+                                                            h2: ({ children }) => <h2 className="text-sm font-bold text-emerald-300 mt-3 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{children}</h2>,
+                                                            h3: ({ children }) => <h3 className="text-sm font-semibold text-cyan-300 mt-2 mb-1">{children}</h3>,
                                                         }}
                                                     >
                                                         {fixMarkdownHeaders(msg.content)}
@@ -1418,32 +1467,32 @@ The knowledge base has ALREADY been searched above - DO NOT call SEARCH_KNOWLEDG
                         </div>
                     ))}
                     {llmLoading && (
-                        <div className="relative pl-4 pb-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
-                            <div className="absolute left-0 top-1 w-2 h-2 rounded-full bg-violet-500 ring-2 ring-violet-500/20 animate-pulse" />
-                            <div className="absolute left-[3px] top-3 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/40 to-transparent" />
-                            <div className="ml-2">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="text-[9px] font-medium text-violet-400 uppercase tracking-wider">Processing</span>
-                                    <div className="flex gap-0.5">
-                                        <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                                        <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                                        <div className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <div className="relative pl-5 pb-3 animate-in fade-in slide-in-from-bottom-1 duration-200">
+                            <div className="absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full bg-violet-500 ring-2 ring-violet-500/20 animate-pulse" />
+                            <div className="absolute left-[4px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/40 to-transparent" />
+                            <div className="ml-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-violet-400 uppercase tracking-wider">Processing</span>
+                                    <div className="flex gap-1">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                                     </div>
                                 </div>
-                                <p className="text-[10px] text-zinc-500 mt-0.5">{currentActivity}</p>
+                                <p className="text-xs text-zinc-500 mt-1">{currentActivity}</p>
                             </div>
                         </div>
                     )}
                     <div ref={chatEndRef} />
                 </div>
-                <div className="p-2 bg-zinc-900/70 border-t border-zinc-800 relative">
-                    <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-1.5 p-1 bg-white/5 border border-white/10 rounded-full focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all">
+                <div className="p-3 bg-zinc-900/70 border-t border-zinc-800 relative">
+                    <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/10 rounded-full focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all">
                         <input
                             type="text"
                             value={userInput}
                             onChange={(e) => setUserInput(e.target.value)}
                             placeholder="Ask about this resource..."
-                            className="flex-1 px-3 py-1.5 bg-transparent border-none text-white text-[11px] placeholder-zinc-500 focus:outline-none min-w-0"
+                            className="flex-1 px-3 py-2 bg-transparent border-none text-white text-sm placeholder-zinc-500 focus:outline-none min-w-0"
                             disabled={llmLoading}
                         />
                         <button

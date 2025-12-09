@@ -885,24 +885,148 @@ async fn set_kube_config(
     match api_check {
         Ok(Ok(_)) => Ok(format!("Connected to {}", context_name)),
         Ok(Err(e)) => {
-            // Check for common error patterns
             let err_str = e.to_string();
-            if err_str.contains("certificate") || err_str.contains("tls") {
-                Err(format!("TLS/Certificate error for '{}': {}. Check if the cluster certificate is valid.", context_name, err_str))
-            } else if err_str.contains("connection refused") {
-                Err(format!("Connection refused for '{}': The cluster API server is not reachable. Is the cluster running?", context_name))
-            } else if err_str.contains("timeout") || err_str.contains("timed out") {
-                Err(format!("Connection timeout for '{}': The cluster is not responding. Check network connectivity.", context_name))
-            } else if err_str.contains("401") || err_str.contains("Unauthorized") {
-                Err(format!("Authentication failed for '{}': Your credentials may have expired. Try re-authenticating.", context_name))
-            } else if err_str.contains("403") || err_str.contains("Forbidden") {
-                Err(format!("Access denied for '{}': You don't have permission to access this cluster.", context_name))
-            } else {
-                Err(format!("Failed to connect to '{}': {}", context_name, err_str))
-            }
+            Err(format_connection_error(&context_name, &err_str))
         }
-        Err(_) => Err(format!("Connection timeout: Cluster '{}' is not responding. Check if the cluster is running and accessible.", context_name))
+        Err(_) => Err(format!("CONNECTION_TIMEOUT|{}|Connection timeout: Cluster '{}' is not responding. Check if the cluster is running and accessible.", context_name, context_name))
     }
+}
+
+/// Formats connection errors with structured error codes and remediation hints
+/// Error format: ERROR_CODE|context|message|remediation_command (optional)
+fn format_connection_error(context_name: &str, err_str: &str) -> String {
+    let err_lower = err_str.to_lowercase();
+
+    // Azure AD / Entra ID device compliance errors
+    if err_lower.contains("aadsts530002") || err_lower.contains("device is required to be compliant") {
+        // Extract tenant and scope from error message if available
+        let tenant = extract_between(err_str, "--tenant \"", "\"").unwrap_or("YOUR_TENANT_ID");
+        let scope = extract_between(err_str, "--scope \"", "\"").unwrap_or("YOUR_SCOPE/.default");
+        return format!(
+            "AZURE_DEVICE_COMPLIANCE|{}|Azure AD device compliance required: Your device must be enrolled in Intune/MDM to access this cluster.|az logout && az login --tenant \"{}\" --scope \"{}\"",
+            context_name, tenant, scope
+        );
+    }
+
+    // Azure AD token expired or invalid
+    if err_lower.contains("aadsts700082") || err_lower.contains("refresh token has expired") {
+        let tenant = extract_between(err_str, "--tenant \"", "\"").unwrap_or("YOUR_TENANT_ID");
+        return format!(
+            "AZURE_TOKEN_EXPIRED|{}|Azure AD refresh token has expired. You need to re-authenticate.|az logout && az login --tenant \"{}\"",
+            context_name, tenant
+        );
+    }
+
+    // Azure AD interactive login required
+    if err_lower.contains("aadsts50076") || err_lower.contains("interactive") ||
+       (err_lower.contains("azure") && err_lower.contains("mfa")) {
+        let tenant = extract_between(err_str, "--tenant \"", "\"").unwrap_or("YOUR_TENANT_ID");
+        return format!(
+            "AZURE_MFA_REQUIRED|{}|Multi-factor authentication required. Please complete interactive login.|az logout && az login --tenant \"{}\"",
+            context_name, tenant
+        );
+    }
+
+    // Generic Azure CLI credential error
+    if err_lower.contains("azureclicredential") || err_lower.contains("kubelogin") {
+        let tenant = extract_between(err_str, "--tenant \"", "\"");
+        let scope = extract_between(err_str, "--scope \"", "\"");
+        let cmd = match (tenant, scope) {
+            (Some(t), Some(s)) => format!("az logout && az login --tenant \"{}\" --scope \"{}\"", t, s),
+            (Some(t), None) => format!("az logout && az login --tenant \"{}\"", t),
+            _ => "az logout && az login".to_string(),
+        };
+        return format!(
+            "AZURE_AUTH_ERROR|{}|Azure CLI authentication failed. Your credentials may have expired or your device doesn't meet compliance requirements.|{}",
+            context_name, cmd
+        );
+    }
+
+    // AWS EKS authentication errors
+    if err_lower.contains("aws") && (err_lower.contains("sts") || err_lower.contains("token")) {
+        return format!(
+            "AWS_AUTH_ERROR|{}|AWS authentication failed. Check your AWS credentials and ensure you have access to the EKS cluster.|aws sts get-caller-identity && aws eks update-kubeconfig --name YOUR_CLUSTER_NAME",
+            context_name
+        );
+    }
+
+    // GCP GKE authentication errors
+    if err_lower.contains("gcloud") || (err_lower.contains("google") && err_lower.contains("auth")) {
+        return format!(
+            "GCP_AUTH_ERROR|{}|GCP authentication failed. Re-authenticate with gcloud and update cluster credentials.|gcloud auth login && gcloud container clusters get-credentials YOUR_CLUSTER_NAME --zone YOUR_ZONE",
+            context_name
+        );
+    }
+
+    // TLS/Certificate errors
+    if err_lower.contains("certificate") || err_lower.contains("tls") || err_lower.contains("x509") {
+        return format!(
+            "TLS_ERROR|{}|TLS/Certificate error: The cluster certificate may be invalid or expired. Check if the cluster CA is trusted.|",
+            context_name
+        );
+    }
+
+    // Connection refused
+    if err_lower.contains("connection refused") {
+        return format!(
+            "CONNECTION_REFUSED|{}|Connection refused: The cluster API server is not reachable. Verify the cluster is running and the API server endpoint is correct.|kubectl cluster-info",
+            context_name
+        );
+    }
+
+    // Timeout
+    if err_lower.contains("timeout") || err_lower.contains("timed out") {
+        return format!(
+            "CONNECTION_TIMEOUT|{}|Connection timeout: The cluster is not responding. Check network connectivity, VPN status, or firewall rules.|",
+            context_name
+        );
+    }
+
+    // 401 Unauthorized
+    if err_lower.contains("401") || err_lower.contains("unauthorized") {
+        return format!(
+            "AUTH_UNAUTHORIZED|{}|Authentication failed (401): Your credentials are invalid or have expired. Try re-authenticating with your cloud provider.|",
+            context_name
+        );
+    }
+
+    // 403 Forbidden
+    if err_lower.contains("403") || err_lower.contains("forbidden") {
+        return format!(
+            "AUTH_FORBIDDEN|{}|Access denied (403): You don't have permission to access this cluster. Contact your cluster administrator.|kubectl auth can-i --list",
+            context_name
+        );
+    }
+
+    // DNS resolution failure
+    if err_lower.contains("dns") || err_lower.contains("resolve") || err_lower.contains("no such host") {
+        return format!(
+            "DNS_ERROR|{}|DNS resolution failed: Cannot resolve the cluster API server hostname. Check your DNS settings or VPN connection.|",
+            context_name
+        );
+    }
+
+    // Auth exec command failure (generic)
+    if err_lower.contains("auth exec") || err_lower.contains("exec command") {
+        return format!(
+            "AUTH_EXEC_ERROR|{}|Authentication exec command failed. The authentication plugin (kubelogin, aws-iam-authenticator, etc.) encountered an error.|",
+            context_name
+        );
+    }
+
+    // Default fallback
+    format!(
+        "UNKNOWN_ERROR|{}|Failed to connect: {}|",
+        context_name, err_str
+    )
+}
+
+/// Helper to extract text between two markers
+fn extract_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let start_idx = text.find(start)? + start.len();
+    let remaining = &text[start_idx..];
+    let end_idx = remaining.find(end)?;
+    Some(&remaining[..end_idx])
 }
 
 #[tauri::command]
@@ -2609,6 +2733,7 @@ pub fn run() {
             ai_local::get_default_llm_config,
             ai_local::analyze_text,
             ai_local::web_search,
+            ai_local::generate_investigation_commands,
             knowledge::search_knowledge_base,
             knowledge::semantic_search_knowledge_base,
             knowledge::suggest_tools_for_query,

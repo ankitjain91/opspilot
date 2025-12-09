@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { FileCog, Box, Layers, Shield, Network, Database, Clock, Hash, Tag, Info, AlertTriangle, CheckCircle } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { FileCog, Box, Layers, Shield, Network, Database, Clock, Hash, Tag, Info, AlertTriangle, CheckCircle, X, Maximize2, Copy, Check, Search } from 'lucide-react';
 import yaml from 'js-yaml';
 import { PodDetails } from './details/PodDetails';
 import { DeploymentDetails } from './details/DeploymentDetails';
@@ -11,6 +11,244 @@ import { StorageDetails } from './details/StorageDetails';
 import { ConfigDetails } from './details/ConfigDetails';
 import { CollapsibleSection, renderValue, renderKV } from './shared';
 
+// YAML Syntax Highlighter - makes YAML much more readable
+function YamlHighlight({ content }: { content: string }) {
+    const highlightYaml = (yamlStr: string) => {
+        return yamlStr.split('\n').map((line, i) => {
+            // Empty lines
+            if (!line.trim()) return <div key={i} className="h-4" />;
+
+            // Determine indentation
+            const indent = line.match(/^(\s*)/)?.[1]?.length || 0;
+            const trimmed = line.trimStart();
+
+            // Comments
+            if (trimmed.startsWith('#')) {
+                return (
+                    <div key={i} className="leading-relaxed" style={{ paddingLeft: `${indent * 8}px` }}>
+                        <span className="text-zinc-500 italic">{trimmed}</span>
+                    </div>
+                );
+            }
+
+            // Key-value pairs
+            const keyMatch = trimmed.match(/^([a-zA-Z0-9_-]+):\s*(.*)/);
+            if (keyMatch) {
+                const [, key, value] = keyMatch;
+                const isArrayItem = line.trimStart().startsWith('- ');
+
+                // Handle different value types
+                let valueElement = null;
+                if (value) {
+                    const trimmedValue = value.trim();
+                    if (trimmedValue === 'true' || trimmedValue === 'false') {
+                        valueElement = <span className={trimmedValue === 'true' ? 'text-emerald-400' : 'text-rose-400'}>{value}</span>;
+                    } else if (/^-?\d+(\.\d+)?$/.test(trimmedValue)) {
+                        valueElement = <span className="text-amber-400">{value}</span>;
+                    } else if (trimmedValue.startsWith('"') || trimmedValue.startsWith("'")) {
+                        valueElement = <span className="text-green-400">{value}</span>;
+                    } else if (trimmedValue === 'null' || trimmedValue === '~') {
+                        valueElement = <span className="text-zinc-500 italic">{value}</span>;
+                    } else {
+                        valueElement = <span className="text-green-400">{value}</span>;
+                    }
+                }
+
+                return (
+                    <div key={i} className="leading-relaxed" style={{ paddingLeft: `${indent * 8}px` }}>
+                        <span className="text-cyan-400">{key}</span>
+                        <span className="text-zinc-500">:</span>
+                        {valueElement && <span> {valueElement}</span>}
+                    </div>
+                );
+            }
+
+            // Array items (- value)
+            if (trimmed.startsWith('- ')) {
+                const itemValue = trimmed.slice(2);
+                const itemKeyMatch = itemValue.match(/^([a-zA-Z0-9_-]+):\s*(.*)/);
+
+                if (itemKeyMatch) {
+                    const [, key, value] = itemKeyMatch;
+                    return (
+                        <div key={i} className="leading-relaxed" style={{ paddingLeft: `${indent * 8}px` }}>
+                            <span className="text-purple-400">-</span>
+                            <span> </span>
+                            <span className="text-cyan-400">{key}</span>
+                            <span className="text-zinc-500">:</span>
+                            {value && <span className="text-green-400"> {value}</span>}
+                        </div>
+                    );
+                }
+
+                return (
+                    <div key={i} className="leading-relaxed" style={{ paddingLeft: `${indent * 8}px` }}>
+                        <span className="text-purple-400">-</span>
+                        <span className="text-green-400"> {itemValue}</span>
+                    </div>
+                );
+            }
+
+            // Fallback - plain text
+            return (
+                <div key={i} className="leading-relaxed text-zinc-300" style={{ paddingLeft: `${indent * 8}px` }}>
+                    {trimmed}
+                </div>
+            );
+        });
+    };
+
+    return (
+        <div className="font-mono text-xs">
+            {highlightYaml(content)}
+        </div>
+    );
+}
+
+// Details Modal - beautiful popup with search
+function DetailsModal({ isOpen, onClose, title, content, yamlContent }: {
+    isOpen: boolean;
+    onClose: () => void;
+    title: string;
+    content?: React.ReactNode;
+    yamlContent?: string;
+}) {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [copied, setCopied] = useState(false);
+
+    // Filter YAML content by search query - MUST be before early return to maintain hook order
+    const filteredYaml = useMemo(() => {
+        if (!yamlContent || !searchQuery) return yamlContent;
+        const lines = yamlContent.split('\n');
+        const matchingLines: number[] = [];
+
+        // Find all matching line indices
+        lines.forEach((line, i) => {
+            if (line.toLowerCase().includes(searchQuery.toLowerCase())) {
+                matchingLines.push(i);
+            }
+        });
+
+        // Include context (2 lines before/after each match)
+        const contextLines = new Set<number>();
+        matchingLines.forEach(i => {
+            for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
+                contextLines.add(j);
+            }
+        });
+
+        // If no matches, show all
+        if (matchingLines.length === 0) return yamlContent;
+
+        return lines.map((line, i) => contextLines.has(i) ? line : null)
+            .filter(line => line !== null)
+            .join('\n');
+    }, [yamlContent, searchQuery]);
+
+    // Early return AFTER all hooks
+    if (!isOpen) return null;
+
+    const handleCopy = async () => {
+        if (yamlContent) {
+            await navigator.clipboard.writeText(yamlContent);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+            <div
+                className="bg-zinc-900 border border-cyan-500/30 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-gradient-to-r from-cyan-500/10 to-zinc-900">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-cyan-500/20 rounded-lg">
+                            <FileCog size={18} className="text-cyan-400" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-semibold text-white">{title}</h3>
+                            <p className="text-sm text-zinc-400">Resource Details</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {yamlContent && (
+                            <button
+                                onClick={handleCopy}
+                                className={`p-2 rounded-lg transition-colors ${
+                                    copied ? 'bg-green-500/20 text-green-400' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                }`}
+                                title="Copy YAML"
+                            >
+                                {copied ? <Check size={18} /> : <Copy size={18} />}
+                            </button>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Search Bar */}
+                {yamlContent && (
+                    <div className="px-5 py-3 border-b border-zinc-800 bg-zinc-900/50">
+                        <div className="relative">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                            <input
+                                type="text"
+                                placeholder="Search in YAML..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50"
+                                autoFocus
+                            />
+                            {searchQuery && (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-5">
+                    {content ? (
+                        <div className="bg-zinc-800/50 rounded-xl p-5 border border-zinc-700/50">
+                            {content}
+                        </div>
+                    ) : yamlContent ? (
+                        <div className="bg-[#0d1117] rounded-xl p-5 border border-zinc-700/50">
+                            <YamlHighlight content={filteredYaml || ''} />
+                        </div>
+                    ) : null}
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-900/50 flex justify-between items-center">
+                    <span className="text-xs text-zinc-500">
+                        {yamlContent && `${yamlContent.split('\n').length} lines`}
+                    </span>
+                    <button
+                        onClick={onClose}
+                        className="px-4 py-2 text-sm font-medium text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 interface ResourceDetailsProps {
     kind: string;
     fullObject: any;
@@ -19,6 +257,9 @@ interface ResourceDetailsProps {
 
 // Helper component for generic spec/status display
 function GenericResourceDetails({ kind, fullObject }: { kind: string; fullObject: any }) {
+    const [specModalOpen, setSpecModalOpen] = useState(false);
+    const [statusModalOpen, setStatusModalOpen] = useState(false);
+
     const spec = fullObject?.spec || {};
     const status = fullObject?.status || {};
     const metadata = fullObject?.metadata || {};
@@ -27,6 +268,10 @@ function GenericResourceDetails({ kind, fullObject }: { kind: string; fullObject
     const ownerRefs = metadata?.ownerReferences || [];
     const finalizers = metadata?.finalizers || [];
     const conditions = status?.conditions || [];
+
+    // Generate YAML strings for modals
+    const specYaml = Object.keys(spec).length > 0 ? yaml.dump(spec, { indent: 2, lineWidth: 120, noRefs: true }) : '';
+    const statusYaml = Object.keys(status).length > 0 ? yaml.dump(status, { indent: 2, lineWidth: 120, noRefs: true }) : '';
 
     // Render owner references
     const renderOwnerRefs = () => {
@@ -139,17 +384,24 @@ function GenericResourceDetails({ kind, fullObject }: { kind: string; fullObject
                     </div>
                 )}
 
-                {/* Full spec in collapsible */}
-                <details className="group" open>
-                    <summary className="text-[10px] text-[#7f7f8a] cursor-pointer hover:text-[#e5e7eb] transition-colors mb-2">
-                        Resource Spec ({Object.keys(spec).length} fields)
-                    </summary>
-                    <div className="bg-[#0b0b10] rounded border border-[#1a1a22] p-3 overflow-auto max-h-[500px]">
-                        <pre className="text-[11px] font-mono text-[#e5e7eb] leading-relaxed">
-                            {yaml.dump(spec, { indent: 2, lineWidth: 120, noRefs: true })}
-                        </pre>
+                {/* Full spec with expand button */}
+                <div className="bg-[#0b0b10] rounded-xl border border-[#1a1a22] overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-[#0f0f16] border-b border-[#1a1a22]">
+                        <span className="text-xs text-zinc-400">
+                            Resource Spec ({Object.keys(spec).length} fields)
+                        </span>
+                        <button
+                            onClick={() => setSpecModalOpen(true)}
+                            className="p-1.5 text-zinc-500 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors"
+                            title="Expand Spec"
+                        >
+                            <Maximize2 size={14} />
+                        </button>
                     </div>
-                </details>
+                    <div className="p-3 overflow-auto max-h-[300px]">
+                        <YamlHighlight content={specYaml} />
+                    </div>
+                </div>
             </div>
         );
     };
@@ -212,15 +464,33 @@ function GenericResourceDetails({ kind, fullObject }: { kind: string; fullObject
     };
 
     return (
-        <CollapsibleSection title={`${kind} Details`} icon={<FileCog size={14} />}>
-            <div className="space-y-4">
-                {renderConditions()}
-                {renderStatus()}
-                {renderOwnerRefs()}
-                {renderFinalizers()}
-                {renderSpec()}
-            </div>
-        </CollapsibleSection>
+        <>
+            {/* Spec Modal */}
+            <DetailsModal
+                isOpen={specModalOpen}
+                onClose={() => setSpecModalOpen(false)}
+                title={`${kind} Spec`}
+                yamlContent={specYaml}
+            />
+
+            {/* Status Modal */}
+            <DetailsModal
+                isOpen={statusModalOpen}
+                onClose={() => setStatusModalOpen(false)}
+                title={`${kind} Status`}
+                yamlContent={statusYaml}
+            />
+
+            <CollapsibleSection title={`${kind} Details`} icon={<FileCog size={14} />}>
+                <div className="space-y-4">
+                    {renderConditions()}
+                    {renderStatus()}
+                    {renderOwnerRefs()}
+                    {renderFinalizers()}
+                    {renderSpec()}
+                </div>
+            </CollapsibleSection>
+        </>
     );
 }
 

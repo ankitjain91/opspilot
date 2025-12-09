@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -9,25 +9,21 @@ import { fixMarkdownHeaders } from '../../utils/markdown';
 import { loadLLMConfig } from './utils';
 import { LLMSettingsPanel } from './LLMSettingsPanel';
 import {
-    getContextPrompt, SYSTEM_PROMPT, ITERATIVE_SYSTEM_PROMPT, CLAUDE_CODE_SYSTEM_PROMPT,
-    AUTONOMOUS_INVESTIGATION_PROMPT, buildInvestigationPrompt, buildInitialAutonomousPrompt,
-    getPlaybookGuidanceForQuery, formatConfidenceDisplay, generateInvestigationSummary, buildPlanPrompt, buildReflectionPrompt
+    ITERATIVE_SYSTEM_PROMPT, CLAUDE_CODE_SYSTEM_PROMPT, QUICK_MODE_SYSTEM_PROMPT, buildPlanPrompt, buildReflectionPrompt
 } from './prompts';
 import {
-    executeTool, sanitizeToolArgs, VALID_TOOLS, registerMcpTools, isValidTool, listRegisteredMcpTools,
-    executeToolWithTracking, formatFailedToolsContext, autoCorrectToolArgs, containsPlaceholder,
-    getPlaceholderGuidance, executeToolsBatch
+    executeTool, VALID_TOOLS, registerMcpTools, isValidTool, listRegisteredMcpTools
 } from './tools';
 import {
-    InvestigationState, ToolOutcome, ToolOutcomeStatus, createInvestigationState, calculateConfidence,
-    shouldContinueInvestigation, calculateRemainingBudget, DEFAULT_TIMEOUT_CONFIG,
-    DEFAULT_ITERATION_CONFIG, evaluateToolOutcome, ToolCircuitBreaker,
-    compressToolHistorySemantic, categorizeError, getRecoverySuggestions,
-    groupToolsForParallelExecution, ResourceDiscoveryCache,
-    extractHypotheses, extractEvidencePoints, formatHypothesesForPrompt,
-    suggestToolsForHypothesis, PlaybookProgress, PlanStep, InvestigationPlan
+    ToolOutcome, PlaybookProgress, PlanStep, InvestigationPlan,
+    ResourceDiscoveryCache, DEFAULT_ITERATION_CONFIG, isEmptyResult, compressToolHistorySemantic
 } from './types';
-import { getAlternatives, Playbook } from './playbooks';
+import {
+    extractCommandsFromResponse,
+    extractSuggestions,
+    extractLearningMetadata,
+} from './agentUtils';
+import { Playbook } from './playbooks';
 
 // Learning types for investigation recording
 interface ToolRecord {
@@ -39,7 +35,7 @@ interface ToolRecord {
 }
 
 // Helper to record investigation outcome for learning
-async function recordInvestigationForLearning(
+export async function recordInvestigationForLearning(
     question: string,
     toolHistory: ToolOutcome[],
     confidence: { level: string; score: number },
@@ -84,6 +80,8 @@ async function recordInvestigationForLearning(
         console.warn('[Learning] Failed to record outcome:', err);
     }
 }
+
+// extractSuggestions is now imported from ./agentUtils
 
 const KNOWN_MCP_SERVERS = [
     { name: 'azure-devops', command: 'npx', args: ['-y', '@azure-devops/mcp', 'YOUR_ORG_NAME'], env: {}, connected: false, autoConnect: false },
@@ -151,6 +149,10 @@ export function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { o
         usefulEvidence: number;
     } | null>(null);
 
+    // Welcome joke fetched from LLM
+    const [welcomeJoke, setWelcomeJoke] = useState<string | null>(null);
+    const [loadingWelcomeJoke, setLoadingWelcomeJoke] = useState(false);
+
     // Check LLM status and fetch MCP tools on mount
     useEffect(() => {
         checkLLMStatus();
@@ -197,6 +199,43 @@ export function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { o
             fetchMcpTools();
         }
     }, [showSettings]);
+
+    // Function to fetch a welcome dad joke from the LLM
+    const fetchNewWelcomeJoke = useCallback(async () => {
+        if (loadingWelcomeJoke) return;
+        setLoadingWelcomeJoke(true);
+        try {
+            const response = await invoke<string>('llm_chat', {
+                messages: [{
+                    role: 'user',
+                    content: 'Generate ONE short, funny dad joke about Kubernetes, containers, DevOps, or programming. Just the joke itself, no introduction or explanation. Keep it under 100 characters. Include one relevant emoji. Be creative and different each time!'
+                }],
+                config: llmConfig,
+                systemPrompt: 'You are a witty DevOps engineer who loves dad jokes. Respond with ONLY the joke, nothing else. Never repeat the same joke twice.',
+                maxTokens: 100
+            });
+            setWelcomeJoke(response.trim());
+        } catch (err) {
+            console.warn('Failed to fetch welcome joke:', err);
+            // Fallback to a static joke
+            const fallbacks = [
+                "Why do Kubernetes pods make terrible comedians? Their jokes keep crashing! 🎤",
+                "Why do programmers prefer dark mode? Because light attracts bugs! 🐛",
+                "What's a pod's favorite dance? The crash loop shuffle! 💃",
+                "Why did the container go to therapy? It had too many issues with its parent image! 🐳",
+                "What do you call a Kubernetes cluster with trust issues? A secret manager! 🤫",
+            ];
+            setWelcomeJoke(fallbacks[Math.floor(Math.random() * fallbacks.length)]);
+        }
+        setLoadingWelcomeJoke(false);
+    }, [llmConfig, loadingWelcomeJoke]);
+
+    // Fetch welcome joke when LLM becomes connected
+    useEffect(() => {
+        if (llmStatus?.connected && !welcomeJoke && !loadingWelcomeJoke && chatHistory.length === 0) {
+            fetchNewWelcomeJoke();
+        }
+    }, [llmStatus?.connected, welcomeJoke, loadingWelcomeJoke, chatHistory.length, fetchNewWelcomeJoke]);
 
     // Auto-add well-known MCP servers (Azure, Azure DevOps, Kubernetes, GCP, GitHub) and connect if available
     useEffect(() => {
@@ -393,50 +432,8 @@ export function ClusterChatPanel({ onClose, isMinimized, onToggleMinimize }: { o
         return toolDescriptions[toolName] || `⚙️ Executing ${toolName}...`;
     };
 
-    // Extract keywords from user message for knowledge base search
-    const extractKeywords = (message: string): string => {
-        // Common Kubernetes-related keywords to look for
-        const k8sKeywords = [
-            'pod', 'pods', 'deployment', 'deployments', 'service', 'services', 'node', 'nodes',
-            'crash', 'crashing', 'crashloop', 'crashloopbackoff', 'error', 'errors', 'failed', 'failing',
-            'pending', 'stuck', 'terminating', 'oom', 'oomkilled', 'memory', 'cpu', 'resource',
-            'image', 'imagepull', 'imagepullbackoff', 'pull', 'registry', 'secret', 'secrets',
-            'configmap', 'volume', 'pvc', 'pv', 'storage', 'mount', 'network', 'networking',
-            'dns', 'endpoint', 'endpoints', 'ingress', 'loadbalancer', 'clusterip', 'nodeport',
-            'rbac', 'permission', 'forbidden', 'unauthorized', 'serviceaccount', 'role',
-            'namespace', 'finalizer', 'finalizers', 'delete', 'deletion', 'scale', 'replica',
-            'restart', 'restarts', 'logs', 'events', 'describe', 'health', 'unhealthy', 'ready',
-            'notready', 'scheduling', 'schedule', 'taint', 'toleration', 'affinity', 'selector'
-        ];
-
-        const words = message.toLowerCase().split(/\s+/);
-        const matched = words.filter(w => k8sKeywords.some(kw => w.includes(kw)));
-
-        // If no K8s keywords found
-        if (matched.length === 0) {
-            // For short queries (< 5 words) without specific K8s terms, skip KB search
-            // This prevents "continue", "hello", "fix it" from triggering search
-            if (words.length < 5) {
-                return '';
-            }
-
-            const stopWords = [
-                'the', 'a', 'an', 'is', 'are', 'was', 'were', 'what', 'why', 'how', 'when', 'where',
-                'which', 'who', 'my', 'your', 'this', 'that', 'it', 'and', 'or', 'but', 'in', 'on',
-                'at', 'to', 'for', 'of', 'with', 'by', 'do', 'does', 'did', 'can', 'could', 'should',
-                'would', 'will', 'continue', 'investigate', 'investigation', 'checking', 'check',
-                'please', 'thanks', 'thank', 'ok', 'okay', 'yes', 'no', 'go', 'ahead', 'next', 'step'
-            ];
-            const significant = words.filter(w => w.length > 2 && !stopWords.includes(w));
-
-            // If after filtering stop words we have nothing meaningful, return empty
-            if (significant.length === 0) return '';
-
-            return significant.slice(0, 4).join(' ');
-        }
-
-        return matched.slice(0, 4).join(' ');
-    };
+    // NOTE: Knowledge base search is now triggered BY THE LLM when it decides it's needed
+    // via the SEARCH_KNOWLEDGE tool. No automatic pre-search - LLM is the intelligent orchestrator.
 
     const advancePlaybookProgress = (
         progress: PlaybookProgress | undefined,
@@ -922,6 +919,45 @@ Example responses:
         setUserInput("");
         setLlmLoading(true);
         setSuggestedActions([]);
+        const investigationStartTime = Date.now();
+        const toolResults: Array<{ toolName: string; content: string; timestamp?: number; command?: string }> = [];
+
+        // Helper to finalize response and record learning outcome
+        const finalizeAndRecord = (aiResponse: string) => {
+            const { cleanedResponse, suggestions } = extractSuggestions(aiResponse);
+            setChatHistory(prev => [...prev, { role: 'assistant', content: cleanedResponse }]);
+            if (suggestions.length > 0) setSuggestedActions(suggestions);
+
+            // Extract investigation metadata for learning
+            const { level, score, rootCause, hypotheses } = extractLearningMetadata(aiResponse);
+
+            // 4. Tool Outcomes
+            const recordedHistory: ToolOutcome[] = toolResults.map(r => ({
+                tool: r.toolName,
+                args: r.toolName === 'RUN_KUBECTL' ? r.content.split('\n')[0] : undefined, // loose heuristic
+                result: r.content,
+                status: r.content.startsWith('❌') ? 'error' : 'success',
+                timestamp: r.timestamp || Date.now(),
+                useful: !r.content.startsWith('❌') && !r.content.startsWith('⚠️') && !isEmptyResult(r.content),
+                errorMessage: r.content.startsWith('❌') ? r.content : undefined
+            }));
+
+            // Record asynchronously
+            if (recordedHistory.length > 0 || rootCause) {
+                recordInvestigationForLearning(
+                    message,
+                    recordedHistory,
+                    { level, score },
+                    hypotheses,
+                    rootCause,
+                    Date.now() - investigationStartTime,
+                    false
+                ).catch(err => console.warn('[Learning] Failed to process record:', err));
+            }
+
+            setLlmLoading(false);
+            setInvestigationProgress(null);
+        };
         setCurrentActivity("🧠 Understanding your request...");
         const executedTools = new Set<string>();
         const scratchpadNotes: string[] = [];
@@ -983,903 +1019,278 @@ Investigate using kubectl commands. Remember: READ-ONLY mode - do not run any co
                 return;
             }
 
-            // MANDATORY: Always search knowledge base first (for non-Claude Code providers)
-            // But only if we have meaningful keywords (skips "continue", "yes", etc)
-            const keywords = extractKeywords(message);
-            let kbResult = '';
+            // ===== SIMPLE AGENT MODE =====
+            // No pre-loading, no tools, no KB - just pure LLM ↔ kubectl execution
+            // User asks → LLM responds with kubectl → We execute → LLM analyzes → Repeat
 
-            if (keywords.length > 0) {
-                const kbSearch = await runKnowledgeSearch(keywords);
-                kbResult = kbSearch?.result || '';
-            } else {
-                // If no keywords, just log it internally
-                console.log("Skipping KB search - no keywords in message:", message);
-            }
-
-            // Get cluster health summary once for reuse
-            setCurrentActivity("📊 Loading cluster context...");
-            const healthSummary = await invoke<ClusterHealthSummary>("get_cluster_health_summary");
-
-            // Generate investigation plan up front
-            setCurrentActivity("📝 Drafting investigation plan...");
-            let generatedPlan: InvestigationPlan | undefined;
+            // Get current kube context for display
+            let kubeContext = "unknown";
             try {
-                const planPrompt = buildPlanPrompt(message, healthSummary, kbResult, '');
-                const planAnswer = await callLLM(
-                    planPrompt,
-                    AUTONOMOUS_INVESTIGATION_PROMPT,
-                    chatHistory.filter(m => m.role !== 'claude-code')
-                );
-                const steps = parsePlanSteps(planAnswer);
-                if (steps.length > 0) {
-                    generatedPlan = { steps, currentStep: 0, generatedAt: Date.now() };
-                    scratchpadNotes.push(`=== Plan ===\n${steps.map((s, i) => `${i + 1}. ${s.tool}${s.args ? ` ${s.args}` : ''} ${s.rationale ? `| ${s.rationale}` : ''}`).join('\n')}`);
-                }
+                kubeContext = await invoke<string>("get_current_context_name");
             } catch (e) {
-                console.warn("Plan generation failed:", e);
+                console.warn('[Agent] Could not get kube context:', e);
             }
 
-            // Get tool suggestions based on semantic match to query
-            setCurrentActivity("🔧 Matching relevant tools...");
-            interface ToolSuggestion {
-                name: string;
-                description: string;
-                confidence: number;
-            }
-            let suggestedTools: ToolSuggestion[] = [];
-            try {
-                suggestedTools = await invoke<ToolSuggestion[]>("suggest_tools_for_query", { query: message });
-            } catch (e) {
-                console.warn("Tool suggestion failed:", e);
-            }
+            const userPrompt = `User: ${message}`;
 
-            // START SMART TOOL ROUTING
-            let routedToolResult = '';
-            // Only route if we have high-confidence matches (> 40%)
-            const strongMatches = suggestedTools.filter(t => t.confidence > 0.4);
+            setCurrentActivity(`🔍 Investigating in context: ${kubeContext}`);
 
-            if (strongMatches.length > 0) {
-                setCurrentActivity("🎯 Routing to best tool...");
-                const routed = await routeToTool(message, strongMatches);
-                if (routed && isValidTool(routed.tool)) {
-                    setCurrentActivity(`🔧 Running ${routed.tool}...`);
-                    const { result, command } = await executeTool(routed.tool, routed.args);
-                    routedToolResult = `=== PRE-EXECUTED TOOL RESULT ===
-Tool: ${routed.tool} ${routed.args}
-${command ? `Command: ${command}` : ''}
-Result:
-${result}
-=== END PRE-EXECUTED RESULT ===
+            const conversation: { role: string; content: string }[] = chatHistory
+                .filter(h => h.role === 'user' || (h.role === 'assistant' && !h.isActivity))
+                .map(h => ({ role: h.role, content: h.content }));
 
-`;
-                    setChatHistory(prev => [...prev, { role: 'tool', content: result, toolName: routed.tool, command }]);
-                    recordToolExecution(scratchpadNotes, executedTools, routed.tool, routed.args, result);
+            // First LLM call - just pass user message, no pre-loaded context
+            const firstResponse = await callLLM(userPrompt, QUICK_MODE_SYSTEM_PROMPT, conversation);
 
-                    // Update discovery cache from routed tool results
-                    const discovered = extractResourcesFromResult(routed.tool, result);
-                    if (discovered.length > 0) {
-                        resourceCache.addResources(routed.tool === 'LIST_ALL' ? (routed.args || 'Resource') : 'Resource', discovered.map(d => ({ ...d, timestamp: Date.now() })));
-                    }
-                }
+            // DEBUG: Log LLM response to see what it's actually returning
+            console.log('[Agent] LLM first response:', firstResponse.slice(0, 500));
+
+            // Extract commands using shared utility function (tested)
+            const commandsToRun = extractCommandsFromResponse(firstResponse);
+
+            // DEBUG: Log extracted commands
+            console.log('[Agent] Commands extracted:', commandsToRun);
+
+            // No commands = casual/knowledge response - just return it
+            if (commandsToRun.length === 0) {
+                console.log('[Agent] No commands found - returning as-is');
+                finalizeAndRecord(firstResponse);
+                return;
             }
 
-            // Get cluster health summary for context (already fetched)
-            const context = getContextPrompt(healthSummary);
-            const catalog = buildClusterCatalog(healthSummary);
+            // Commands requested - execute them
+            // toolResults is defined at the top
+            let iterations = 0;
+            let unproductiveCount = 0;
+            const failedCommands: string[] = []; // Track failed commands to prevent retries
+            const executedCommands: string[] = []; // Human-readable list of executed commands
+            const executedCommandSignatures = new Set<string>(); // Normalized signatures for dedup
+            const MAX_ITERATIONS = 20;
+            const MAX_UNPRODUCTIVE = 3; // Stop after 3 unproductive iterations
 
-            // Use the autonomous investigation prompt for more aggressive tool usage
-            const systemPrompt = AUTONOMOUS_INVESTIGATION_PROMPT;
+            // Normalize command signature for consistent duplicate detection
+            const normalizeSignature = (tool: string, args?: string): string => {
+                const normalizedArgs = (args || '')
+                    .trim()
+                    .replace(/\s+/g, ' ')  // Collapse whitespace
+                    .toLowerCase();
+                return `${tool.toUpperCase()}:${normalizedArgs}`;
+            };
 
-            // Build tools section for prompt - emphasize RUNNING tools, not explaining them
-            const toolsSection = suggestedTools.length > 0
-                ? `=== RECOMMENDED STARTING TOOLS ===
-${suggestedTools.slice(0, 3).map(t => `• ${t.name}`).join('\n')}
+            // Helper to check if user cancelled
+            const isCancelled = () => abortControllerRef.current?.signal.aborted ?? false;
 
-YOU MUST START WITH: TOOL: FIND_ISSUES
-Then use DESCRIBE/GET_LOGS with the actual resource names from the results.
-=== END RECOMMENDATIONS ===
+            const runTool = async (tool: string, args?: string): Promise<{ content: string; isError: boolean; isDuplicate: boolean }> => {
+                if (isCancelled()) return { content: '[Cancelled]', isError: false, isDuplicate: false };
 
-`
-                : `=== ACTION REQUIRED ===
-YOU MUST START WITH: TOOL: FIND_ISSUES
-This will discover what problems exist in the cluster.
-=== END ===
+                // Check for duplicate command using normalized signature
+                const cmdSignature = normalizeSignature(tool, args);
+                if (executedCommandSignatures.has(cmdSignature)) {
+                    console.log('[Agent] Skipping duplicate command:', cmdSignature);
+                    unproductiveCount++; // Duplicate counts as unproductive
+                    return { content: '[Duplicate - already executed]', isError: false, isDuplicate: true };
+                }
+                executedCommandSignatures.add(cmdSignature);
+                executedCommands.push(`kubectl ${args || tool}`); // Track human-readable command
 
-`;
+                const { result, command } = await executeTool(tool, args || '');
+                const content = result.length > 4000 ? result.slice(0, 4000) + '\n... (truncated)' : result;
 
-            const mcpTools = listRegisteredMcpTools();
-            const mcpSection = mcpTools.length > 0 ? `=== AVAILABLE MCP TOOLS ===
-${mcpTools.slice(0, 20).map(t => `• ${t.name} (${t.server}) - ${t.description || 'No description'}`).join('\n')}
-=== END MCP TOOLS ===
+                // Check if this command failed (error indicators)
+                const isError = result.toLowerCase().includes('error:') ||
+                                result.includes('NotFound') ||
+                                result.includes("the server doesn't have a resource type") ||
+                                result.includes('command not found') ||
+                                result.includes('No resources found');
 
-` : '';
-
-            const scratchpadSection = `=== INVESTIGATION SCRATCHPAD ===
-${formatScratchpad(scratchpadNotes)}
-=== END SCRATCHPAD ===
-
-`;
-
-            // Include knowledge base results in the prompt
-            const finalPrompt = `
-=== KNOWLEDGE BASE RESULTS (ALREADY SEARCHED) ===
-${kbResult}
-=== END KNOWLEDGE BASE ===
-
-${routedToolResult}${toolsSection}${mcpSection}${scratchpadSection}=== CLUSTER CONTEXT ===
-${context}
-=== END CONTEXT ===
-
-=== CLUSTER CATALOG ===
-${catalog}
-=== END CATALOG ===
-
-=== USER REQUEST ===
-${message}
-
-=== HYPOTHESIS-DRIVEN INVESTIGATION ===
-Based on the user's request, form 1-2 initial hypotheses about potential causes.
-Then run tools (FIND_ISSUES, DESCRIBE, GET_LOGS, etc.) to gather evidence.
-
-MANDATORY RESPONSE FORMAT:
-**Initial Hypotheses:**
-- H1: [Most likely cause based on symptoms] → Status: INVESTIGATING
-- H2: [Alternative possibility] → Status: INVESTIGATING
-
-**Investigation Plan:**
-TOOL: FIND_ISSUES
-TOOL: DESCRIBE <kind> <namespace> <name>
-
-=== CRITICAL RULES ===
-1. Your FIRST output MUST be actual tool invocations like "TOOL: FIND_ISSUES"
-2. MANDATORY START: TOOL: FIND_ISSUES (discovers actual resource names)
-3. NEVER use placeholders like [pod-name] - use REAL names from results
-4. After FIND_ISSUES, run DESCRIBE/GET_LOGS with actual names found
-5. If you only explain without running tools, you are FAILING
-6. Track hypothesis status as you gather evidence (INVESTIGATING → CONFIRMED/REFUTED)
-
-Example good response:
-**Initial Hypotheses:**
-- H1: Pods are crash-looping due to OOM → Status: INVESTIGATING
-- H2: Image pull failure blocking deployment → Status: INVESTIGATING
-
-TOOL: FIND_ISSUES
-`;
-
-            setCurrentActivity("🤔 Thinking...");
-            const answer = await callLLM(
-                finalPrompt,
-                systemPrompt,
-                chatHistory.filter(m => m.role !== 'claude-code')
-            );
-
-            // Check for tool usage
-            const toolMatches = answer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
-            const tools = Array.from(toolMatches);
-
-            // Extract initial hypotheses from first response (used later in investigation loop)
-            const initialHypotheses = extractHypotheses(answer, []);
-
-            if (tools.length > 0) {
-                // Show initial reasoning before tool execution (filter out raw TOOL: lines, and specific system instructions)
-                const initialReasoning = cleanOutputForUser(answer.split(/TOOL:/)[0].trim());
-                if (initialReasoning) {
-                    setChatHistory(prev => [...prev, {
-                        role: 'assistant',
-                        content: initialReasoning + '\n\n*🔄 Investigating...*',
-                        isActivity: true
-                    }]);
+                if (isError) {
+                    failedCommands.push(`${command || args}: ${result.slice(0, 100)}`);
                 }
 
-                let allToolResults: string[] = [];
+                setChatHistory(prev => [...prev, { role: 'tool', content, toolName: tool, command }]);
+                recordToolExecution(scratchpadNotes, executedTools, tool, args, content);
+                toolResults.push({ toolName: tool, content, timestamp: Date.now(), command });
+                return { content, isError, isDuplicate: false };
+            };
 
-                for (const toolMatch of tools) {
-                    const toolName = toolMatch[1];
-                    let toolArgs: string | undefined = sanitizeToolArgs(toolMatch[2]?.trim());
-
-                    const signature = `${toolName}:${toolArgs || ''}`;
-                    if (executedTools.has(signature)) {
-                        const skipMsg = `⚠️ Skipping ${toolName}${toolArgs ? ` ${toolArgs}` : ''} (already executed this session).`;
-                        setChatHistory(prev => [...prev, { role: 'tool', content: skipMsg, toolName, command: 'Skipped duplicate' }]);
-                        continue;
-                    }
-
-                    if (!isValidTool(toolName)) {
-                        const resultStr = `⚠️ Invalid tool: ${toolName}. Valid tools: ${VALID_TOOLS.join(', ')} + any active MCP tools`;
-                        setChatHistory(prev => [...prev, { role: 'tool', content: resultStr, toolName: 'INVALID', command: 'N/A' }]);
-                        continue;
-                    }
-
-                    console.log(`[Agent] Tool: ${toolName}, Args: "${toolArgs}"`);
-                    setCurrentActivity(getToolActivity(toolName, toolArgs));
-
-                    // If required args are missing, auto-discover names instead of emitting usage warnings
-                    const missingArgs =
-                        (toolName === 'DESCRIBE' && (!toolArgs || toolArgs.split(/\s+/).length < 3)) ||
-                        (toolName === 'GET_LOGS' && (!toolArgs || toolArgs.split(/\s+/).length < 2));
-                    if (missingArgs) {
-                        const kind = getResourceKindFromArgs(toolArgs, 'Pod');
-                        const info = `❌ ${toolName} needs actual names (no placeholders, full args). Auto-discovering ${kind}...`;
-                        setChatHistory(prev => [...prev, { role: 'tool', content: info, toolName, command: 'Auto-discovery' }]);
-                        allToolResults.push(info);
-                        await runAutoDiscoveryForPlaceholders(kind, scratchpadNotes, executedTools);
-                        continue;
-                    }
-
-                    // Validate against placeholders using Regex (skip for SEARCH_KNOWLEDGE)
-                    const placeholderRegex = /\[.*?\]|<.*?>|\.\.\./;
-                    let autoCorrected = false;
-
-                    if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && placeholderRegex.test(toolArgs)) {
-                        // Auto-correct for tools that can work without args (list all)
-                        if (['GET_EVENTS', 'LIST_ALL', 'TOP_PODS', 'FIND_ISSUES'].includes(toolName)) {
-                            console.log(`[Agent] Auto-correcting placeholder in ${toolName} - clearing args`);
-                            // For LIST_ALL, keep the resource kind but remove namespace placeholder
-                            if (toolName === 'LIST_ALL') {
-                                const parts = toolArgs.split(/\s+/);
-                                toolArgs = parts[0]; // Keep just the resource kind (Pod, Deployment, etc.)
-                            } else {
-                                toolArgs = undefined; // Clear the args to list all
-                            }
-                            autoCorrected = true;
-                        } else {
-                            // Provide specific guidance based on what they were trying to do
-                            let guidance = 'Run TOOL: FIND_ISSUES to see problem resources, or TOOL: LIST_ALL Pod to see all pods.';
-                            if (toolName === 'DESCRIBE') {
-                                guidance = 'First run TOOL: LIST_ALL Pod (or the resource type you need) to find the exact name.';
-                            } else if (toolName === 'GET_LOGS') {
-                                guidance = 'First run TOOL: LIST_ALL Pod to find the exact pod name and namespace.';
-                            }
-                            const toolResult = `❌ PLACEHOLDER ERROR: "${toolArgs}" contains [brackets] or <angles> which are not real names.\n\n👉 ${guidance}\n\nAuto-fixing by discovering real resource names...`;
-                            setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName: 'ERROR', command: 'N/A' }]);
-                            allToolResults.push(toolResult);
-
-                            // Auto-run discovery to unblock investigation
-                            const kind = getResourceKindFromArgs(toolArgs, 'Pod');
-                            await runAutoDiscoveryForPlaceholders(kind, scratchpadNotes, executedTools);
-                            continue;
-                        }
-                    }
-
-                    const { result, command } = await executeTool(toolName, toolArgs);
-
-                    let finalResult = result;
-                    if (autoCorrected) finalResult += '\n\n⚠️ NOTE: Argument was auto-corrected to list ALL namespaces because a placeholder was detected.';
-
-                    setChatHistory(prev => [...prev, { role: 'tool', content: finalResult, toolName, command }]);
-                    recordToolExecution(scratchpadNotes, executedTools, toolName, toolArgs, finalResult);
-
-                    // Only include successful results in AI context
-                    if (!finalResult.startsWith('❌') && !finalResult.startsWith('⚠️')) {
-                        allToolResults.push(`## ${toolName}\n${finalResult}`);
-                    }
+            // Execute ONLY the first command from initial response (ONE COMMAND PER TURN rule)
+            const firstCmd = commandsToRun[0];
+            if (firstCmd) {
+                if (isCancelled()) {
+                    console.log('[Agent] Cancelled by user');
+                    return;
                 }
-                // If every tool attempt failed or had missing args, auto-run FIND_ISSUES to unblock
-                const successfulInitial = allToolResults.some(r => !r.startsWith('❌') && !r.startsWith('⚠️'));
-                if (!successfulInitial) {
-                    const info = '⚠️ All initial TOOL commands failed/missing args. Auto-running FIND_ISSUES to discover real resource names.';
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: info, isActivity: true }]);
-                    const { result, command } = await executeTool('FIND_ISSUES', undefined);
-                    setChatHistory(prev => [...prev, { role: 'tool', content: result, toolName: 'FIND_ISSUES', command }]);
-                    recordToolExecution(scratchpadNotes, executedTools, 'FIND_ISSUES', undefined, result);
-                    if (!result.startsWith('❌') && !result.startsWith('⚠️')) {
-                        allToolResults.push(`## FIND_ISSUES\n${result}`);
-                    }
-                }
+                setCurrentActivity(`⚡ [${kubeContext}] kubectl ${firstCmd.args?.slice(0, 40) || firstCmd.tool}...`);
+                await runTool(firstCmd.tool, firstCmd.args);
+                iterations++;
+            }
 
-                // =================================================================
-                // ENHANCED AUTONOMOUS INVESTIGATION LOOP
-                // =================================================================
-                // Features:
-                // - Proper investigation state tracking
-                // - Tool failure feedback to LLM (so it learns from mistakes)
-                // - Dynamic iteration budget (extends for productive investigations)
-                // - Smart unproductive tracking (not just errors)
-                // - Playbook-guided investigation
-                // - Timeout handling
-                // =================================================================
+            // Check cancellation before LLM analysis
+            if (isCancelled()) {
+                console.log('[Agent] Cancelled before analysis');
+                return;
+            }
 
-                // Initialize investigation state
-                const investigationState: InvestigationState = createInvestigationState(message);
-                investigationState.toolHistory = [];
-                investigationState.phase = 'gathering';
-                if (generatedPlan) {
-                    investigationState.plan = generatedPlan;
-                }
+            // Simple analysis - no tools or KB, just kubectl
+            setCurrentActivity(`💬 [${kubeContext}] Analyzing results...`);
+            // OPTIMIZATION: Smart context compression - recent results get full content, older get summaries
+            const formatResultsForLLM = (results: typeof toolResults, maxRecent = 3, recentSize = 1200, olderSize = 300) => {
+                return results.map((t, i) => {
+                    const cmd = `$ kubectl ${t.command || t.toolName}`;
+                    const isRecent = i >= results.length - maxRecent;
+                    const limit = isRecent ? recentSize : olderSize;
+                    const content = t.content.length > limit
+                        ? t.content.slice(0, limit) + `\n... (${t.content.length - limit} chars truncated)`
+                        : t.content;
+                    return `${cmd}\n${content}`;
+                }).join('\n\n---\n\n');
+            };
+            const summaryContext = formatResultsForLLM(toolResults);
 
-                // Apply initial hypotheses if extracted from first response
-                if (initialHypotheses.length > 0) {
-                    investigationState.hypotheses = initialHypotheses;
-                    investigationState.scratchpadNotes.push(
-                        `=== Initial Hypotheses ===\n${formatHypothesesForPrompt(initialHypotheses)}`
-                    );
-                }
+            // Build explicit lists of what's been done
+            const executedList = executedCommands.length > 0
+                ? `\n✅ COMMANDS ALREADY EXECUTED (DO NOT REPEAT):\n${executedCommands.map(c => `- ${c}`).join('\n')}\n`
+                : '';
+            const failedList = failedCommands.length > 0
+                ? `\n⛔ FAILED COMMANDS (DO NOT RETRY):\n${failedCommands.map(c => `- ${c}`).join('\n')}\n`
+                : '';
 
-                // Get playbook guidance if available
-                const { guidance: playbookGuidance, playbook: matchedPlaybook } = getPlaybookGuidanceForQuery(message, healthSummary);
-                if (matchedPlaybook) {
-                    // Track playbook progress based on tools already executed (in order)
-                    const inOrderSteps = matchedPlaybook.steps;
-                    let initialCompleted = 0;
-                    for (const step of inOrderSteps) {
-                        const signature = `${step.tool.toUpperCase()}:`;
-                        const hasRun = Array.from(executedTools).some(sig => sig.toUpperCase().startsWith(signature));
-                        if (hasRun) {
-                            initialCompleted++;
-                        } else {
-                            break; // require contiguous leading steps to count as completed
-                        }
-                    }
+            const analyzePrompt = `User asked: "${message}"
+${executedList}${failedList}
+Results from commands:
+${summaryContext}
 
-                    investigationState.playbook = {
-                        name: matchedPlaybook.name,
-                        totalSteps: matchedPlaybook.steps.length,
-                        completedSteps: initialCompleted,
-                        currentStepIndex: Math.min(initialCompleted, Math.max(matchedPlaybook.steps.length - 1, 0)),
-                    };
-                    investigationState.activePlaybook = matchedPlaybook.name;
+⚠️ STOP AND CHECK before outputting a command:
+1. Is this command in the ALREADY EXECUTED list above? → If yes, DO NOT output it
+2. Is the resource type in the FAILED list? → If yes, DO NOT try variations of it
+3. Do you have enough info to answer? → If yes, provide **Answer** instead of more commands
+
+If you need more info, output exactly ONE new command:
+$ kubectl <your-command-here>
+
+If you have enough info, provide your answer:
+**Answer**: [Direct answer]
+**Root Cause**: [If troubleshooting]
+**Fix**: [What would fix it]`;
+
+            const analysisResponse = await callLLM(analyzePrompt, QUICK_MODE_SYSTEM_PROMPT, conversation);
+
+            // ===== SIMPLE AUTONOMOUS AGENT LOOP =====
+            // LLM decides what to do, we execute kubectl, repeat until LLM has answer
+            let moreCommands = extractCommandsFromResponse(analysisResponse);
+
+            // No commands = LLM is ready to answer
+            if (moreCommands.length === 0) {
+                finalizeAndRecord(analysisResponse);
+                return;
+            }
+
+            // Simple agent loop: execute ONE command → show results to LLM → repeat
+            const MAX_AGENT_ITERATIONS = 15;
+            while (moreCommands.length > 0 && iterations < MAX_AGENT_ITERATIONS && unproductiveCount < MAX_UNPRODUCTIVE && !isCancelled()) {
+                // Execute ONLY ONE command per turn (as per system prompt rules)
+                const cmd = moreCommands[0];
+                if (iterations >= MAX_AGENT_ITERATIONS || isCancelled()) break;
+
+                setCurrentActivity(`⚡ [${kubeContext}] kubectl ${cmd.args?.slice(0, 40) || cmd.tool}...`);
+                const { content, isError, isDuplicate } = await runTool(cmd.tool, cmd.args);
+                iterations++;
+
+                // Track unproductive iterations (errors, duplicates, empty results)
+                const isUnproductive = isError || isDuplicate || content.trim().length < 50;
+                if (isUnproductive) {
+                    unproductiveCount++;
+                    console.log(`[Agent] Unproductive iteration ${unproductiveCount}/${MAX_UNPRODUCTIVE}`);
                 } else {
-                    investigationState.playbook = undefined;
-                    investigationState.activePlaybook = undefined;
+                    unproductiveCount = 0; // Reset on productive result
                 }
 
-                // Pre-populate resource cache from FIND_ISSUES if we ran it
-                for (const result of allToolResults) {
-                    if (result.includes('FIND_ISSUES') || result.includes('LIST_ALL')) {
-                        const resources = extractResourcesFromResult('LIST_ALL', result).map(r => ({ ...r, timestamp: Date.now() }));
-                        if (resources.length > 0) {
-                            resourceCache.addResources('Resource', resources);
-                        }
-                    }
+                // Check for loop/stall condition
+                if (unproductiveCount >= MAX_UNPRODUCTIVE) {
+                    console.log('[Agent] Too many unproductive iterations, forcing final answer');
+                    break;
                 }
 
-                // Track failed tools for feedback loop
-                const failedToolOutcomes: ToolOutcome[] = [];
-
-                // Circuit breaker for repeatedly failing tools
-                const circuitBreaker = new ToolCircuitBreaker();
-
-                // Accumulate ALL results across iterations for full context
-                // Store as objects for semantic compression
-                let allAccumulatedResults: Array<{ toolName: string; content: string; timestamp: number }> =
-                    allToolResults.map(r => {
-                        const match = r.match(/^## (\w+)\n([\s\S]*)$/);
-                        return match
-                            ? { toolName: match[1], content: match[2], timestamp: Date.now() }
-                            : { toolName: 'UNKNOWN', content: r, timestamp: Date.now() };
-                    });
-                let currentMaxIterations = BASE_INVESTIGATION_STEPS; // Start with base, can extend
-
-                // Investigation timeout
-                const investigationStartTime = Date.now();
-                const TOTAL_TIMEOUT = DEFAULT_TIMEOUT_CONFIG.TOTAL_INVESTIGATION;
-
-                while (investigationState.iteration < currentMaxIterations) {
-                    // Check timeout
-                    if (Date.now() - investigationStartTime > TOTAL_TIMEOUT) {
-                        setCurrentActivity("⏱️ Investigation timeout - providing best analysis...");
-                        const timeoutAnswer = await callLLM(
-                            `Investigation timed out after ${Math.round(TOTAL_TIMEOUT / 1000)}s. Based on evidence gathered, provide your best analysis.
-
-Evidence collected:
-${compressToolHistorySemantic(allAccumulatedResults, 3, 300)}
-
-Original question: "${message}"`,
-                            AUTONOMOUS_INVESTIGATION_PROMPT,
-                            chatHistory.filter(m => m.role !== 'tool')
-                        );
-                        const [cleanedAnswer, actions] = parseSuggestedActions(cleanOutputForUser(timeoutAnswer));
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: cleanedAnswer }]);
-                        setSuggestedActions(actions);
-                        break;
-                    }
-
-                    // Calculate confidence and update activity
-                    const confidence = calculateConfidence(investigationState);
-                    const stepsRemaining = currentMaxIterations - investigationState.iteration;
-                    const usefulTools = investigationState.toolHistory.filter(t => t.useful).length;
-
-                    // Update investigation progress for UI visibility
-                    setInvestigationProgress({
-                        iteration: investigationState.iteration + 1,
-                        maxIterations: currentMaxIterations,
-                        phase: investigationState.phase,
-                        confidence: { level: confidence.level, score: confidence.score },
-                        hypotheses: investigationState.hypotheses.map(h => ({
-                            id: h.id,
-                            description: h.description,
-                            status: h.status
-                        })),
-                        toolsExecuted: investigationState.toolHistory.length,
-                        usefulEvidence: usefulTools,
-                    });
-
-                    // Early termination only when HIGH confidence AND enough useful evidence
-                    if (confidence.level === 'HIGH' && usefulTools >= 3) {
-                        setCurrentActivity(`✅ HIGH confidence reached - concluding investigation`);
-                        // Let LLM provide final answer
-                    }
-
-                    // Enhanced progress visualization
-                    const elapsedS = Math.round((Date.now() - investigationStartTime) / 1000);
-                    setCurrentActivity(
-                        `🧠 Analyzing... (${investigationState.iteration + 1}/${currentMaxIterations}) | ` +
-                        `Confidence: ${confidence.level} | Evidence: ${usefulTools} | ${elapsedS}s`
-                    );
-
-                    // Build analysis prompt with failed tools context (feedback loop!)
-                    const failedToolsContext = formatFailedToolsContext(failedToolOutcomes.slice(-5)); // Last 5 failures
-                    // Use semantic compression for better context prioritization
-                    const compressedHistory = compressToolHistorySemantic(allAccumulatedResults, 4, 300);
-
-                    const analysisPrompt = buildInvestigationPrompt(
-                        message,
-                        investigationState,
-                        [compressedHistory],
-                        failedToolsContext,
-                        playbookGuidance
-                    );
-
-                    const analysisAnswer = await callLLM(
-                        analysisPrompt,
-                        AUTONOMOUS_INVESTIGATION_PROMPT,
-                        chatHistory.filter(m => m.role !== 'tool')
-                    );
-
-                    // Extract and track hypotheses from the response
-                    investigationState.hypotheses = extractHypotheses(
-                        analysisAnswer,
-                        investigationState.hypotheses
-                    );
-
-                    // Log hypothesis tracking
-                    if (investigationState.hypotheses.length > 0) {
-                        const hypothesisSummary = formatHypothesesForPrompt(investigationState.hypotheses);
-                        investigationState.scratchpadNotes.push(`=== Hypotheses (iter ${investigationState.iteration + 1}) ===\n${hypothesisSummary}`);
-                    }
-
-                    // Reflection: If the AI is stuck or making unproductive moves, force a reflection step.
-                    const isLooping = investigationState.toolHistory.length > 5 &&
-                        investigationState.toolHistory.slice(-3).every(t => t.tool === investigationState.toolHistory[investigationState.toolHistory.length - 4]?.tool);
-
-                    if (investigationState.unproductiveIterations && investigationState.unproductiveIterations >= 2 || isLooping) {
-                        setCurrentActivity("🤔 Reflecting on unproductive investigation...");
-                        const reflectionPrompt = buildReflectionPrompt(message, investigationState, allAccumulatedResults);
-                        const reflectionAnswer = await callLLM(
-                            reflectionPrompt,
-                            AUTONOMOUS_INVESTIGATION_PROMPT,
-                            chatHistory.filter(m => m.role !== 'tool')
-                        );
-                        investigationState.scratchpadNotes.push(`=== Reflection (iter ${investigationState.iteration + 1}) ===\n${reflectionAnswer}`);
-                        investigationState.unproductiveIterations = 0;
-                    }
-
-                    // Check if AI wants more tools
-                    const nextToolMatches = analysisAnswer.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|$)/g);
-                    const nextTools = Array.from(nextToolMatches);
-
-                    // If a playbook is active, prioritize the next playbook step first
-                    let prioritizedTools: Array<RegExpExecArray | [string, string, string | undefined]> = nextTools;
-                    // Plan-first: run pending plan step if exists
-                    if (investigationState.plan && investigationState.plan.currentStep < investigationState.plan.steps.length) {
-                        const pendingStep = investigationState.plan.steps[investigationState.plan.currentStep];
-                        if (pendingStep && pendingStep.status === 'pending') {
-                            const hasPlan = nextTools.find(t => t[1].toUpperCase() === pendingStep.tool.toUpperCase());
-                            if (!hasPlan) {
-                                prioritizedTools = [
-                                    ['TOOL', pendingStep.tool, pendingStep.args],
-                                    ...prioritizedTools,
-                                ];
-                            }
-                        }
-                    }
-                    if (matchedPlaybook && investigationState.playbook) {
-                        const nextStep = matchedPlaybook.steps[investigationState.playbook.completedSteps];
-                        if (nextStep) {
-                            const hasNext = nextTools.find(t => t[1].toUpperCase() === nextStep.tool.toUpperCase());
-                            if (!hasNext) {
-                                // Prepend the expected playbook step if not already requested
-                                prioritizedTools = [
-                                    ['TOOL', nextStep.tool, nextStep.args],
-                                    ...prioritizedTools,
-                                ];
-                            }
-                        }
-                    }
-
-                    if (nextTools.length === 0) {
-                        if (confidence.level !== 'HIGH') {
-                            // Re-plan with WEB_SEARCH to broaden options instead of stopping
-                            try {
-                                const recoveryPlanPrompt = buildPlanPrompt(message, healthSummary, kbResult, playbookGuidance);
-                                const planAnswer = await callLLM(
-                                    recoveryPlanPrompt + '\nInclude WEB_SEARCH for unknown errors.',
-                                    AUTONOMOUS_INVESTIGATION_PROMPT,
-                                    chatHistory.filter(m => m.role !== 'tool')
-                                );
-                                const steps = parsePlanSteps(planAnswer);
-                                if (steps.length > 0) {
-                                    investigationState.plan = { steps, currentStep: 0, generatedAt: Date.now() };
-                                    investigationState.scratchpadNotes.push(`=== Plan Refreshed(recovery) ===\n${steps.map((s, i) => `${i + 1}. ${s.tool}${s.args ? ` ${s.args}` : ''}${s.rationale ? ` | ${s.rationale}` : ''}`).join('\n')} `);
-                                    continue; // Try executing refreshed plan
-                                }
-                            } catch (e) {
-                                console.warn("Recovery re-plan failed:", e);
-                            }
-                        }
-
-                        // No more tools - provide final answer
-                        investigationState.phase = 'concluding';
-                        const [cleanedAnswer, actions] = parseSuggestedActions(cleanOutputForUser(analysisAnswer));
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: cleanedAnswer }]);
-                        setSuggestedActions(actions);
-
-                        // Record investigation outcome for learning
-                        const finalConfidence = calculateConfidence(investigationState);
-                        const confirmedH = investigationState.hypotheses.find(h => h.status === 'confirmed');
-                        recordInvestigationForLearning(
-                            message,
-                            investigationState.toolHistory,
-                            finalConfidence,
-                            investigationState.hypotheses,
-                            confirmedH?.description || null,
-                            Date.now() - investigationStartTime,
-                            false
-                        );
-                        break;
-                    }
-
-                    // Show reasoning before tool execution (with hypothesis status)
-                    const reasoningPart = cleanOutputForUser(analysisAnswer.split('TOOL:')[0].trim());
-                    const confirmedHypotheses = investigationState.hypotheses.filter(h => h.status === 'confirmed');
-                    const hypothesisStatus = confirmedHypotheses.length > 0
-                        ? `\n\n✅ * Confirmed: ${confirmedHypotheses[0].description}* `
-                        : '';
-
-                    if (reasoningPart) {
-                        setChatHistory(prev => [...prev, {
-                            role: 'assistant',
-                            content: reasoningPart + hypothesisStatus + `\n\n *🔄 Continuing investigation... (${stepsRemaining} steps remaining)* `,
-                            isActivity: true
-                        }]);
-                    }
-
-                    // Execute next tools with enhanced tracking
-                    const newToolResults: Array<{ toolName: string; content: string; timestamp: number }> = [];
-                    let usefulToolsThisIteration = 0;
-                    let failedToolsThisIteration = 0;
-                    const iterationEvidence: string[] = [];
-
-                    for (const toolMatch of prioritizedTools) {
-                        const toolName = toolMatch[1];
-                        const rawArgs = Array.isArray(toolMatch) ? toolMatch[2] : toolMatch[2];
-                        let toolArgs = sanitizeToolArgs(rawArgs?.toString().trim());
-
-                        const signature = `${toolName}:${toolArgs || ''} `;
-                        if (executedTools.has(signature)) {
-                            setChatHistory(prev => [...prev, {
-                                role: 'tool',
-                                content: `⚠️ Skipping ${toolName}${toolArgs ? ` ${toolArgs}` : ''} (already executed).`,
-                                toolName,
-                                command: 'Skipped duplicate'
-                            }]);
-                            continue;
-                        }
-
-                        if (!isValidTool(toolName)) {
-                            const invalidMsg = `⚠️ Invalid tool: ${toolName}.Valid: ${VALID_TOOLS.slice(0, 5).join(', ')}...`;
-                            setChatHistory(prev => [...prev, { role: 'tool', content: invalidMsg, toolName: 'INVALID', command: 'N/A' }]);
-                            failedToolsThisIteration++;
-                            continue;
-                        }
-
-                        // Check circuit breaker - skip tools that are temporarily disabled
-                        const circuitCheck = circuitBreaker.canExecute(toolName);
-                        if (!circuitCheck.allowed) {
-                            setChatHistory(prev => [...prev, {
-                                role: 'tool',
-                                content: `⚠️ ${circuitCheck.reason} `,
-                                toolName,
-                                command: 'Circuit breaker open'
-                            }]);
-                            // Suggest alternatives
-                            const alternatives = getAlternatives(toolName, toolArgs);
-                            if (alternatives.length > 0) {
-                                setChatHistory(prev => [...prev, {
-                                    role: 'assistant',
-                                    content: `💡 Try alternatives: ${alternatives.slice(0, 3).join(', ')} `,
-                                    isActivity: true
-                                }]);
-                            }
-                            continue;
-                        }
-
-                        setCurrentActivity(getToolActivity(toolName, toolArgs));
-
-                        // If required args are missing, auto-discover names instead of emitting usage warnings
-                        const missingArgs =
-                            (toolName === 'DESCRIBE' && (!toolArgs || toolArgs.split(/\s+/).length < 3)) ||
-                            (toolName === 'GET_LOGS' && (!toolArgs || toolArgs.split(/\s+/).length < 2));
-                        if (missingArgs) {
-                            const kind = getResourceKindFromArgs(toolArgs, 'Pod');
-                            const cached = suggestResourceFromCache(resourceCache, kind);
-                            if (cached) {
-                                toolArgs = cached;
-                                const info = `✅ Auto - filled ${toolName} with ${cached} from discovery cache.`;
-                                setChatHistory(prev => [...prev, { role: 'assistant', content: info, isActivity: true }]);
-                            } else {
-                                const info = `❌ ${toolName} needs actual names(no placeholders, full args).Auto - discovering ${kind}...`;
-                                setChatHistory(prev => [...prev, { role: 'tool', content: info, toolName, command: 'Auto-discovery' }]);
-
-                                // Record in failed tools for feedback loop
-                                failedToolOutcomes.push({
-                                    tool: toolName,
-                                    args: toolArgs,
-                                    result: info,
-                                    status: 'error',
-                                    timestamp: Date.now(),
-                                    useful: false,
-                                    errorMessage: 'Missing required args',
-                                    alternatives: getAlternatives(toolName, toolArgs),
-                                });
-                                failedToolsThisIteration++;
-
-                                await runAutoDiscoveryForPlaceholders(kind, scratchpadNotes, executedTools, newToolResults);
-
-                                // If the playbook expects this step, re-queue it after discovery
-                                if (matchedPlaybook && investigationState.playbook) {
-                                    const nextStep = matchedPlaybook.steps[investigationState.playbook.completedSteps];
-                                    if (nextStep && nextStep.tool.toUpperCase() === toolName.toUpperCase()) {
-                                        prioritizedTools.unshift(['TOOL', nextStep.tool, nextStep.args]);
-                                    }
-                                }
-                                continue;
-                            }
-                        }
-
-                        // Enhanced placeholder detection with better guidance + auto-discovery
-                        if (toolName !== 'SEARCH_KNOWLEDGE' && toolArgs && containsPlaceholder(toolArgs)) {
-                            const correction = autoCorrectToolArgs(toolName, toolArgs);
-
-                            if (correction.corrected) {
-                                toolArgs = correction.newArgs;
-                                console.log(`[Agent] Auto - corrected ${toolName}: ${correction.message} `);
-                            } else {
-                                // Can't auto-correct - provide specific guidance and auto-discover names
-                                const guidance = getPlaceholderGuidance(toolName, toolArgs);
-                                const toolResult = `❌ PLACEHOLDER ERROR: "${toolArgs}" is not a real resource name.
-
-                        ${guidance}
-                    Auto - fixing by discovering real resource names...`;
-                                setChatHistory(prev => [...prev, { role: 'tool', content: toolResult, toolName, command: 'Validation Error' }]);
-
-                                // Record in failed tools for feedback loop
-                                failedToolOutcomes.push({
-                                    tool: toolName,
-                                    args: toolArgs,
-                                    result: toolResult,
-                                    status: 'error',
-                                    timestamp: Date.now(),
-                                    useful: false,
-                                    errorMessage: 'Placeholder argument',
-                                    alternatives: getAlternatives(toolName, toolArgs),
-                                });
-                                failedToolsThisIteration++;
-
-                                // Auto-run discovery to unblock investigation
-                                const kind = getResourceKindFromArgs(toolArgs, 'Pod');
-                                await runAutoDiscoveryForPlaceholders(kind, scratchpadNotes, executedTools, newToolResults);
-
-                                // After discovery, if tool requires DESCRIBE/GET_LOGS, auto-queue the playbook step again
-                                if (matchedPlaybook && investigationState.playbook) {
-                                    const nextStep = matchedPlaybook.steps[investigationState.playbook.completedSteps];
-                                    if (nextStep && nextStep.tool.toUpperCase() === toolName.toUpperCase()) {
-                                        prioritizedTools.unshift(['TOOL', nextStep.tool, nextStep.args]);
-                                    }
-                                }
-                                continue;
-                            }
-                        }
-
-                        // Execute tool with outcome tracking and error categorization
-                        const { result, outcome, errorCategory, recoverySuggestions } = await executeToolWithTracking(toolName, toolArgs);
-                        investigationState.toolHistory.push(outcome);
-                        investigationState.plan = updatePlanProgress(investigationState.plan, outcome);
-                        investigationState.playbook = advancePlaybookProgress(investigationState.playbook, matchedPlaybook, outcome);
-
-                        setChatHistory(prev => [...prev, { role: 'tool', content: result.result, toolName, command: result.command }]);
-                        recordToolExecution(scratchpadNotes, executedTools, toolName, toolArgs, result.result);
-
-                        // Track outcome for iteration evaluation and circuit breaker
-                        if (outcome.status === 'error' || outcome.status === 'empty') {
-                            failedToolsThisIteration++;
-                            failedToolOutcomes.push(outcome);
-                            circuitBreaker.recordFailure(toolName); // Update circuit breaker
-
-                            // Enhanced error tracking with categorization
-                            const errorInfo = errorCategory
-                                ? `FAILED(${errorCategory}): ${toolName} ${toolArgs || ''} → ${outcome.errorMessage || 'empty result'} `
-                                : `FAILED: ${toolName} ${toolArgs || ''} → ${outcome.errorMessage || 'empty result'} `;
-                            investigationState.scratchpadNotes.push(errorInfo);
-
-                            // Show recovery suggestions for specific error types
-                            if (recoverySuggestions && recoverySuggestions.length > 0 && errorCategory !== 'empty_result') {
-                                setChatHistory(prev => [...prev, {
-                                    role: 'assistant',
-                                    content: `💡 ** Recovery suggestion:** ${recoverySuggestions[0]} `,
-                                    isActivity: true
-                                }]);
-                            }
-                        } else if (outcome.useful) {
-                            usefulToolsThisIteration++;
-                            circuitBreaker.recordSuccess(toolName); // Reset circuit breaker
-                            newToolResults.push({ toolName, content: result.result, timestamp: Date.now() });
-
-                            // Refresh plan if new evidence suggests a different path
-                            if (investigationState.plan && shouldReplanFromEvidence(result.result)) {
-                                try {
-                                    const replanPrompt = buildPlanPrompt(message, healthSummary, kbResult, playbookGuidance);
-                                    const planAnswer = await callLLM(
-                                        replanPrompt,
-                                        AUTONOMOUS_INVESTIGATION_PROMPT,
-                                        chatHistory.filter(m => m.role !== 'claude-code')
-                                    );
-                                    const steps = parsePlanSteps(planAnswer);
-                                    if (steps.length > 0) {
-                                        investigationState.plan = { steps, currentStep: 0, generatedAt: Date.now() };
-                                        investigationState.scratchpadNotes.push(`=== Plan Refreshed ===\n${steps.map((s, i) => `${i + 1}. ${s.tool}${s.args ? ` ${s.args}` : ''}${s.rationale ? ` | ${s.rationale}` : ''}`).join('\n')} `);
-                                    }
-                                } catch (e) {
-                                    console.warn("Plan refresh failed:", e);
-                                }
-                            }
-
-                            // Extract key evidence points from tool result
-                            const evidencePoints = extractEvidencePoints(result.result, toolName);
-                            if (evidencePoints.length > 0) {
-                                iterationEvidence.push(...evidencePoints.slice(0, 3));
-                                investigationState.scratchpadNotes.push(
-                                    `✓ ${toolName} ${toolArgs || ''} → Evidence: ${evidencePoints.slice(0, 2).join('; ')} `
-                                );
-                                // Attach evidence to active hypotheses
-                                for (const h of investigationState.hypotheses.filter(h => h.status === 'investigating')) {
-                                    h.evidence.push(...evidencePoints.slice(0, 2));
-                                }
-                            } else {
-                                investigationState.scratchpadNotes.push(
-                                    `✓ ${toolName} ${toolArgs || ''} → found useful evidence`
-                                );
-                            }
-                        } else {
-                            // Success but not necessarily useful - still record as success
-                            circuitBreaker.recordSuccess(toolName);
-                            newToolResults.push({ toolName, content: result.result, timestamp: Date.now() });
-                        }
-                    }
-
-                    // Opportunistic knowledge base search using fresh evidence/hypotheses
-                    const evidenceForKb = iterationEvidence.find(e => /error|fail|backoff|oom|denied|timeout|refused|crash/i.test(e))
-                        || iterationEvidence[0];
-                    if (evidenceForKb) {
-                        const kbQuery = evidenceForKb.replace(/^\[[^\]]+\]\s*/, '').slice(0, 140);
-                        const kbSearch = await runKnowledgeSearch(kbQuery);
-                        if (kbSearch) {
-                            newToolResults.push({ toolName: 'SEARCH_KNOWLEDGE', content: kbSearch.result, timestamp: Date.now() });
-                        }
-                    } else if (investigationState.hypotheses.length > 0) {
-                        const investigatingHypo = investigationState.hypotheses.find(h => h.status === 'investigating');
-                        if (investigatingHypo) {
-                            const kbQuery = investigatingHypo.description.slice(0, 140);
-                            const kbSearch = await runKnowledgeSearch(kbQuery);
-                            if (kbSearch) {
-                                newToolResults.push({ toolName: 'SEARCH_KNOWLEDGE', content: kbSearch.result, timestamp: Date.now() });
-                            }
-                        }
-                    }
-
-                    // Smart unproductive tracking - requires SUBSTANTIAL progress
-                    if (usefulToolsThisIteration >= MIN_PRODUCTIVE_TOOLS) {
-                        investigationState.consecutiveUnproductive = 0;
-                        investigationState.unproductiveIterations = 0;
-                        investigationState.phase = 'investigating';
-
-                        // Grant bonus iteration for productive investigation
-                        if (investigationState.iteration >= BASE_INVESTIGATION_STEPS - 1 &&
-                            currentMaxIterations < MAX_INVESTIGATION_STEPS) {
-                            currentMaxIterations = Math.min(currentMaxIterations + 2, MAX_INVESTIGATION_STEPS);
-                            setCurrentActivity(`🎯 Productive investigation - extended budget to ${currentMaxIterations} steps`);
-                        }
-                    } else if (failedToolsThisIteration > 0 && usefulToolsThisIteration === 0) {
-                        // All tools failed or returned empty - increment unproductive counter
-                        investigationState.consecutiveUnproductive++;
-                        investigationState.unproductiveIterations = (investigationState.unproductiveIterations || 0) + 1;
-
-                        if (investigationState.consecutiveUnproductive >= 3) {
-                            setCurrentActivity("⚠️ Investigation stalled - trying different approach...");
-
-                            // Generate smart tool suggestions based on hypotheses
-                            const smartSuggestions: string[] = [];
-                            for (const h of investigationState.hypotheses.filter(h => h.status === 'investigating')) {
-                                smartSuggestions.push(...suggestToolsForHypothesis(h));
-                            }
-                            const uniqueSuggestions = [...new Set(smartSuggestions)].slice(0, 5);
-                            const smartSuggestionsText = uniqueSuggestions.length > 0
-                                ? `\n\nSMART SUGGESTIONS(based on your hypotheses): \n${uniqueSuggestions.map(s => `TOOL: ${s}`).join('\n')} `
-                                : '';
-
-                            // Before giving up, try to recover with a targeted prompt
-                            const recoveryPrompt = `Investigation has stalled after ${investigationState.consecutiveUnproductive} unproductive iterations.
-
-FAILED APPROACHES(do NOT repeat):
-${formatFailedToolsContext(failedToolOutcomes)}
-
-EVIDENCE GATHERED:
-${compressToolHistorySemantic(allAccumulatedResults, 2, 300)}
-
-CURRENT HYPOTHESES:
-${formatHypothesesForPrompt(investigationState.hypotheses)}
-${smartSuggestionsText}
-
-                    TASK: Either:
-                    1. Try a DIFFERENT approach with TOOL: commands(use suggestions above or alternatives)
-                    2. If you have ANY evidence, provide a partial analysis with Confidence: LOW
-
-Original question: "${message}"`;
-
-                            const recoveryAnswer = await callLLM(
-                                recoveryPrompt,
-                                AUTONOMOUS_INVESTIGATION_PROMPT,
-                                chatHistory.filter(m => m.role !== 'tool')
-                            );
-
-                            // Check if recovery attempt has new tools
-                            const recoveryTools = Array.from(recoveryAnswer.matchAll(/TOOL:\s*(\w+)/g));
-                            if (recoveryTools.length === 0) {
-                                // No recovery possible - provide final answer
-                                const [cleanedAnswer, actions] = parseSuggestedActions(cleanOutputForUser(recoveryAnswer));
-                                setChatHistory(prev => [...prev, { role: 'assistant', content: cleanedAnswer }]);
-                                setSuggestedActions(actions);
-                                break;
-                            }
-
-                            // Reset for one more try
-                            investigationState.consecutiveUnproductive = 1;
-                            investigationState.unproductiveIterations = 1;
-                        }
-                    }
-
-                    // Add new results to accumulated history
-                    if (newToolResults.length > 0) {
-                        allAccumulatedResults.push(...newToolResults);
-                    }
-
-                    investigationState.iteration++;
+                if (isCancelled()) {
+                    console.log('[Agent] Cancelled');
+                    return;
                 }
 
-                // Finalize with a concise summary that cites tool evidence
-                if (allAccumulatedResults.length > 0) {
-                    // Convert to string format for summarization
-                    const resultsAsStrings = allAccumulatedResults.map(r => `## ${r.toolName} \n${r.content} `);
-                    const finalSummary = await summarizeFindings(message, resultsAsStrings, scratchpadNotes);
-                    if (finalSummary) {
-                        const [cleanedAnswer, actions] = parseSuggestedActions(cleanOutputForUser(finalSummary));
-                        // Append investigation summary stats
-                        const investigationSummaryStats = generateInvestigationSummary(investigationState);
-                        const fullAnswer = cleanedAnswer + '\n' + investigationSummaryStats;
-                        setChatHistory(prev => [...prev, { role: 'assistant', content: fullAnswer }]);
-                        setSuggestedActions(actions);
-                    }
+                // Show LLM all results and ask what's next (with smart compression)
+                setCurrentActivity(`🧠 [${kubeContext}] Analyzing...`);
+                const allResults = formatResultsForLLM(toolResults);
+
+                // Build explicit lists for this iteration
+                const updatedExecutedList = executedCommands.length > 0
+                    ? `\n✅ COMMANDS ALREADY EXECUTED (DO NOT REPEAT ANY OF THESE):\n${executedCommands.map(c => `- ${c}`).join('\n')}\n`
+                    : '';
+                const updatedFailedList = failedCommands.length > 0
+                    ? `\n⛔ FAILED COMMANDS (DO NOT RETRY):\n${failedCommands.map(c => `- ${c}`).join('\n')}\n`
+                    : '';
+
+                const nextPrompt = `User asked: "${message}"
+${updatedExecutedList}${updatedFailedList}
+Results from ${iterations} commands:
+${allResults}
+
+⚠️ STOP AND CHECK before outputting a command:
+1. Is this command in the ALREADY EXECUTED list above? → DO NOT output it
+2. Is the resource type in the FAILED list? → DO NOT try variations
+3. Have you run ${iterations} commands already? Consider if you have enough info
+4. Would this command give you NEW information? → If not, don't run it
+
+If you have enough info, provide your answer NOW:
+**Answer**: [Direct answer]
+**Root Cause**: [If troubleshooting]
+**Fix**: [What would fix it]
+
+If you absolutely need ONE more piece of info:
+$ kubectl <new-command-not-in-list-above>`;
+
+                const nextResponse = await callLLM(nextPrompt, QUICK_MODE_SYSTEM_PROMPT, conversation);
+                moreCommands = extractCommandsFromResponse(nextResponse);
+
+                // No more commands = LLM has the answer
+                if (moreCommands.length === 0) {
+                    finalizeAndRecord(nextResponse);
+                    return;
                 }
-            } else {
-                const [cleanedAnswer, actions] = parseSuggestedActions(cleanOutputForUser(answer));
-                setChatHistory(prev => [...prev, { role: 'assistant', content: cleanedAnswer }]);
-                setSuggestedActions(actions);
+            }
+
+            // Max iterations or unproductive loop - ask for final answer
+            if (iterations >= MAX_AGENT_ITERATIONS || unproductiveCount >= MAX_UNPRODUCTIVE) {
+                const reason = unproductiveCount >= MAX_UNPRODUCTIVE
+                    ? `Investigation stalled (${unproductiveCount} unproductive attempts)`
+                    : `Reached max iterations (${iterations})`;
+                console.log(`[Agent] ${reason}, requesting final answer`);
+
+                setCurrentActivity(`💬 [${kubeContext}] Finalizing...`);
+                const allResults = formatResultsForLLM(toolResults, 4, 1000, 200); // More recent, smaller chunks for final
+                const finalFailedContext = failedCommands.length > 0
+                    ? `\n⛔ Failed commands: ${failedCommands.length}\n`
+                    : '';
+
+                const finalPrompt = `User asked: "${message}"
+
+You've run ${iterations} commands. ${reason}.
+${finalFailedContext}
+Here's everything gathered:
+${allResults}
+
+You MUST provide your final answer now. Do NOT output any more commands.
+Structure as:
+**Answer**: [Direct answer to user's question]
+**Root Cause**: [If applicable - what you found]
+**Fix**: [What would fix it - describe only]`;
+                const finalResponse = await callLLM(finalPrompt, QUICK_MODE_SYSTEM_PROMPT, conversation);
+                finalizeAndRecord(finalResponse);
+                return;
             }
         } catch (err: any) {
             setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Check your AI settings or provider connection.` }]);
         } finally {
             setLlmLoading(false);
-            setInvestigationProgress(null); // Clear investigation state when done
+            setInvestigationProgress(null);
         }
     };
 
@@ -1930,7 +1341,7 @@ Original question: "${message}"`;
                             onClick={() => setShowSettings(true)}
                             className="text-[10px] text-zinc-400 hover:text-zinc-300 flex items-center gap-1.5 transition-colors group"
                         >
-                                <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
+                            <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
                             <span>{llmConfig.provider === 'ollama' ? 'Ollama' : llmConfig.provider === 'openai' ? 'OpenAI' : llmConfig.provider === 'anthropic' ? 'Anthropic' : 'Custom'}</span>
                             <span className="text-zinc-500">•</span>
                             <span className="text-zinc-500 group-hover:text-zinc-400">{llmConfig.model.split(':')[0]}</span>
@@ -2028,8 +1439,30 @@ Original question: "${message}"`;
                                 <Sparkles size={36} className="text-violet-400" />
                             </div>
                         </div>
-                        <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Ready to Help</h3>
-                        <p className="text-sm text-zinc-400 text-center mb-1 max-w-[300px]">Ask me anything about your cluster's health, resources, or issues.</p>
+                        <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Hey there! 👋</h3>
+                        {loadingWelcomeJoke ? (
+                            <p className="text-sm text-zinc-400 text-center mb-1 max-w-[320px] italic animate-pulse">
+                                Thinking of something funny...
+                            </p>
+                        ) : welcomeJoke ? (
+                            <div className="flex items-center gap-2 mb-1">
+                                <p className="text-sm text-zinc-300 text-center max-w-[320px] italic">
+                                    {welcomeJoke}
+                                </p>
+                                <button
+                                    onClick={fetchNewWelcomeJoke}
+                                    className="p-1.5 text-zinc-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-all"
+                                    title="Get another joke"
+                                >
+                                    <RefreshCw size={14} />
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-zinc-400 text-center mb-1 max-w-[300px]">
+                                Ask me anything about your cluster's health, resources, or issues.
+                            </p>
+                        )}
+                        <p className="text-xs text-zinc-500 text-center mt-2 max-w-[300px]">What can I help you debug today?</p>
                         <div className="flex flex-col items-center gap-1 mb-6">
                             <p className="text-xs text-zinc-500 flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />

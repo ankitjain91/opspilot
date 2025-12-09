@@ -5,7 +5,7 @@ import { ClusterHealthSummary, ClusterEventSummary, UnhealthyReport } from '../.
 import { ToolOutcome, ToolOutcomeStatus, evaluateToolOutcome, categorizeError, getRecoverySuggestions, ErrorCategory } from './types';
 import { getAlternatives, getFailureGuidance } from './playbooks';
 
-export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD', 'WEB_SEARCH', 'RUN_BASH', 'READ_FILE', 'FETCH_URL'];
+export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD', 'WEB_SEARCH', 'RUN_BASH', 'READ_FILE', 'FETCH_URL', 'SUGGEST_COMMANDS'];
 
 // =============================================================================
 // ENHANCED PLACEHOLDER DETECTION
@@ -102,6 +102,12 @@ const MUTATING_KUBECTL_PATTERNS = [
     /\bcreate\b/i,
     /\brollout\s+(restart|undo)\b/i,
     /\bexpose\b/i,
+    /\bexec\b/i,         // Blocks kubectl exec (arbitrary command execution in pods)
+    /\bcp\b/i,           // Blocks kubectl cp (file transfer to/from pods)
+    /\battach\b/i,       // Blocks kubectl attach (attach to running container)
+    /\bport-forward\b/i, // Blocks kubectl port-forward (could be used for tunneling)
+    /\bset\b/i,          // Blocks kubectl set (image, env, resources, etc.)
+    /\brun\b/i,          // Blocks kubectl run (creates new pods)
 ];
 
 // Clear expired cache entries periodically
@@ -742,6 +748,46 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
                     toolResult = `❌ Cannot fetch URL: ${e}`;
                 }
             }
+        } else if (toolName === 'SUGGEST_COMMANDS') {
+            // AI-powered command generation - uses LLM to generate investigation commands
+            const context = toolArgs?.trim();
+            if (!context) {
+                toolResult = '⚠️ Usage: SUGGEST_COMMANDS <issue description or context>\nExamples:\n- SUGGEST_COMMANDS pod crashloop in monitoring namespace\n- SUGGEST_COMMANDS investigate slow api response times\n- SUGGEST_COMMANDS check network connectivity between services';
+            } else {
+                kubectlCommand = `ai-suggest: ${context}`;
+                try {
+                    const suggestions = await invoke<string[]>("generate_investigation_commands", { context });
+                    if (suggestions.length === 0) {
+                        toolResult = `🔍 No specific commands suggested for: "${context}". Try using FIND_ISSUES or GET_EVENTS to gather more context.`;
+                    } else {
+                        toolResult = `## 🤖 AI-Generated Investigation Commands
+
+Based on: "${context}"
+
+The following kubectl commands are suggested for investigation:
+
+${suggestions.map((cmd, i) => `### ${i + 1}. ${cmd.split('|')[0].trim()}
+\`\`\`bash
+${cmd.split('|')[1]?.trim() || cmd}
+\`\`\`
+${cmd.split('|')[2] ? `*Purpose: ${cmd.split('|')[2].trim()}*` : ''}
+`).join('\n')}
+
+💡 **To execute any command**, use:
+\`TOOL: RUN_KUBECTL <command>\` or \`TOOL: RUN_BASH <command>\``;
+                    }
+                } catch (e) {
+                    // Fallback: provide generic suggestions based on context keywords
+                    const suggestions = generateFallbackCommands(context);
+                    toolResult = `## 🔧 Suggested Investigation Commands
+
+Based on: "${context}"
+
+${suggestions.map((cmd, i) => `${i + 1}. \`${cmd}\``).join('\n')}
+
+💡 Use \`TOOL: RUN_KUBECTL <command>\` to execute.`;
+                }
+            }
         } else {
             // Only if called with unknown tool
             toolResult = `⚠️ Invalid tool: ${toolName}. Valid tools: ${VALID_TOOLS.join(', ')}`;
@@ -1017,4 +1063,88 @@ export function autoCorrectToolArgs(
         newArgs: toolArgs,
         message: getPlaceholderGuidance(toolName, toolArgs),
     };
+}
+
+// =============================================================================
+// FALLBACK COMMAND GENERATION (when LLM backend unavailable)
+// =============================================================================
+
+/**
+ * Generate fallback investigation commands based on context keywords
+ * Used when LLM-based command generation fails
+ */
+function generateFallbackCommands(context: string): string[] {
+    const lower = context.toLowerCase();
+    const commands: string[] = [];
+
+    // Crash/restart related
+    if (lower.includes('crash') || lower.includes('restart') || lower.includes('loop') || lower.includes('backoff')) {
+        commands.push('kubectl get pods -A --field-selector=status.phase!=Running');
+        commands.push('kubectl get events -A --sort-by=.lastTimestamp | grep -iE "kill|oom|crash|backoff" | tail -20');
+        commands.push('kubectl get pods -A -o json | jq \'.items[] | select(.status.containerStatuses[]?.restartCount > 3) | {name:.metadata.name, ns:.metadata.namespace, restarts:.status.containerStatuses[].restartCount}\'');
+    }
+
+    // Memory/OOM related
+    if (lower.includes('memory') || lower.includes('oom') || lower.includes('137')) {
+        commands.push('kubectl top pods -A --sort-by=memory | head -20');
+        commands.push('kubectl get events -A | grep -i oom');
+        commands.push('kubectl get pods -A -o json | jq \'.items[] | select(.status.containerStatuses[]?.lastState.terminated.exitCode == 137) | .metadata.name\'');
+    }
+
+    // CPU/throttling related
+    if (lower.includes('cpu') || lower.includes('throttl') || lower.includes('slow')) {
+        commands.push('kubectl top pods -A --sort-by=cpu | head -20');
+        commands.push('kubectl get pods -A -o json | jq \'.items[] | {name:.metadata.name, ns:.metadata.namespace, cpu:.spec.containers[].resources.limits.cpu}\'');
+    }
+
+    // Pending pods
+    if (lower.includes('pending') || lower.includes('schedule') || lower.includes('unschedulable')) {
+        commands.push('kubectl get pods -A --field-selector=status.phase=Pending');
+        commands.push('kubectl get events -A | grep -iE "insufficient|unschedulable|taint|affinity"');
+        commands.push('kubectl describe nodes | grep -A5 "Allocated resources"');
+    }
+
+    // Network/connectivity
+    if (lower.includes('network') || lower.includes('connect') || lower.includes('dns') || lower.includes('service')) {
+        commands.push('kubectl get endpoints -A | grep -v "none"');
+        commands.push('kubectl get networkpolicies -A');
+        commands.push('kubectl get svc -A -o wide');
+    }
+
+    // Storage/volume
+    if (lower.includes('storage') || lower.includes('volume') || lower.includes('pvc') || lower.includes('mount')) {
+        commands.push('kubectl get pvc -A');
+        commands.push('kubectl get pv');
+        commands.push('kubectl get events -A | grep -iE "volume|mount|attach"');
+    }
+
+    // Node issues
+    if (lower.includes('node') || lower.includes('kubelet') || lower.includes('ready')) {
+        commands.push('kubectl get nodes -o wide');
+        commands.push('kubectl describe nodes | grep -A10 "Conditions:"');
+        commands.push('kubectl top nodes');
+    }
+
+    // Deployment/scaling
+    if (lower.includes('deploy') || lower.includes('replica') || lower.includes('scale')) {
+        commands.push('kubectl get deployments -A');
+        commands.push('kubectl get rs -A | grep -v "0         0         0"');
+        commands.push('kubectl get hpa -A');
+    }
+
+    // Secrets/config
+    if (lower.includes('secret') || lower.includes('config') || lower.includes('env')) {
+        commands.push('kubectl get secrets -A --field-selector=type=Opaque | head -20');
+        commands.push('kubectl get configmaps -A | head -20');
+    }
+
+    // Generic investigation if no specific patterns matched
+    if (commands.length === 0) {
+        commands.push('kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded');
+        commands.push('kubectl get events -A --sort-by=.lastTimestamp | grep -iE "error|fail|warn" | tail -30');
+        commands.push('kubectl top pods -A | head -15');
+        commands.push('kubectl get nodes -o wide');
+    }
+
+    return commands.slice(0, 6); // Return at most 6 commands
 }

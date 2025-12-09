@@ -76,7 +76,9 @@ TOOL_DESCRIPTIONS = {
 
     "FETCH_URL": "fetch url web http https download content documentation external manifest github raw yaml remote file web content api endpoint external documentation upstream manifest compare online reference",
 
-    "WEB_SEARCH": "web search google internet lookup error message unknown error unfamiliar issue stack overflow github issues documentation online help find solution search for error troubleshooting guide external search web lookup internet search"
+    "WEB_SEARCH": "web search google internet lookup error message unknown error unfamiliar issue stack overflow github issues documentation online help find solution search for error troubleshooting guide external search web lookup internet search",
+
+    "SUGGEST_COMMANDS": "generate commands ai suggest investigation kubectl custom dynamic commands troubleshoot specific issue generate diagnostic commands ai powered suggest kubectl commands create investigation commands dynamic command generation specific commands for issue"
 }
 
 
@@ -101,12 +103,22 @@ def load_json_doc(filepath: Path) -> list[dict]:
         # Collect all text content from nested structures
         content_parts = [title, summary]
         
-        # Extract from all known content keys
-        for key in ['common_errors', 'commands', 'diagnostic_workflows', 'best_practices',
-                    'job_basics', 'debugging_workflow', 'job_patterns', 'concepts',
-                    'connectivity_basics', 'node_inspection', 'status_overview',
-                    'service_basics', 'storage_basics', 'causes', 'symptoms',
-                    'scenarios', 'patterns', 'examples']:
+        # Extract from all known content keys (comprehensive list)
+        content_keys = [
+            # General troubleshooting
+            'common_errors', 'commands', 'diagnostic_workflows', 'best_practices',
+            'job_basics', 'debugging_workflow', 'job_patterns', 'concepts',
+            'connectivity_basics', 'node_inspection', 'status_overview',
+            'service_basics', 'storage_basics', 'causes', 'symptoms',
+            'scenarios', 'patterns', 'examples',
+            # Crossplane and infrastructure
+            'common_causes', 'providers', 'managed_resources', 'diagnostic_commands',
+            'fix_steps', 'tags', 'category',
+            # Additional fields
+            'quick_fix', 'recommended_tools', 'solution', 'resolution',
+            'remediation', 'steps', 'checks', 'actions', 'warnings', 'notes', 'tips'
+        ]
+        for key in content_keys:
             if key in item:
                 content_parts.append(extract_text(item[key]))
         
@@ -139,7 +151,7 @@ def extract_text(obj, depth=0) -> str:
     """Recursively extract text from nested structures."""
     if depth > 5:
         return ''
-    
+
     if isinstance(obj, str):
         return obj
     elif isinstance(obj, list):
@@ -147,9 +159,17 @@ def extract_text(obj, depth=0) -> str:
     elif isinstance(obj, dict):
         parts = []
         for key, value in obj.items():
-            if key in ['command', 'description', 'name', 'title', 'summary', 
+            # Expanded list of content keys to extract
+            if key in ['command', 'description', 'name', 'title', 'summary',
                        'symptoms', 'likely_causes', 'fix_steps', 'error_patterns',
-                       'meaning', 'first_steps', 'what_to_look_for', 'when_to_use']:
+                       'meaning', 'first_steps', 'what_to_look_for', 'when_to_use',
+                       # Crossplane specific
+                       'cause', 'diagnosis', 'fix', 'providers', 'managed_resources',
+                       'common_causes', 'diagnostic_commands', 'tags',
+                       # General troubleshooting
+                       'quick_fix', 'recommended_tools', 'category',
+                       'solution', 'resolution', 'remediation', 'steps',
+                       'check', 'action', 'warning', 'note', 'tip']:
                 parts.append(extract_text(value, depth+1))
         return ' '.join(parts)
     return ''

@@ -39,6 +39,21 @@ fn get_term_expansions(term: &str) -> Vec<&'static str> {
         "rbac" | "permission" | "permissions" => vec!["rbac", "permission", "permissions", "role", "clusterrole", "serviceaccount"],
         "helm" => vec!["helm", "chart", "release", "values"],
         "kubectl" => vec!["kubectl", "command", "cli"],
+        // Crossplane and infrastructure as code
+        "crossplane" | "xplane" => vec!["crossplane", "provider", "managed", "composite", "claim", "composition", "xrd", "upbound"],
+        "managed" => vec!["managed", "crossplane", "provider", "provisioning", "infrastructure", "resource"],
+        "provider" | "providers" => vec!["provider", "providers", "crossplane", "upbound", "credentials", "providerconfig"],
+        "composite" | "xr" => vec!["composite", "xr", "crossplane", "composition", "claim"],
+        "claim" | "claims" | "xrc" => vec!["claim", "claims", "xrc", "crossplane", "composite"],
+        "provisioning" | "provision" => vec!["provisioning", "provision", "crossplane", "managed", "creating", "resource"],
+        "infrastructure" | "infra" => vec!["infrastructure", "infra", "crossplane", "managed", "iac", "terraform"],
+        "upbound" => vec!["upbound", "crossplane", "provider", "marketplace"],
+        // Resource-related (more specific)
+        "resource" | "resources" => vec!["resource", "resources", "managed", "crossplane", "provisioning", "infrastructure", "quota", "limits"],
+        "failing" | "failed" | "fail" => vec!["failing", "failed", "fail", "error", "unhealthy", "notready", "stuck"],
+        "stuck" | "stale" => vec!["stuck", "stale", "pending", "terminating", "finalizer", "blocked"],
+        "sync" | "synced" | "syncing" => vec!["sync", "synced", "syncing", "crossplane", "managed", "reconcile", "ready"],
+        "ready" | "notready" => vec!["ready", "notready", "synced", "healthy", "condition", "status"],
         _ => vec![],
     }
 }
@@ -89,6 +104,20 @@ fn extract_tags(content: &str) -> Vec<String> {
         }
     }
 
+    // Crossplane and infrastructure as code
+    let crossplane_patterns = [
+        ("crossplane", "crossplane"), ("provider", "provider"), ("managed", "managed"),
+        ("composite", "composite"), ("claim", "claim"), ("composition", "composition"),
+        ("upbound", "upbound"), ("providerconfig", "providerconfig"),
+        ("xrd", "xrd"), ("synced", "synced"),
+    ];
+
+    for (pattern, tag) in crossplane_patterns {
+        if content_lower.contains(pattern) {
+            tags.insert(tag.to_string());
+        }
+    }
+
     tags.into_iter().collect()
 }
 
@@ -97,7 +126,11 @@ fn determine_category(filename: &str, content: &str) -> String {
     let filename_lower = filename.to_lowercase();
     let content_lower = content.to_lowercase();
 
-    if filename_lower.contains("troubleshoot") || content_lower.contains("troubleshoot") {
+    // Check for crossplane first (more specific category)
+    if filename_lower.contains("crossplane") || content_lower.contains("crossplane") ||
+       content_lower.contains("managed resource") || content_lower.contains("providerconfig") {
+        "crossplane".to_string()
+    } else if filename_lower.contains("troubleshoot") || content_lower.contains("troubleshoot") {
         "troubleshooting".to_string()
     } else if filename_lower.contains("best-practice") || content_lower.contains("best practice") {
         "best-practices".to_string()
@@ -442,11 +475,11 @@ fn extract_text_from_json(value: &serde_json::Value) -> String {
     text
 }
 
-/// Semantic search using pre-computed embeddings and fastembed for query embedding
-/// Falls back to keyword search if embeddings are unavailable
+/// Hybrid semantic + keyword search for best results
+/// Uses semantic search as primary, with keyword boost for exact matches
 #[tauri::command]
 pub async fn semantic_search_knowledge_base(
-    query: String, 
+    query: String,
     app_handle: tauri::AppHandle
 ) -> Result<Vec<SearchResult>, String> {
     // Try to load embeddings
@@ -460,7 +493,7 @@ pub async fn semantic_search_knowledge_base(
             return search_knowledge_base(query.clone(), app_handle).await;
         }
     };
-    
+
     // Get query embedding using fastembed (local ONNX)
     let query_embedding = match embeddings::embed_query(&query) {
         Ok(emb) => {
@@ -472,18 +505,18 @@ pub async fn semantic_search_knowledge_base(
             return search_knowledge_base(query, app_handle).await;
         }
     };
-    
-    // Perform semantic search
-    let semantic_results = embeddings::search_documents(&query_embedding, &kb_embeddings, 8);
+
+    // Perform semantic search with more results to allow reranking
+    let semantic_results = embeddings::search_documents(&query_embedding, &kb_embeddings, 15);
     let top_score = semantic_results.first().map(|r| r.score).unwrap_or(0.0);
     eprintln!("[DEBUG] Got {} semantic results, top score: {:.4}", semantic_results.len(), top_score);
 
-    // If embeddings are stale (no/low matches), fall back to keyword search so new docs still appear
-    if semantic_results.is_empty() || top_score < 0.05 {
-        eprintln!("[DEBUG] Semantic results empty/low-confidence, falling back to keyword search");
+    // If semantic search completely fails, fall back to keyword
+    if semantic_results.is_empty() {
+        eprintln!("[DEBUG] No semantic results, falling back to keyword search");
         return search_knowledge_base(query, app_handle).await;
     }
-    
+
     // Load file content to build full SearchResult
     let resource_path = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
     let knowledge_path = resource_path.join("knowledge");
@@ -494,7 +527,7 @@ pub async fn semantic_search_knowledge_base(
         // When running from src-tauri, knowledge is in parent
         cwd.parent().map(|p| p.join("knowledge")).unwrap_or_default(),
     ];
-    
+
     let mut search_dir = None;
     for path in search_paths {
         if path.exists() {
@@ -502,7 +535,7 @@ pub async fn semantic_search_knowledge_base(
             break;
         }
     }
-    
+
     let search_dir = match search_dir {
         Some(p) => {
             eprintln!("[DEBUG] Using knowledge dir: {:?}", p);
@@ -513,18 +546,20 @@ pub async fn semantic_search_knowledge_base(
             return Ok(vec![]);
         }
     };
-    
+
+    // Prepare query terms for keyword boosting
+    let query_lower = query.to_lowercase();
+    let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
+
     let mut results = Vec::new();
     for semantic_result in semantic_results {
-        // Use summary directly from embeddings - no file reading needed
-        // Only check file for tags/category if available
         let file_path = search_dir.join(&semantic_result.file);
-        let (tags, category, quick_fix, recommended_tools) = if file_path.exists() {
+        let (tags, category, quick_fix, recommended_tools, content) = if file_path.exists() {
             let content = fs::read_to_string(&file_path).unwrap_or_default();
-            
+
             let mut qf = None;
             let mut rt = None;
-            
+
             if file_path.extension().and_then(|e| e.to_str()) == Some("json") {
                  if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                      if let Some(fix) = json.get("quick_fix").and_then(|v| v.as_str()) {
@@ -535,29 +570,79 @@ pub async fn semantic_search_knowledge_base(
                      }
                  }
             }
-            (extract_tags(&content), determine_category(&semantic_result.file, &content), qf, rt)
+            let tags = extract_tags(&content);
+            let category = determine_category(&semantic_result.file, &content);
+            (tags, category, qf, rt, content)
         } else {
-            (vec![], "troubleshooting".to_string(), None, None)
+            (vec![], "troubleshooting".to_string(), None, None, String::new())
         };
-        
-        // Use summary from embeddings - clean, pre-computed content
+
+        // Compute hybrid score: semantic + keyword boost
+        let mut hybrid_score = semantic_result.score;
+        let content_lower = content.to_lowercase();
+        let filename_lower = semantic_result.file.to_lowercase();
+        let title_lower = semantic_result.title.to_lowercase();
+
+        // Boost for exact keyword matches
+        for term in &query_terms {
+            if term.len() < 3 { continue; } // Skip short terms
+
+            // Strong boost for filename match (e.g., "crossplane" in "crossplane-troubleshooting.json")
+            if filename_lower.contains(term) {
+                hybrid_score += 0.15;
+                eprintln!("[DEBUG] Filename boost for '{}' in {}", term, semantic_result.file);
+            }
+
+            // Strong boost for title match
+            if title_lower.contains(term) {
+                hybrid_score += 0.12;
+            }
+
+            // Medium boost for tag match
+            if tags.iter().any(|t| t.to_lowercase().contains(term)) {
+                hybrid_score += 0.08;
+            }
+
+            // Small boost for content match
+            if content_lower.contains(term) {
+                hybrid_score += 0.03;
+            }
+        }
+
+        // Boost for category match (if query mentions category-like terms)
+        let category_terms = ["troubleshoot", "crossplane", "network", "storage", "security", "debug"];
+        for cat_term in category_terms {
+            if query_lower.contains(cat_term) && category.to_lowercase().contains(cat_term) {
+                hybrid_score += 0.1;
+            }
+        }
+
+        // Use summary from embeddings
         let snippet = if semantic_result.summary.is_empty() {
             format!("**{}**\n\nNo summary available.", semantic_result.title)
         } else {
             format!("**{}**\n\n{}", semantic_result.title, semantic_result.summary)
         };
-        
+
         results.push(SearchResult {
             file: semantic_result.file,
             content: snippet,
-            score: semantic_result.score * 10.0, // Scale for compatibility
+            score: hybrid_score * 10.0, // Scale for compatibility
             tags,
             category,
             quick_fix,
             recommended_tools,
         });
     }
-    
+
+    // Re-sort by hybrid score
+    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Limit to top 8
+    results.truncate(8);
+
+    eprintln!("[DEBUG] Final results: {:?}", results.iter().map(|r| (&r.file, r.score)).collect::<Vec<_>>());
+
     Ok(results)
 }
 

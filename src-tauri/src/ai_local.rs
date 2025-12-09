@@ -97,6 +97,37 @@ struct ChatRequest {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+}
+
+// Streaming response types (for future streaming support)
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+struct StreamDelta {
+    content: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+struct StreamChoice {
+    delta: StreamDelta,
+    finish_reason: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+struct StreamChunk {
+    choices: Vec<StreamChoice>,
+}
+
+// Event payload for streaming LLM responses (for future streaming support)
+#[allow(dead_code)]
+#[derive(Clone, Serialize)]
+pub struct LLMStreamEvent {
+    pub stream_id: String,
+    pub event_type: String, // "chunk", "done", "error"
+    pub content: String,
 }
 
 #[derive(Deserialize)]
@@ -549,6 +580,7 @@ Format your responses in markdown. Be concise and actionable."#.to_string()
         messages,
         max_tokens: Some(config.max_tokens),
         temperature: Some(config.temperature),
+        stream: None, // Non-streaming call
     };
 
     let base_url = config.base_url.trim_end_matches('/');
@@ -819,4 +851,97 @@ pub async fn web_search(query: String) -> Result<Vec<WebSearchResult>, String> {
     }
 
     Ok(results)
+}
+
+// ============================================================================
+// AI-Powered Command Generation
+// ============================================================================
+
+const COMMAND_GEN_SYSTEM_PROMPT: &str = r#"You are a Kubernetes expert assistant that generates investigation commands.
+
+Given a problem context, generate 3-6 specific kubectl commands that would help investigate the issue.
+
+OUTPUT FORMAT (STRICT):
+Return ONLY a JSON array of strings. Each string should be in the format:
+"Title | kubectl command | Purpose"
+
+Example output:
+["Check Failing Pods | kubectl get pods -A --field-selector=status.phase!=Running | Find all non-running pods", "Recent Events | kubectl get events -A --sort-by=.lastTimestamp | tail -30 | See recent cluster events", "Node Resources | kubectl top nodes | Check node resource pressure"]
+
+RULES:
+1. Commands must be READ-ONLY (get, describe, logs, top, events - NO apply, delete, patch, edit)
+2. Use actual kubectl syntax with proper flags
+3. Prefer commands with filtering (--field-selector, grep, jq) for targeted results
+4. Include namespace flags (-n or -A) as appropriate
+5. Each command should serve a distinct diagnostic purpose
+6. Commands can use bash pipes (|) for filtering (grep, awk, jq, head, tail, sort)
+
+DO NOT include any explanation, just the JSON array."#;
+
+/// Generate investigation commands using LLM
+#[tauri::command]
+pub async fn generate_investigation_commands(context: String) -> Result<Vec<String>, String> {
+    // Load LLM config
+    let config = LLMConfig::default();
+
+    // Check if LLM is available
+    let status = check_llm_status(config.clone()).await?;
+    if !status.connected {
+        return Err("LLM not available for command generation".to_string());
+    }
+
+    let prompt = format!(
+        "Generate kubectl investigation commands for this issue:\n\n{}\n\nReturn ONLY a JSON array of command strings.",
+        context
+    );
+
+    // Call LLM
+    let response = call_llm(
+        config,
+        prompt,
+        Some(COMMAND_GEN_SYSTEM_PROMPT.to_string()),
+        vec![],
+    ).await?;
+
+    // Parse JSON response
+    let cleaned = response.trim();
+
+    // Try to extract JSON array from response
+    let json_str = if cleaned.starts_with('[') {
+        cleaned.to_string()
+    } else if let Some(start) = cleaned.find('[') {
+        if let Some(end) = cleaned.rfind(']') {
+            cleaned[start..=end].to_string()
+        } else {
+            return Err("Invalid response format: no closing bracket".to_string());
+        }
+    } else {
+        return Err("Invalid response format: no JSON array found".to_string());
+    };
+
+    // Parse as JSON array
+    let commands: Vec<String> = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse commands: {}", e))?;
+
+    // Validate commands are read-only
+    let safe_commands: Vec<String> = commands
+        .into_iter()
+        .filter(|cmd| {
+            let lower = cmd.to_lowercase();
+            // Block mutating commands
+            !lower.contains("apply") &&
+            !lower.contains("delete") &&
+            !lower.contains("patch") &&
+            !lower.contains("edit") &&
+            !lower.contains("scale") &&
+            !lower.contains("create") &&
+            !lower.contains("replace") &&
+            !lower.contains("drain") &&
+            !lower.contains("cordon") &&
+            !lower.contains("taint")
+        })
+        .take(6)
+        .collect();
+
+    Ok(safe_commands)
 }

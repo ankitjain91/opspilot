@@ -1374,10 +1374,8 @@ export function getNextToolRecommendations(
         }
     }
 
-    // Knowledge base for context
-    if (!executedTools.has('SEARCH_KNOWLEDGE')) {
-        recommendations.push('SEARCH_KNOWLEDGE');
-    }
+    // NOTE: SEARCH_KNOWLEDGE is no longer auto-recommended
+    // LLM decides when to use KB search based on user intent
 
     return recommendations.slice(0, 3);
 }

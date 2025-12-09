@@ -16,7 +16,236 @@ import {
     Server,
     Check,
     Layers,
+    Terminal,
+    Copy,
+    CheckCircle2,
+    ShieldAlert,
+    KeyRound,
+    Wifi,
+    WifiOff,
+    Lock,
+    Ban,
+    RefreshCw,
 } from "lucide-react";
+
+// Error type definitions for structured error handling
+interface ParsedConnectionError {
+    code: string;
+    context: string;
+    message: string;
+    command?: string;
+}
+
+// Parse structured error from backend (format: CODE|context|message|command)
+function parseConnectionError(errorMessage: string): ParsedConnectionError {
+    const parts = errorMessage.split('|');
+    if (parts.length >= 3) {
+        return {
+            code: parts[0],
+            context: parts[1],
+            message: parts[2],
+            command: parts[3] || undefined,
+        };
+    }
+    // Fallback for unstructured errors
+    return {
+        code: 'UNKNOWN_ERROR',
+        context: '',
+        message: errorMessage,
+    };
+}
+
+// Get error icon and color based on error code
+function getErrorStyle(code: string): { icon: React.ReactNode; bgColor: string; borderColor: string; iconBg: string } {
+    switch (code) {
+        case 'AZURE_DEVICE_COMPLIANCE':
+        case 'AZURE_MFA_REQUIRED':
+            return {
+                icon: <ShieldAlert size={20} />,
+                bgColor: 'bg-orange-500/10',
+                borderColor: 'border-orange-500/30',
+                iconBg: 'bg-orange-500/20',
+            };
+        case 'AZURE_TOKEN_EXPIRED':
+        case 'AZURE_AUTH_ERROR':
+        case 'AWS_AUTH_ERROR':
+        case 'GCP_AUTH_ERROR':
+        case 'AUTH_UNAUTHORIZED':
+        case 'AUTH_EXEC_ERROR':
+            return {
+                icon: <KeyRound size={20} />,
+                bgColor: 'bg-amber-500/10',
+                borderColor: 'border-amber-500/30',
+                iconBg: 'bg-amber-500/20',
+            };
+        case 'AUTH_FORBIDDEN':
+            return {
+                icon: <Ban size={20} />,
+                bgColor: 'bg-red-500/10',
+                borderColor: 'border-red-500/30',
+                iconBg: 'bg-red-500/20',
+            };
+        case 'CONNECTION_TIMEOUT':
+        case 'DNS_ERROR':
+            return {
+                icon: <WifiOff size={20} />,
+                bgColor: 'bg-blue-500/10',
+                borderColor: 'border-blue-500/30',
+                iconBg: 'bg-blue-500/20',
+            };
+        case 'CONNECTION_REFUSED':
+            return {
+                icon: <Wifi size={20} />,
+                bgColor: 'bg-purple-500/10',
+                borderColor: 'border-purple-500/30',
+                iconBg: 'bg-purple-500/20',
+            };
+        case 'TLS_ERROR':
+            return {
+                icon: <Lock size={20} />,
+                bgColor: 'bg-yellow-500/10',
+                borderColor: 'border-yellow-500/30',
+                iconBg: 'bg-yellow-500/20',
+            };
+        default:
+            return {
+                icon: <AlertCircle size={20} />,
+                bgColor: 'bg-red-500/10',
+                borderColor: 'border-red-500/30',
+                iconBg: 'bg-red-500/20',
+            };
+    }
+}
+
+// Get user-friendly error title
+function getErrorTitle(code: string): string {
+    switch (code) {
+        case 'AZURE_DEVICE_COMPLIANCE':
+            return 'Device Compliance Required';
+        case 'AZURE_TOKEN_EXPIRED':
+            return 'Azure Token Expired';
+        case 'AZURE_MFA_REQUIRED':
+            return 'MFA Authentication Required';
+        case 'AZURE_AUTH_ERROR':
+            return 'Azure Authentication Failed';
+        case 'AWS_AUTH_ERROR':
+            return 'AWS Authentication Failed';
+        case 'GCP_AUTH_ERROR':
+            return 'GCP Authentication Failed';
+        case 'AUTH_UNAUTHORIZED':
+            return 'Authentication Failed';
+        case 'AUTH_FORBIDDEN':
+            return 'Access Denied';
+        case 'AUTH_EXEC_ERROR':
+            return 'Auth Plugin Error';
+        case 'CONNECTION_TIMEOUT':
+            return 'Connection Timeout';
+        case 'CONNECTION_REFUSED':
+            return 'Connection Refused';
+        case 'TLS_ERROR':
+            return 'Certificate Error';
+        case 'DNS_ERROR':
+            return 'DNS Resolution Failed';
+        default:
+            return 'Connection Failed';
+    }
+}
+
+// Connection Error Panel Component
+function ConnectionErrorPanel({ error, onDismiss, onRetry }: { error: string; onDismiss: () => void; onRetry: () => void }) {
+    const [copied, setCopied] = React.useState(false);
+    const parsed = parseConnectionError(error);
+    const style = getErrorStyle(parsed.code);
+    const title = getErrorTitle(parsed.code);
+
+    const handleCopy = async () => {
+        if (parsed.command) {
+            await navigator.clipboard.writeText(parsed.command);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    return (
+        <div className={`${style.bgColor} border ${style.borderColor} rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-2`}>
+            {/* Header */}
+            <div className="flex items-start justify-between p-4 pb-3">
+                <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg ${style.iconBg} text-white shrink-0`}>
+                        {style.icon}
+                    </div>
+                    <div className="min-w-0">
+                        <h4 className="text-white font-semibold text-sm">{title}</h4>
+                        <p className="text-zinc-400 text-xs mt-1 leading-relaxed">{parsed.message}</p>
+                    </div>
+                </div>
+                <button
+                    onClick={onDismiss}
+                    className="p-1 rounded-lg hover:bg-white/10 text-zinc-500 hover:text-white transition-colors shrink-0"
+                >
+                    <X size={16} />
+                </button>
+            </div>
+
+            {/* Remediation Command */}
+            {parsed.command && (
+                <div className="px-4 pb-4">
+                    <div className="bg-black/40 rounded-lg border border-white/5 overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 bg-white/5">
+                            <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                <Terminal size={12} />
+                                <span>Run this command to fix:</span>
+                            </div>
+                            <button
+                                onClick={handleCopy}
+                                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                            >
+                                {copied ? (
+                                    <>
+                                        <CheckCircle2 size={12} className="text-green-400" />
+                                        <span className="text-green-400">Copied!</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy size={12} />
+                                        <span>Copy</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                        <div className="p-3 overflow-x-auto">
+                            <code className="text-xs font-mono text-cyan-300 whitespace-pre-wrap break-all">
+                                {parsed.command}
+                            </code>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 px-4 pb-4">
+                <button
+                    onClick={onRetry}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-all"
+                >
+                    <RefreshCw size={14} />
+                    Retry Connection
+                </button>
+                {parsed.code.startsWith('AZURE_') && (
+                    <a
+                        href="https://learn.microsoft.com/en-us/azure/aks/managed-azure-ad"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-zinc-400 hover:text-white text-xs transition-all hover:bg-white/5"
+                    >
+                        Learn more about AKS authentication
+                    </a>
+                )}
+            </div>
+        </div>
+    );
+}
+
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -306,13 +535,8 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                                 )}
                             </div>
 
-                            {/* Error Message */}
-                            {connectionError && (
-                                <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
-                                    <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                                    <span className="leading-relaxed">{connectionError}</span>
-                                </div>
-                            )}
+                            {/* Enhanced Error Panel */}
+                            {connectionError && <ConnectionErrorPanel error={connectionError} onDismiss={() => setConnectionError(null)} onRetry={() => connectMutation.variables && handleConnect(connectMutation.variables)} />}
 
                             {/* Connecting Overlay with Live Logs */}
                             {connectMutation.isPending && (
