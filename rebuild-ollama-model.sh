@@ -15,10 +15,10 @@ if ! command -v ollama &> /dev/null; then
 fi
 
 # Check if base model exists
-echo "📦 Checking for llama3.1:8b-instruct-q8_0..."
-if ! ollama list | grep -q "llama3.1:8b-instruct-q8_0"; then
-    echo "⬇️  Pulling llama3.1:8b-instruct-q8_0 (this may take a few minutes)..."
-    ollama pull llama3.1:8b-instruct-q8_0
+echo "📦 Checking for qwen2.5:14b..."
+if ! ollama list | grep -q "qwen2.5:14b"; then
+    echo "⬇️  Pulling qwen2.5:14b (this may take a few minutes)..."
+    ollama pull qwen2.5:14b
 else
     echo "✅ Base model already exists"
 fi
@@ -37,9 +37,10 @@ ollama create k8s-cli -f Modelfile
 if ollama list | grep -q "k8s-cli"; then
     echo ""
     echo "✅ SUCCESS! k8s-cli model created with optimizations:"
-    echo "   - Temperature: 0.3"
-    echo "   - Context window: 8192 tokens"
-    echo "   - Top-p: 0.9, Top-k: 40"
+    echo "   - Base model: Qwen 2.5 14B"
+    echo "   - Temperature: 0.2"
+    echo "   - Context window: 16384 tokens"
+    echo "   - Top-p: 0.9, Top-k: 50"
     echo "   - Repeat penalty: 1.1"
     echo "   - No system prompt conflicts"
     echo ""
@@ -47,6 +48,12 @@ if ollama list | grep -q "k8s-cli"; then
     ollama list | grep "k8s-cli"
     echo ""
     echo "🚀 Ready to use! Switch to 'k8s-cli' in lens-killer settings."
+    echo ""
+    echo "💡 Qwen 2.5 14B advantages:"
+    echo "   - Better reasoning than Llama 3.1 8B"
+    echo "   - Handles 16k context (vs 8k)"
+    echo "   - More accurate tool selection"
+    echo "   - Better at following instructions"
 else
     echo ""
     echo "❌ Error: Model creation failed"

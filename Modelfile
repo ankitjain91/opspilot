@@ -1,23 +1,23 @@
-# LLAMA 3.1 8B - OPTIMIZED FOR KUBERNETES DEBUGGING
-# High-precision Q8 quantization for M4 Pro
-FROM llama3.1:8b-instruct-q8_0
+# QWEN 2.5 14B - OPTIMIZED FOR KUBERNETES DEBUGGING
+# 14B parameter model - more capable than 8B, can handle more complex reasoning
+FROM qwen2.5:14b
 
-# OPTIMIZED PARAMETERS FOR 8B MODEL
-# Temperature 0.3: Slight randomness prevents repetitive loops while staying focused
-PARAMETER temperature 0.3
+# OPTIMIZED PARAMETERS FOR 14B MODEL
+# Temperature 0.2: Lower than 8B since 14B is more capable and less prone to loops
+PARAMETER temperature 0.2
 
 # Top-p (nucleus sampling): Consider top 90% probability mass
 PARAMETER top_p 0.9
 
-# Top-k: Limit to top 40 tokens to prevent hallucination
-PARAMETER top_k 40
+# Top-k: Limit to top 50 tokens (slightly higher than 8B due to better reasoning)
+PARAMETER top_k 50
 
 # Repeat penalty: Discourage repeating the same tool/command
 PARAMETER repeat_penalty 1.1
 
-# Context window: 8k is optimal for 8B models (beyond this, attention degrades)
-# 32k is too large - model forgets early context
-PARAMETER num_ctx 8192
+# Context window: 16k optimal for 14B (has better attention than 8B)
+# 14B can handle larger contexts effectively
+PARAMETER num_ctx 16384
 
 # M4 PERFORMANCE SETTINGS
 # Force all layers to Neural Engine/GPU for max speed
