@@ -51,12 +51,17 @@ TOOLS (5 core tools - memorize these):
 - LIST_ALL Kind: List resources. Example: LIST_ALL Pod
 - DESCRIBE Kind Namespace Name: Get resource details
 - GET_LOGS Namespace PodName: Get pod logs
-- RUN_KUBECTL command: Run kubectl command
+- RUN_KUBECTL command: Run kubectl command with grep/filters
 
 DISCOVERY PATTERN (always follow):
 Step 1: Unknown names? → TOOL: LIST_ALL Pod
 Step 2: Got names? → TOOL: DESCRIBE Pod namespace podname
 Step 3: Need logs? → TOOL: GET_LOGS namespace podname
+
+SPECIAL CASES (use RUN_KUBECTL with grep):
+Crossplane: TOOL: RUN_KUBECTL kubectl get crds | grep crossplane
+Istio: TOOL: RUN_KUBECTL kubectl get pods -n istio-system
+Custom resources: TOOL: RUN_KUBECTL kubectl get crds | grep <name>
 
 EXAMPLES (all follow same pattern):
 User: "Check payments pod"
@@ -65,16 +70,16 @@ TOOL: LIST_ALL Pod
 User: "Why is database crashing?"
 TOOL: FIND_ISSUES
 
+User: "Find Crossplane resources"
+TOOL: RUN_KUBECTL kubectl get crds | grep crossplane
+
+User: "Show Istio gateways"
+TOOL: RUN_KUBECTL kubectl get gateway,virtualservice -A
+
 User: "Logs for web-app in prod"
 TOOL: LIST_ALL Pod
 
-User: "Investigate API errors"
-TOOL: FIND_ISSUES
-
-User: "Debug nginx in default namespace"
-TOOL: LIST_ALL Pod
-
-REMEMBER: Start with discovery (LIST_ALL or FIND_ISSUES). Use exact names from output.
+REMEMBER: For custom resources (Crossplane, Istio, etc), use RUN_KUBECTL with grep. Start with discovery.
 `;
 
 // Backward compatibility - map to optimized prompt
@@ -406,49 +411,87 @@ export function enforceFormat(llmResponse: string): string {
 
 /**
  * Deterministic tool selection based on query keywords (no LLM needed)
+ * Returns the exact TOOL command to use for common queries
  */
-export function selectToolDeterministic(query: string, clusterHealth?: ClusterHealthSummary): string {
+export function selectToolDeterministic(query: string, clusterHealth?: ClusterHealthSummary): string | null {
   const q = query.toLowerCase();
 
-  // Rule-based selection
+  // Rule-based selection - VERY SPECIFIC queries get deterministic commands
+
+  // Crossplane-specific
+  if (q.includes('crossplane')) {
+    if (q.includes('install') || q.includes('version')) {
+      return 'TOOL: RUN_KUBECTL kubectl get providers.pkg.crossplane.io -A';
+    }
+    if (q.includes('composite') || q.includes('claim')) {
+      return 'TOOL: RUN_KUBECTL kubectl get composite,claim -A';
+    }
+    if (q.includes('managed')) {
+      return 'TOOL: RUN_KUBECTL kubectl get managed -A';
+    }
+    // Generic crossplane query - find CRDs first
+    return 'TOOL: RUN_KUBECTL kubectl get crds | grep -E "crossplane|composite|claim|managed"';
+  }
+
+  // Istio-specific
+  if (q.includes('istio')) {
+    if (q.includes('gateway')) {
+      return 'TOOL: RUN_KUBECTL kubectl get gateway,virtualservice -A';
+    }
+    if (q.includes('mesh') || q.includes('sidecar')) {
+      return 'TOOL: RUN_KUBECTL kubectl get pods -A -l istio-injection=enabled';
+    }
+    return 'TOOL: RUN_KUBECTL kubectl get pods -n istio-system';
+  }
+
+  // Crash/failure detection
   if (q.includes('crash') || q.includes('restart') || q.includes('fail')) {
     return 'TOOL: FIND_ISSUES';
   }
 
-  if (q.includes('log')) {
-    return 'TOOL: LIST_ALL Pod'; // Will need pod name next
+  // Logs - need pod name first
+  if (q.includes('log') && !q.match(/\w+\/\w+/)) { // No namespace/pod pattern
+    return 'TOOL: FIND_ISSUES'; // Will show failing pods
   }
 
-  if (q.includes('crossplane')) {
-    return 'TOOL: RUN_KUBECTL kubectl get crds | grep crossplane';
-  }
-
-  if (q.includes('istio')) {
-    return 'TOOL: RUN_KUBECTL kubectl get gateway,virtualservice -A';
-  }
-
+  // Secrets
   if (q.includes('secret')) {
     return 'TOOL: LIST_ALL Secret';
   }
 
+  // Deployments
   if (q.includes('deployment') || q.includes('deploy')) {
     return 'TOOL: LIST_ALL Deployment';
   }
 
+  // Services
   if (q.includes('service') || q.includes('svc')) {
     return 'TOOL: LIST_ALL Service';
   }
 
+  // Pods
   if (q.includes('pod') || q.includes('container')) {
     return 'TOOL: LIST_ALL Pod';
   }
 
+  // Nodes
   if (q.includes('node')) {
     return 'TOOL: RUN_KUBECTL kubectl get nodes -o wide';
   }
 
+  // Events
   if (q.includes('event')) {
-    return 'TOOL: RUN_KUBECTL kubectl get events -A --sort-by=.lastTimestamp';
+    return 'TOOL: RUN_KUBECTL kubectl get events -A --sort-by=.lastTimestamp | tail -50';
+  }
+
+  // CRDs
+  if (q.includes('crd') || q.includes('customresourcedefinition')) {
+    // If asking for specific CRD, grep for it
+    const match = q.match(/crd.*?(\w+)/);
+    if (match && match[1]) {
+      return `TOOL: RUN_KUBECTL kubectl get crds | grep -i ${match[1]}`;
+    }
+    return 'TOOL: RUN_KUBECTL kubectl get crds';
   }
 
   // Check cluster health for automatic detection
@@ -458,8 +501,8 @@ export function selectToolDeterministic(query: string, clusterHealth?: ClusterHe
     }
   }
 
-  // Default: start with discovery
-  return 'TOOL: FIND_ISSUES';
+  // Return null to let LLM decide for non-obvious queries
+  return null;
 }
 
 /**
