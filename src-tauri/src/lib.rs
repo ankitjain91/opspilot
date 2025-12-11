@@ -4297,7 +4297,7 @@ async fn connect_vcluster(
     }
 
     // Polling / Verification Loop
-    let new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
+    let mut new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(10);
     let mut connected = false;
@@ -4317,15 +4317,18 @@ async fn connect_vcluster(
         // Check if process is dead
         match child.try_wait() {
             Ok(Some(status)) => {
-                // Process exited!
-                println!("vcluster connect process exited unexpectedly with: {:?}", status);
-                // If it failed, we can read stderr? 
-                // Wait, we need to capture stderr to read it.
-                // But `Child` ownership... retry logic below.
-                break;
+                if status.success() {
+                    // Process exited successfully (foreground mode)
+                    // This is acceptable, we just proceed to verify connectivity.
+                    // We can stop checking the process status now.
+                } else {
+                    // Process failed!
+                    println!("vcluster connect process exited unexpectedly with: {:?}", status);
+                    break;
+                }
             }
             Ok(None) => {
-                // Still running, good.
+                // Still running (background proxy mode), good.
             }
             Err(e) => {
                 println!("Error waiting for child: {}", e);
@@ -4333,18 +4336,31 @@ async fn connect_vcluster(
             }
         }
 
-        // Try to create a client with the new context
-        // ... (Similar logic to before)
+        // Check Kubeconfig for current context
+        // vcluster CLI usually updates the current-context to the new vcluster context.
+        // We initially predicted the name, but we should verify what's actually in the file.
+        let raw_config = Kubeconfig::read().unwrap_or_default();
+        let mut target_context = new_context.clone();
+        
+        if let Some(ctx) = &raw_config.current_context {
+            if ctx.contains("vcluster") || ctx.contains(&name) {
+                target_context = ctx.clone();
+            }
+        }
+
         let config_res = kube::Config::from_custom_kubeconfig(
-            Kubeconfig::read().unwrap_or_default(),
+            raw_config,
             &KubeConfigOptions {
-                context: Some(new_context.clone()),
+                context: Some(target_context.clone()),
                 ..Default::default()
             }
         ).await;
 
         if let Ok(mut config) = config_res {
-            config.connect_timeout = Some(std::time::Duration::from_millis(1000));
+             // Save the actual context name we successfully used
+             new_context = target_context.clone();
+             
+             config.connect_timeout = Some(std::time::Duration::from_millis(1000));
             config.read_timeout = Some(std::time::Duration::from_millis(1000));
             config.accept_invalid_certs = true;
             
@@ -4405,10 +4421,19 @@ async fn connect_vcluster(
             Err(_) => break
         }
 
+        let raw_config = Kubeconfig::read().unwrap_or_default();
+        let mut target_context = new_context.clone();
+        
+        if let Some(ctx) = &raw_config.current_context {
+            if ctx.contains("vcluster") || ctx.contains(&name) {
+                target_context = ctx.clone();
+            }
+        }
+
         let config_res = kube::Config::from_custom_kubeconfig(
-            Kubeconfig::read().unwrap_or_default(),
+            raw_config,
             &KubeConfigOptions {
-                context: Some(new_context.clone()),
+                context: Some(target_context.clone()),
                 ..Default::default()
             }
         ).await;
@@ -4470,7 +4495,8 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
     if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
         if let Some(pid) = *pid_guard {
              println!("Disconnecting: Killing vcluster proxy (PID: {})", pid);
-             let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
+             // Use SIGKILL (kill -9) to ensure it dies, ignore errors if already dead
+             let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).stderr(std::process::Stdio::null()).output();
         }
         *pid_guard = None;
     }
