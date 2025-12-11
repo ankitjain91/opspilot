@@ -1,61 +1,65 @@
 #!/bin/bash
 
-# Rebuild Ollama k8s-cli model with optimized Modelfile
-# Run this after making changes to Modelfile
+# Rebuild Ollama k8s-cli model with M4 Pro optimizations
+# Uses Qwen 2.5 Coder 14B (The best fit for 24GB RAM)
 
 set -e
 
-echo "🔧 Rebuilding Ollama k8s-cli model with optimizations..."
+# Configuration
+CUSTOM_MODEL_NAME="k8s-cli"
+BASE_MODEL="qwen2.5-coder:14b" # Changed from generic qwen2.5 to CODER variant
+
+echo "🔧 Rebuilding '${CUSTOM_MODEL_NAME}' with M4 Pro optimizations..."
 echo ""
 
-# Check if Ollama is installed
+# 1. Pre-flight Checks
 if ! command -v ollama &> /dev/null; then
-    echo "❌ Error: Ollama not found. Please install from https://ollama.ai"
+    echo "❌ Error: Ollama not found. Install from https://ollama.ai"
     exit 1
 fi
 
-# Check if base model exists
-echo "📦 Checking for qwen2.5:14b..."
-if ! ollama list | grep -q "qwen2.5:14b"; then
-    echo "⬇️  Pulling qwen2.5:14b (this may take a few minutes)..."
-    ollama pull qwen2.5:14b
-else
-    echo "✅ Base model already exists"
-fi
-
-# Delete old k8s-cli model if it exists
-if ollama list | grep -q "k8s-cli"; then
-    echo "🗑️  Removing old k8s-cli model..."
-    ollama rm k8s-cli || true
-fi
-
-# Create new model from Modelfile
-echo "🏗️  Creating k8s-cli model from Modelfile..."
-ollama create k8s-cli -f Modelfile
-
-# Verify creation
-if ollama list | grep -q "k8s-cli"; then
-    echo ""
-    echo "✅ SUCCESS! k8s-cli model created with optimizations:"
-    echo "   - Base model: Qwen 2.5 14B"
-    echo "   - Temperature: 0.2"
-    echo "   - Context window: 16384 tokens"
-    echo "   - Top-p: 0.9, Top-k: 50"
-    echo "   - Repeat penalty: 1.1"
-    echo "   - No system prompt conflicts"
-    echo ""
-    echo "📊 Model details:"
-    ollama list | grep "k8s-cli"
-    echo ""
-    echo "🚀 Ready to use! Switch to 'k8s-cli' in lens-killer settings."
-    echo ""
-    echo "💡 Qwen 2.5 14B advantages:"
-    echo "   - Better reasoning than Llama 3.1 8B"
-    echo "   - Handles 16k context (vs 8k)"
-    echo "   - More accurate tool selection"
-    echo "   - Better at following instructions"
-else
-    echo ""
-    echo "❌ Error: Model creation failed"
+if [ ! -f "Modelfile.k8s-cli" ]; then
+    echo "❌ Error: 'Modelfile.k8s-cli' not found in current directory."
+    echo "   Please create it with the optimized parameters first."
     exit 1
 fi
+
+# 2. Check/Pull Base Model
+echo "📦 Checking for base model: ${BASE_MODEL}..."
+if ! ollama list | grep -q "${BASE_MODEL}"; then
+    echo "⬇️  Pulling ${BASE_MODEL} (optimized for coding/JSON)..."
+    ollama pull ${BASE_MODEL}
+else
+    echo "✅ Base model (${BASE_MODEL}) is ready."
+fi
+
+# 3. Clean up old version
+if ollama list | grep -q "${CUSTOM_MODEL_NAME}"; then
+    echo "🗑️  Removing old '${CUSTOM_MODEL_NAME}' model..."
+    ollama rm ${CUSTOM_MODEL_NAME} || true
+fi
+
+# 4. Build new model
+echo "🏗️  Creating '${CUSTOM_MODEL_NAME}' from Modelfile.k8s-cli..."
+# We pipe stderr to stdout to see build progress
+if ollama create ${CUSTOM_MODEL_NAME} -f Modelfile.k8s-cli; then
+    echo ""
+    echo "✅ SUCCESS! '${CUSTOM_MODEL_NAME}' created successfully."
+else
+    echo "❌ Error: Failed to create model."
+    exit 1
+fi
+
+# 5. Verification & Summary
+echo "---------------------------------------------------"
+echo "📊 Model Specs:"
+echo "   - Base:         ${BASE_MODEL} (Best for CLI/YAML)"
+echo "   - Context:      16k tokens (Optimized for logs)"
+echo "   - Temperature:  0.1 (Strict JSON)"
+echo "   - System RAM:   ~9GB footprint (Safe for 24GB M4 Pro)"
+echo "---------------------------------------------------"
+echo "🚀 NEXT STEPS:"
+echo "1. Update your 'agentOrchestrator.ts':"
+echo "   model: '${CUSTOM_MODEL_NAME}'"
+echo "2. Restart your React app to clear any open sockets."
+echo ""

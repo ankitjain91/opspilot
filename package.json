@@ -23,8 +23,9 @@
     "lens-alternative"
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "node scripts/ensure-embeddings.cjs && tsc && vite build",
+    "dev": "vite --port 1422 --host 127.0.0.1",
+    "build:python": "scripts/build-python-sidecar.sh",
+    "build": "npm run build:python && node scripts/ensure-embeddings.cjs && tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",

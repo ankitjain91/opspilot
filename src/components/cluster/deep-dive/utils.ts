@@ -3,6 +3,7 @@ import { K8sObject } from "../../../types/k8s";
 
 // Helper to fix kubectl commands with placeholder syntax like [namespace], <pod>, etc.
 export function fixKubectlPlaceholders(text: string, resource: K8sObject, containers?: string[]): string {
+    if (!text) return '';
     // Replace common placeholder patterns with actual values
     let fixed = text;
 

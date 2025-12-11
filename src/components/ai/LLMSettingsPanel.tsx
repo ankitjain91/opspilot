@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, ExternalLink, Eye, EyeOff, ChevronRight, Copy, AlertCircle, Terminal } from 'lucide-react';
+import { Settings, X, Check, ExternalLink, Eye, EyeOff, Copy, AlertCircle, Terminal, Sparkles } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
 import { DEFAULT_LLM_CONFIGS } from './constants';
@@ -18,11 +18,13 @@ import { MCPSettings } from '../settings/MCPSettings';
 export function LLMSettingsPanel({
     config,
     onConfigChange,
-    onClose
+    onClose,
+    systemSpecs
 }: {
     config: LLMConfig;
     onConfigChange: (config: LLMConfig) => void;
     onClose: () => void;
+    systemSpecs: { cpu_brand: string; total_memory: number; is_apple_silicon: boolean; } | null;
 }) {
     const [activeTab, setActiveTab] = useState<'provider' | 'mcp'>('provider');
     const [localConfig, setLocalConfig] = useState<LLMConfig>(config);
@@ -40,7 +42,7 @@ export function LLMSettingsPanel({
             description: 'Free, local AI. Runs on your machine.',
             icon: '🦙',
             requiresApiKey: false,
-            defaultModel: 'llama3.1:8b',
+            defaultModel: 'k8s-cli',
         },
         'claude-code': {
             name: 'Claude Code',
@@ -386,68 +388,143 @@ export function LLMSettingsPanel({
                         </div>
                     )}
 
-                    {/* Advanced Settings - hide for Claude Code */}
-                    {localConfig.provider !== 'claude-code' && <details className="group">
-                        <summary className="text-xs font-semibold text-zinc-400 uppercase tracking-wider cursor-pointer hover:text-zinc-300 flex items-center gap-2 transition-colors">
-                            <ChevronRight size={14} className="transition-transform duration-200 group-open:rotate-90" />
-                            Advanced Settings
-                        </summary>
-                        <div className="mt-4 space-y-5 pl-5 border-l-2 border-white/10">
-                            {/* Model Override */}
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs text-zinc-300 font-medium">Model Override</label>
-                                    <span className="text-[10px] text-zinc-500">Default: {currentProviderInfo.defaultModel}</span>
+                    {/* Hardware Recommendation for Ollama */}
+                    {localConfig.provider === 'ollama' && systemSpecs && (
+                        <div className="bg-white/5 rounded-lg p-3 text-xs border border-white/10">
+                            <div className="flex items-center justify-between mb-1">
+                                <span className="text-zinc-400 flex items-center gap-1.5"><Settings size={12} /> Hardware Detected</span>
+                                <span className="text-zinc-200 font-mono">{systemSpecs.cpu_brand} ({Math.round(systemSpecs.total_memory / 1024 / 1024 / 1024)}GB RAM)</span>
+                            </div>
+                            {systemSpecs.is_apple_silicon && systemSpecs.total_memory > 17179869184 ? (
+                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
+                                    <Sparkles size={12} className="text-amber-400 flex-shrink-0" />
+                                    <span className="text-amber-300/90 leading-relaxed">
+                                        Your Mac is powerful! Switch model to <code className="bg-amber-500/20 px-1 rounded text-amber-200 border border-amber-500/30">qwen2.5:14b</code> for superior reasoning and deep dives.
+                                    </span>
                                 </div>
+                            ) : (
+                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] flex-shrink-0" />
+                                    <span className="text-emerald-300/90 leading-relaxed">
+                                        Recommended: <code className="bg-emerald-500/20 px-1 rounded text-emerald-200 border border-emerald-500/30">k8s-cli</code> (Llama 3.1 8B) for best speed/performance balance.
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Multi-Agent Architecture Explanation */}
+                    {localConfig.provider !== 'claude-code' && (
+                        <div className="bg-gradient-to-br from-violet-500/10 to-cyan-500/10 border border-violet-500/20 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <Sparkles size={14} className="text-violet-400" />
+                                <span className="text-xs font-semibold text-violet-300">Multi-Agent Architecture</span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                OpsPilot uses two AI roles for optimal performance:
+                            </p>
+                            <ul className="text-[11px] text-zinc-400 space-y-1 ml-2">
+                                <li className="flex items-start gap-2">
+                                    <span className="text-violet-400">🧠</span>
+                                    <span><strong className="text-white">Brain</strong> — Planning, reasoning, analysis. Needs a smart model.</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-cyan-400">⚡</span>
+                                    <span><strong className="text-white">Executor</strong> — Fast kubectl translation. Can use a smaller, faster model.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Model Selection - Show available models when connected */}
+                    {localConfig.provider !== 'claude-code' && status?.connected && status.available_models.length > 0 && (
+                        <div className="space-y-4">
+                            {/* Brain Model */}
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="text-violet-400">🧠</span> Brain Model
+                                </label>
+                                <select
+                                    value={localConfig.model}
+                                    onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all cursor-pointer"
+                                >
+                                    {!status.available_models.includes(localConfig.model) && (
+                                        <option value={localConfig.model} className="bg-zinc-800 text-amber-400">
+                                            {localConfig.model} (not found)
+                                        </option>
+                                    )}
+                                    {status.available_models.map(model => (
+                                        <option key={model} value={model} className="bg-zinc-800">
+                                            {model}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Executor Model */}
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="text-cyan-400">⚡</span> Executor Model <span className="text-zinc-500 font-normal text-[10px]">(Optional)</span>
+                                </label>
+                                <select
+                                    value={localConfig.executor_model || ''}
+                                    onChange={(e) => setLocalConfig({ ...localConfig, executor_model: e.target.value || null })}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all cursor-pointer"
+                                >
+                                    <option value="" className="bg-zinc-800 text-zinc-400">
+                                        Same as Brain (recommended for APIs)
+                                    </option>
+                                    {status.available_models.map(model => (
+                                        <option key={model} value={model} className="bg-zinc-800">
+                                            {model}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-zinc-500">
+                                    {localConfig.provider === 'ollama'
+                                        ? '💡 For local Ollama, use qwen2.5-coder:1.5b for 2-3x faster CLI execution.'
+                                        : '💡 For cloud APIs, same model is recommended (no cost difference).'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Model Input - Show text input when no models available or not connected */}
+                    {localConfig.provider !== 'claude-code' && (!status?.connected || status.available_models.length === 0) && (
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="text-violet-400">🧠</span> Brain Model
+                                </label>
                                 <input
                                     type="text"
                                     value={localConfig.model}
                                     onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
                                     placeholder={currentProviderInfo.defaultModel}
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:outline-none transition-all font-mono text-xs"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono"
                                 />
-                                <p className="text-[10px] text-zinc-500">Leave empty to use the default. Only change if you know the exact model name.</p>
+                                <p className="text-[10px] text-zinc-500">
+                                    {localConfig.provider === 'ollama' && 'e.g., llama3.1, qwen2.5:14b, mistral'}
+                                    {localConfig.provider === 'openai' && 'e.g., gpt-4o, gpt-4-turbo, gpt-3.5-turbo'}
+                                    {localConfig.provider === 'anthropic' && 'e.g., claude-sonnet-4-20250514, claude-3-5-haiku-20241022'}
+                                    {localConfig.provider === 'custom' && 'Enter the model name available on your server'}
+                                </p>
                             </div>
-
-                            {/* Temperature */}
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs text-zinc-300 font-medium">Temperature</label>
-                                    <span className="text-xs text-violet-400 font-mono bg-violet-500/10 px-2 py-0.5 rounded-md">{localConfig.temperature.toFixed(2)}</span>
-                                </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="text-cyan-400">⚡</span> Executor Model <span className="text-zinc-500 font-normal text-[10px]">(Optional)</span>
+                                </label>
                                 <input
-                                    type="range"
-                                    min="0"
-                                    max="2"
-                                    step="0.1"
-                                    value={localConfig.temperature}
-                                    onChange={(e) => setLocalConfig({ ...localConfig, temperature: parseFloat(e.target.value) })}
-                                    className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-violet-500"
-                                />
-                                <div className="flex justify-between text-[10px] text-zinc-500">
-                                    <span>Precise</span>
-                                    <span>Creative</span>
-                                </div>
-                            </div>
-
-                            {/* Max Tokens */}
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs text-zinc-300 font-medium">Max Tokens</label>
-                                    <span className="text-xs text-violet-400 font-mono bg-violet-500/10 px-2 py-0.5 rounded-md">{localConfig.max_tokens}</span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min="256"
-                                    max="8192"
-                                    step="256"
-                                    value={localConfig.max_tokens}
-                                    onChange={(e) => setLocalConfig({ ...localConfig, max_tokens: parseInt(e.target.value) })}
-                                    className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-violet-500"
+                                    type="text"
+                                    value={localConfig.executor_model || ''}
+                                    onChange={(e) => setLocalConfig({ ...localConfig, executor_model: e.target.value || null })}
+                                    placeholder="Leave empty to use Brain model"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono"
                                 />
                             </div>
                         </div>
-                    </details>}
+                    )}
 
                     {/* Action Buttons */}
                     <div className="flex gap-3 pt-3">

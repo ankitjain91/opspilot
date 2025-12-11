@@ -17,8 +17,12 @@ export interface ExtractedCommand {
  * - kubectl get pods -A (at line start)
  */
 export function extractCommandsFromResponse(response: string): ExtractedCommand[] {
-  // Match TOOL: format
-  const toolMatches = [...response.matchAll(/TOOL:\s*(\w+)(?:\s+(.+?))?(?=\n|TOOL:|$)/g)];
+  // Match TOOL: format with robustness for:
+  // 1. Case insensitivity (TOOL, Tool, tool)
+  // 2. Markdown formatting (**TOOL**, - TOOL)
+  // 3. Optional colons
+  // 4. "Thought:" pollution
+  const toolMatches = [...response.matchAll(/(?:^|\n|[\s*>|\-]*)(?:[*_]*)(?:TOOL|Tool)(?:[*_]*)\s*:?\s*(\w+)(?:\s+(.+?))?(?=\n|(?:\s*Thought:)|$)/gi)];
 
   // More lenient shell command matching:
   // - Matches "$ kubectl ..." or "$kubectl ..." at line start
@@ -34,7 +38,16 @@ export function extractCommandsFromResponse(response: string): ExtractedCommand[
   const seenCommands = new Set<string>();
 
   for (const match of toolMatches) {
-    const args = match[2]?.trim() || '';
+    let rawArgs = match[2]?.trim() || '';
+
+    // Clean "Thought:" pollution
+    rawArgs = rawArgs.split(/Thought:/i)[0].trim();
+
+    // Clean trailing markdown
+    rawArgs = rawArgs.replace(/[*_]+$/, '').trim();
+
+    // Strip comments in parens e.g. "deployment (to check volume)"
+    const args = rawArgs.split('(')[0].trim();
     const key = `${match[1].toUpperCase()}:${args}`;
     if (!seenCommands.has(key)) {
       seenCommands.add(key);
@@ -45,6 +58,7 @@ export function extractCommandsFromResponse(response: string): ExtractedCommand[
   for (const pattern of shellPatterns) {
     const matches = [...response.matchAll(pattern)];
     for (const match of matches) {
+      if (!match || !match[1]) continue;
       const kubectlCmd = match[1].replace(/^kubectl\s+/, '').trim();
       const key = `RUN_KUBECTL:${kubectlCmd}`;
       if (kubectlCmd && !seenCommands.has(key)) {
@@ -138,10 +152,69 @@ export function classifyRequest(message: string): RequestType {
   return 'unknown';
 }
 
+// Learning types for investigation recording
+interface ToolRecord {
+  tool: string;
+  args: string | null;
+  status: string;
+  useful: boolean;
+  duration_ms: number;
+}
+
+// Helper to record investigation outcome for learning
+import { ToolOutcome } from './types';
+
+export async function recordInvestigationForLearning(
+  question: string,
+  toolHistory: ToolOutcome[],
+  confidence: { level: string; score: number },
+  hypotheses: Array<{ id: string; description: string; status: string }>,
+  rootCause: string | null,
+  durationMs: number,
+  k8sContext: string
+) {
+  // In a real implementation with a backend database, this would save the
+  // successful investigation path to train/finetune the model or add to RAG.
+  // For now, we'll log a structured object that could be scraped/stored.
+
+  const learningRecord = {
+    timestamp: new Date().toISOString(),
+    context: k8sContext,
+    trigger: question,
+    outcome: {
+      success: confidence.score > 0.7,
+      root_cause_identified: !!rootCause,
+      confidence_score: confidence.score,
+      duration_ms: durationMs
+    },
+    path: {
+      steps_count: toolHistory.length,
+      tools_used: toolHistory.map(t => ({
+        tool: t.tool,
+        args: t.args || null,
+        status: t.result.startsWith('Error') ? 'failed' : 'success',
+        useful: !t.result.includes('No resources found'), // Simple heuristic
+        duration_ms: 0 // We don't track per-tool duration yet
+      } as ToolRecord))
+    },
+    insight: {
+      root_cause: rootCause,
+      proven_hypotheses: hypotheses.filter(h => h.status === 'confirmed').map(h => h.description)
+    }
+  };
+
+  // Low-key logging (debug level) so we can see it in console but not clutter
+  console.debug('[Agent Learning] Recording successful investigation path:', learningRecord);
+
+  // TODO: Send to backend
+  // await invoke('record_agent_learning', { record: learningRecord });
+}
+
 /**
  * Extract suggestions from LLM response
  */
 export function extractSuggestions(response: string): { cleanedResponse: string; suggestions: string[] } {
+  if (!response) return { cleanedResponse: '', suggestions: [] };
   const suggestionsMatch = response.match(/<suggestions>\s*(\[[\s\S]*?\])\s*<\/suggestions>/);
   let suggestions: string[] = [];
   let cleanedResponse = response;

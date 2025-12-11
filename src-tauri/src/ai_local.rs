@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use sysinfo::System;
+use tauri::Emitter;
 
 // Default configurations
 const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
@@ -40,13 +42,47 @@ impl Default for LLMConfig {
             provider: LLMProvider::Ollama,
             api_key: None,
             base_url: DEFAULT_OLLAMA_URL.to_string(),
-            model: "llama3.1:8b".to_string(),
-            temperature: 0.2,
-            max_tokens: 2048,
+            model: "k8s-cli".to_string(),
+            temperature: 0.0,
+            max_tokens: 8192,
         }
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SystemSpecs {
+    pub total_memory: u64,
+    pub used_memory: u64,
+    pub total_swap: u64,
+    pub cpu_brand: String,
+    pub cpu_cores: usize,
+    pub is_apple_silicon: bool,
+}
+
+#[tauri::command]
+pub fn get_system_specs() -> SystemSpecs {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let total_memory = sys.total_memory();
+    let used_memory = sys.used_memory();
+    let total_swap = sys.total_swap();
+    let cpus = sys.cpus();
+    let cpu_brand = cpus.first().map(|c| c.brand().to_string()).unwrap_or_default();
+    let cpu_cores = cpus.len();
+    
+    // Simple heuristic for Apple Silicon
+    let is_apple_silicon = cpu_brand.contains("Apple") && (std::env::consts::ARCH == "aarch64");
+
+    SystemSpecs {
+        total_memory,
+        used_memory,
+        total_swap,
+        cpu_brand,
+        cpu_cores,
+        is_apple_silicon,
+    }
+}
 #[derive(Serialize, Deserialize)]
 pub struct LLMStatus {
     pub connected: bool,
@@ -89,6 +125,13 @@ struct ChatMessage {
     content: String,
 }
 
+// Response format for structured output
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    format_type: String,
+}
+
 #[derive(Serialize)]
 struct ChatRequest {
     model: String,
@@ -99,34 +142,37 @@ struct ChatRequest {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    // For Ollama JSON mode
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    // For OpenAI JSON mode
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
 }
 
-// Streaming response types (for future streaming support)
-#[allow(dead_code)]
+// Streaming response types
 #[derive(Deserialize, Debug)]
 struct StreamDelta {
     content: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct StreamChoice {
     delta: StreamDelta,
+    #[allow(dead_code)]
     finish_reason: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct StreamChunk {
     choices: Vec<StreamChoice>,
 }
 
-// Event payload for streaming LLM responses (for future streaming support)
-#[allow(dead_code)]
+// Event payload for streaming LLM responses
 #[derive(Clone, Serialize)]
 pub struct LLMStreamEvent {
     pub stream_id: String,
-    pub event_type: String, // "chunk", "done", "error"
+    pub event_type: String, // "start", "chunk", "done", "error"
     pub content: String,
 }
 
@@ -226,12 +272,13 @@ pub async fn check_ollama_status() -> Result<OllamaStatus, String> {
                 .map(|m| m.name)
                 .collect();
 
-            let model_available = available_models.iter().any(|m| m.starts_with("llama3.1"));
+            // Check if k8s-cli or base model exists
+            let model_available = available_models.iter().any(|m| m.starts_with("k8s-cli") || m.starts_with("llama3.1"));
 
             Ok(OllamaStatus {
                 ollama_running: true,
                 model_available,
-                model_name: "llama3.1:8b".to_string(),
+                model_name: "k8s-cli".to_string(),
                 available_models,
                 error: None,
             })
@@ -240,7 +287,7 @@ pub async fn check_ollama_status() -> Result<OllamaStatus, String> {
             Ok(OllamaStatus {
                 ollama_running: false,
                 model_available: false,
-                model_name: "llama3.1:8b".to_string(),
+                model_name: "k8s-cli".to_string(),
                 available_models: vec![],
                 error: Some(format!("Ollama returned status: {}", resp.status())),
             })
@@ -257,7 +304,7 @@ pub async fn check_ollama_status() -> Result<OllamaStatus, String> {
             Ok(OllamaStatus {
                 ollama_running: false,
                 model_available: false,
-                model_name: "llama3.1:8b".to_string(),
+                model_name: "k8s-cli".to_string(),
                 available_models: vec![],
                 error: Some(error_msg),
             })
@@ -265,22 +312,216 @@ pub async fn check_ollama_status() -> Result<OllamaStatus, String> {
     }
 }
 
-/// Call LLM with the provided configuration
+#[derive(Serialize)]
+struct CreateModelRequest {
+    name: String,
+    modelfile: String,
+}
+
+/// Create a new Ollama model from a Modelfile
 #[tauri::command]
+pub async fn create_ollama_model(model_name: String, modelfile: String) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(900)) // Model creation can take time (pulling base image)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = format!("{}/api/create", DEFAULT_OLLAMA_URL);
+    let body = CreateModelRequest {
+        name: model_name,
+        modelfile,
+    };
+
+    let resp = client.post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Ollama API returned status: {}", resp.status()));
+    }
+
+    Ok("Model created successfully".to_string())
+}
+
+/// Call LLM with the provided configuration
+/// Note: Parameters use camelCase to match JavaScript naming convention
+#[tauri::command]
+#[allow(non_snake_case)]
 pub async fn call_llm(
     config: LLMConfig,
     prompt: String,
-    system_prompt: Option<String>,
-    conversation_history: Vec<serde_json::Value>,
+    systemPrompt: Option<String>,
+    conversationHistory: Vec<serde_json::Value>,
 ) -> Result<String, String> {
     match config.provider {
         LLMProvider::Ollama | LLMProvider::OpenAI | LLMProvider::Custom => {
-            call_openai_compatible(&config, prompt, system_prompt, conversation_history).await
+            call_openai_compatible(&config, prompt, systemPrompt, conversationHistory).await
         }
         LLMProvider::Anthropic => {
-            call_anthropic(&config, prompt, system_prompt, conversation_history).await
+            call_anthropic(&config, prompt, systemPrompt, conversationHistory).await
         }
     }
+}
+
+/// Streaming LLM call - emits tokens as they arrive via Tauri events
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn call_llm_streaming(
+    config: LLMConfig,
+    prompt: String,
+    systemPrompt: Option<String>,
+    conversationHistory: Vec<serde_json::Value>,
+    window: tauri::Window,
+) -> Result<String, String> {
+    use futures::StreamExt;
+
+    let stream_id = uuid::Uuid::new_v4().to_string();
+
+    // Emit start event
+    let _ = window.emit("llm-stream", LLMStreamEvent {
+        stream_id: stream_id.clone(),
+        event_type: "start".to_string(),
+        content: "".to_string(),
+    });
+
+    let sys = systemPrompt.unwrap_or_else(|| "You are a helpful assistant.".to_string());
+
+    let mut messages = vec![ChatMessage {
+        role: "system".to_string(),
+        content: sys.clone(),
+    }];
+
+    for msg in conversationHistory {
+        if let Some(role) = msg.get("role").and_then(|v| v.as_str()) {
+            if let Some(content) = msg.get("content").and_then(|v| v.as_str()) {
+                messages.push(ChatMessage {
+                    role: role.to_string(),
+                    content: content.to_string(),
+                });
+            }
+        }
+    }
+
+    messages.push(ChatMessage {
+        role: "user".to_string(),
+        content: prompt.clone(),
+    });
+
+    // Determine JSON mode
+    let use_json_mode = sys.to_lowercase().contains("json") || sys.contains("JSON");
+    let is_ollama = config.base_url.contains("ollama") ||
+                    config.base_url.contains("11434") ||
+                    matches!(config.provider, LLMProvider::Ollama);
+
+    let body = ChatRequest {
+        model: config.model.clone(),
+        messages,
+        max_tokens: Some(config.max_tokens),
+        temperature: Some(config.temperature),
+        stream: Some(true),  // Enable streaming
+        format: if is_ollama && use_json_mode { Some("json".to_string()) } else { None },
+        response_format: if !is_ollama && use_json_mode {
+            Some(ResponseFormat { format_type: "json_object".to_string() })
+        } else {
+            None
+        },
+    };
+
+    let base_url = config.base_url.trim_end_matches('/');
+    // Check if base_url already contains /v1 to avoid double /v1/v1
+    let chat_url = if base_url.ends_with("/v1") {
+        format!("{}/chat/completions", base_url)
+    } else if is_ollama {
+        format!("{}/v1/chat/completions", base_url)
+    } else {
+        format!("{}/chat/completions", base_url)
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut request = client.post(&chat_url).json(&body);
+    if let Some(ref api_key) = config.api_key {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+
+    let resp = request.send().await.map_err(|e| {
+        let _ = window.emit("llm-stream", LLMStreamEvent {
+            stream_id: stream_id.clone(),
+            event_type: "error".to_string(),
+            content: format!("Request error: {}", e),
+        });
+        format!("Request error: {}", e)
+    })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        let error_msg = format!("LLM HTTP error {}: {}", status, body);
+        let _ = window.emit("llm-stream", LLMStreamEvent {
+            stream_id: stream_id.clone(),
+            event_type: "error".to_string(),
+            content: error_msg.clone(),
+        });
+        return Err(error_msg);
+    }
+
+    let mut full_response = String::new();
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk_result) = stream.next().await {
+        match chunk_result {
+            Ok(chunk) => {
+                let chunk_str = String::from_utf8_lossy(&chunk);
+
+                // Parse SSE format: data: {...}\n\n
+                for line in chunk_str.lines() {
+                    if line.starts_with("data: ") {
+                        let data = &line[6..];
+                        if data == "[DONE]" {
+                            continue;
+                        }
+
+                        if let Ok(parsed) = serde_json::from_str::<StreamChunk>(data) {
+                            if let Some(choice) = parsed.choices.first() {
+                                if let Some(content) = &choice.delta.content {
+                                    full_response.push_str(content);
+
+                                    // Emit chunk event
+                                    let _ = window.emit("llm-stream", LLMStreamEvent {
+                                        stream_id: stream_id.clone(),
+                                        event_type: "chunk".to_string(),
+                                        content: content.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = window.emit("llm-stream", LLMStreamEvent {
+                    stream_id: stream_id.clone(),
+                    event_type: "error".to_string(),
+                    content: format!("Stream error: {}", e),
+                });
+                return Err(format!("Stream error: {}", e));
+            }
+        }
+    }
+
+    // Emit done event
+    let _ = window.emit("llm-stream", LLMStreamEvent {
+        stream_id: stream_id.clone(),
+        event_type: "done".to_string(),
+        content: "".to_string(),
+    });
+
+    Ok(full_response)
 }
 
 /// Legacy function for backwards compatibility
@@ -330,8 +571,24 @@ async fn check_ollama_status_internal(config: &LLMConfig) -> Result<LLMStatus, S
                 connected: true,
                 provider: "Ollama".to_string(),
                 model: config.model.clone(),
-                available_models,
-                error: if model_available { None } else { Some(format!("Model '{}' not found. Pull it with: ollama pull {}", config.model, config.model)) },
+                available_models: available_models.clone(),
+                error: if model_available { 
+                    None 
+                } else { 
+                    // List available models to help user debug
+                    let models_list = available_models.join(", ");
+                    Some(format!("Model '{}' not found. Available models: [{}]", config.model, models_list))
+                },
+            })
+        }
+        Ok(resp) if resp.status().as_u16() == 404 => {
+             Ok(LLMStatus {
+                connected: false,
+                provider: "Ollama".to_string(),
+                model: config.model.clone(),
+                available_models: vec![],
+                // Specific help for 404s (common with OpenAI/vLLM endpoints confused for Ollama)
+                error: Some("Endpoint not found (404). If this is an OpenAI-compatible server (like vLLM), please switch Provider to 'OpenAI'.".to_string()),
             })
         }
         Ok(resp) => {
@@ -345,7 +602,7 @@ async fn check_ollama_status_internal(config: &LLMConfig) -> Result<LLMStatus, S
         }
         Err(e) => {
             let error_msg = if e.is_connect() {
-                "Ollama is not running. Please start Ollama first.".to_string()
+                "Ollama is not running. Check connection or URL.".to_string()
             } else if e.is_timeout() {
                 "Connection to Ollama timed out.".to_string()
             } else {
@@ -553,6 +810,12 @@ When suggesting kubectl commands, use the actual tools instead of just suggestin
 Format your responses in markdown. Be concise and actionable."#.to_string()
     });
 
+    // Determine if JSON mode should be enabled BEFORE consuming strings
+    // Enable JSON mode when the system prompt mentions JSON output
+    let use_json_mode = sys.to_lowercase().contains("json") ||
+                        sys.contains("JSON") ||
+                        prompt.to_lowercase().contains("respond with") && prompt.to_lowercase().contains("json");
+
     let mut messages = vec![ChatMessage {
         role: "system".to_string(),
         content: sys,
@@ -575,23 +838,39 @@ Format your responses in markdown. Be concise and actionable."#.to_string()
         content: prompt,
     });
 
+    let is_ollama = config.base_url.contains("ollama") ||
+                    config.base_url.contains("11434") ||
+                    matches!(config.provider, LLMProvider::Ollama);
+
     let body = ChatRequest {
         model: config.model.clone(),
         messages,
         max_tokens: Some(config.max_tokens),
         temperature: Some(config.temperature),
-        stream: None, // Non-streaming call
+        stream: None,
+        // Ollama uses "format": "json"
+        format: if is_ollama && use_json_mode { Some("json".to_string()) } else { None },
+        // OpenAI uses "response_format": {"type": "json_object"}
+        response_format: if !is_ollama && use_json_mode {
+            Some(ResponseFormat { format_type: "json_object".to_string() })
+        } else {
+            None
+        },
     };
 
     let base_url = config.base_url.trim_end_matches('/');
-    let chat_url = if config.base_url.contains("ollama") || matches!(config.provider, LLMProvider::Ollama) {
+    // Check if base_url already contains /v1 to avoid double /v1/v1
+    let chat_url = if base_url.ends_with("/v1") {
+        format!("{}/chat/completions", base_url)
+    } else if is_ollama {
         format!("{}/v1/chat/completions", base_url)
     } else {
         format!("{}/chat/completions", base_url)
     };
 
+    // Increased timeout for large models (70B can take 2-3 minutes)
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|e| e.to_string())?;
 

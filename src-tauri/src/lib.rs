@@ -1,5 +1,5 @@
 use kube::{
-    api::{Api, ListParams, DynamicObject, GroupVersionKind, DeleteParams, LogParams, AttachParams, Patch, PatchParams},
+    api::{Api, ListParams, DynamicObject, GroupVersionKind, DeleteParams, LogParams, Patch, PatchParams},
     runtime::watcher::{watcher, Config as WatcherConfig, Event as WatcherEvent},
     Client, Discovery,
     config::{KubeConfigOptions, Kubeconfig},
@@ -20,6 +20,7 @@ mod knowledge;
 mod embeddings;
 mod mcp;
 mod learning;
+mod agent_sidecar;
 
 // --- Data Structures ---
 
@@ -44,6 +45,9 @@ struct ResourceRequest {
     version: String,
     kind: String,
     namespace: Option<String>,
+    #[allow(dead_code)]
+    name: Option<String>,
+    include_raw: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -491,6 +495,8 @@ struct AppState {
     // Cache Kubernetes client to avoid re-creating connections (2 minute TTL)
     // Key is (kubeconfig_path, context) to ensure cache invalidation on context switch
     client_cache: Arc<Mutex<Option<(std::time::Instant, String, Client)>>>,
+    // Cache for initial dashboard data (15s TTL) for instant navigation
+    initial_data_cache: Arc<Mutex<Option<(std::time::Instant, InitialClusterData)>>>,
 }
 
 // --- Logic ---
@@ -565,6 +571,9 @@ async fn clear_all_caches(state: State<'_, AppState>) -> Result<(), String> {
     if let Ok(mut cache) = state.client_cache.try_lock() {
         *cache = None;
     }
+    if let Ok(mut cache) = state.initial_data_cache.try_lock() {
+        *cache = None;
+    }
     Ok(())
 }
 
@@ -625,6 +634,7 @@ async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
     config.connect_timeout = Some(std::time::Duration::from_secs(10));
     config.read_timeout = Some(std::time::Duration::from_secs(30));
     config.write_timeout = Some(std::time::Duration::from_secs(30));
+
 
     // For vcluster contexts (local proxy), we may need to accept self-signed certs
     // vcluster creates contexts with names like "vcluster_<name>_<ns>_<host>"
@@ -1697,6 +1707,7 @@ async fn start_resource_watch(
     let kind = req.kind.clone();
     let group = req.group.clone();
     let version = ar.version.clone();
+    let include_raw = req.include_raw.unwrap_or(false);
 
     // Helper function to convert DynamicObject to ResourceSummary
     let to_summary = move |obj: DynamicObject| -> ResourceSummary {
@@ -1705,6 +1716,11 @@ async fn start_resource_watch(
 
         // Check if resource is being deleted (has deletionTimestamp)
         let is_terminating = obj.metadata.deletion_timestamp.is_some();
+        let raw_json = if include_raw { 
+            serde_json::to_string_pretty(&obj).unwrap_or_default() 
+        } else { 
+            String::new() 
+        };
 
         let status = if is_terminating {
             "Terminating".to_string()
@@ -1775,7 +1791,7 @@ async fn start_resource_watch(
             version: version.clone(),
             age: obj.metadata.creation_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default(),
             status,
-            raw_json: String::new(),
+            raw_json,
             ready,
             restarts,
             node,
@@ -1786,6 +1802,7 @@ async fn start_resource_watch(
 
     // Start the watcher in a background task
     let watch_id_clone = watch_id.clone();
+    
     tokio::spawn(async move {
         let watcher_config = WatcherConfig::default();
         let mut stream = watcher(api, watcher_config).boxed();
@@ -1903,87 +1920,8 @@ async fn list_events(state: State<'_, AppState>, namespace: String, name: String
 
 // 6. EXEC (TERMINAL)
 // Pod Terminal Exec - Industry-standard implementation with larger buffers
-#[tauri::command]
-async fn start_exec(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    namespace: String,
-    name: String,
-    container: Option<String>,
-    session_id: String
-) -> Result<(), String> {
-    // Clean up any existing session with same ID
-    {
-        let mut sessions = state.sessions.lock().unwrap();
-        sessions.remove(&session_id);
-    }
 
-    let client = create_client(state.clone()).await?;
-    let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client, &namespace);
 
-    let ap = AttachParams {
-        container,
-        stdin: true,
-        stdout: true,
-        stderr: false,  // Must be false when tty is true
-        tty: true,
-        ..Default::default()
-    };
-
-    // Use simple /bin/sh which is available in almost all containers
-    // More complex shell detection can cause issues in minimal containers
-    let shell_cmd = vec!["/bin/sh"];
-
-    let mut attached = pods.exec(&name, shell_cmd, &ap).await.map_err(|e| e.to_string())?;
-
-    let stdin_writer = attached.stdin().ok_or("Failed to get stdin")?;
-    let mut stdout = attached.stdout().ok_or("Failed to get stdout")?;
-
-    // Store stdin in session map
-    let session = Arc::new(ExecSession {
-        stdin: tokio::sync::Mutex::new(Box::new(stdin_writer)),
-    });
-
-    // Keep the attached process alive by moving it into the background task
-    // The AttachedProcess must not be dropped or the websocket connection closes
-
-    state.sessions.lock().unwrap().insert(session_id.clone(), session);
-
-    // Spawn background task to read stdout with larger buffer
-    let session_id_clone = session_id.clone();
-    let app_handle = app.clone();
-    let sessions_ref = state.sessions.clone();
-
-    tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
-        // 8KB buffer for faster terminal output
-        let mut buf = vec![0u8; 8192];
-
-        // Move attached into this task to keep it alive
-        // The websocket connection stays open as long as attached is not dropped
-        let _attached_keepalive = attached;
-
-        loop {
-            match stdout.read(&mut buf).await {
-                Ok(0) => break, // EOF
-                Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if app_handle.emit(&format!("term_output:{}", session_id_clone), data).is_err() {
-                        break; // Frontend disconnected
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-
-        // Clean up session on disconnect
-        sessions_ref.lock().unwrap().remove(&session_id_clone);
-        let _ = app_handle.emit(&format!("term_closed:{}", session_id_clone), ());
-        // _attached_keepalive is dropped here, closing the websocket
-    });
-
-    Ok(())
-}
 
 #[tauri::command]
 async fn send_exec_input(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
@@ -2644,8 +2582,19 @@ pub fn run() {
                         new_path = format!("{}{}{}", new_path, separator, p);
                     }
                 }
-                env::set_var(key, new_path);
+                unsafe {
+                    env::set_var(key, new_path);
+                }
             }
+
+            // Start the LangGraph agent sidecar
+            let app_handle = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = agent_sidecar::start_agent_sidecar(&app_handle).await {
+                    eprintln!("[Rust] Failed to start agent sidecar: {}", e);
+                }
+            });
+
             Ok(())
         })
         .manage(AppState {
@@ -2660,8 +2609,10 @@ pub fn run() {
             cluster_stats_cache: Arc::new(Mutex::new(None)),
             pod_limits_cache: Arc::new(Mutex::new(None)),
             client_cache: Arc::new(Mutex::new(None)),
+            initial_data_cache: Arc::new(Mutex::new(None)),
         })
         .manage(mcp::manager::McpManager::new())
+        .manage(agent_sidecar::AgentSidecarState::new())
         .invoke_handler(tauri::generate_handler![
             discover_api_resources, 
             list_resources,
@@ -2678,7 +2629,8 @@ pub fn run() {
             start_resource_watch,
             stop_resource_watch,
             list_events,
-            start_exec,
+            ai_local::get_system_specs,
+            // AI / LLM commandstart_exec,
             send_exec_input,
             resize_exec,
             start_port_forward,
@@ -2729,6 +2681,8 @@ pub fn run() {
             ai_local::call_local_llm_with_tools,
             ai_local::check_ollama_status,
             ai_local::call_llm,
+            ai_local::call_llm_streaming,
+            ai_local::create_ollama_model,
             ai_local::check_llm_status,
             ai_local::get_default_llm_config,
             ai_local::analyze_text,
@@ -2754,6 +2708,10 @@ pub fn run() {
             run_safe_bash,
             read_local_file,
             fetch_url_content,
+            // Agent sidecar management
+            agent_sidecar::start_agent,
+            agent_sidecar::stop_agent,
+            agent_sidecar::check_agent_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -3952,6 +3910,15 @@ async fn get_cluster_cost_report(state: State<'_, AppState>) -> Result<ClusterCo
 // Fast initial cluster data fetch - gets all commonly needed data in one call
 #[tauri::command]
 async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialClusterData, String> {
+    // Check Cache First (15s TTL)
+    if let Ok(cache) = state.initial_data_cache.try_lock() {
+        if let Some((timestamp, data)) = &*cache {
+            if timestamp.elapsed().as_secs() < 15 {
+                return Ok(data.clone());
+            }
+        }
+    }
+
     let client = create_client(state.clone()).await?;
 
     let nodes_api: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
@@ -4104,14 +4071,21 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
         *cache = Some((std::time::Instant::now(), stats.clone()));
     }
 
-    Ok(InitialClusterData {
+    let result = InitialClusterData {
         stats,
         namespaces: namespace_names,
         pods,
         nodes,
         deployments,
         services,
-    })
+    };
+
+    // Update initial data cache
+    if let Ok(mut cache) = state.initial_data_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), result.clone()));
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -4316,7 +4290,20 @@ async fn connect_vcluster(
     let output = match connect_result {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => return Err(format!("Failed to execute vcluster connect: {}", e)),
-        Err(_) => return Err(format!("vcluster connect timed out after 45 seconds. The vcluster '{}' may not be running or accessible.", name)),
+        Err(_) => {
+            // Timeout occurred. Try fallback to --driver=helm (OSS mode) just in case it was hanging on Platform check
+            let retry_result = tokio::time::timeout(
+                std::time::Duration::from_secs(45),
+                tokio::process::Command::new("vcluster")
+                    .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
+                    .output()
+            ).await;
+
+            match retry_result {
+                Ok(Ok(output)) => output,
+                _ => return Err(format!("vcluster connect timed out after 45s (and retry failed). The vcluster '{}' may not be running or accessible.", name)),
+            }
+        },
     };
 
     if !output.status.success() {
@@ -4330,7 +4317,7 @@ async fn connect_vcluster(
             return Err(format!("Connection refused to vcluster '{}'. The vcluster may not be running.", name));
         } else if stderr.contains("unauthorized") || stderr.contains("Unauthorized") {
             return Err(format!("Unauthorized access to vcluster '{}'. Check your permissions.", name));
-        } else if stderr.contains("management-cluster") || stderr.contains("platform") {
+        } else if stderr.contains("management-cluster") || stderr.contains("management cluster") || stderr.contains("platform") {
             // Try with --driver=helm to force OSS mode
             let retry_result = tokio::time::timeout(
                 std::time::Duration::from_secs(45),
@@ -4343,8 +4330,15 @@ async fn connect_vcluster(
                 Ok(Ok(retry_output)) if retry_output.status.success() => {
                     // Success on retry, continue with the flow
                 }
-                _ => {
-                    return Err(format!("vcluster connect failed. If using vcluster platform, please run 'vcluster login' first. Error: {}", stderr.trim()));
+                Ok(Ok(retry_output)) => {
+                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr).to_string();
+                    return Err(format!("vcluster connect failed (retry with --driver=helm also failed). \nOriginal Error: {}\nRetry Error: {}", stderr.trim(), retry_stderr.trim()));
+                }
+                Ok(Err(e)) => {
+                    return Err(format!("vcluster connect failed. Failed to execute retry command: {}", e));
+                }
+                Err(_) => {
+                    return Err(format!("vcluster connect timed out after 45s (retry also timed out). Original Error: {}", stderr.trim()));
                 }
             }
         } else {
@@ -4352,13 +4346,47 @@ async fn connect_vcluster(
         }
     }
 
-    // Give the background proxy more time to fully start (it can take several seconds)
-    tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+    // Poll for API readiness instead of fixed sleep
+    // vcluster connect starts a background proxy; we need to wait until it's responsive
+    let new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(5);
+    let mut connected = false;
+
+    while start.elapsed() < timeout {
+        // Try to create a client with the new context
+        let config_res = kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
+            context: Some(new_context.clone()),
+            ..Default::default()
+        }).await;
+
+        if let Ok(mut config) = config_res {
+            config.connect_timeout = Some(std::time::Duration::from_millis(500));
+            config.accept_invalid_certs = true;
+            
+            if let Ok(client) = Client::try_from(config) {
+                // Try a lightweight API call to verify connectivity
+                let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
+                if namespaces.list(&ListParams::default().limit(1)).await.is_ok() {
+                    connected = true;
+                    break;
+                }
+            }
+        }
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+    }
+
+    if !connected {
+        // If timed out, return error but still try to proceed (maybe just slow)
+        // Or we could silently continue, assuming the user will retry if it fails
+        // For now, we log it but don't error out completely to avoid blocking UI
+        eprintln!("Warning: vcluster API not ready after 5s polling");
+    }
 
     // vcluster connect updates the kubeconfig, so we need to reload it
     // The context name format is: "vcluster_<vcluster-name>_<namespace>_<original-context>"
     // Note: In vcluster list JSON, "Name" is the vcluster name and "Namespace" is where it's deployed
-    let new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
 
     // Update selected context
     if let Ok(mut context_guard) = state.selected_context.try_lock() {
@@ -4997,10 +5025,12 @@ async fn check_claude_code_status() -> Result<ClaudeCodeStatus, String> {
 }
 
 /// Call Claude Code CLI with a prompt (READ-ONLY mode)
+/// Note: Parameters use camelCase to match JavaScript naming convention
 #[tauri::command]
+#[allow(non_snake_case)]
 async fn call_claude_code(
     prompt: String,
-    system_prompt: Option<String>,
+    systemPrompt: Option<String>,
 ) -> Result<String, String> {
     use std::process::Command;
 
@@ -5032,7 +5062,7 @@ async fn call_claude_code(
 If the user asks you to make changes, explain EXACTLY what commands would be needed, show them the full command, and state: "I cannot execute this command in read-only mode. Would you like to run this yourself?""#;
 
     // Build the full prompt with read-only system context
-    let full_prompt = if let Some(sys) = system_prompt {
+    let full_prompt = if let Some(sys) = systemPrompt {
         format!("{}\n\n{}\n\n---\n\n{}", readonly_instruction, sys, prompt)
     } else {
         format!("{}\n\n---\n\n{}", readonly_instruction, prompt)
@@ -5081,11 +5111,13 @@ struct ClaudeCodeStreamEvent {
 }
 
 /// Call Claude Code CLI with streaming output (READ-ONLY mode)
+/// Note: Parameters use camelCase to match JavaScript naming convention
 #[tauri::command]
+#[allow(non_snake_case)]
 async fn call_claude_code_stream(
     prompt: String,
-    system_prompt: Option<String>,
-    stream_id: String,
+    systemPrompt: Option<String>,
+    streamId: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     use std::process::Stdio;
@@ -5094,7 +5126,7 @@ async fn call_claude_code_stream(
 
     // Emit start event
     let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-        stream_id: stream_id.clone(),
+        stream_id: streamId.clone(),
         event_type: "start".to_string(),
         content: "".to_string(),
     });
@@ -5127,7 +5159,7 @@ async fn call_claude_code_stream(
 If the user asks you to make changes, explain EXACTLY what commands would be needed, show them the full command, and state: "I cannot execute this command in read-only mode. Would you like to run this yourself?""#;
 
     // Build the full prompt with read-only system context
-    let full_prompt = if let Some(sys) = system_prompt {
+    let full_prompt = if let Some(sys) = systemPrompt {
         format!("{}\n\n{}\n\n---\n\n{}", readonly_instruction, sys, prompt)
     } else {
         format!("{}\n\n---\n\n{}", readonly_instruction, prompt)
@@ -5152,7 +5184,7 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
                 format!("Failed to start Claude Code: {}", e)
             };
             let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-                stream_id: stream_id.clone(),
+                stream_id: streamId.clone(),
                 event_type: "error".to_string(),
                 content: err_msg.clone(),
             });
@@ -5167,7 +5199,7 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     let stdout_reader = BufReader::new(stdout).lines();
 
     // Spawn a task to read stderr for progress updates (Claude CLI shows progress on stderr)
-    let stderr_stream_id = stream_id.clone();
+    let stderr_stream_id = streamId.clone();
     let stderr_app_handle = app_handle.clone();
     let stderr_task = if let Some(stderr) = stderr {
         Some(tokio::spawn(async move {
@@ -5198,7 +5230,7 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     let mut reader = stdout_reader;
     while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
         let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-            stream_id: stream_id.clone(),
+            stream_id: streamId.clone(),
             event_type: "chunk".to_string(),
             content: format!("{}\n", line),
         });
@@ -5214,14 +5246,14 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
 
     if status.success() {
         let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-            stream_id: stream_id.clone(),
+            stream_id: streamId.clone(),
             event_type: "done".to_string(),
             content: "".to_string(),
         });
         Ok(())
     } else {
         let _ = app_handle.emit("claude-code-stream", ClaudeCodeStreamEvent {
-            stream_id: stream_id.clone(),
+            stream_id: streamId.clone(),
             event_type: "error".to_string(),
             content: format!("Process exited with status: {}", status),
         });

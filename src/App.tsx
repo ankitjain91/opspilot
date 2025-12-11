@@ -13,6 +13,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
+import { ToastProvider, useToast } from "./components/ui/Toast";
 
 import { Dashboard } from './components/dashboard/Dashboard';
 import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
@@ -57,7 +58,7 @@ function AppContent() {
   const qc = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const [showAzure, setShowAzure] = useState(false);
-  const [toasts, setToasts] = useState<Array<{ id: number; message: string; type?: 'success' | 'error' | 'info' }>>([]);
+  const { showToast } = useToast();
   const prevContextRef = useRef<string | null>(null);
 
   // Global cluster chat state
@@ -93,28 +94,6 @@ function AppContent() {
     }
   }, [bootStats]);
 
-  // Global toast bus
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ message: string; type?: 'success' | 'error' | 'info' }>;
-      const id = Date.now() + Math.random();
-      setToasts((prev) => [...prev, { id, message: ce.detail.message, type: ce.detail.type }]);
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 3000);
-    };
-    window.addEventListener('app:toast', handler as EventListener);
-    // expose helper
-    (window as any).showToast = (message: string, type?: 'success' | 'error' | 'info') => {
-      window.dispatchEvent(new CustomEvent('app:toast', { detail: { message, type } }));
-    };
-    return () => {
-      window.removeEventListener('app:toast', handler as EventListener);
-    };
-  }, []);
-
-  // Check if there's already an active context on mount
-
 
   // Watch current context and toast on changes
   const { data: currentCtx } = useQuery({
@@ -129,11 +108,11 @@ function AppContent() {
   useEffect(() => {
     if (typeof currentCtx === 'string') {
       if (prevContextRef.current && prevContextRef.current !== currentCtx) {
-        (window as any).showToast?.(`Switched context to '${currentCtx}'`, 'info');
+        showToast(`Switched context to '${currentCtx}'`, 'info');
       }
       prevContextRef.current = currentCtx;
     }
-  }, [currentCtx]);
+  }, [currentCtx, showToast]);
 
   if (!isConnected) {
     return (
@@ -249,28 +228,33 @@ function AppContent() {
             Context: <span className="font-mono text-zinc-500">{globalCurrentContext}</span>
           </p>
         </div>
+
+        {/* Global Floating AI Chat Button (Available even on error) */}
+        {!showClusterChat && (
+          <button
+            onClick={() => { setShowClusterChat(true); setIsClusterChatMinimized(false); }}
+            className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 text-white font-medium transition-all hover:scale-105"
+          >
+            <MessageSquare size={20} />
+            <span>AI Chat</span>
+          </button>
+        )}
+
+        {/* Global Cluster Chat Panel */}
+        {showClusterChat && (
+          <ClusterChatPanel
+            onClose={() => setShowClusterChat(false)}
+            isMinimized={isClusterChatMinimized}
+            onToggleMinimize={() => setIsClusterChatMinimized(!isClusterChatMinimized)}
+            currentContext={globalCurrentContext}
+          />
+        )}
       </div>
     );
   }
 
   return (
     <>
-      {/* Global Toasts */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`px-3 py-2 rounded-md text-sm shadow-lg backdrop-blur bg-opacity-20 border ${t.type === 'success'
-              ? 'bg-green-500/20 border-green-500/40 text-green-300'
-              : t.type === 'error'
-                ? 'bg-red-500/20 border-red-500/40 text-red-300'
-                : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
-              }`}
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
       <Dashboard
         isConnected={isConnected}
         setIsConnected={setIsConnected}
@@ -283,7 +267,7 @@ function AppContent() {
           } catch (e) {
             console.warn("Failed to clear backend caches:", e);
           }
-          (window as any).showToast?.('Disconnected from cluster', 'info');
+          showToast('Disconnected from cluster', 'info');
           setIsConnected(false);
         }}
       />
@@ -306,6 +290,7 @@ function AppContent() {
           onClose={() => setShowClusterChat(false)}
           isMinimized={isClusterChatMinimized}
           onToggleMinimize={() => setIsClusterChatMinimized(!isClusterChatMinimized)}
+          currentContext={globalCurrentContext}
         />
       )}
     </>
@@ -356,7 +341,9 @@ export default function App() {
         client={queryClient}
         persistOptions={{ persister }}
       >
-        <AppContent />
+        <ToastProvider>
+          <AppContent />
+        </ToastProvider>
         <Updater />
       </PersistQueryClientProvider>
     </ErrorBoundary>

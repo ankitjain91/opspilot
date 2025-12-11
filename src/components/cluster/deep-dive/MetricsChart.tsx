@@ -11,9 +11,10 @@ interface MetricsChartProps {
     namespace: string;
     name: string;
     currentContext?: string;
+    variant?: 'default' | 'micro';
 }
 
-export function MetricsChart({ resourceKind, namespace, name, currentContext }: MetricsChartProps) {
+export function MetricsChart({ resourceKind, namespace, name, currentContext, variant = 'default' }: MetricsChartProps) {
     const [metricsHistory, setMetricsHistory] = useState<ResourceMetrics[]>([]);
 
     const { data: currentMetrics } = useQuery({
@@ -21,11 +22,11 @@ export function MetricsChart({ resourceKind, namespace, name, currentContext }: 
         queryFn: async () => {
             const allMetrics = await invoke<ResourceMetrics[]>("get_resource_metrics", {
                 kind: resourceKind,
-                namespace: resourceKind === "Pod" ? namespace : null
+                namespace: resourceKind.toLowerCase() === "pod" ? namespace : null
             });
             return allMetrics.find(m => m.name === name);
         },
-        enabled: resourceKind === "Pod" || resourceKind === "Node",
+        enabled: resourceKind.toLowerCase() === "pod" || resourceKind.toLowerCase() === "node",
         refetchInterval: 5000,
     });
 
@@ -44,13 +45,6 @@ export function MetricsChart({ resourceKind, namespace, name, currentContext }: 
         }
     }, [currentMetrics]);
 
-    const getPercentageColor = (percent?: number) => {
-        if (!percent) return '#6b7280'; // gray-500
-        if (percent >= 90) return '#f87171'; // red-400
-        if (percent >= 70) return '#fbbf24'; // yellow-400
-        return '#34d399'; // green-400
-    };
-
     const chartData = metricsHistory.map(m => ({
         time: new Date(m.timestamp).toLocaleTimeString(),
         cpu: (m.cpu_nano / 1_000_000).toFixed(2), // Convert to millicores
@@ -61,10 +55,10 @@ export function MetricsChart({ resourceKind, namespace, name, currentContext }: 
 
     if (metricsHistory.length === 0) {
         return (
-            <div className="flex items-center justify-center h-48 text-zinc-600 text-sm bg-zinc-900/80 rounded-xl border border-zinc-800/80">
+            <div className={`flex items-center justify-center ${variant === 'micro' ? 'h-full' : 'h-48'} text-zinc-600 text-sm ${variant === 'default' ? 'bg-zinc-900/80 rounded-xl border border-zinc-800/80' : ''}`}>
                 <div className="flex flex-col items-center gap-2">
-                    <div className="w-5 h-5 border-2 border-zinc-700 border-t-zinc-500 rounded-full animate-spin" />
-                    <span>Collecting metrics data...</span>
+                    <div className="w-4 h-4 border-2 border-zinc-700 border-t-zinc-500 rounded-full animate-spin" />
+                    {variant === 'default' && <span>Collecting metrics data...</span>}
                 </div>
             </div>
         );
@@ -72,6 +66,47 @@ export function MetricsChart({ resourceKind, namespace, name, currentContext }: 
 
     const latest = metricsHistory[metricsHistory.length - 1];
 
+    if (variant === 'micro') {
+        return (
+            <div className="flex gap-2 h-full">
+                {/* CPU Micro Chart */}
+                <div className="flex-1 flex flex-col justify-end">
+                    <div className="flex items-end justify-between text-[10px] mb-1">
+                        <span className="text-zinc-500 font-bold">CPU</span>
+                        <span className={latest.cpu_percent && latest.cpu_percent > 80 ? 'text-red-400' : 'text-zinc-300'}>
+                            {latest.cpu_percent?.toFixed(0)}%
+                        </span>
+                    </div>
+                    <div className="flex-1 min-h-0 bg-[#09090b] rounded border border-white/5 relative overflow-hidden">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData}>
+                                <Line type="monotone" dataKey="cpuPercent" stroke="#10b981" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Memory Micro Chart */}
+                <div className="flex-1 flex flex-col justify-end">
+                    <div className="flex items-end justify-between text-[10px] mb-1">
+                        <span className="text-zinc-500 font-bold">MEM</span>
+                        <span className={latest.memory_percent && latest.memory_percent > 80 ? 'text-red-400' : 'text-zinc-300'}>
+                            {latest.memory_percent?.toFixed(0)}%
+                        </span>
+                    </div>
+                    <div className="flex-1 min-h-0 bg-[#09090b] rounded border border-white/5 relative overflow-hidden">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData}>
+                                <Line type="monotone" dataKey="memoryPercent" stroke="#3b82f6" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // DEFAULT VARIANT
     // Get color class based on percentage - using muted colors
     const getColorClass = (percent?: number) => {
         if (!percent) return { text: 'text-zinc-500', bg: 'bg-zinc-600' };

@@ -80,10 +80,7 @@ export interface InvestigationState {
     phase: InvestigationPhase;
     /** Detected symptoms from cluster state */
     detectedSymptoms: string[];
-    /** Active playbook being followed (if any) */
-    activePlaybook?: string;
-    /** Playbook progress tracking */
-    playbook?: PlaybookProgress;
+
     /** Investigation plan (LLM-generated) */
     plan?: InvestigationPlan;
 }
@@ -112,8 +109,6 @@ export interface ConfidenceFactors {
     hypothesesConfirmed: number;
     /** Number of errors encountered */
     errorsEncountered: number;
-    /** Whether a playbook was followed */
-    followedPlaybook: boolean;
 }
 
 export interface ConfidenceAssessment {
@@ -194,37 +189,7 @@ export const DEFAULT_ITERATION_CONFIG: IterationConfig = {
     },
 };
 
-// =============================================================================
-// PLAYBOOK TYPES
-// =============================================================================
 
-export interface PlaybookStep {
-    tool: string;
-    args?: string;
-    target?: string;
-    purpose: string;
-    /** Whether args should be derived from previous tool results */
-    dynamicArgs?: boolean;
-}
-
-export interface Playbook {
-    name: string;
-    /** Symptoms that trigger this playbook */
-    symptoms: string[];
-    /** Investigation steps in order */
-    steps: PlaybookStep[];
-    /** Common root causes for this symptom pattern */
-    commonCauses: string[];
-    /** Priority (higher = more specific, preferred) */
-    priority: number;
-}
-
-export interface PlaybookProgress {
-    name: string;
-    totalSteps: number;
-    completedSteps: number;
-    currentStepIndex: number;
-}
 
 export type PlanStepStatus = 'pending' | 'running' | 'done' | 'skipped';
 
@@ -758,7 +723,7 @@ export function createInvestigationState(
         scratchpadNotes: [],
         phase: 'initializing',
         detectedSymptoms: [],
-        playbook: undefined,
+
         plan: undefined,
     };
 }
@@ -800,7 +765,7 @@ export function calculateConfidence(state: InvestigationState): ConfidenceAssess
         hypothesesTested: state.hypotheses.filter(h => h.status !== 'investigating').length,
         hypothesesConfirmed: state.hypotheses.filter(h => h.status === 'confirmed').length,
         errorsEncountered: state.toolHistory.filter(t => t.status === 'error').length,
-        followedPlaybook: !!(state.playbook && state.playbook.completedSteps > 0) || !!state.activePlaybook,
+
     };
 
     let score = 0;
@@ -830,8 +795,7 @@ export function calculateConfidence(state: InvestigationState): ConfidenceAssess
     else if (factors.evidenceQuality === 'indirect') score += 10;
     else score += 3;
 
-    // Playbook bonus (5 points) - following known patterns
-    if (factors.followedPlaybook) score += 5;
+
 
     // Investigation thoroughness (max 5 points)
     score += Math.min(state.iteration, 5);

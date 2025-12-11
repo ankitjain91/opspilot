@@ -1,0 +1,47 @@
+
+╔══════════════════════════════════════════════════════════════╗
+║        REAL LLM AGENT EVALUATION(MOCK TOOLS)                ║
+╚══════════════════════════════════════════════════════════════╝
+
+
+============================================================ 
+🤖 REAL LLM SCENARIO: Deep Investigation: Cascading Failure 
+   User Query: "payment-processor is down"
+============================================================ 
+
+[Iteration 1] Calling LLM...
+
+🤖 Calling Real LLM (llama3.3:70b @ http://172.190.203.19:11434/v1)...
+   📝 Agent: {
+  "thought": "The payment-processor is reported to be down, so I need to find out what's going on with it. First, I should scan for unhealthy resour...
+   ✅ Executed FIND_ISSUES:  (Mock Function)
+
+[Iteration 2] Calling LLM...
+
+🤖 Calling Real LLM (llama3.3:70b @ http://172.190.203.19:11434/v1)...
+   📝 Agent: {
+  "thought": "FIND_ISSUES has identified a critical issue with the payment-processor-789 pod, which is in a CrashLoopBackOff state. This suggests th...
+   ❌ Missing Mock: DEEP_INSPECT:pod default payment-processor-789 
+
+[Iteration 3] Calling LLM...
+
+🤖 Calling Real LLM (llama3.3:70b @ http://172.190.203.19:11434/v1)...
+   📝 Agent: {
+  "thought": "Since DEEP_INSPECT is not available for this specific pod, I'll use GET_LOGS to retrieve the logs of the payment-processor-789 pod. Th...
+   ✅ Executed GET_LOGS:default payment-processor-789  (Mock Function)
+
+[Iteration 4] Calling LLM...
+
+🤖 Calling Real LLM (llama3.3:70b @ http://172.190.203.19:11434/v1)...
+   📝 Agent: {
+  "thought": "The logs indicate that the payment-processor container is crashing due to a FileNotFoundException, specifically because it cannot find...
+   ✅ Final answer provided
+
+   📈 Final Confidence: LOW (25/100)
+
+   ────────────────────────────────────────────────── 
+   ❌ FAILED
+      - Missing tool: DESCRIBE  
+      - Missing tool: RUN_KUBECTL  
+      - Confidence mismatch: expected HIGH, got LOW  
+      - Missing mock: DEEP_INSPECT:pod default payment-processor-789  

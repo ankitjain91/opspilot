@@ -13,7 +13,6 @@ interface PlatformConfig {
     icon: string;
     installSteps: InstallStep[];
     startCommand: string;
-    pullCommand: string;
 }
 
 export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaStatus | null, onRetry: () => void }) {
@@ -35,7 +34,6 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                 { label: 'Or download from', link: 'https://ollama.com/download/mac' },
             ],
             startCommand: 'ollama serve',
-            pullCommand: 'ollama pull llama3.1:8b',
         },
         windows: {
             name: 'Windows',
@@ -45,7 +43,6 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                 { label: 'Or via winget', command: 'winget install Ollama.Ollama' },
             ],
             startCommand: 'ollama serve',
-            pullCommand: 'ollama pull llama3.1:8b',
         },
         linux: {
             name: 'Linux',
@@ -54,7 +51,6 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                 { label: 'Install script', command: 'curl -fsSL https://ollama.com/install.sh | sh' },
             ],
             startCommand: 'ollama serve',
-            pullCommand: 'ollama pull llama3.1:8b',
         },
     };
 
@@ -84,7 +80,7 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                 </div>
                 <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${status?.model_available ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                    <span className="text-sm text-zinc-300">llama3.1:8b Model</span>
+                    <span className="text-sm text-zinc-300">k8s-cli Model</span>
                     <span className={`text-xs ml-auto ${status?.model_available ? 'text-green-400' : 'text-yellow-400'}`}>
                         {status?.model_available ? 'Available' : 'Not Installed'}
                     </span>
@@ -171,7 +167,7 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                     </div>
                 )}
 
-                {/* Step 3: Pull Model */}
+                {/* Step 3: Auto-Setup */}
                 {status?.ollama_running && !status?.model_available && (
                     <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700">
                         <div className="flex items-center gap-2 mb-2">
@@ -179,20 +175,14 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                             <span className="text-sm font-medium text-white">Ollama is running!</span>
                         </div>
                         <div className="flex items-center gap-2 mb-2 mt-3">
-                            <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">2</span>
-                            <span className="text-sm font-medium text-white">Pull the AI model</span>
+                            <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">3</span>
+                            <span className="text-sm font-medium text-white">Let OpsPilot configure the model</span>
                         </div>
-                        <div className="ml-7 flex items-center gap-2">
-                            <code className="flex-1 text-xs bg-black/40 px-2 py-1.5 rounded text-cyan-300 font-mono">{platform.pullCommand}</code>
-                            <button
-                                onClick={() => copyToClipboard(platform.pullCommand, 'pull')}
-                                className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-                            >
-                                {copiedCommand === 'pull' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                            </button>
-                        </div>
-                        <p className="ml-7 mt-1 text-xs text-zinc-500">
-                            This downloads ~4.7GB model (one-time setup)
+                        <p className="ml-7 text-xs text-zinc-400 leading-relaxed">
+                            Click <strong className="text-white">Check Again</strong> below. OpsPilot will automatically download and configure the <code className="text-cyan-300">k8s-cli</code> tool for you.
+                        </p>
+                        <p className="ml-7 mt-1.5 text-[10px] text-zinc-500 italic">
+                            (This downloads ~4.7GB base model once)
                         </p>
                     </div>
                 )}

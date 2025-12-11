@@ -3,9 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import yaml from 'js-yaml';
 import { ClusterHealthSummary, ClusterEventSummary, UnhealthyReport } from '../../types/ai';
 import { ToolOutcome, ToolOutcomeStatus, evaluateToolOutcome, categorizeError, getRecoverySuggestions, ErrorCategory } from './types';
-import { getAlternatives, getFailureGuidance } from './playbooks';
 
-export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD', 'WEB_SEARCH', 'RUN_BASH', 'READ_FILE', 'FETCH_URL', 'SUGGEST_COMMANDS'];
+
+export const VALID_TOOLS = ['CLUSTER_HEALTH', 'GET_EVENTS', 'LIST_ALL', 'DESCRIBE', 'GET_LOGS', 'TOP_PODS', 'FIND_ISSUES', 'SEARCH_KNOWLEDGE', 'GET_ENDPOINTS', 'GET_NAMESPACE', 'LIST_FINALIZERS', 'GET_CROSSPLANE', 'GET_ISTIO', 'GET_WEBHOOKS', 'GET_UIPATH', 'RUN_KUBECTL', 'GET_CAPI', 'GET_CASTAI', 'VCLUSTER_CMD', 'GET_UIPATH_CRD', 'WEB_SEARCH', 'RUN_BASH', 'READ_FILE', 'FETCH_URL', 'SUGGEST_COMMANDS', 'DEEP_INSPECT', 'LIST_CRDS', 'GET_RESOURCE', 'GET_YAML'];
 
 // =============================================================================
 // ENHANCED PLACEHOLDER DETECTION
@@ -59,10 +59,29 @@ export function validateToolArgs(toolName: string, args: string | undefined): st
     // Skip validation for MCP tools and special tools
     if (isMcpTool(toolName) || ['SEARCH_KNOWLEDGE', 'RUN_KUBECTL', 'VCLUSTER_CMD', 'LIST_ALL'].includes(toolName)) return null;
 
+    // Strict validation for DEEP_INSPECT to prevent placeholders
+    if (toolName === 'DEEP_INSPECT') {
+        if (containsPlaceholder(args)) {
+            return `❌ Invalid format: Arguments contain placeholders like <...>. You MUST use real names.
+Usage: DEEP_INSPECT <kind> <namespace> <name>
+Example: DEEP_INSPECT Pod default my-pod-123
+Step 1: Use 'RUN_KUBECTL kubectl get <kind> -A' to find the name.
+Step 2: Use DEEP_INSPECT with the ACTUAL name.`;
+        }
+    }
+
     // For LIST_ALL, check if it's a valid kind
     if (toolName === 'LIST_ALL') {
-        const kind = args.trim().toLowerCase();
+        const kind = (args || '').trim().toLowerCase();
+        if (!kind) {
+            return `❌ ERROR: Missing argument. Usage: LIST_ALL [kind] (e.g. LIST_ALL Pod, LIST_ALL Service). Use 'kubectl api-resources' to find exact kind names.`;
+        }
         if (VALID_KINDS.includes(kind)) return null;
+
+        // Allow common CRDs but warn about unknown ones
+        if (kind.includes('crossplane') || kind.includes('istio') || kind.includes('prometheus')) return null;
+
+        return null; // Let other kinds pass, but we might want to be stricter later
     }
 
     for (const pattern of BAD_ARG_PATTERNS) {
@@ -273,36 +292,168 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
                 ).join('\n')}`;
             }
         } else if (toolName === 'LIST_ALL' || toolName === 'LIST_PODS') {
-            // Extract and normalize kind from args
-            let kind = (toolArgs || '').split(/\s+/)[0];
+            // Universal LIST_ALL - works with ANY resource type via kubectl
+            if (!toolArgs) {
+                return {
+                    result: `❌ ERROR: Missing argument. Usage: LIST_ALL <kind> [flags]
 
-            if (!kind || kind.includes('[') || kind.includes('<')) {
-                toolResult = '⚠️ Usage: LIST_ALL <kind> (e.g. LIST_ALL Pod, LIST_ALL PVC)';
-            } else {
-                // Normalize common plural forms to singular (K8s API uses singular)
-                const kindNormalized = normalizeKind(kind);
-                kubectlCommand = `kubectl get ${kindNormalized.toLowerCase()} --all-namespaces`;
-                const resources = await invoke<any[]>("list_all_resources", { kind: kindNormalized });
-                if (resources.length === 0) {
-                    toolResult = `No resources of kind '${kindNormalized}' found.`;
+Examples:
+- LIST_ALL Pod
+- LIST_ALL Deployment
+- LIST_ALL Service
+- LIST_ALL XRDatabase.crossplane.io
+- LIST_ALL providers.pkg.crossplane.io
+- LIST_ALL machines.cluster.x-k8s.io
+
+To discover available resource types:
+- RUN_KUBECTL kubectl api-resources
+- RUN_KUBECTL kubectl api-resources | grep -i crossplane`,
+                    command: 'LIST_ALL (missing args)'
+                };
+            }
+
+            // Parse kind and optional flags
+            const parts = toolArgs.trim().split(/\s+/);
+            const kind = parts[0];
+            const extraFlags = parts.slice(1).join(' ');
+
+            kubectlCommand = `kubectl get ${kind} -A ${extraFlags} -o wide`;
+
+            try {
+                // Use kubectl directly - it handles any GVK including CRDs
+                const output = await invoke<string>("run_kubectl_command", {
+                    command: `kubectl get ${kind} -A ${extraFlags} -o wide 2>&1`
+                });
+
+                if (!output || output.includes('No resources found') || output.includes('error:')) {
+                    // Try without -A for cluster-scoped resources
+                    const clusterOutput = await invoke<string>("run_kubectl_command", {
+                        command: `kubectl get ${kind} ${extraFlags} -o wide 2>&1`
+                    }).catch(() => '');
+
+                    if (clusterOutput && !clusterOutput.includes('error:')) {
+                        toolResult = `## ${kind} (cluster-scoped)\n\`\`\`\n${clusterOutput}\n\`\`\``;
+                    } else {
+                        toolResult = `No ${kind} resources found.\n\nIf this is a CRD, verify it exists:\n\`kubectl api-resources | grep -i ${kind.split('.')[0]}\``;
+                    }
                 } else {
-                    const summary = resources.slice(0, 50).map(r => `- ${r.namespace}/${r.name}: ${r.status}`).join('\n');
-                    toolResult = `## ${kindNormalized} List (${resources.length} total)\n${summary}${resources.length > 50 ? `\n... ${resources.length - 50} more` : ''}`;
+                    // Count resources
+                    const lines = output.trim().split('\n');
+                    const count = lines.length > 1 ? lines.length - 1 : 0; // Subtract header
+                    toolResult = `## ${kind} List (${count} resources)\n\`\`\`\n${output}\n\`\`\``;
                 }
+            } catch (e) {
+                toolResult = `❌ Error listing ${kind}: ${e}\n\nCheck if the resource type exists:\n\`kubectl api-resources | grep -i ${kind.split('.')[0]}\``;
             }
         } else if (toolName === 'DESCRIBE') {
-            const [kind, ns, name] = (toolArgs || '').split(/\s+/);
-            if (!kind || !ns || !name) {
-                toolResult = '⚠️ Usage: DESCRIBE <kind> <namespace> <name>';
+            // Universal DESCRIBE - works with ANY resource type via kubectl
+            const parts = (toolArgs || '').split(/\s+/);
+            if (parts.length < 2) {
+                toolResult = `⚠️ Usage: DESCRIBE <kind> <namespace> <name>
+Or for cluster-scoped: DESCRIBE <kind> <name>
+
+Examples:
+- DESCRIBE Pod default nginx-abc
+- DESCRIBE Deployment production api-server
+- DESCRIBE Node worker-1
+- DESCRIBE ClusterRole admin
+- DESCRIBE XRDatabase.crossplane.io default my-db`;
             } else {
-                kubectlCommand = `kubectl describe ${kind.toLowerCase()} -n ${ns} ${name}`;
-                const details = await invoke<string>("get_resource_details", {
-                    req: { group: kind === 'Deployment' ? 'apps' : '', version: 'v1', kind, namespace: ns },
-                    name
-                });
-                // Backend returns YAML, parse it
-                const parsed = yaml.load(details) as any;
-                toolResult = `## ${kind}: ${ns}/${name}\n\`\`\`yaml\n${JSON.stringify(parsed, null, 2).slice(0, 2000)}\n\`\`\``;
+                // Handle both namespaced and cluster-scoped resources
+                const kind = parts[0];
+                let ns: string | null = null;
+                let name: string;
+
+                if (parts.length >= 3) {
+                    ns = parts[1];
+                    name = parts[2];
+                } else {
+                    // Cluster-scoped or namespace is the name
+                    name = parts[1];
+                }
+
+                // Use kubectl describe directly - it handles GVK resolution automatically
+                const nsFlag = ns ? `-n ${ns}` : '';
+                kubectlCommand = `kubectl describe ${kind.toLowerCase()} ${nsFlag} ${name}`;
+
+                try {
+                    const output = await invoke<string>("run_kubectl_command", { command: kubectlCommand });
+                    toolResult = `## ${kind}: ${ns ? ns + '/' : ''}${name}\n\`\`\`\n${output.slice(0, 4000)}\n\`\`\``;
+                } catch (e) {
+                    // Fallback: try with full GVK if kubectl failed
+                    toolResult = `❌ Resource not found or invalid kind: ${e}\n\nTry:\n- LIST_ALL ${kind} to find resources\n- Check the exact kind name with: RUN_KUBECTL kubectl api-resources | grep -i ${kind}`;
+                }
+            }
+        } else if (toolName === 'DEEP_INSPECT') {
+            // Universal DEEP_INSPECT - works with ANY resource type
+            // Runs Describe + Logs (if pod/workload) + Events in parallel
+            const parts = (toolArgs || '').split(/\s+/);
+            if (parts.length < 2) {
+                toolResult = `⚠️ Usage: DEEP_INSPECT <kind> <namespace> <name>
+Or for cluster-scoped: DEEP_INSPECT <kind> <name>
+
+Examples:
+- DEEP_INSPECT Pod default nginx-abc
+- DEEP_INSPECT Deployment production api-server
+- DEEP_INSPECT XRDatabase.crossplane.io default my-db
+- DEEP_INSPECT Node worker-1`;
+            } else {
+                const kind = parts[0];
+                let ns: string | null = null;
+                let name: string;
+
+                if (parts.length >= 3) {
+                    ns = parts[1];
+                    name = parts[2];
+                } else {
+                    name = parts[1];
+                }
+
+                const nsFlag = ns ? `-n ${ns}` : '';
+                kubectlCommand = `kubectl describe ${kind.toLowerCase()} ${nsFlag} ${name}`;
+
+                // 1. Describe via kubectl (handles any GVK)
+                const describePromise = invoke<string>("run_kubectl_command", {
+                    command: `kubectl describe ${kind.toLowerCase()} ${nsFlag} ${name}`
+                }).then(output => {
+                    // Clean up verbose fields for LLM context
+                    return output
+                        .replace(/Managed Fields:[\s\S]*?(?=\n[A-Z]|\n$)/g, '')
+                        .replace(/Last Applied Configuration:[\s\S]*?(?=\n[A-Z]|\n$)/g, '')
+                        .slice(0, 4000);
+                }).catch(e => `Error describing ${kind}: ${e}`);
+
+                // 2. Logs (only for pod-like resources)
+                const podLikeKinds = ['pod', 'deployment', 'replicaset', 'daemonset', 'statefulset', 'job'];
+                const logsPromise = podLikeKinds.includes(kind.toLowerCase())
+                    ? invoke<string>("run_kubectl_command", {
+                        command: `kubectl logs ${nsFlag} ${name} --tail=100 2>&1 || echo "(No logs available)"`
+                    }).catch(() => '(No logs available)')
+                    : Promise.resolve(`(${kind} is not a workload - no logs)`);
+
+                // 3. Events for this specific resource
+                const eventsPromise = invoke<string>("run_kubectl_command", {
+                    command: `kubectl get events ${nsFlag} --field-selector=involvedObject.name=${name} --sort-by=.lastTimestamp 2>&1 | tail -20`
+                }).catch(() => 'No events found');
+
+                const [desc, logs, events] = await Promise.all([describePromise, logsPromise, eventsPromise]);
+
+                toolResult = `## DEEP INSPECT: ${kind} ${ns ? ns + '/' : ''}${name}
+
+### 1. Resource Description
+\`\`\`
+${desc}
+\`\`\`
+
+### 2. Recent Events
+\`\`\`
+${events}
+\`\`\`
+
+### 3. Recent Logs
+\`\`\`
+${(logs as string).slice(-2000)}
+\`\`\``;
             }
         } else if (toolName === 'GET_LOGS') {
             const parts = (toolArgs || '').split(/\s+/);
@@ -617,6 +768,19 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
 
                 // Ensure it starts with kubectl
                 const fullCmd = cmd.startsWith('kubectl ') ? cmd : `kubectl ${cmd}`;
+
+                // Guard: Prevent "group/version/kind" syntax (2 slashes) in 'get' commands which causes kubectl error
+                // Example failure: kubectl get crossplane.io/v1alpha1/Composites
+                if (/\bget\b/.test(fullCmd)) {
+                    const invalidArgs = fullCmd.match(/\s([^\s/]+\/[^\s/]+\/[^\s/]+)/);
+                    if (invalidArgs) {
+                        return {
+                            result: `❌ Syntax Error: Invalid resource format "${invalidArgs[1]}".\nkubectl get does NOT support "group/version/kind" format (too many slashes).\n\nCORRECT FORMAT: kubectl get <kind>.<group>\n\nexample:\n❌ kubectl get crossplane.io/v1alpha1/Composites\n✅ kubectl get Composites.crossplane.io`,
+                            command: fullCmd
+                        };
+                    }
+                }
+
                 kubectlCommand = fullCmd;
                 try {
                     const output = await invoke<string>("run_kubectl_command", { command: fullCmd });
@@ -723,8 +887,8 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
                     // Detect file type for syntax highlighting
                     const ext = filePath.split('.').pop()?.toLowerCase() || '';
                     const lang = ['yaml', 'yml'].includes(ext) ? 'yaml' :
-                                 ['json'].includes(ext) ? 'json' :
-                                 ['sh', 'bash'].includes(ext) ? 'bash' : '';
+                        ['json'].includes(ext) ? 'json' :
+                            ['sh', 'bash'].includes(ext) ? 'bash' : '';
                     toolResult = `## 📄 File: ${filePath}\n\`\`\`${lang}\n${content}\n\`\`\``;
                 } catch (e) {
                     toolResult = `❌ Cannot read file: ${e}`;
@@ -788,6 +952,137 @@ ${suggestions.map((cmd, i) => `${i + 1}. \`${cmd}\``).join('\n')}
 💡 Use \`TOOL: RUN_KUBECTL <command>\` to execute.`;
                 }
             }
+        } else if (toolName === 'LIST_CRDS') {
+            // Discover available CRDs and API resources
+            const filter = toolArgs?.trim() || '';
+            kubectlCommand = `kubectl api-resources ${filter ? `| grep -i ${filter}` : ''}`;
+
+            try {
+                let output: string;
+                if (filter) {
+                    // Filter by keyword (e.g., "crossplane", "istio", "cert-manager")
+                    output = await invoke<string>("run_kubectl_command", {
+                        command: `kubectl api-resources --verbs=list -o wide 2>&1 | grep -iE "${filter}"`
+                    });
+                } else {
+                    // Show all API resources grouped by API group
+                    output = await invoke<string>("run_kubectl_command", {
+                        command: `kubectl api-resources --verbs=list -o wide 2>&1 | head -100`
+                    });
+                }
+
+                if (!output.trim()) {
+                    toolResult = `No API resources found matching "${filter}".\n\nTry broader terms like:\n- crossplane, istio, cert-manager\n- argo, flux, keda\n- cluster, machine, provider`;
+                } else {
+                    toolResult = `## Available API Resources ${filter ? `(matching: ${filter})` : ''}\n\`\`\`\n${output}\n\`\`\`\n\nUse these with LIST_ALL <kind> or DESCRIBE <kind> <ns> <name>`;
+                }
+            } catch (e) {
+                toolResult = `❌ Error listing API resources: ${e}`;
+            }
+
+        } else if (toolName === 'GET_RESOURCE') {
+            // Universal GET with fuzzy/regex matching
+            // Syntax: GET_RESOURCE <kind> [namespace] [name-pattern]
+            const parts = (toolArgs || '').split(/\s+/);
+            if (parts.length < 1 || !parts[0]) {
+                toolResult = `⚠️ Usage: GET_RESOURCE <kind> [namespace] [name-pattern]
+
+Examples:
+- GET_RESOURCE Pod default web.*     (regex match)
+- GET_RESOURCE Deployment -A api     (all namespaces, name contains 'api')
+- GET_RESOURCE Service kube-system   (all services in kube-system)
+- GET_RESOURCE Node .*worker.*       (nodes matching 'worker')
+
+The name-pattern supports:
+- Exact: my-pod-abc
+- Contains: api (matches api-server, backend-api, etc.)
+- Regex: web-.* (matches web-frontend, web-backend, etc.)`;
+            } else {
+                const kind = parts[0];
+                let ns = '';
+                let pattern = '';
+
+                if (parts.length === 2) {
+                    // Could be namespace or pattern
+                    if (parts[1] === '-A' || parts[1].includes('.') || parts[1].includes('*')) {
+                        ns = '-A';
+                        pattern = parts[1] === '-A' ? '' : parts[1];
+                    } else {
+                        ns = `-n ${parts[1]}`;
+                    }
+                } else if (parts.length >= 3) {
+                    ns = parts[1] === '-A' ? '-A' : `-n ${parts[1]}`;
+                    pattern = parts[2];
+                }
+
+                // Use kubectl with grep for pattern matching
+                const grepPart = pattern ? `| grep -iE "${pattern}"` : '';
+                kubectlCommand = `kubectl get ${kind} ${ns} -o wide ${grepPart}`;
+
+                try {
+                    const output = await invoke<string>("run_kubectl_command", {
+                        command: `kubectl get ${kind} ${ns || '-A'} -o wide 2>&1 ${grepPart}`
+                    });
+
+                    if (!output.trim() || output.includes('No resources found')) {
+                        // If nothing found with pattern, show all and suggest
+                        const allResources = await invoke<string>("run_kubectl_command", {
+                            command: `kubectl get ${kind} ${ns || '-A'} --no-headers -o custom-columns=':metadata.namespace,:metadata.name' 2>&1 | head -20`
+                        }).catch(() => '');
+
+                        toolResult = `No ${kind} found matching pattern "${pattern}".\n\n**Available ${kind}s:**\n\`\`\`\n${allResources || 'None found'}\n\`\`\``;
+                    } else {
+                        const lines = output.trim().split('\n');
+                        const count = lines.length > 1 ? lines.length - 1 : 0;
+                        toolResult = `## ${kind} ${pattern ? `(matching: ${pattern})` : ''} - ${count} found\n\`\`\`\n${output}\n\`\`\``;
+                    }
+                } catch (e) {
+                    toolResult = `❌ Error: ${e}`;
+                }
+            }
+
+        } else if (toolName === 'GET_YAML') {
+            // Get resource as YAML (useful for seeing full spec)
+            const parts = (toolArgs || '').split(/\s+/);
+            if (parts.length < 2) {
+                toolResult = `⚠️ Usage: GET_YAML <kind> [namespace] <name>
+
+Examples:
+- GET_YAML Pod default nginx-abc
+- GET_YAML Deployment production api-server
+- GET_YAML ClusterRole admin
+- GET_YAML XRDatabase.crossplane.io default my-db`;
+            } else {
+                const kind = parts[0];
+                let ns = '';
+                let name = '';
+
+                if (parts.length === 2) {
+                    name = parts[1];
+                } else {
+                    ns = `-n ${parts[1]}`;
+                    name = parts[2];
+                }
+
+                kubectlCommand = `kubectl get ${kind} ${ns} ${name} -o yaml`;
+
+                try {
+                    const output = await invoke<string>("run_kubectl_command", {
+                        command: `kubectl get ${kind} ${ns} ${name} -o yaml 2>&1`
+                    });
+
+                    // Clean up verbose fields
+                    const cleanedOutput = output
+                        .replace(/managedFields:[\s\S]*?(?=\n\w)/g, '')
+                        .replace(/kubectl\.kubernetes\.io\/last-applied-configuration:[\s\S]*?(?=\n\s{2}\w)/g, '')
+                        .slice(0, 6000);
+
+                    toolResult = `## ${kind} ${ns} ${name} (YAML)\n\`\`\`yaml\n${cleanedOutput}\n\`\`\``;
+                } catch (e) {
+                    toolResult = `❌ Resource not found: ${e}`;
+                }
+            }
+
         } else {
             // Only if called with unknown tool
             toolResult = `⚠️ Invalid tool: ${toolName}. Valid tools: ${VALID_TOOLS.join(', ')}`;
@@ -1147,4 +1442,67 @@ function generateFallbackCommands(context: string): string[] {
     }
 
     return commands.slice(0, 6); // Return at most 6 commands
+}
+
+// =============================================================================
+// TOOL ALTERNATIVES - What to try when a tool fails
+// =============================================================================
+
+const TOOL_ALTERNATIVES: Record<string, string[]> = {
+    'GET_LOGS': [
+        'GET_EVENTS',
+        'DESCRIBE',
+        'RUN_KUBECTL get pod -o yaml',
+    ],
+    'DESCRIBE': [
+        'LIST_ALL',
+        'GET_EVENTS',
+        'RUN_KUBECTL get -o wide',
+    ],
+    'GET_EVENTS': [
+        'DESCRIBE',
+        'GET_LOGS',
+        'CLUSTER_HEALTH',
+    ],
+    'TOP_PODS': [
+        'DESCRIBE',
+        'GET_EVENTS',
+        'RUN_KUBECTL top nodes',
+        'CLUSTER_HEALTH',
+    ],
+    'GET_ENDPOINTS': [
+        'DESCRIBE Service',
+        'LIST_ALL Pod',
+        'GET_EVENTS',
+    ],
+    'LIST_FINALIZERS': [
+        'GET_NAMESPACE',
+        'DESCRIBE',
+        'RUN_KUBECTL get all',
+    ],
+    'GET_CROSSPLANE': [
+        'RUN_KUBECTL get providers.pkg.crossplane.io',
+        'RUN_KUBECTL get managed -A',
+        'GET_EVENTS',
+    ],
+    'GET_ISTIO': [
+        'RUN_KUBECTL get pods -n istio-system',
+        'RUN_KUBECTL get gateway,virtualservice -A',
+        'GET_EVENTS istio-system',
+    ],
+};
+
+/** Get alternative tools when one fails */
+export function getAlternatives(toolName: string, failedArgs?: string): string[] {
+    const alternatives = TOOL_ALTERNATIVES[toolName] || [];
+
+    // Add generic discovery tools if not already present
+    const genericAlternatives = ['FIND_ISSUES', 'LIST_ALL', 'CLUSTER_HEALTH'];
+    for (const generic of genericAlternatives) {
+        if (!alternatives.includes(generic) && generic !== toolName) {
+            alternatives.push(generic);
+        }
+    }
+
+    return alternatives.slice(0, 4);
 }

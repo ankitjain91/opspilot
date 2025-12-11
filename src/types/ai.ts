@@ -5,7 +5,8 @@ export interface LLMConfig {
     provider: LLMProvider;
     api_key: string | null;
     base_url: string;
-    model: string;
+    model: string;                    // Primary "Brain" model for planning/analysis
+    executor_model?: string | null;   // Optional fast "Executor" model for CLI translation
     temperature: number;
     max_tokens: number;
 }
