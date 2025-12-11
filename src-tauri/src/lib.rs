@@ -497,6 +497,8 @@ struct AppState {
     client_cache: Arc<Mutex<Option<(std::time::Instant, String, Client)>>>,
     // Cache for initial dashboard data (15s TTL) for instant navigation
     initial_data_cache: Arc<Mutex<Option<(std::time::Instant, InitialClusterData)>>>,
+    // Store vcluster proxy process ID to kill it on disconnect
+    vcluster_pid: Arc<Mutex<Option<u32>>>,
 }
 
 // --- Logic ---
@@ -2610,6 +2612,7 @@ pub fn run() {
             pod_limits_cache: Arc::new(Mutex::new(None)),
             client_cache: Arc::new(Mutex::new(None)),
             initial_data_cache: Arc::new(Mutex::new(None)),
+            vcluster_pid: Arc::new(Mutex::new(None)),
         })
         .manage(mcp::manager::McpManager::new())
         .manage(agent_sidecar::AgentSidecarState::new())
@@ -4256,116 +4259,96 @@ async fn connect_vcluster(
     if version_check.is_err() {
         return Err("vcluster CLI not found. Please install it: https://www.vcluster.com/docs/getting-started/setup".to_string());
     }
-
     // Get the current host context before connecting
     let host_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
 
     // Clear all caches first
-    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
-        *cache = None;
-    }
-    if let Ok(mut cache) = state.discovery_cache.try_lock() {
-        *cache = None;
-    }
-    if let Ok(mut cache) = state.vcluster_cache.try_lock() {
-        *cache = None;
-    }
-    if let Ok(mut cache) = state.pod_limits_cache.try_lock() {
-        *cache = None;
-    }
-    if let Ok(mut cache) = state.client_cache.try_lock() {
-        *cache = None;
-    }
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.discovery_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; }
 
-    // Execute vcluster connect command with timeout
-    // Use --context to explicitly specify the host cluster context - this bypasses platform lookups
-    // and ensures we connect to the right cluster even if vcluster CLI has stale platform state
-    let connect_result = tokio::time::timeout(
-        std::time::Duration::from_secs(45),
-        tokio::process::Command::new("vcluster")
-            .args(&["connect", &name, "-n", &namespace, "--context", &host_context])
-            .output()
-    ).await;
-
-    let output = match connect_result {
-        Ok(Ok(output)) => output,
-        Ok(Err(e)) => return Err(format!("Failed to execute vcluster connect: {}", e)),
-        Err(_) => {
-            // Timeout occurred. Try fallback to --driver=helm (OSS mode) just in case it was hanging on Platform check
-            let retry_result = tokio::time::timeout(
-                std::time::Duration::from_secs(45),
-                tokio::process::Command::new("vcluster")
-                    .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
-                    .output()
-            ).await;
-
-            match retry_result {
-                Ok(Ok(output)) => output,
-                _ => return Err(format!("vcluster connect timed out after 45s (and retry failed). The vcluster '{}' may not be running or accessible.", name)),
+    // Helper to kill existing process
+    {
+        if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+            if let Some(pid) = *pid_guard {
+                println!("Killing existing vcluster proxy (PID: {})", pid);
+                let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
             }
-        },
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let _stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
-        // Provide helpful error messages
-        if stderr.contains("not found") || stderr.contains("NotFound") {
-            return Err(format!("vcluster '{}' not found in namespace '{}'. Check if the vcluster exists and is running.", name, namespace));
-        } else if stderr.contains("connection refused") {
-            return Err(format!("Connection refused to vcluster '{}'. The vcluster may not be running.", name));
-        } else if stderr.contains("unauthorized") || stderr.contains("Unauthorized") {
-            return Err(format!("Unauthorized access to vcluster '{}'. Check your permissions.", name));
-        } else if stderr.contains("management-cluster") || stderr.contains("management cluster") || stderr.contains("platform") {
-            // Try with --driver=helm to force OSS mode
-            let retry_result = tokio::time::timeout(
-                std::time::Duration::from_secs(45),
-                tokio::process::Command::new("vcluster")
-                    .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
-                    .output()
-            ).await;
-
-            match retry_result {
-                Ok(Ok(retry_output)) if retry_output.status.success() => {
-                    // Success on retry, continue with the flow
-                }
-                Ok(Ok(retry_output)) => {
-                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr).to_string();
-                    return Err(format!("vcluster connect failed (retry with --driver=helm also failed). \nOriginal Error: {}\nRetry Error: {}", stderr.trim(), retry_stderr.trim()));
-                }
-                Ok(Err(e)) => {
-                    return Err(format!("vcluster connect failed. Failed to execute retry command: {}", e));
-                }
-                Err(_) => {
-                    return Err(format!("vcluster connect timed out after 45s (retry also timed out). Original Error: {}", stderr.trim()));
-                }
-            }
-        } else {
-            return Err(format!("vcluster connect failed: {}", stderr.trim()));
+            *pid_guard = None;
         }
     }
 
-    // Poll for API readiness instead of fixed sleep
-    // vcluster connect starts a background proxy; we need to wait until it's responsive
+    // ATTEMPT 1: Primary Connect
+    // We spawn it as a child process.
+    let mut child = tokio::process::Command::new("vcluster")
+        .args(&["connect", &name, "-n", &namespace, "--context", &host_context])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped()) // Capture stderr for errors
+        .spawn()
+        .map_err(|e| format!("Failed to spawn vcluster connect: {}", e))?;
+
+    let pid = child.id().ok_or("Failed to get vcluster process ID")?;
+    
+    // Store PID immediately
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        *pid_guard = Some(pid);
+    }
+
+    // Polling / Verification Loop
     let new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(5);
+    let timeout = std::time::Duration::from_secs(10);
     let mut connected = false;
 
-    while start.elapsed() < timeout {
+    // We loop for 10s. If process exits, we break and check status.
+    // If process runs, we try to create client.
+    
+    // Note: To check if child exited without blocking, we can use try_wait()
+    // But since we consumed `child` (it's not Copy), we need to keep it.
+    // Actually, `spawn` returns a `Child`.
+    
+    loop {
+        if start.elapsed() > timeout {
+            break;
+        }
+
+        // Check if process is dead
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Process exited!
+                println!("vcluster connect process exited unexpectedly with: {:?}", status);
+                // If it failed, we can read stderr? 
+                // Wait, we need to capture stderr to read it.
+                // But `Child` ownership... retry logic below.
+                break;
+            }
+            Ok(None) => {
+                // Still running, good.
+            }
+            Err(e) => {
+                println!("Error waiting for child: {}", e);
+                break;
+            }
+        }
+
         // Try to create a client with the new context
-        let config_res = kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
-            context: Some(new_context.clone()),
-            ..Default::default()
-        }).await;
+        // ... (Similar logic to before)
+        let config_res = kube::Config::from_custom_kubeconfig(
+            Kubeconfig::read().unwrap_or_default(),
+            &KubeConfigOptions {
+                context: Some(new_context.clone()),
+                ..Default::default()
+            }
+        ).await;
 
         if let Ok(mut config) = config_res {
-            config.connect_timeout = Some(std::time::Duration::from_millis(500));
+            config.connect_timeout = Some(std::time::Duration::from_millis(1000));
+            config.read_timeout = Some(std::time::Duration::from_millis(1000));
             config.accept_invalid_certs = true;
             
             if let Ok(client) = Client::try_from(config) {
-                // Try a lightweight API call to verify connectivity
                 let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
                 if namespaces.list(&ListParams::default().limit(1)).await.is_ok() {
                     connected = true;
@@ -4374,105 +4357,87 @@ async fn connect_vcluster(
             }
         }
         
-        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
-    if !connected {
-        // If timed out, return error but still try to proceed (maybe just slow)
-        // Or we could silently continue, assuming the user will retry if it fails
-        // For now, we log it but don't error out completely to avoid blocking UI
-        eprintln!("Warning: vcluster API not ready after 5s polling");
+    if connected {
+        // Update selected context
+        if let Ok(mut context_guard) = state.selected_context.try_lock() {
+            *context_guard = Some(new_context.clone());
+        }
+        // Notify success
+        return Ok(format!("Connected to vcluster '{}' (PID: {})", name, pid));
     }
 
-    // vcluster connect updates the kubeconfig, so we need to reload it
-    // The context name format is: "vcluster_<vcluster-name>_<namespace>_<original-context>"
-    // Note: In vcluster list JSON, "Name" is the vcluster name and "Namespace" is where it's deployed
-
-    // Update selected context
-    if let Ok(mut context_guard) = state.selected_context.try_lock() {
-        *context_guard = Some(new_context.clone());
+    // FAILURE RECOVERY - ATTEMPT 2 (Helm Driver)
+    println!("Standard vcluster connect failed/timed out inside 10s. Retrying with --driver=helm");
+    
+    // Kill the first process if it's still running (e.g. hanging)
+    let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        *pid_guard = None;
     }
 
-    // Clear kubeconfig path since vcluster writes to default kubeconfig (~/.kube/config)
-    if let Ok(mut path_guard) = state.kubeconfig_path.try_lock() {
-        *path_guard = None;
+    // Spawn Retry
+    let mut child_retry = tokio::process::Command::new("vcluster")
+        .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped()) 
+        .spawn()
+        .map_err(|e| format!("Failed to spawn vcluster connect (retry): {}", e))?;
+
+    let retry_pid = child_retry.id().ok_or("Failed to get vcluster process ID (retry)")?;
+    
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        *pid_guard = Some(retry_pid);
     }
 
-    // Verify connectivity with retries and better error handling
-    // More retries with longer waits since vcluster proxy can take time to start
-    for attempt in 0..8 {
-        // Read fresh kubeconfig each attempt
-        let kubeconfig = match Kubeconfig::read() {
-            Ok(kc) => kc,
-            Err(e) => {
-                if attempt < 7 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                    continue;
-                }
-                return Err(format!("Failed to read kubeconfig after vcluster connect: {}", e));
-            }
-        };
+    // Poll again (slightly longer timeout for fallback?)
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(15);
+    
+    loop {
+        if start.elapsed() > timeout { break; }
+        
+        match child_retry.try_wait() {
+            Ok(Some(_)) => break, // Exited
+            Ok(None) => {}, // Running
+            Err(_) => break
+        }
 
-        // Try to create client with the new context
-        let mut config = match kube::Config::from_custom_kubeconfig(
-            kubeconfig,
+        let config_res = kube::Config::from_custom_kubeconfig(
+            Kubeconfig::read().unwrap_or_default(),
             &KubeConfigOptions {
                 context: Some(new_context.clone()),
                 ..Default::default()
             }
-        ).await {
-            Ok(c) => c,
-            Err(e) => {
-                if attempt < 7 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                    continue;
-                }
-                return Err(format!("Failed to configure vcluster context '{}': {}", new_context, e));
-            }
-        };
+        ).await;
 
-        // vcluster proxy uses self-signed certs - always accept for vcluster contexts
-        config.accept_invalid_certs = true;
-
-        let client = match Client::try_from(config) {
-            Ok(c) => c,
-            Err(e) => {
-                if attempt < 7 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                    continue;
+         if let Ok(mut config) = config_res {
+            config.connect_timeout = Some(std::time::Duration::from_millis(1000));
+            config.accept_invalid_certs = true;
+            if let Ok(client) = Client::try_from(config) {
+                let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
+                if namespaces.list(&ListParams::default().limit(1)).await.is_ok() {
+                    // Update selected context
+                    if let Ok(mut context_guard) = state.selected_context.try_lock() {
+                        *context_guard = Some(new_context.clone());
+                    }
+                     return Ok(format!("Connected to vcluster '{}' (OSS Mode, PID: {})", name, retry_pid));
                 }
-                return Err(format!("Failed to create client for vcluster: {}", e));
-            }
-        };
-
-        // Try to list namespaces to verify connection
-        let ns_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(8),
-            ns_api.list(&Default::default())
-        ).await {
-            Ok(Ok(_)) => {
-                return Ok(format!("Connected to vcluster '{}' in namespace '{}'. Context: {}", name, namespace, new_context));
-            }
-            Ok(Err(e)) => {
-                if attempt < 7 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-                    continue;
-                }
-                return Err(format!("vcluster API not responding: {}", e));
-            }
-            Err(_) => {
-                if attempt < 7 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-                    continue;
-                }
-                return Err("vcluster API timed out. The vcluster proxy may not be running correctly.".to_string());
             }
         }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
-    // Should not reach here, but just in case
-    Err("Failed to verify vcluster connection after multiple attempts".to_string())
+    // Final Failure
+    // Kill the retry process
+    let _ = std::process::Command::new("kill").arg(retry_pid.to_string()).output();
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        *pid_guard = None;
+    }
+
+    Err("Failed to connect to vcluster. Both standard and fallback (helm) modes failed to establish API connectivity within timeout.".to_string())
 }
 
 #[tauri::command]
@@ -4500,6 +4465,15 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
         .arg("disconnect")
         .output()
         .await;
+
+    // Explicitly kill the background proxy process if we started one
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        if let Some(pid) = *pid_guard {
+             println!("Disconnecting: Killing vcluster proxy (PID: {})", pid);
+             let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
+        }
+        *pid_guard = None;
+    }
 
     match disconnect_result {
         Ok(output) if output.status.success() => {
