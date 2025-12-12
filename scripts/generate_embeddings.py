@@ -294,10 +294,10 @@ def main():
         json.dump(output, f)
     
     file_size = OUTPUT_FILE.stat().st_size / 1024
-    print(f"\n✅ Generated: {OUTPUT_FILE}")
-    print(f"   Documents: {len(all_docs)}")
-    print(f"   Tools: {len(tool_docs)}")
-    print(f"   File size: {file_size:.1f} KB")
+    print(f"\n[done] Generated: {OUTPUT_FILE}")
+    print(f"       Documents: {len(all_docs)}")
+    print(f"       Tools: {len(tool_docs)}")
+    print(f"       File size: {file_size:.1f} KB")
 
 
 if __name__ == "__main__":
