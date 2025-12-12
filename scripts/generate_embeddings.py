@@ -86,23 +86,23 @@ def load_json_doc(filepath: Path) -> list[dict]:
     """Load and extract text content from a JSON knowledge file."""
     with open(filepath, 'r') as f:
         data = json.load(f)
-    
+
     docs = []
-    
+
     # Handle both single objects and arrays
     items = data if isinstance(data, list) else [data]
-    
+
     for item in items:
         if not isinstance(item, dict):
             continue
-            
+
         doc_id = item.get('id', filepath.stem)
         title = item.get('title', filepath.stem.replace('-', ' ').title())
         summary = item.get('summary', '')
-        
+
         # Collect all text content from nested structures
         content_parts = [title, summary]
-        
+
         # Extract from all known content keys (comprehensive list)
         content_keys = [
             # General troubleshooting
@@ -121,7 +121,7 @@ def load_json_doc(filepath: Path) -> list[dict]:
         for key in content_keys:
             if key in item:
                 content_parts.append(extract_text(item[key]))
-        
+
         content = ' '.join(filter(None, content_parts))
         if content.strip():
             docs.append({
@@ -130,7 +130,56 @@ def load_json_doc(filepath: Path) -> list[dict]:
                 'title': title,
                 'content': content[:3000]  # Limit for embedding
             })
-    
+
+    return docs
+
+
+def load_jsonl_doc(filepath: Path) -> list[dict]:
+    """Load and extract text content from a JSONL knowledge file (one JSON object per line)."""
+    docs = []
+
+    with open(filepath, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                print(f"  Warning: Could not parse line {line_num} in {filepath.name}")
+                continue
+
+            if not isinstance(item, dict):
+                continue
+
+            doc_id = item.get('id', f"{filepath.stem}-{line_num}")
+            # Use root_cause as title for troubleshooting entries, else id
+            title = item.get('root_cause', doc_id.replace('-', ' ').title())
+
+            # Collect all text content - comprehensive for JSONL troubleshooting format
+            content_parts = [doc_id, title]
+
+            # JSONL KB uses: id, category, symptoms, root_cause, investigation, fixes, related_patterns
+            content_keys = [
+                'symptoms', 'root_cause', 'investigation', 'fixes', 'related_patterns', 'category'
+            ]
+            for key in content_keys:
+                val = item.get(key)
+                if val:
+                    if isinstance(val, list):
+                        content_parts.extend(str(v) for v in val)
+                    else:
+                        content_parts.append(str(val))
+
+            content = ' '.join(filter(None, content_parts))
+            if content.strip():
+                docs.append({
+                    'id': doc_id,
+                    'file': filepath.name,
+                    'title': title[:200],  # Truncate long titles
+                    'content': content[:3000]  # Limit for embedding
+                })
+
     return docs
 
 
@@ -189,7 +238,12 @@ def main():
         docs = load_json_doc(filepath)
         all_docs.extend(docs)
         print(f"  {filepath.name}: {len(docs)} doc(s)")
-    
+
+    for filepath in KNOWLEDGE_DIR.glob("*.jsonl"):
+        docs = load_jsonl_doc(filepath)
+        all_docs.extend(docs)
+        print(f"  {filepath.name}: {len(docs)} doc(s)")
+
     for filepath in KNOWLEDGE_DIR.glob("*.md"):
         docs = load_md_doc(filepath)
         all_docs.extend(docs)

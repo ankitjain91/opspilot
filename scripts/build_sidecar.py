@@ -12,7 +12,7 @@ def main():
     python_source_dir = project_root / "python"
     venv_dir = project_root / ".venv-build"
     
-    print(f"🔧 Setting up Python build environment in {venv_dir}...")
+    print(f"[build] Setting up Python build environment in {venv_dir}...")
     
     # Create venv if needed
     if not venv_dir.exists():
@@ -33,11 +33,11 @@ def main():
 
     # Validate python exists
     if not venv_python.exists():
-        print(f"❌ Error: Python executable not found at {venv_python}")
+        print(f"[error] Python executable not found at {venv_python}")
         sys.exit(1)
 
     # Install dependencies
-    print("📦 Installing build dependencies...")
+    print("[build] Installing build dependencies...")
     try:
         # Upgrade pip
         subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
@@ -45,19 +45,19 @@ def main():
         req_file = python_source_dir / "requirements.txt"
         subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(req_file)], check=True)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to install dependencies: {e}")
+        print(f"[error] Failed to install dependencies: {e}")
         sys.exit(1)
 
     # Run the actual build
-    print("🔨 Building Agent Server binary...")
+    print("[build] Building Agent Server binary...")
     build_script = python_source_dir / "build.py"
     try:
         subprocess.run([str(venv_python), str(build_script)], cwd=project_root, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Build failed: {e}")
+        print(f"[error] Build failed: {e}")
         sys.exit(1)
 
-    print("✅ Python Sidecar Build Complete!")
+    print("[build] Python Sidecar Build Complete!")
 
 if __name__ == "__main__":
     main()
