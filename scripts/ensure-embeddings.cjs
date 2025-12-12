@@ -50,22 +50,35 @@ if (!needsRebuild()) {
   process.exit(0);
 }
 
-// Check python3 exists
-const pyCheck = spawnSync('python3', ['-V'], { encoding: 'utf8' });
+// Check python3 exists or use venv
+const venvPythonRef = path.join(ROOT, '.venv-build', 'bin', 'python3');
+const venvPythonWin = path.join(ROOT, '.venv-build', 'Scripts', 'python.exe');
+
+let pythonCmd = 'python3';
+if (fs.existsSync(venvPythonRef)) {
+  log('Using local venv python: ' + venvPythonRef);
+  pythonCmd = venvPythonRef;
+} else if (fs.existsSync(venvPythonWin)) {
+  log('Using local venv python: ' + venvPythonWin);
+  pythonCmd = venvPythonWin;
+}
+
+const pyCheck = spawnSync(pythonCmd, ['-V'], { encoding: 'utf8' });
 if (pyCheck.error) {
-  error('python3 not found. Install Python 3 to generate embeddings.');
+  error(`${pythonCmd} not found. Install Python 3 to generate embeddings.`);
   process.exit(1);
 }
 
 // Check sentence_transformers is installed
-const stCheck = spawnSync('python3', ['-c', 'import sentence_transformers'], { encoding: 'utf8' });
+const stCheck = spawnSync(pythonCmd, ['-c', 'import sentence_transformers'], { encoding: 'utf8' });
 if (stCheck.status !== 0) {
-  error('sentence_transformers is not installed. Run: pip install sentence-transformers');
+  error(`sentence_transformers is not installed in ${pythonCmd}.`);
+  error(`Run 'npm run build:python' first to set up the environment.`);
   process.exit(1);
 }
 
 log('Generating embeddings (this may download a model if not cached)...');
-const run = spawnSync('python3', [PY_SCRIPT], { stdio: 'inherit', cwd: ROOT });
+const run = spawnSync(pythonCmd, [PY_SCRIPT], { stdio: 'inherit', cwd: ROOT });
 if (run.status !== 0) {
   error('Embedding generation failed.');
   process.exit(run.status || 1);
