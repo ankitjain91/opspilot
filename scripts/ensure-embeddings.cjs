@@ -53,6 +53,7 @@ if (!needsRebuild()) {
 // Check python3 exists or use venv
 const venvPythonRef = path.join(ROOT, '.venv-build', 'bin', 'python3');
 const venvPythonWin = path.join(ROOT, '.venv-build', 'Scripts', 'python.exe');
+const EMBED_REQUIREMENTS = path.join(ROOT, 'python', 'requirements-embeddings.txt');
 
 let pythonCmd = 'python3';
 if (fs.existsSync(venvPythonRef)) {
@@ -69,12 +70,18 @@ if (pyCheck.error) {
   process.exit(1);
 }
 
-// Check sentence_transformers is installed
+// Check sentence_transformers is installed, install if needed
 const stCheck = spawnSync(pythonCmd, ['-c', 'import sentence_transformers'], { encoding: 'utf8' });
 if (stCheck.status !== 0) {
-  error(`sentence_transformers is not installed in ${pythonCmd}.`);
-  error(`Run 'npm run build:python' first to set up the environment.`);
-  process.exit(1);
+  log('Installing embedding dependencies (sentence-transformers)...');
+  const pipInstall = spawnSync(pythonCmd, ['-m', 'pip', 'install', '-r', EMBED_REQUIREMENTS], {
+    stdio: 'inherit',
+    cwd: ROOT
+  });
+  if (pipInstall.status !== 0) {
+    error('Failed to install embedding dependencies.');
+    process.exit(1);
+  }
 }
 
 log('Generating embeddings (this may download a model if not cached)...');

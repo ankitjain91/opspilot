@@ -1,5 +1,8 @@
-# LangGraph K8s Agent Server Dependencies
+# LangGraph K8s Agent Server Dependencies (Runtime)
 # Install: pip install -r requirements.txt
+#
+# NOTE: This file is for the RUNTIME agent-server binary.
+# For embedding generation, see requirements-embeddings.txt
 
 # Core LangGraph
 langgraph>=0.2.0
@@ -18,7 +21,3 @@ sse-starlette>=2.0.0
 
 # Build Tools (for creating standalone binary)
 pyinstaller>=6.0.0
-
-# Embeddings Generation (Build time)
-sentence-transformers>=2.2.2
-numpy>=1.24.0

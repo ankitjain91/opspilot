@@ -1,0 +1,6 @@
+# Dependencies for embedding generation (build-time only)
+# These are NOT bundled into the agent-server binary
+# Install: pip install -r requirements-embeddings.txt
+
+sentence-transformers>=2.2.2
+numpy>=1.24.0

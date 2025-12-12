@@ -2850,17 +2850,23 @@ async fn check_dependencies(_app: tauri::AppHandle) -> Result<Vec<DependencyStat
 #[tauri::command]
 async fn download_dependency(app: tauri::AppHandle, name: String, url: String) -> Result<String, String> {
     use std::io::Write;
-    use std::os::unix::fs::PermissionsExt; 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
+    // Get home directory cross-platform
+    #[cfg(unix)]
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    let home = std::env::var("USERPROFILE").map_err(|e| e.to_string())?;
+
     let bin_dir = std::path::Path::new(&home).join(".opspilot").join("bin");
-    
+
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
     }
-    
+
     let target_path = bin_dir.join(&name);
-    
+
     let _ = app.emit("download_progress", ProgressEvent {
         id: name.clone(),
         percentage: 0,
@@ -2871,17 +2877,17 @@ async fn download_dependency(app: tauri::AppHandle, name: String, url: String) -
     let client = reqwest::Client::new();
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let total_size = res.content_length().unwrap_or(0);
-    
+
     let mut file = std::fs::File::create(&target_path).map_err(|e| e.to_string())?;
     let mut downloaded: u64 = 0;
-    
+
     let mut stream = res.bytes_stream();
-    
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
-        
+
         if total_size > 0 {
             let percentage = (downloaded * 100) / total_size;
             // Emit progress (every iteration might be too frequent, but works for now)
@@ -2893,12 +2899,15 @@ async fn download_dependency(app: tauri::AppHandle, name: String, url: String) -
             });
         }
     }
-    
-    // Make executable
-    let mut perms = std::fs::metadata(&target_path).map_err(|e| e.to_string())?.permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&target_path, perms).map_err(|e| e.to_string())?;
-    
+
+    // Make executable (Unix only - Windows executables don't need chmod)
+    #[cfg(unix)]
+    {
+        let mut perms = std::fs::metadata(&target_path).map_err(|e| e.to_string())?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&target_path, perms).map_err(|e| e.to_string())?;
+    }
+
     let _ = app.emit("download_progress", ProgressEvent {
         id: name.clone(),
         percentage: 100,
