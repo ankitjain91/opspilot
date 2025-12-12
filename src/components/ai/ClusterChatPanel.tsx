@@ -759,7 +759,7 @@ export function ClusterChatPanel({
                     <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-medium backdrop-blur-sm">{chatHistory.filter(m => m.role === 'assistant').length}</span>
                 )}
                 <button
-                    onClick={(e) => { e.stopPropagation(); onClose(); }}
+                    onClick={(e) => { e.stopPropagation(); onClose?.(); }}
                     className="ml-1 p-1 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition-all opacity-70 hover:opacity-100"
                 >
                     <X size={14} />
