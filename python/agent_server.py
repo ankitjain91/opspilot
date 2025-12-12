@@ -1543,7 +1543,7 @@ If the user query requires info from outside the cluster (e.g. GitHub, Databases
 3. OUTPUT JSON including "tool" and "args" and next_action="invoke_mcp".
 
 Available Custom Tools:
-{mcp_tools_desc}}
+{mcp_tools_desc}
 
 KEY RULES:
 - **PRIORITIZE RESPOND**: If the answer is purely definitional or known from a single successful command output, use `next_action: "respond"`. This prevents unnecessary looping.
@@ -2947,25 +2947,29 @@ async def analyze(request: AgentRequest):
                 if kind == "on_chain_end":
                     # Check if this is a specialized node update
                     if event['name'] in ['supervisor', 'worker', 'verify', 'human_approval', 'execute', 'reflect']:
-                        node_update = event['data']['output']
+                        node_update = event['data'].get('output') if event.get('data') else None
+
+                        # Skip if node_update is None or not a dict
+                        if node_update is None:
+                            continue
 
                         # Apply update to our local state copy for logging
                         if isinstance(node_update, dict):
                             # Simplistic merge for flat fields
                             initial_state.update(node_update)
 
-                        if node_update.get('events'):
-                            current_events = node_update['events']
-                            # Only emit new events
-                            if len(current_events) > emitted_events_count:
-                                for new_evt in current_events[emitted_events_count:]:
-                                    yield f"data: {json.dumps(new_evt)}\n\n"
-                                    last_heartbeat = time.time()  # Reset heartbeat timer
-                                emitted_events_count = len(current_events)
+                            if node_update.get('events'):
+                                current_events = node_update['events']
+                                # Only emit new events
+                                if len(current_events) > emitted_events_count:
+                                    for new_evt in current_events[emitted_events_count:]:
+                                        yield f"data: {json.dumps(new_evt)}\n\n"
+                                        last_heartbeat = time.time()  # Reset heartbeat timer
+                                    emitted_events_count = len(current_events)
 
-                        if node_update.get('next_action') == 'human_approval' and node_update.get('awaiting_approval') is True:
-                            yield f"data: {json.dumps(emit_event('approval_needed', {'command': node_update.get('pending_command')}))}\n\n"
-                            return
+                            if node_update.get('next_action') == 'human_approval' and node_update.get('awaiting_approval') is True:
+                                yield f"data: {json.dumps(emit_event('approval_needed', {'command': node_update.get('pending_command')}))}\n\n"
+                                return
 
             # Final response
             final_answer = initial_state.get('final_response')
