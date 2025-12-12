@@ -73,17 +73,95 @@ npm run tauri dev
 
 ## 🧠 AI Configuration (Ollama / Custom)
 
-OpsPilot is optimized for **Ollama** running locally.
+OpsPilot is optimized for **Ollama** running locally. The AI system uses two models:
 
-1.  **Install Ollama**: [ollama.com](https://ollama.com)
-2.  **Pull Recommended Models**:
-    *   **Brain**: `ollama pull qwen2.5:14b` (or `llama3.1`)
-    *   **Executor**: `ollama pull qwen2.5-coder:1.5b` (fast/lightweight)
-3.  **Embedding Model** (for Knowledge Base):
-    *   OpsPilot will prompt you to download `nomic-embed-text` automatically.
+1. **Supervisor/Brain** - Reasons about problems, plans investigation steps
+2. **Executor/Worker** - Translates plans into kubectl commands (can be smaller/faster)
 
-**Settings**:
-Click the "AI Settings" (Sparkles icon) in the app to configure your provider (Ollama, OpenAI, Anthropic, or Custom).
+### Quick Start (Recommended)
+
+```bash
+# Install Ollama
+# macOS: brew install ollama
+# Linux: curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull recommended models
+ollama pull qwen2.5:14b        # Brain (reasoning)
+ollama pull qwen2.5-coder:1.5b # Executor (fast command generation)
+ollama pull nomic-embed-text   # Embeddings (REQUIRED for knowledge base)
+```
+
+### Why Local Embeddings Are Required
+
+OpsPilot includes a **curated Knowledge Base** of 57+ Kubernetes troubleshooting patterns (CrashLoopBackOff fixes, Crossplane debugging, cert-manager issues, etc.). To match your questions to the right knowledge:
+
+- **At Build Time**: We pre-generate embeddings using `all-MiniLM-L6-v2` (384-dim vectors)
+- **At Runtime**: Ollama's `nomic-embed-text` converts your query to a vector
+- **Matching**: Cosine similarity finds the most relevant KB articles
+
+This enables the agent to instantly recall expert patterns like "OOMKilled → check memory limits" without sending your data to the cloud.
+
+### Advanced: Custom Modelfiles for Power Users
+
+For users with powerful GPUs (24GB+ VRAM), you can create optimized custom models with K8s-specific system prompts. We provide two Modelfiles in the repo:
+
+#### Option A: Llama 3.3 70B (Best Reasoning)
+
+See `Modelfile.brain` - optimized for complex K8s investigations:
+```bash
+# Build and use
+ollama create opspilot-brain -f Modelfile.brain
+
+# Test it
+ollama run opspilot-brain "Why would a pod be in Pending state?"
+```
+
+Key features:
+- 32K context window for long investigations
+- Temperature 0.0 for deterministic JSON output
+- K8s-specific system prompt with CR discovery protocol
+- Stop sequences tuned for Llama 3.3
+
+#### Option B: Qwen 2.5 32B Coder (Great Balance)
+
+See `Modelfile.k8s-cli` - optimized for precise command execution:
+```bash
+# Build and use
+ollama create opspilot-cli -f Modelfile.k8s-cli
+
+# Test it
+ollama run opspilot-cli "Get all pods with high restart counts"
+```
+
+Key features:
+- Strict JSON output format
+- Read-only command enforcement
+- Kubectl "cheat sheet" for power commands
+- Stop sequences tuned for Qwen
+
+#### Using Custom Models in OpsPilot
+
+In **AI Settings**, set:
+- **Model**: `opspilot-brain` (or your custom model name)
+- **Executor Model**: `opspilot-cli` (optional, defaults to main model)
+
+### Model Recommendations by Hardware
+
+| VRAM | Brain Model | Executor Model | Notes |
+|------|-------------|----------------|-------|
+| 8GB | `qwen2.5:7b` | `qwen2.5-coder:1.5b` | Basic, may struggle with complex issues |
+| 16GB | `qwen2.5:14b` | `qwen2.5-coder:7b` | Good balance for most users |
+| 24GB | `qwen2.5:32b` | `qwen2.5-coder:14b` | Excellent reasoning |
+| 48GB+ | `llama3.3:70b` | `qwen2.5-coder:32b` | Best possible local experience |
+
+### Cloud Providers (Alternative)
+
+If you prefer cloud models, OpsPilot supports:
+- **OpenAI**: `gpt-4o`, `gpt-4o-mini`
+- **Anthropic**: `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022`
+- **Azure OpenAI**: Custom deployments
+
+**Settings**: Click the "AI Settings" (Sparkles icon) in the app to configure your provider.
 
 ## 🎮 Usage Guide
 
