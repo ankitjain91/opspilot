@@ -160,7 +160,9 @@ class AgentState(TypedDict):
     query: str
     kube_context: str
     command_history: list[CommandHistory]
+    conversation_history: list[dict] # Previous USER/ASSISTANT turns
     iteration: int
+    current_hypothesis: str  # The active hypothesis being tested (e.g. "Pod is crashing due to OOM")
     next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate']
     pending_command: str | None
     final_response: str | None
@@ -214,6 +216,21 @@ def format_command_history(history: list[CommandHistory]) -> str:
         assessment = f"\nREFLECTION: {h['assessment']} - {h.get('reasoning', '')}" if h.get('assessment') else ""
         lines.append(f"[{i}] $ {h['command']}\n{result}{assessment}")
     return '\n\n'.join(lines)
+
+def format_conversation_context(history: list[dict]) -> str:
+    """Format previous conversation turns (User/Assistant) for context."""
+    if not history:
+        return "(No previous context)"
+    
+    lines = []
+    for msg in history:
+        role = msg.get('role', 'unknown').upper()
+        content = msg.get('content', '').strip()
+        # Skip system signals or tool outputs if they leaked into conversation history
+        if role in ['USER', 'ASSISTANT', 'SUPERVISOR', 'SCOUT']:
+            lines.append(f"{role}: {content}")
+            
+    return '\n'.join(lines)
 
 async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "ollama") -> str:
     """Call the LLM endpoint (Ollama or OpenAI-compatible)."""
@@ -317,7 +334,11 @@ def emit_event(event_type: str, data: dict) -> dict:
 
 def clean_json_response(response: str) -> str:
     """Extract the first valid JSON object using brace counting."""
+    # Remove BOM, zero-width chars, and normalize whitespace
     text = response.strip()
+    text = text.replace('\ufeff', '').replace('\u200b', '').replace('\u200c', '').replace('\u200d', '')
+
+    # Remove markdown code blocks
     match = re.search(r'```(?:json)?\s*(\{.*)', text, re.DOTALL)
     if match:
         text = match.group(1)
@@ -1486,6 +1507,91 @@ Brain JSON:
 SUPERVISOR_PROMPT = """You are an Expert Kubernetes Assistant.
 Your goal is to help the user with any Kubernetes task, from simple information retrieval to complex debugging.
 
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL PRIORITY RULES (MUST READ FIRST - THESE OVERRIDE ALL OTHER INSTRUCTIONS)
+═══════════════════════════════════════════════════════════════════════════════
+
+RULE 1 - RESPOND IMMEDIATELY IF YOU SEE ROOT CAUSE IN command_history:
+  * OOMKilled / Exit 137 / OutOfMemoryError → Memory limit exceeded
+  * CrashLoopBackOff + error in logs → Application crash identified
+  * ImagePullBackOff + 401/403/404 → Image pull auth/not found issue
+  * FailedScheduling + Insufficient → Resource quota/node issue
+  * ReconcileError + Message → CRD controller error identified
+  * Synced: False + Message → Crossplane sync failure identified
+  * Health: Degraded/Missing + Message → ArgoCD health issue identified
+  * VirtualService 404/503 → Istio routing issue identified
+  DO NOT delegate more commands. Set next_action="respond" with root cause.
+
+RULE 2 - RESPOND IMMEDIATELY FOR EXPLANATION QUESTIONS:
+  * "What is X?" / "Explain Y" / "Difference between A and B"
+  → Set next_action="respond" WITHOUT running kubectl commands.
+
+RULE 3 - RESPOND AFTER ONE COMMAND FOR LISTING QUERIES:
+  * "List pods" / "Show services" / "Get nodes"
+  → ONE kubectl get command, then next_action="respond" with the list.
+  DO NOT describe, DO NOT get logs for simple listings.
+
+RULE 4 - NAMESPACE DISCOVERY (NEVER GUESS):
+  * If namespace is UNKNOWN, FIRST delegate: `kubectl get <type> -A | grep -i <name>`
+  * Extract namespace from output, THEN proceed with investigation.
+  * NEVER use -n default or guess namespaces.
+
+RULE 5 - CNCF/CRD DISCOVERY (CROSSPLANE, ARGOCD, ISTIO, ETC):
+  * For ANY custom resource, FIRST delegate: `kubectl api-resources | grep -i <keyword>`
+  * Use the EXACT resource names discovered (e.g., compositions.apiextensions.crossplane.io)
+  * NEVER guess CRD names like 'managedresources' or 'customresources'.
+  * Quick discovery patterns:
+    - Crossplane: `kubectl api-resources | grep -i crossplane`
+    - ArgoCD: `kubectl api-resources | grep -i argoproj`
+    - Istio: `kubectl api-resources | grep -i istio`
+    - Cert-Manager: `kubectl api-resources | grep -i cert-manager`
+    - Flux: `kubectl api-resources | grep -i fluxcd`
+
+RULE 6 - CRD NAMING CONFLICTS (EXACT MATCH ONLY):
+  * "clusters" usually refers to standard K8s clusters OR CAPI clusters.
+  * "customerclusters" (or similar) are DISTINCT custom resources.
+  * If user asks about "customercluster", DO NOT assume "clusters".
+  * ALWAYS use `kubectl api-resources | grep -i <term>` to find the exact CRD name first.
+  * NEVER use `kubectl get clusters` if the user asked for `customerclusters`.
+
+RULE 7 - CRD/OPERATOR INVESTIGATION SEQUENCE (FOR ALL CUSTOM RESOURCES):
+  When debugging ANY CRD-based resource, follow this EXACT sequence:
+
+  STEP 1: DISCOVER the resource
+    → `kubectl get <crd-type> -A | grep -i <name>`
+    → If CRD type unknown: `kubectl api-resources | grep -i <keyword>`
+
+  STEP 2: DESCRIBE to read status.conditions (THIS IS THE KEY STEP!)
+    → `kubectl describe <type>/<name> -n <namespace>`
+    → Look for these fields in Status:
+      * Conditions: Type, Status, Reason, Message
+      * Ready, Synced, Healthy states
+    → Common error patterns in Message (RESPOND immediately if you see these):
+      * "403" / "AuthorizationFailed" → Cloud RBAC/IAM permission issue
+      * "404" / "NotFound" → Resource doesn't exist or wrong reference
+      * "429" / "QuotaExceeded" / "RateLimited" → Cloud quota/rate limit
+      * "InvalidParameter" / "ValidationError" → Bad spec configuration
+      * "CredentialsNotFound" / "authentication" → Provider credentials issue
+      * "timeout" / "deadline exceeded" → API connectivity issue
+      * "already exists" → Resource naming conflict
+
+  STEP 3: CHECK CONTROLLER/OPERATOR HEALTH (only if Step 2 was unclear)
+    → Find controller pods: `kubectl get pods -A | grep -E '<operator-name>|controller|operator'`
+    → Known namespaces:
+      * Crossplane: crossplane-system (`kubectl get providers` to check HEALTHY)
+      * ArgoCD: argocd
+      * Istio: istio-system
+      * Cert-Manager: cert-manager
+      * Flux: flux-system
+
+  STEP 4: GET CONTROLLER LOGS (only if Step 3 showed unhealthy pods)
+    → `kubectl logs -n <operator-ns> -l <controller-label> --tail=100`
+
+  CRITICAL: The error is almost ALWAYS in status.conditions (Step 2)!
+  NEVER skip Step 2. NEVER go to logs before checking the resource's own conditions.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 You have access to two sources of truth:
 1. **Live cluster output** from kubectl (highest priority when available).
 2. **Knowledge Base (KB)** snippets below (curated troubleshooting playbooks).
@@ -1509,13 +1615,17 @@ Query: {query}
 Context: {kube_context}
 Cluster: {cluster_info}
 
-Command History:
+PREVIOUS CONTEXT (Conversation History):
+{conversation_context}
+
+Command History (Current Investigation):
 {command_history}
 
 ---
 INSTRUCTIONS:
 1. ANALYZE the user's request, KB context, and command history.
 2. CATEGORIZE the task:
+   - **Contextual**: (e.g., "logs for that pod", "describe it") -> Use PREVIOUS CONTEXT to resolve "that/it".
    - **Simple Info**: (e.g., "List pods", "Get nodes") -> Plan a direct command.
    - **Search/Find**: (e.g., "Find custom resource", "Where is X?") -> Plan a filtered search. **STOP** once found.
    - **Debugging**: (e.g., "Why is it broken?") -> Plan an investigation step (Logs -> Describe -> Events).
@@ -1536,6 +1646,7 @@ INSTRUCTIONS:
 RESPONSE FORMAT (JSON):
 {{
     "thought": "Your analysis of the situation and user intent",
+    "hypothesis": "Your specific theory about the root cause (e.g. 'Pod is crashing because of missing secret', 'Resource exists but is in wrong namespace')",
     "plan": "What the Worker should do next (natural language)",
     "next_action": "delegate" | "respond" | "invoke_mcp",
     "final_response": "Your complete answer (only when next_action=respond)",
@@ -1923,6 +2034,66 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
 - Not using `-E` when using `|`, `+`, or `{{}}`
 - Forgetting `--since=` for large log searches
 - Using `grep` without `-A/-B/-C` when context is needed
+
+EXAMPLE 70: specific resource debugging (CustomerCluster ASFailed)
+User: "why is customercluster taasvstst in ASFailed state?"
+Command History:
+(none)
+
+Thought:
+- User is asking about a specific custom resource 'customercluster'.
+- Status is 'ASFailed'.
+- First, we must DISCOVER it (find namespace).
+- Then DESCRIBE to see conditions.
+- If conditions point to a controller error, we must FIND the controller and CHECK LOGS.
+
+Brain JSON:
+{{
+  "thought": "User reports 'ASFailed' status. I need to find the namespace first, then describe it.",
+  "plan": "Run `kubectl get customerclusters -A | grep -i taasvstst` to find the namespace.",
+  "next_action": "delegate"
+}}
+
+User: (Result of previous step shows it's in namespace 'uipath-customer-123')
+Command History:
+1) $ kubectl get customerclusters -A | grep -i taasvstst
+   uipath-customer-123   taasvstst   ... ASFailed ...
+
+Thought:
+- Found it in 'uipath-customer-123'.
+- Now describe it to read status.conditions.
+
+Brain JSON:
+{{
+  "thought": "Found the CustomerCluster. Now I need to see *why* it failed by reading its status conditions.",
+  "plan": "Run `kubectl describe customercluster taasvstst -n uipath-customer-123`.",
+  "next_action": "delegate"
+}}
+
+User: (Result shows 'Reason: ReconcileError' ... 'Error syncing with vCluster')
+Command History:
+2) $ kubectl describe ...
+   ...
+   Status:
+     Conditions:
+       Type: Ready
+       Status: False
+       Reason: ReconcileError
+       Message: Failed to sync: vcluster endpoint unreachable
+
+Thought:
+- The error implies the controller (responsible for reconciling this CR) is failing to talk to vCluster.
+- I need to find the controller pod to check its logs.
+- Typically, for 'customerclusters', the controller is 'uipath-provisioner' or 'as-operator'.
+- I will search for the controller in the same namespace or system namespace.
+
+Brain JSON:
+{{
+  "thought": "The CRD is failing to reconcile. I need to check the logs of the controller responsible for this. I'll search for controller pods.",
+  "plan": "Run `kubectl get pods -A | grep -E 'controller|provisioner|operator'` to find the relevant controller pod.",
+  "next_action": "delegate"
+}}
+
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -1957,6 +2128,7 @@ RULES:
 ABSOLUTE SHELL RULES (IMPORTANT):
 - DO NOT use shell variables like `NS=...`, `POD_NAME=...`, or refer to `$NS`, `$POD_NAME`, etc.
 - DO NOT use command substitution like $(kubectl ...) or ${{...}}.
+- DO NOT use placeholders like `<pod-name>`, `<namespace>`, or `[name]`. You must use ACTUAL values discovered in previous steps.
 - Return a **single straightforward kubectl command** (plus simple pipes like `| grep`, `| awk`, `| wc`, `| head`, `| tail`).
 - DO NOT mix a discovery step with a deep-dive in the same command.
   - Example of what NOT to do:
@@ -2025,10 +2197,14 @@ CROSSPLANE/CRD CONTINUE PATTERNS (found_solution=FALSE, need more investigation)
 - Conditions show generic error without specific cloud API response → Need more detail
 
 SIMPLE QUERY PATTERNS (set found_solution=TRUE for informational queries):
-- User asked to "list" or "show" and output contains the resources → DONE
+- User asked to "list" or "show" and output contains the **actual resource instances** (not just the CRD name) → DONE
 - User asked "how many" and output shows count → DONE
 - User asked "does X exist" and output confirms existence → DONE
 - User asked "what is the status" and output shows status → DONE
+
+CROSSPLANE/CRD DISCOVERY (found_solution=FALSE - Keep Going):
+- If output is just from `api-resources` or `get crd` and shows the name, BUT the user asked to "list" or "show" instances → found_solution=FALSE.
+- Next step MUST be: `kubectl get <discovered-plural-name> -A`
 
 DEBUGGING QUERY PATTERNS (set found_solution=FALSE if not yet isolated):
 - User asked to "find issues" or "diagnose" -> ONLY mark SOLVED if you have found the ROOT CAUSE of a specific failure, or if you have definitively proven the cluster is healthy (e.g. "No non-running pods found").
@@ -2152,14 +2328,21 @@ async def supervisor_node(state: AgentState) -> dict:
     selected_examples = get_examples_text(selected_example_ids, SUPERVISOR_EXAMPLES_FULL)
     print(f"[agent-sidecar] Selected {len(selected_example_ids)} examples (Max 5)", flush=True)
 
+    # Escape braces in dynamic content to avoid format() interpreting them as placeholders
+    # The examples contain JSON like {"thought": ...} which would cause KeyError
+    # Command history and KB context might also contain braces from kubectl output
+    def escape_braces(s: str) -> str:
+        return s.replace('{', '{{').replace('}', '}}')
+
     prompt = SUPERVISOR_PROMPT.format(
-        kb_context=kb_context,
-        examples=selected_examples,
-        query=query,
+        kb_context=escape_braces(kb_context),
+        examples=escape_braces(selected_examples),
+        query=escape_braces(query),
         kube_context=state['kube_context'] or 'default',
-        cluster_info=state.get('cluster_info', 'Not available'),
-        command_history=format_command_history(state['command_history']),
-        mcp_tools_desc=json.dumps(state.get("mcp_tools", []), indent=2),
+        cluster_info=escape_braces(state.get('cluster_info', 'Not available')),
+        conversation_context=escape_braces(format_conversation_context(state.get('conversation_history', []))),
+        command_history=escape_braces(format_command_history(state['command_history'])),
+        mcp_tools_desc=escape_braces(json.dumps(state.get("mcp_tools", []), indent=2)),
     )
 
     try:
@@ -2176,6 +2359,7 @@ async def supervisor_node(state: AgentState) -> dict:
                 'iteration': iteration,
                 'next_action': 'delegate',
                 'current_plan': result['plan'],
+                'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
                 'events': events,
             }
         elif result['next_action'] == 'invoke_mcp':
@@ -2573,6 +2757,7 @@ class AgentRequest(BaseModel):
     llm_model: str = "opspilot-brain"
     executor_model: str = "k8s-cli"
     history: list[CommandHistory] = []
+    conversation_history: list[dict] = []  # Multi-turn context
     approved_command: bool = False
     mcp_tools: list[dict] = []
     tool_output: dict | None = None 
@@ -2893,6 +3078,7 @@ async def analyze(request: AgentRequest):
             "query": request.query,
             "kube_context": request.kube_context,
             "command_history": request.history or [],
+            "conversation_history": request.conversation_history or [],
             "iteration": 0,
             "next_action": 'supervisor',
             "pending_command": None,

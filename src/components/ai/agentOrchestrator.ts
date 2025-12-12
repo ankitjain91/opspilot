@@ -32,6 +32,7 @@ interface PythonAgentRequest {
     llm_provider: string;
     llm_model: string;
     executor_model: string;
+    conversation_history: Array<{ role: string, content: string }>;
 }
 
 // =============================================================================
@@ -101,6 +102,7 @@ async function runPythonAgent(
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal,
     mcpTools?: any[],
+    initialHistory: Array<{ role: string, content: string }> = []
 ): Promise<string> {
     // Pre-flight check: ensure the Python agent is running (auto-start if needed)
     onProgress?.('🔍 Checking agent server...');
@@ -129,6 +131,7 @@ async function runPythonAgent(
             llm_provider: llmProvider,
             llm_model: llmModel,
             executor_model: executorModel,
+            conversation_history: initialHistory || [],
             mcp_tools: mcpTools || [],
             tool_output: currentToolOutput,
             history: currentHistory
@@ -325,7 +328,8 @@ export async function runAgentLoop(
             onProgress,
             onStep,
             abortSignal,
-            mcpTools
+            mcpTools,
+            _initialHistory || []
         );
 
 

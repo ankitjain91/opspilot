@@ -43,6 +43,7 @@ def build():
         "--hidden-import", "httpx",
         "--hidden-import", "langgraph",
         "--hidden-import", "langchain_core",
+        "--hidden-import", "encodings",
         # Optimize build size/speed by excluding unused heavy ML/Science libraries
         "--exclude-module", "torch",
         "--exclude-module", "tensorflow",

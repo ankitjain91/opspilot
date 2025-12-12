@@ -2686,6 +2686,7 @@ pub fn run() {
             connect_vcluster,
             disconnect_vcluster,
             list_vclusters,
+            cleanup_stale_vcluster,
             get_topology_graph,
             get_topology_graph_opts,
             list_crds,
@@ -4547,13 +4548,117 @@ async fn spawn_and_monitor_vcluster(
     }
 }
 
+/// Detect and cleanup stale vcluster connections.
+/// A connection is stale if:
+/// 1. Current kubeconfig context starts with "vcluster_"
+/// 2. But the proxy server is not reachable (connection refused)
+/// 3. Or there's a stale lock file blocking operations
+async fn cleanup_stale_vcluster_connection(state: &State<'_, AppState>) -> Result<bool, String> {
+    // Check if current context is a vcluster context
+    let current_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
+
+    if !current_context.starts_with("vcluster_") {
+        return Ok(false); // Not in a vcluster context, nothing to cleanup
+    }
+
+    println!("DEBUG: Detected vcluster context '{}', checking if proxy is alive...", current_context);
+
+    // Try to make a quick API call to check if the proxy is reachable
+    // Use a short timeout to avoid blocking
+    let check_result = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::process::Command::new("kubectl")
+            .args(&["--context", &current_context, "get", "namespaces", "--request-timeout=2s"])
+            .output()
+    ).await;
+
+    let is_stale = match check_result {
+        Ok(Ok(output)) => {
+            if output.status.success() {
+                println!("DEBUG: vcluster proxy is alive and responsive");
+                return Ok(false); // Proxy is working, not stale
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // Check for connection refused or similar errors
+            stderr.contains("connection refused") ||
+            stderr.contains("refused") ||
+            stderr.contains("no such host") ||
+            stderr.contains("i/o timeout") ||
+            stderr.contains("Unable to connect")
+        }
+        Ok(Err(_)) | Err(_) => {
+            // Command failed to execute or timed out
+            true
+        }
+    };
+
+    if !is_stale {
+        return Ok(false);
+    }
+
+    println!("DEBUG: vcluster connection is stale, cleaning up...");
+
+    // Remove stale kubeconfig lock file if it exists
+    if let Some(home) = dirs::home_dir() {
+        let lock_file = home.join(".kube").join("config.lock");
+        if lock_file.exists() {
+            println!("DEBUG: Removing stale lock file: {:?}", lock_file);
+            let _ = std::fs::remove_file(&lock_file);
+        }
+    }
+
+    // Run vcluster disconnect to clean up the stale context
+    let disconnect_result = tokio::process::Command::new("vcluster")
+        .arg("disconnect")
+        .output()
+        .await;
+
+    match disconnect_result {
+        Ok(output) => {
+            if output.status.success() {
+                println!("DEBUG: Successfully cleaned up stale vcluster connection");
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                println!("DEBUG: vcluster disconnect returned: {}", stderr);
+            }
+        }
+        Err(e) => {
+            println!("DEBUG: Failed to run vcluster disconnect: {}", e);
+        }
+    }
+
+    // Kill any orphaned vcluster proxy processes we might have spawned
+    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+        if let Some(pid) = *pid_guard {
+            println!("DEBUG: Killing orphaned vcluster proxy (PID: {})", pid);
+            let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).output();
+        }
+        *pid_guard = None;
+    }
+
+    // Clear caches since we're changing context
+    if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.discovery_cache.try_lock() { *cache = None; }
+
+    Ok(true) // Cleaned up stale connection
+}
+
 #[tauri::command]
 async fn connect_vcluster(
     state: State<'_, AppState>,
     name: String,
     namespace: String,
 ) -> Result<String, String> {
-    // First, check if vcluster CLI is available
+    // First, cleanup any stale vcluster connection
+    if let Ok(cleaned) = cleanup_stale_vcluster_connection(&state).await {
+        if cleaned {
+            println!("DEBUG: Cleaned up stale vcluster connection before new connect");
+        }
+    }
+
+    // Check if vcluster CLI is available
     let version_check = tokio::process::Command::new("vcluster")
         .arg("version")
         .output()
@@ -4741,8 +4846,19 @@ async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, Strin
     }
 }
 
+/// Tauri command to cleanup stale vcluster connections
+/// Can be called from frontend on app startup or when vcluster UI is shown
+#[tauri::command]
+async fn cleanup_stale_vcluster(state: State<'_, AppState>) -> Result<bool, String> {
+    cleanup_stale_vcluster_connection(&state).await
+}
+
 #[tauri::command]
 async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
+    // First, cleanup any stale vcluster connection (but don't block on cache check)
+    // This ensures the "Connected" status is accurate
+    let _ = cleanup_stale_vcluster_connection(&state).await;
+
     // Get current context to use with vcluster CLI
     let context = {
         if let Ok(guard) = state.selected_context.try_lock() {
@@ -4755,6 +4871,7 @@ async fn list_vclusters(state: State<'_, AppState>) -> Result<String, String> {
     // Context is used for the vcluster CLI call below
 
     // Check cache first (30 second TTL)
+    // Note: We check cache AFTER cleanup to ensure freshness
     if let Ok(cache) = state.vcluster_cache.try_lock() {
         if let Some((timestamp, cached_result)) = &*cache {
             if timestamp.elapsed().as_secs() < 30 {
