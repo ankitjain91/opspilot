@@ -86,6 +86,12 @@ EMBEDDING_ENDPOINT = os.environ.get("K8S_AGENT_EMBED_ENDPOINT", "")  # if empty,
 KB_MAX_MATCHES = 5
 KB_MIN_SIMILARITY = 0.25  # cosine similarity threshold
 
+# ---- Query Routing Config ----
+# Smart routing: simple queries → fast model, complex → large model
+# The small model includes self-verification and can escalate if unsure
+ROUTING_ENABLED = os.environ.get("ROUTING_ENABLED", "true").lower() == "true"
+CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))  # Below this → escalate
+
 # ---- Logging Config ----
 LOG_DIR = os.environ.get("K8S_AGENT_LOG_DIR", "./logs")
 LOG_FILE = "agent_history.jsonl"
@@ -232,6 +238,12 @@ def format_conversation_context(history: list[dict]) -> str:
             
     return '\n'.join(lines)
 
+def escape_braces(s: str) -> str:
+    """Escape braces for formatted strings."""
+    if not s:
+        return ""
+    return s.replace('{', '{{').replace('}', '}}')
+
 async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "ollama") -> str:
     """Call the LLM endpoint (Ollama or OpenAI-compatible)."""
     async with httpx.AsyncClient() as client:
@@ -331,6 +343,135 @@ def emit_event(event_type: str, data: dict) -> dict:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         **data
     }
+
+# =============================================================================
+# QUERY ROUTING & SELF-VERIFICATION
+# =============================================================================
+
+def classify_query_complexity(query: str, command_history: list) -> tuple[str, str]:
+    """
+    Classify query complexity to route to appropriate model.
+    Returns: (complexity: "simple"|"complex", reason: str)
+
+    Simple queries use the fast executor model.
+    Complex queries use the large brain model.
+    """
+    query_lower = query.lower().strip()
+
+    # === INSTANT SIMPLE (no reasoning needed) ===
+    simple_patterns = [
+        (r'^list\s+', "listing query"),
+        (r'^get\s+', "get query"),
+        (r'^show\s+', "show query"),
+        (r'^count\s+', "count query"),
+        (r'^how many\s+', "count query"),
+        (r'^what pods', "pod listing"),
+        (r'^what services', "service listing"),
+        (r'^what nodes', "node listing"),
+        (r'^which namespace', "namespace query"),
+        (r'^what version', "version query"),
+        (r'^what is the status of', "status check"),
+        (r'^check if .+ exists', "existence check"),
+        (r'^does .+ exist', "existence check"),
+        (r'^is .+ running', "running check"),
+        (r'^are there any .+ in', "existence check"),
+    ]
+
+    for pattern, reason in simple_patterns:
+        if re.match(pattern, query_lower):
+            return ("simple", reason)
+
+    # Simple yes/no questions without debugging keywords
+    if re.match(r'^(is|are|does|do|can|has|have)\s+', query_lower):
+        debug_words = ['why', 'error', 'fail', 'wrong', 'problem', 'crash', 'issue']
+        if not any(w in query_lower for w in debug_words):
+            return ("simple", "yes/no question")
+
+    # === INSTANT COMPLEX (needs deep reasoning) ===
+    complex_keywords = [
+        ('why', "causal reasoning needed"),
+        ('debug', "debugging task"),
+        ('troubleshoot', "troubleshooting task"),
+        ('investigate', "investigation task"),
+        ('root cause', "root cause analysis"),
+        ('diagnose', "diagnosis task"),
+        ('not working', "failure analysis"),
+        ('failing', "failure analysis"),
+        ('crashed', "crash analysis"),
+        ('oom', "memory issue"),
+        ('memory leak', "memory analysis"),
+        ('timeout', "timeout analysis"),
+        ('stuck', "hang analysis"),
+        ('explain why', "causal explanation"),
+        ("what's wrong", "problem diagnosis"),
+        ('what went wrong', "problem diagnosis"),
+        ('fix', "solution needed"),
+        ('solve', "solution needed"),
+        ('how to resolve', "solution needed"),
+    ]
+
+    for keyword, reason in complex_keywords:
+        if keyword in query_lower:
+            return ("complex", reason)
+
+    # === CONTEXT-BASED (check command history for errors) ===
+    if command_history:
+        history_text = str(command_history).lower()
+        error_indicators = ['error', 'fail', 'crash', 'oom', '137', 'backoff', 'timeout', 'refused']
+        if any(e in history_text for e in error_indicators):
+            return ("complex", "errors in command history")
+
+    # Explanation questions need quality (use complex for better explanations)
+    if re.match(r'^(what is |explain |describe |difference between)', query_lower):
+        return ("complex", "explanation query")
+
+    # Default: use simple for speed (model can escalate if needed)
+    return ("simple", "default to fast model")
+
+
+def select_model_for_query(state: dict) -> tuple[str, str]:
+    """
+    Select the appropriate model based on query complexity.
+    Returns: (model_name, complexity)
+    """
+    if not ROUTING_ENABLED:
+        return (state['llm_model'], "routing_disabled")
+
+    query = state.get('query', '')
+    history = state.get('command_history', [])
+
+    complexity, reason = classify_query_complexity(query, history)
+
+    if complexity == "simple":
+        model = state.get('executor_model', 'k8s-cli')
+        print(f"[agent-sidecar] Query routed to FAST model ({model}): {reason}", flush=True)
+    else:
+        model = state['llm_model']
+        print(f"[agent-sidecar] Query routed to BRAIN model ({model}): {reason}", flush=True)
+
+    return (model, complexity)
+
+
+def parse_confidence_from_response(response: str) -> float:
+    """
+    Extract confidence score from model response.
+    The model is instructed to include "confidence": 0.X in its JSON.
+    Returns 1.0 if not found (assume confident).
+    """
+    try:
+        # Look for confidence in JSON
+        match = re.search(r'"confidence"\s*:\s*([\d.]+)', response)
+        if match:
+            return float(match.group(1))
+
+        # Look for UNCERTAIN or UNSURE markers
+        response_lower = response.lower()
+        if any(marker in response_lower for marker in ['uncertain', 'unsure', 'not confident', 'need more info', 'escalate']):
+            return 0.5
+
+        return 1.0  # Default: assume confident
+    except:
+        return 1.0
 
 def clean_json_response(response: str) -> str:
     """Extract the first valid JSON object using brace counting."""
@@ -1649,10 +1790,17 @@ RESPONSE FORMAT (JSON):
     "hypothesis": "Your specific theory about the root cause (e.g. 'Pod is crashing because of missing secret', 'Resource exists but is in wrong namespace')",
     "plan": "What the Worker should do next (natural language)",
     "next_action": "delegate" | "respond" | "invoke_mcp",
+    "confidence": 0.0 to 1.0 (your confidence in this decision - set below 0.7 if uncertain or query is complex),
     "final_response": "Your complete answer (only when next_action=respond)",
     "tool": "Name of the MCP tool to invoke (only when next_action=invoke_mcp)",
     "args": {{"arg_name": "arg_value" }}
 }}
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Very confident - simple listing, status check, or clear answer
+- 0.7-0.9: Confident - straightforward query with clear plan
+- 0.5-0.7: Moderate - may need deeper analysis, consider escalation
+- Below 0.5: Uncertain - complex reasoning needed, recommend escalation
 
 MCP / EXTERNAL TOOLS:
 If the user query requires info from outside the cluster (e.g. GitHub, Databases, Git), and tools are available:
@@ -2331,8 +2479,7 @@ async def supervisor_node(state: AgentState) -> dict:
     # Escape braces in dynamic content to avoid format() interpreting them as placeholders
     # The examples contain JSON like {"thought": ...} which would cause KeyError
     # Command history and KB context might also contain braces from kubectl output
-    def escape_braces(s: str) -> str:
-        return s.replace('{', '{{').replace('}', '}}')
+
 
     prompt = SUPERVISOR_PROMPT.format(
         kb_context=escape_braces(kb_context),
@@ -2346,9 +2493,40 @@ async def supervisor_node(state: AgentState) -> dict:
     )
 
     try:
-        response = await call_llm(prompt, state['llm_endpoint'], state['llm_model'], state.get('llm_provider', 'ollama'))
+        # Smart routing: use fast model for simple queries, brain for complex
+        selected_model, complexity = select_model_for_query(state)
+
+        # First attempt with routed model
+        response = await call_llm(prompt, state['llm_endpoint'], selected_model, state.get('llm_provider', 'ollama'))
+
+        # Self-verification: check if model is confident
+        # If using fast model and confidence is low, escalate to brain
+        if ROUTING_ENABLED and complexity == "simple":
+            confidence = parse_confidence_from_response(response)
+            preliminary_result = parse_supervisor_response(response)
+
+            # Check for escalation signals
+            thought_lower = preliminary_result.get('thought', '').lower()
+            should_escalate = (
+                confidence < CONFIDENCE_THRESHOLD or
+                preliminary_result.get('next_action') == 'escalate' or
+                'uncertain' in thought_lower or
+                'not sure' in thought_lower or
+                'need more context' in thought_lower or
+                'complex' in thought_lower or
+                'unsure' in thought_lower
+            )
+
+            if should_escalate:
+                brain_model = state['llm_model']
+                print(f"[agent-sidecar] ESCALATING to brain model ({brain_model}): confidence={confidence:.2f}", flush=True)
+                events.append(emit_event("progress", {"message": f"Escalating to advanced reasoning..."}))
+
+                # Re-run with brain model
+                response = await call_llm(prompt, state['llm_endpoint'], brain_model, state.get('llm_provider', 'ollama'))
+
         result = parse_supervisor_response(response)
-        
+
         if result['thought']:
             events.append(emit_event("reflection", {"assessment": "PLANNING", "reasoning": result['thought']}))
         
