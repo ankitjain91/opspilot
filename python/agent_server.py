@@ -944,19 +944,148 @@ Thought:
 - Crossplane uses CRDs, not core types.
 - Never guess names like managedresources.
 - First: discover CRDs via api-resources.
-- Then: list compositions and check Ready conditions.
+- Then: list **compositions** (plural) and check Ready conditions using the exact resource name.
 
 Plan:
 1) Ask worker to run:
-   kubectl api-resources | grep -i crossplane
-2) Next step (after we see the real Kind names) will be:
-   kubectl get compositions -A -o wide
-   ...and check status conditions.
+   kubectl api-resources --verbs=list -o name | grep -i crossplane
+2) Next step (after we see the real API names) will be something like:
+   kubectl get compositions.apiextensions.crossplane.io -A -o wide
 
 Brain JSON:
 {
-  "thought": "Need to discover Crossplane CRDs first using api-resources, then list compositions and inspect Ready conditions.",
-  "plan": "Run `kubectl api-resources | grep -i crossplane` to discover composition and related types.",
+  "thought": "Need to discover Crossplane CRDs first using api-resources, then list compositions with the plural resource name.",
+  "plan": "Run `kubectl api-resources --verbs=list -o name | grep -i crossplane` to discover composition and related types.",
+  "next_action": "delegate",
+  "final_response": null
+}
+
+---
+
+EXAMPLE 10: Crossplane FULL DEBUG FLOW (Discovery → Resource → Controller Logs)
+User: "My SQL server managed by Crossplane is failing to provision."
+Command History:
+1) $ kubectl get managed | grep -i sql
+   NAME                                                              SYNCED   READY   EXTERNAL-NAME   AGE
+   server.dbforpostgresql.azure.upbound.io/my-postgres-server        False    False                   15m
+
+Thought:
+- We found the managed resource: `server.dbforpostgresql.azure.upbound.io/my-postgres-server`
+- SYNCED=False means Crossplane cannot reconcile it with cloud API
+- CRITICAL NEXT STEP: Check status.conditions for the actual error
+- If conditions don't reveal root cause → check Crossplane provider/controller logs
+
+Plan (FULL CROSSPLANE DEBUG SEQUENCE):
+1) DONE: `kubectl get managed | grep -i sql` - Found the resource
+2) NEXT: `kubectl describe server.dbforpostgresql.azure.upbound.io/my-postgres-server` - Get conditions and events
+3) IF STILL UNCLEAR: Check provider health: `kubectl get providers`
+4) IF PROVIDER UNHEALTHY: `kubectl describe provider provider-azure` - Check provider conditions
+5) FOR DEEP DEBUG: Get controller logs: `kubectl logs -n crossplane-system -l pkg.crossplane.io/provider=provider-azure --tail=100`
+
+Brain JSON:
+{
+  "thought": "Found SYNCED=False managed resource. Must check status.conditions for the actual cloud API error, then provider health if needed.",
+  "plan": "Describe the managed resource to see status.conditions[].reason and message. This usually reveals the exact Azure/AWS/GCP error.",
+  "next_action": "delegate",
+  "final_response": null
+}
+
+---
+
+EXAMPLE 10b: Crossplane - Reading status.conditions (THE KEY STEP)
+User: "My SQL server managed by Crossplane is failing to provision."
+Command History:
+1) $ kubectl get managed | grep -i sql
+   server.dbforpostgresql.azure.upbound.io/my-postgres-server   False   False   15m
+2) $ kubectl describe server.dbforpostgresql.azure.upbound.io/my-postgres-server
+   ...
+   Status:
+     Conditions:
+       Type:    Synced
+       Status:  False
+       Reason:  ReconcileError
+       Message: cannot create PostgreSQL Server: compute.ServersClient#CreateOrUpdate:
+                Failure sending request: StatusCode=403 -- Original Error:
+                autorest/azure: Service returned an error. Status=403 Code="AuthorizationFailed"
+                Message="The client does not have authorization to perform action
+                'Microsoft.DBforPostgreSQL/servers/write' on scope '/subscriptions/xxx/resourceGroups/yyy'"
+   ...
+
+Thought:
+- FOUND ROOT CAUSE: Azure RBAC permission error (403 AuthorizationFailed)
+- The Crossplane provider's service principal lacks 'Microsoft.DBforPostgreSQL/servers/write' permission
+- No need to check controller logs - the error is clear in conditions
+- Can respond with fix now
+
+Brain JSON:
+{
+  "thought": "status.conditions reveals 403 AuthorizationFailed - the Azure service principal lacks DBforPostgreSQL write permissions.",
+  "plan": "Explain the RBAC permission issue and how to fix it.",
+  "next_action": "respond",
+  "final_response": "Your PostgreSQL server is failing because the Crossplane Azure provider lacks permission. The error shows: `AuthorizationFailed - client does not have authorization to perform 'Microsoft.DBforPostgreSQL/servers/write'`. **Fix**: Grant the Azure service principal (used by provider-azure) the 'Contributor' role or a custom role with 'Microsoft.DBforPostgreSQL/servers/*' permissions on the target resource group or subscription."
+}
+
+---
+
+EXAMPLE 10c: Crossplane - Provider unhealthy (need controller logs)
+User: "All my Crossplane resources are stuck."
+Command History:
+1) $ kubectl get managed
+   (all resources show SYNCED=False, READY=False)
+2) $ kubectl get providers
+   NAME             INSTALLED   HEALTHY   PACKAGE                                  AGE
+   provider-azure   True        False     xpkg.upbound.io/upbound/provider-azure   2d
+3) $ kubectl describe provider provider-azure
+   ...
+   Conditions:
+     Type:    Healthy
+     Status:  False
+     Reason:  UnhealthyPackageRevision
+     Message: cannot get package revision health: Deployment replicas are not ready
+   ...
+
+Thought:
+- Provider is UNHEALTHY - this affects ALL its managed resources
+- "Deployment replicas are not ready" → controller pod is crashing
+- NEXT: Get controller pod logs to see crash reason
+
+Plan:
+- Find and get logs from the provider controller pod
+- `kubectl get pods -n crossplane-system -l pkg.crossplane.io/provider=provider-azure`
+- Then `kubectl logs <pod> -n crossplane-system --tail=100`
+
+Brain JSON:
+{
+  "thought": "Provider is unhealthy due to deployment not ready. Must check controller pod logs for crash reason.",
+  "plan": "Get logs from the provider-azure controller pod in crossplane-system namespace.",
+  "next_action": "delegate",
+  "final_response": null
+}
+
+---
+
+EXAMPLE 10d: Generic CRD/Operator Debug Flow (extensible pattern)
+User: "My cert-manager Certificate is stuck in not ready."
+Command History:
+(none yet)
+
+Thought:
+- cert-manager is an operator with CRDs (Certificate, Issuer, ClusterIssuer)
+- SAME DEBUG PATTERN as Crossplane:
+  1) Find the resource: `kubectl get certificates -A` or `kubectl get cert -A`
+  2) Describe it: `kubectl describe certificate <name> -n <ns>` - check status.conditions
+  3) If unclear, check controller: `kubectl logs -n cert-manager -l app=cert-manager --tail=100`
+- This pattern works for ANY operator: Prometheus, ArgoCD, Flux, KEDA, etc.
+
+Plan:
+1) Discover: `kubectl get certificates -A` (or grep if name partially known)
+2) Describe: Check status.conditions for the exact error
+3) Controller logs if still unclear
+
+Brain JSON:
+{
+  "thought": "cert-manager Certificate not ready. Standard CRD debug: get resource → describe → check conditions → controller logs if needed.",
+  "plan": "First list certificates across all namespaces to find the stuck one.",
   "next_action": "delegate",
   "final_response": null
 }
@@ -1179,7 +1308,7 @@ INSTRUCTIONS:
    - **Search/Find**: (e.g., "Find custom resource", "Where is X?") -> Plan a filtered search. **STOP** once found.
    - **Debugging**: (e.g., "Why is it broken?") -> Plan an investigation step (Logs -> Describe -> Events).
    - **Explanation**: (e.g., "What is a pod?") -> **IMMEDIATE RESPOND** (Use Example 2 logic).
-   - **Discovery**: (e.g., "Unknown resource") -> Plan `kubectl api-resources` to find the CRD.
+   - **Discovery**: (e.g., "Unknown resource") -> Plan `kubectl api-resources` or `kubectl get crd` to find the CRD.
 
 3. **FINAL ANSWER RULES**:
    - If you found the answer, your `final_response` MUST include the **ACTUAL DATA** (e.g., list of names, specific error logs), not just a summary like "I found them".
@@ -1199,8 +1328,8 @@ RESPONSE FORMAT (JSON):
     "next_action": "delegate" | "respond" | "invoke_mcp",
     "final_response": "Your complete answer (only when next_action=respond)",
     "tool": "Name of the MCP tool to invoke (only when next_action=invoke_mcp)",
-    "args": { "arg_name": "arg_value" }
-}
+    "args": {{"arg_name": "arg_value" }}
+}}
 
 MCP / EXTERNAL TOOLS:
 If the user query requires info from outside the cluster (e.g. GitHub, Databases, Git), and tools are available:
@@ -1323,8 +1452,11 @@ For any failing pod:
 
 CRITICAL - CRD/Custom Resource Discovery:
 - **NEVER GUESS RESOURCE NAMES**: Generic names like 'managedresources', 'compositeresources', 'customresources' DO NOT EXIST.
-- **ALWAYS DISCOVER FIRST**: When asked about ANY of these CNCF projects, your FIRST action MUST be `kubectl api-resources | grep <keyword>`:
-  - Crossplane: `grep crossplane` → compositions, providers, xrds
+- **ALWAYS DISCOVER FIRST**: When asked about ANY of these CNCF projects, your FIRST action MUST be `kubectl api-resources` or `kubectl get crd` with a grep:
+  - Crossplane:
+      * `kubectl api-resources --verbs=list -o name | grep -i crossplane`
+      * OR `kubectl get crd | grep -i crossplane`
+      * Use the **exact plural API resource names** you see there when running `kubectl get` (e.g. `compositions.apiextensions.crossplane.io`, NOT `composition`).
   - Prometheus: `grep -i monitor` → servicemonitors, podmonitors, prometheusrules
   - Cert-Manager: `grep cert-manager` → certificates, issuers, clusterissuers
   - Istio: `grep istio` → virtualservices, destinationrules, gateways
@@ -1338,8 +1470,131 @@ CRITICAL - CRD/Custom Resource Discovery:
   - Gateway API: `grep gateway.networking` → gateways, httproutes
   - Cluster API: `grep cluster.x-k8s.io` → clusters, machines, machinedeployments
   - Strimzi/Kafka: `grep kafka` → kafkas, kafkatopics, kafkausers
-- **CROSSPLANE SPECIFIC**: Crossplane has NO 'managedresources' type. Use `kubectl api-resources | grep crossplane` to find types like: compositions, providers, providerconfigs, xrds, etc.
-- **OPERATOR PATTERN**: For any operator (redis-operator, prometheus-operator, etc.), always grep api-resources to find what CRDs it installed.
+- **CROSSPLANE SPECIFIC**:
+  - Crossplane has NO 'managedresources' type.
+  - Discover resources via `kubectl api-resources --verbs=list -o name | grep -i crossplane` or `kubectl get crd | grep -i crossplane`.
+  - When you later run `kubectl get`, use the **exact plural name** shown (e.g. `kubectl get compositions.apiextensions.crossplane.io -A`, **not** `kubectl get composition`).
+- **OPERATOR PATTERN**: For any operator (redis-operator, prometheus-operator, etc.), always grep api-resources or CRDs to find what CRDs it installed.
+
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY CRD/OPERATOR DEBUG SEQUENCE (YOU MUST FOLLOW THIS ORDER)
+═══════════════════════════════════════════════════════════════════════════════
+When debugging ANY CRD-based resource (Crossplane, cert-manager, ArgoCD, Flux, Prometheus, etc.),
+you MUST follow this EXACT sequence. DO NOT SKIP STEPS.
+
+STEP 1: DISCOVERY (find the resource)
+  For Crossplane: `kubectl get managed` or `kubectl get managed | grep -i <keyword>`
+  For other CRDs: `kubectl get <crd-type> -A` or `kubectl get <crd-type> -A | grep -i <name>`
+  IF YOU DON'T KNOW THE CRD TYPE: `kubectl api-resources | grep -i <operator-name>`
+
+STEP 2: DESCRIBE (check status.conditions - THIS IS THE KEY STEP)
+  `kubectl describe <full-crd-type>/<resource-name>`
+  Example: `kubectl describe server.dbforpostgresql.azure.upbound.io/my-postgres`
+
+  WHAT TO LOOK FOR in status.conditions:
+  - Type: Synced, Ready, Healthy, Available, Progressing
+  - Status: True/False/Unknown
+  - Reason: ReconcileError, FailedCreate, InvalidConfig, etc.
+  - Message: THE ACTUAL ERROR (cloud API error, validation error, etc.)
+
+  IF Message contains a SPECIFIC ERROR (403, 404, quota, auth, validation) → YOU HAVE ROOT CAUSE → RESPOND
+
+STEP 3: CHECK CONTROLLER/OPERATOR HEALTH (only if Step 2 was unclear)
+  For Crossplane: `kubectl get providers` → check HEALTHY column
+  For cert-manager: `kubectl get pods -n cert-manager`
+  For ArgoCD: `kubectl get pods -n argocd`
+  For any operator: `kubectl get pods -n <operator-namespace>`
+
+  IF controller/provider is UNHEALTHY → go to Step 4
+
+STEP 4: GET CONTROLLER LOGS (only if Step 3 showed unhealthy)
+  For Crossplane providers: `kubectl logs -n crossplane-system -l pkg.crossplane.io/provider=<provider-name> --tail=100`
+  For cert-manager: `kubectl logs -n cert-manager -l app=cert-manager --tail=100`
+  For any operator: `kubectl logs -n <namespace> -l <controller-label> --tail=100`
+
+CRITICAL RULES:
+- NEVER skip Step 2 (describe). The error is almost ALWAYS in status.conditions.
+- NEVER go to controller logs before checking the resource's own conditions.
+- NEVER respond "I don't know" if you haven't completed Step 2.
+- IF status.conditions has a clear error message → THAT IS YOUR ROOT CAUSE → RESPOND IMMEDIATELY.
+
+COMMON CRD ERROR PATTERNS (respond immediately if you see these in conditions):
+- "403" or "AuthorizationFailed" → Cloud RBAC/IAM permission issue
+- "404" or "NotFound" → Cloud resource doesn't exist or wrong reference
+- "429" or "QuotaExceeded" or "RateLimited" → Cloud quota/rate limit
+- "InvalidParameter" or "ValidationError" → Bad spec configuration
+- "CredentialsNotFound" or "authentication" → Provider credentials issue
+- "timeout" or "deadline exceeded" → Cloud API connectivity issue
+- "already exists" → Resource naming conflict
+- "not found" in reference fields → Missing dependency (secret, configmap, etc.)
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
+═══════════════════════════════════════════════════════════════════════════════
+
+**1. GREP WITH CONTEXT** (see lines around matches):
+   - `kubectl logs <pod> | grep -A 5 "error"` → 5 lines AFTER each error
+   - `kubectl logs <pod> | grep -B 3 "exception"` → 3 lines BEFORE
+   - `kubectl logs <pod> | grep -C 2 "failed"` → 2 lines BEFORE and AFTER
+   - Use this to understand what happened around an error!
+
+**2. TIME-BASED LOG FILTERING** (focus on recent events):
+   - `kubectl logs <pod> --since=10m` → logs from last 10 minutes
+   - `kubectl logs <pod> --since=1h` → logs from last hour
+   - `kubectl logs <pod> --since-time="2024-01-01T10:00:00Z"` → since specific time
+   - ALWAYS prefer `--since=` over raw logs for large pods!
+
+**3. MULTI-CONTAINER & CRASHED PODS**:
+   - `kubectl logs <pod> --previous` → logs from CRASHED/restarted container
+   - `kubectl logs <pod> -c <container>` → specific container in multi-container pod
+   - `kubectl logs <pod> --all-containers` → all containers at once
+   - For CrashLoopBackOff, ALWAYS use `--previous` to see crash logs!
+
+**4. EVENTS TIMELINE** (critical for debugging):
+   - `kubectl get events --sort-by='.lastTimestamp' | tail -20` → recent events sorted
+   - `kubectl get events -n <ns> --field-selector involvedObject.name=<pod>` → events for specific resource
+   - `kubectl get events -n <ns> --field-selector type=Warning` → only warnings
+   - Events tell you WHAT HAPPENED - always check them!
+
+**5. JSON OUTPUT & JQ FILTERING**:
+   - `kubectl get pods -o json | jq '.items[] | select(.status.phase != "Running")'` → non-running pods
+   - `kubectl get pods -o jsonpath='{.items[*].metadata.name}'` → just pod names
+   - `kubectl get pod <pod> -o jsonpath='{.status.conditions}'` → just conditions
+   - Use `-o json | jq` for complex filtering!
+
+**6. AWK & GREP COMBOS** (powerful filtering):
+   - `kubectl get pods -A | awk '$4 > 5'` → pods with >5 restarts (4th column)
+   - `kubectl get pods | grep -v Running` → non-running pods
+   - `kubectl get pods | grep -E 'Error|Failed|Pending'` → multiple patterns
+   - `kubectl top pods | sort -k3 -h | tail -5` → top 5 by CPU usage
+
+**7. DESCRIBE + GREP** (find specific info fast):
+   - `kubectl describe pod <pod> | grep -A 5 "Events:"` → just events section
+   - `kubectl describe pod <pod> | grep -A 3 "State:"` → container states
+   - `kubectl describe pod <pod> | grep -i error` → any error mentions
+   - `kubectl describe node <node> | grep -A 5 "Conditions:"` → node health
+
+**8. WATCH & FOLLOW** (live monitoring):
+   - `kubectl logs -f <pod> --tail=50` → follow logs live (start with last 50)
+   - `kubectl get pods -w` → watch pod state changes
+   - Note: Be careful with `-f` as it streams indefinitely!
+
+**9. COMPARE & COUNT**:
+   - `kubectl get pods -A | wc -l` → count all pods
+   - `kubectl get pods -A | grep -c Running` → count running pods
+   - `kubectl diff -f manifest.yaml` → compare local vs cluster
+
+**10. COMBINE FOR POWER**:
+   - `kubectl get events --sort-by='.lastTimestamp' | grep -E 'Error|Warning|Failed' | tail -10`
+     → Recent error events
+   - `kubectl logs <pod> --since=5m | grep -C 3 -i error`
+     → Errors with context from last 5 minutes
+   - `kubectl get pods -A -o wide | awk 'NR==1 || $5>3'`
+     → Header + pods with >3 restarts
+
+USE THESE TRICKS - they make debugging 10x faster!
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 WORKER_PROMPT = """
@@ -1369,6 +1624,20 @@ RULES:
 - **DISCOVERY**:
   - To find by name across namespaces: `kubectl get <type> -A | grep <name>`
   - NEVER use invalid syntax like `kubectl get <name> -A`.
+
+ABSOLUTE SHELL RULES (IMPORTANT):
+- DO NOT use shell variables like `NS=...`, `POD_NAME=...`, or refer to `$NS`, `$POD_NAME`, etc.
+- DO NOT use command substitution like `$(kubectl ...)` or `${...}`.
+- Return a **single straightforward kubectl command** (plus simple pipes like `| grep`, `| awk`, `| wc`, `| head`, `| tail`).
+- DO NOT mix a discovery step with a deep-dive in the same command.
+  - Example of what NOT to do:
+    `kubectl get pods -A | grep sql && kubectl describe pod $(kubectl get pods -A | grep sql | awk '{print $2}') -n ...`
+  - Instead, discovery is ONE command. The follow-up describe/logs is a **separate** command generated in a later step.
+
+CROSSPLANE-SPECIFIC RULES:
+- If the plan mentions Crossplane, compositions, XRDs, providers, claims, etc.:
+  - Prefer `kubectl api-resources --verbs=list -o name | grep -i crossplane` or `kubectl get crd | grep -i crossplane` for discovery.
+  - When running `kubectl get`, use the **plural resource/API name** exactly as shown by `api-resources` (e.g. `compositions.apiextensions.crossplane.io`), NEVER singular guesses like `composition` or fake names like `managedresources`.
 
 NAMESPACE RULE (IMPORTANT):
 - Namespace (ns) is NOT the same as context.
@@ -1409,6 +1678,22 @@ INSTANT SOLUTION PATTERNS (set found_solution=TRUE immediately if you see these)
 - "Back-off pulling image" → Registry rate limit or network issue
 - "0/N nodes are available" → Scheduling constraints
 - "Endpoints: <none>" or "no endpoints" → Service selector mismatch
+
+CROSSPLANE/CRD INSTANT PATTERNS (found_solution=TRUE if you see specific error in conditions):
+- status.conditions with "Reason: ReconcileError" + cloud API error message → Root cause found
+- "AuthorizationFailed" or "403" in conditions → Cloud RBAC/permission issue
+- "ResourceNotFound" or "404" in conditions → Cloud resource doesn't exist
+- "QuotaExceeded" or "429" in conditions → Cloud quota/rate limit
+- "InvalidParameter" or "ValidationError" in conditions → Bad spec/configuration
+- "CredentialsNotFound" or "authentication" error → Provider credentials issue
+- Provider "Healthy: False" + clear reason in conditions → Provider issue identified
+- Certificate "Ready: False" + "Message:" with specific error → cert-manager issue found
+- Any CRD with status.conditions showing a specific error reason/message → ROOT CAUSE FOUND
+
+CROSSPLANE/CRD CONTINUE PATTERNS (found_solution=FALSE, need more investigation):
+- SYNCED=False or READY=False but NO describe output yet → Need to run describe
+- Provider unhealthy but no controller logs checked → Need controller logs
+- Conditions show generic error without specific cloud API response → Need more detail
 
 SIMPLE QUERY PATTERNS (set found_solution=TRUE for informational queries):
 - User asked to "list" or "show" and output contains the resources → DONE
@@ -1545,6 +1830,7 @@ async def supervisor_node(state: AgentState) -> dict:
         kube_context=state['kube_context'] or 'default',
         cluster_info=state.get('cluster_info', 'Not available'),
         command_history=format_command_history(state['command_history']),
+        mcp_tools_desc=json.dumps(state.get("mcp_tools", []), indent=2),
     )
 
     try:
@@ -1664,6 +1950,23 @@ async def verify_command_node(state: AgentState) -> dict:
 
     if not command:
         return {**state, 'next_action': 'execute'}
+
+    # Hard guard: block complex shell with variables or command substitution
+    if re.search(r'\b[A-Za-z_][A-Za-z0-9_]*=', command) or '$(' in command or '${' in command:
+        events.append(emit_event("blocked", {"command": command, "reason": "complex_shell"}))
+        return {
+            **state,
+            'next_action': 'supervisor',
+            'command_history': state['command_history'] + [
+                {
+                    'command': command,
+                    'output': '',
+                    'error': 'Blocked: Command uses shell variables or command substitution. '
+                             'Generate a single simple kubectl command instead (no NS=..., no POD_NAME=..., no $(...)).'
+                }
+            ],
+            'events': events,
+        }
 
     is_safe, reason = is_safe_command(command)
     
@@ -2164,7 +2467,20 @@ async def analyze(request: AgentRequest):
                  "kube_context": request.kube_context,
                  "command_history": request.history or [],
                  "error": str(e),
-                 "iteration": 0, "next_action": "done", "executor_model": "", "llm_model": "", "llm_provider": "", "llm_endpoint": "", "events": [], "awaiting_approval": False, "approved": False, "continue_path": False, "current_plan": None, "cluster_info": None, "final_response": None, "reflection_reasoning": None
+                 "iteration": 0,
+                 "next_action": "done",
+                 "executor_model": "",
+                 "llm_model": "",
+                 "llm_provider": "",
+                 "llm_endpoint": "",
+                 "events": [],
+                 "awaiting_approval": False,
+                 "approved": False,
+                 "continue_path": False,
+                 "current_plan": None,
+                 "cluster_info": None,
+                 "final_response": None,
+                 "reflection_reasoning": None
              }
              log_session(err_state, 0.0, status="ERROR")
         except:
