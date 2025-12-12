@@ -105,45 +105,54 @@ This enables the agent to instantly recall expert patterns like "OOMKilled → c
 
 For users with powerful GPUs (24GB+ VRAM), you can create optimized custom models with K8s-specific system prompts. We provide two Modelfiles in the repo:
 
-#### Option A: Llama 3.3 70B (Best Reasoning)
+#### Quick Setup: Build Both Models
 
-See `Modelfile.brain` - optimized for complex K8s investigations:
 ```bash
-# Build and use
-ollama create opspilot-brain -f Modelfile.brain
+# First, pull the base models (one-time download)
+ollama pull llama3.3:70b       # ~40GB, best reasoning
+ollama pull qwen2.5-coder:32b  # ~18GB, great for commands
 
+# Build custom K8s-optimized models from our Modelfiles
+ollama create opspilot-brain -f Modelfile.brain    # Reasoning engine
+ollama create opspilot-cli -f Modelfile.k8s-cli    # Command executor
+
+# Verify they're available
+ollama list | grep opspilot
+```
+
+#### Modelfile.brain (Llama 3.3 70B - Reasoning)
+
+Optimized for complex K8s investigations with:
+- 32K context window for long investigations
+- Temperature 0.0 for deterministic JSON output
+- K8s-specific system prompt with CR discovery protocol, mental model, and diagnostic rules
+- Stop sequences tuned for Llama 3.3
+
+```bash
 # Test it
 ollama run opspilot-brain "Why would a pod be in Pending state?"
 ```
 
-Key features:
-- 32K context window for long investigations
-- Temperature 0.0 for deterministic JSON output
-- K8s-specific system prompt with CR discovery protocol
-- Stop sequences tuned for Llama 3.3
+#### Modelfile.k8s-cli (Qwen 2.5 32B - Commands)
 
-#### Option B: Qwen 2.5 32B Coder (Great Balance)
+Optimized for precise kubectl command execution with:
+- Strict JSON output format (`{"thought": "...", "command": "..."}`)
+- Read-only command enforcement (delete/apply/edit forbidden)
+- Built-in kubectl "cheat sheet" for power commands
+- Stop sequences tuned for Qwen
 
-See `Modelfile.k8s-cli` - optimized for precise command execution:
 ```bash
-# Build and use
-ollama create opspilot-cli -f Modelfile.k8s-cli
-
 # Test it
 ollama run opspilot-cli "Get all pods with high restart counts"
 ```
 
-Key features:
-- Strict JSON output format
-- Read-only command enforcement
-- Kubectl "cheat sheet" for power commands
-- Stop sequences tuned for Qwen
-
-#### Using Custom Models in OpsPilot
+#### Configure in OpsPilot
 
 In **AI Settings**, set:
-- **Model**: `opspilot-brain` (or your custom model name)
-- **Executor Model**: `opspilot-cli` (optional, defaults to main model)
+- **Model**: `opspilot-brain` (reasoning/planning)
+- **Executor Model**: `opspilot-cli` (command generation)
+
+This dual-model setup gives you the best of both worlds: powerful reasoning from Llama 3.3 and precise command generation from Qwen.
 
 ### Model Recommendations by Hardware
 
