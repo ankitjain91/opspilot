@@ -867,6 +867,10 @@ EXAMPLE_CATEGORIES = {
         "keywords": ["webhook", "reject", "denied", "admission", "validating", "mutating"],
         "examples": ["55"],
     },
+    "grep_search": {
+        "keywords": ["find", "search", "where", "which", "locate", "grep", "filter", "show me", "list all", "count", "how many", "unhealthy", "not running", "errors in", "logs"],
+        "examples": ["56", "57", "58", "59", "60", "61"],
+    },
 }
 
 def select_relevant_examples(query: str, max_examples: int = 15) -> list[str]:
@@ -1356,6 +1360,120 @@ Brain JSON:
   "next_action": "respond",
   "final_response": "The Deployment is rejected by an admission webhook (`policy.example.com`) that forbids containers running as root. The error message says `containers must not run as root`. Fix: update your Pod template in deploy.yaml to set `securityContext.runAsNonRoot: true` and optionally `runAsUser` to a non-zero UID. Then apply again."
 }
+
+---
+
+EXAMPLE 56: Expert grep - Find all unhealthy pods (multiple patterns)
+User: "Show me all pods that are not healthy"
+Command History:
+(none)
+
+Thought:
+- User wants unhealthy pods - this means NOT Running and NOT Completed.
+- Use grep -vE to exclude healthy states, or grep -E to match unhealthy ones.
+- Case insensitive for safety. Show all namespaces.
+
+Brain JSON:
+{
+  "thought": "Need to find pods that are NOT in healthy states. Use grep -vE to exclude Running and Completed, or grep -E for unhealthy patterns.",
+  "plan": "Run `kubectl get pods -A | grep -vE 'Running|Completed'` to find all unhealthy pods.",
+  "next_action": "delegate"
+}
+
+---
+
+EXAMPLE 57: Expert grep - Search logs with context
+User: "Find errors in the payment service logs"
+Command History:
+1) $ kubectl get pods -A | grep -i payment
+   payments   payment-api-7d4f8b9c6-x2k9p   1/1     Running   0   2h
+
+Thought:
+- Found the pod. Now search logs for errors.
+- Use -i for case insensitive, -E for multiple patterns, -C 3 for context.
+- Add --since=30m to limit log volume.
+
+Brain JSON:
+{
+  "thought": "Pod found. Now search logs for error patterns with context lines to understand what happened before/after.",
+  "plan": "Run `kubectl logs -n payments payment-api-7d4f8b9c6-x2k9p --since=30m | grep -iE 'error|exception|fatal|panic' -C 3` to find errors with surrounding context.",
+  "next_action": "delegate"
+}
+
+---
+
+EXAMPLE 58: Expert grep - Find resources by partial name across namespaces
+User: "Where is the checkout deployment?"
+Command History:
+(none)
+
+Thought:
+- User doesn't know the namespace. Use -A for all namespaces.
+- Use -i for case insensitive since user may not know exact casing.
+- Search deployments specifically.
+
+Brain JSON:
+{
+  "thought": "User needs to locate a deployment by partial name. Search all namespaces with case-insensitive grep.",
+  "plan": "Run `kubectl get deploy -A | grep -i checkout` to find the checkout deployment across all namespaces.",
+  "next_action": "delegate"
+}
+
+---
+
+EXAMPLE 59: Expert grep - Count errors in logs
+User: "How many errors in the last hour for nginx?"
+Command History:
+1) $ kubectl get pods -A | grep -i nginx
+   web        nginx-ingress-controller-abc123   1/1     Running   0   5d
+
+Thought:
+- Need to count errors, not list them. Use grep -c for count.
+- Use --since=1h for time filter, -i for case insensitive.
+
+Brain JSON:
+{
+  "thought": "User wants a count of errors. Use grep -c to count matches instead of listing them.",
+  "plan": "Run `kubectl logs -n web nginx-ingress-controller-abc123 --since=1h | grep -ic error` to count error occurrences.",
+  "next_action": "delegate"
+}
+
+---
+
+EXAMPLE 60: Expert grep - Extract specific info with awk
+User: "Which nodes are the payment pods running on?"
+Command History:
+(none)
+
+Thought:
+- Need pod-to-node mapping. Use -o wide to see node column.
+- Grep for payment, then extract node column with awk.
+
+Brain JSON:
+{
+  "thought": "Need to find which nodes host payment pods. Use -o wide and awk to extract the node column.",
+  "plan": "Run `kubectl get pods -A -o wide | grep -i payment | awk '{print $2, $8}'` to show pod names and their nodes.",
+  "next_action": "delegate"
+}
+
+---
+
+EXAMPLE 61: Expert grep - Find pods with high restarts
+User: "Show me pods that have restarted more than 5 times"
+Command History:
+(none)
+
+Thought:
+- Restart count is column 4 in kubectl get pods output.
+- Use awk to filter where $4 > 5 (numeric comparison).
+- Include header row for readability.
+
+Brain JSON:
+{
+  "thought": "Need to filter by restart count. Use awk for numeric comparison on column 4.",
+  "plan": "Run `kubectl get pods -A | awk 'NR==1 || $4 > 5'` to show header and pods with more than 5 restarts.",
+  "next_action": "delegate"
+}
 """
 
 SUPERVISOR_PROMPT = """You are an Expert Kubernetes Assistant.
@@ -1681,6 +1799,123 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
      → Header + pods with >3 restarts
 
 USE THESE TRICKS - they make debugging 10x faster!
+═══════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════════
+REGEX & GREP MASTERY (search like an expert)
+═══════════════════════════════════════════════════════════════════════════════
+You MUST be an expert at grep and regex patterns. Use these techniques:
+
+**GREP FLAGS YOU MUST KNOW**:
+  -i          Case insensitive (ALWAYS use for user-provided names)
+  -E          Extended regex (enables |, +, ?, {})
+  -v          Invert match (exclude lines)
+  -c          Count matches only
+  -l          List files only (with grep -r)
+  -A N        Show N lines AFTER match
+  -B N        Show N lines BEFORE match
+  -C N        Show N lines BEFORE and AFTER (context)
+  -o          Show only the matching part
+  -w          Match whole words only
+  -n          Show line numbers
+
+**ESSENTIAL REGEX PATTERNS**:
+  .           Any single character
+  .*          Any characters (greedy)
+  .*?         Any characters (non-greedy, use with -P)
+  ^           Start of line
+  $           End of line
+  [abc]       Any of a, b, c
+  [^abc]      NOT a, b, c
+  [0-9]       Any digit
+  [a-z]       Any lowercase letter
+  \\d         Digit (use with -P for Perl regex)
+  \\s         Whitespace
+  \\w         Word character (letter, digit, underscore)
+  (a|b)       a OR b (requires -E)
+  a+          One or more 'a' (requires -E)
+  a?          Zero or one 'a' (requires -E)
+  a{2,4}      2 to 4 'a's (requires -E)
+
+**KUBERNETES-SPECIFIC GREP PATTERNS**:
+
+1. Find pods by partial name (ALWAYS case-insensitive):
+   `kubectl get pods -A | grep -i payment`
+   `kubectl get pods -A | grep -iE 'payment|checkout|cart'`  # multiple services
+
+2. Find unhealthy resources:
+   `kubectl get pods -A | grep -vE 'Running|Completed'`     # NOT running
+   `kubectl get pods -A | grep -E 'Error|Failed|Pending|CrashLoop|ImagePull'`
+   `kubectl get pods -A | awk '$4 > 0'`                      # any restarts
+
+3. Find resources across types:
+   `kubectl get all -A | grep -i <name>`                     # all resource types
+   `kubectl api-resources --verbs=list -o name | xargs -I {} kubectl get {} -A 2>/dev/null | grep -i <name>`
+
+4. Search in logs for errors (with context):
+   `kubectl logs <pod> | grep -iE 'error|exception|fatal|panic' -C 3`
+   `kubectl logs <pod> | grep -iE 'connection.*refused|timeout|deadline'`
+   `kubectl logs <pod> --since=10m | grep -c -i error`       # count errors
+
+5. Search in describe output:
+   `kubectl describe pod <pod> | grep -A 10 'Events:'`       # events section
+   `kubectl describe pod <pod> | grep -iE 'error|warning|failed'`
+   `kubectl describe node <node> | grep -A 5 'Conditions:'`
+
+6. Find by label/selector:
+   `kubectl get pods -A -l 'app=nginx'`                      # exact label
+   `kubectl get pods -A --show-labels | grep -i 'app=.*web'` # label pattern
+
+7. Extract specific fields with grep + awk:
+   `kubectl get pods -A | awk '/CrashLoop/ {print $1, $2}'`  # ns + name
+   `kubectl get pods -A -o wide | grep -i <name> | awk '{print $7}'`  # node
+
+8. Find CRDs and custom resources:
+   `kubectl api-resources | grep -i <operator>`              # find CRD types
+   `kubectl get crd | grep -iE 'crossplane|cert-manager|istio'`
+
+**ADVANCED PATTERNS**:
+
+1. Multiple conditions (OR):
+   `grep -E 'pattern1|pattern2|pattern3'`
+   Example: `kubectl get pods -A | grep -E 'CrashLoop|Error|Pending'`
+
+2. Multiple conditions (AND) - use multiple greps:
+   `kubectl get pods -A | grep -i nginx | grep -v Running`
+   (nginx pods that are NOT running)
+
+3. Exclude namespaces:
+   `kubectl get pods -A | grep -v '^kube-system'`
+   `kubectl get pods -A | grep -vE '^(kube-system|kube-public|default)'`
+
+4. Find IP addresses:
+   `kubectl get pods -o wide | grep -oE '[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+'`
+
+5. Find timestamps/dates in logs:
+   `kubectl logs <pod> | grep -E '2024-[0-9]{2}-[0-9]{2}'`
+
+6. Search for specific error codes:
+   `kubectl logs <pod> | grep -E 'HTTP [45][0-9]{2}|status[=:].*(4|5)[0-9]{2}'`
+   `kubectl logs <pod> | grep -E 'exit.*(code|status).*[1-9]'`
+
+7. Find environment-specific resources:
+   `kubectl get pods -A | grep -iE 'prod|production'`
+   `kubectl get pods -A | grep -iE '(dev|staging|prod)-'`
+
+**WHEN TO USE WHICH**:
+- User says "find X": Start with `grep -i` (case insensitive)
+- User says "all X": Use `grep -E` for multiple patterns
+- User says "not X": Use `grep -v` to exclude
+- User says "how many": Use `grep -c` or `| wc -l`
+- User says "where is": Use `-A` context to see surrounding info
+- Searching logs: ALWAYS use `-i` and consider `-C 3` for context
+
+**COMMON MISTAKES TO AVOID**:
+- Forgetting `-i` for user-provided names (users don't know exact case)
+- Using `grep X | grep Y` when `grep -E 'X|Y'` is cleaner
+- Not using `-E` when using `|`, `+`, or `{}`
+- Forgetting `--since=` for large log searches
+- Using `grep` without `-A/-B/-C` when context is needed
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
