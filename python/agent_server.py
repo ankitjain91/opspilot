@@ -1814,7 +1814,7 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
 
 **GREP FLAGS YOU MUST KNOW**:
   -i          Case insensitive (ALWAYS use for user-provided names)
-  -E          Extended regex (enables |, +, ?, {})
+  -E          Extended regex (enables |, +, ?, {{}})
   -v          Invert match (exclude lines)
   -c          Count matches only
   -l          List files only (with grep -r)
@@ -1841,7 +1841,7 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
   (a|b)       a OR b (requires -E)
   a+          One or more 'a' (requires -E)
   a?          Zero or one 'a' (requires -E)
-  a{2,4}      2 to 4 'a's (requires -E)
+  a{{2,4}}      2 to 4 'a's (requires -E)
 
 **KUBERNETES-SPECIFIC GREP PATTERNS**:
 
@@ -1856,7 +1856,7 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
 
 3. Find resources across types:
    `kubectl get all -A | grep -i <name>`                     # all resource types
-   `kubectl api-resources --verbs=list -o name | xargs -I {} kubectl get {} -A 2>/dev/null | grep -i <name>`
+   `kubectl api-resources --verbs=list -o name | xargs -I {{}} kubectl get {{}} -A 2>/dev/null | grep -i <name>`
 
 4. Search in logs for errors (with context):
    `kubectl logs <pod> | grep -iE 'error|exception|fatal|panic' -C 3`
@@ -1919,7 +1919,7 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
 **COMMON MISTAKES TO AVOID**:
 - Forgetting `-i` for user-provided names (users don't know exact case)
 - Using `grep X | grep Y` when `grep -E 'X|Y'` is cleaner
-- Not using `-E` when using `|`, `+`, or `{}`
+- Not using `-E` when using `|`, `+`, or `{{}}`
 - Forgetting `--since=` for large log searches
 - Using `grep` without `-A/-B/-C` when context is needed
 ═══════════════════════════════════════════════════════════════════════════════
