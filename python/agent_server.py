@@ -1770,8 +1770,8 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
 
 **5. JSON OUTPUT & JQ FILTERING**:
    - `kubectl get pods -o json | jq '.items[] | select(.status.phase != "Running")'` → non-running pods
-   - `kubectl get pods -o jsonpath='{.items[*].metadata.name}'` → just pod names
-   - `kubectl get pod <pod> -o jsonpath='{.status.conditions}'` → just conditions
+   - `kubectl get pods -o jsonpath='{{.items[*].metadata.name}}'` → just pod names
+   - `kubectl get pod <pod> -o jsonpath='{{.status.conditions}}'` → just conditions
    - Use `-o json | jq` for complex filtering!
 
 **6. AWK & GREP COMBOS** (powerful filtering):
@@ -1898,10 +1898,10 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
    `kubectl get pods -o wide | grep -oE '[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+'`
 
 5. Find timestamps/dates in logs:
-   `kubectl logs <pod> | grep -E '2024-[0-9]{2}-[0-9]{2}'`
+   `kubectl logs <pod> | grep -E '2024-[0-9]{{2}}-[0-9]{{2}}'`
 
 6. Search for specific error codes:
-   `kubectl logs <pod> | grep -E 'HTTP [45][0-9]{2}|status[=:].*(4|5)[0-9]{2}'`
+   `kubectl logs <pod> | grep -E 'HTTP [45][0-9]{{2}}|status[=:].*(4|5)[0-9]{{2}}'`
    `kubectl logs <pod> | grep -E 'exit.*(code|status).*[1-9]'`
 
 7. Find environment-specific resources:
