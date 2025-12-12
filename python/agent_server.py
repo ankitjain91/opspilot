@@ -511,14 +511,59 @@ def _cosine(a: list[float], b: list[float]) -> float:
         return 0.0
     return dot / (na * nb)
 
+def _find_precomputed_embeddings() -> str | None:
+    """Find pre-computed kb_embeddings.json in various locations."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "..", "src-tauri", "resources", "kb_embeddings.json"),  # Dev
+        os.path.join(script_dir, "resources", "kb_embeddings.json"),  # Bundled
+        os.path.join(os.getcwd(), "src-tauri", "resources", "kb_embeddings.json"),  # CWD
+        os.path.join(KB_DIR, "..", "src-tauri", "resources", "kb_embeddings.json"),  # Relative to KB
+    ]
+    for path in candidates:
+        abs_path = os.path.abspath(path)
+        if os.path.isfile(abs_path):
+            return abs_path
+    return None
+
+
 async def _ensure_kb_loaded(embed_endpoint: str):
-    """Load KB JSON/JSONL files and their embeddings once."""
+    """Load pre-computed KB embeddings from kb_embeddings.json (no runtime embedding needed)."""
     global kb_loaded, kb_entries, kb_embeddings
 
     async with kb_lock:
         if kb_loaded:
             return
 
+        # Try to load pre-computed embeddings first (PREFERRED - no Ollama embedding model needed)
+        precomputed_path = _find_precomputed_embeddings()
+        if precomputed_path:
+            try:
+                with open(precomputed_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                docs = data.get("documents", [])
+                kb_entries = []
+                kb_embeddings = []
+
+                for doc in docs:
+                    # Extract entry info for display
+                    kb_entries.append({
+                        "id": doc.get("id", ""),
+                        "title": doc.get("title", ""),
+                        "summary": doc.get("summary", doc.get("title", "")),
+                        "file": doc.get("file", "")
+                    })
+                    kb_embeddings.append(doc.get("embedding", []))
+
+                print(f"[KB] Loaded {len(kb_entries)} pre-computed embeddings from {precomputed_path}", flush=True)
+                kb_loaded = True
+                return
+            except Exception as e:
+                print(f"[KB] Failed to load pre-computed embeddings: {e}", flush=True)
+
+        # Fallback: Load raw KB files and embed at runtime (requires Ollama nomic-embed-text)
+        print("[KB] No pre-computed embeddings found, falling back to runtime embedding...", flush=True)
         entries: list[dict] = []
         if os.path.isdir(KB_DIR):
             for name in os.listdir(KB_DIR):
@@ -526,7 +571,6 @@ async def _ensure_kb_loaded(embed_endpoint: str):
                 lower_name = name.lower()
                 try:
                     if lower_name.endswith(".jsonl"):
-                        # JSONL: one JSON object per line
                         with open(path, "r", encoding="utf-8") as f:
                             for line in f:
                                 line = line.strip()
@@ -534,7 +578,6 @@ async def _ensure_kb_loaded(embed_endpoint: str):
                                     entries.append(json.loads(line))
                         print(f"[KB] Loaded JSONL file: {name}", flush=True)
                     elif lower_name.endswith(".json"):
-                        # Regular JSON file
                         with open(path, "r", encoding="utf-8") as f:
                             data = json.load(f)
                             if isinstance(data, list):
@@ -557,7 +600,7 @@ async def _ensure_kb_loaded(embed_endpoint: str):
         texts = [_kb_entry_to_text(e) for e in entries]
         try:
             kb_embeddings = await _embed_texts(texts, embed_endpoint)
-            print(f"[KB] Loaded {len(kb_entries)} entries with embeddings", flush=True)
+            print(f"[KB] Loaded {len(kb_entries)} entries with runtime embeddings", flush=True)
         except Exception as e:
             print(f"[KB] Failed to embed KB entries: {e}", flush=True)
             kb_embeddings = []

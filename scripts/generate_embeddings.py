@@ -3,20 +3,31 @@
 Generate embeddings for the knowledge base documents and tools.
 Run this at build time to create kb_embeddings.json
 
+Uses Ollama's nomic-embed-text model for consistency with runtime embeddings.
+Requires: Ollama running locally with `ollama pull nomic-embed-text`
+
 Usage: python scripts/generate_embeddings.py
 Output: src-tauri/resources/kb_embeddings.json
 """
 
 import json
 import os
+import sys
 from pathlib import Path
 
-# Install: pip install sentence-transformers
-from sentence_transformers import SentenceTransformer
+# Use httpx if available, otherwise urllib (no external deps needed)
+try:
+    import httpx
+    USE_HTTPX = True
+except ImportError:
+    import urllib.request
+    import urllib.error
+    USE_HTTPX = False
 
-# Model config
-MODEL_NAME = "all-MiniLM-L6-v2"
-DIMENSION = 384
+# Model config - MUST match runtime embedding model
+MODEL_NAME = "nomic-embed-text"
+DIMENSION = 768  # nomic-embed-text produces 768-dim vectors
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 # Paths relative to project root
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -27,45 +38,45 @@ OUTPUT_FILE = PROJECT_ROOT / "src-tauri" / "resources" / "kb_embeddings.json"
 TOOL_DESCRIPTIONS = {
     # Core diagnostic tools
     "CLUSTER_HEALTH": "cluster health status overview summary dashboard nodes pods deployments ready running failed crashed pending unhealthy how is cluster doing overall status check system health monitoring is my cluster ok general cluster state all resources summary tell me about the cluster",
-    
+
     "GET_EVENTS": "events warnings errors alerts recent activity problems issues namespace cluster what happened logs event stream timeline notifications watch changes updates failures show me events recent errors warning messages what went wrong event history kubernetes events",
-    
+
     "LIST_ALL": "list all show resources pods deployments services configmaps secrets namespaces statefulsets daemonsets replicasets jobs cronjobs pvcs ingress enumerate find discover inventory catalog what resources exist show me all pods list deployments get all services find resources in namespace",
-    
+
     "DESCRIBE": "describe resource details full information configuration status yaml spec metadata conditions events verbose deep dive examine inspect analyze show me more about get details of explain resource tell me about specific resource describe pod describe deployment describe service full yaml config",
-    
+
     "GET_LOGS": "logs pod container application output stdout stderr print crash error debug trace messages what is happening inside container log tail follow streaming console output show me logs pod logs container logs application logs why is pod crashing error messages debug logs",
-    
+
     "TOP_PODS": "resource usage cpu memory metrics consumption pods containers performance utilization how much resources who is using most resources memory pressure cpu throttling performance monitoring resource metrics pod cpu pod memory node resources high cpu high memory",
-    
+
     "FIND_ISSUES": "problems issues unhealthy failing broken not working resources errors warnings diagnosis what is wrong troubleshoot debug detect find crashed pending stuck failed not ready why is something broken scan for issues health check find problems automatic diagnosis",
-    
+
     "SEARCH_KNOWLEDGE": "troubleshooting guide documentation how-to reference knowledge best practices runbook playbook solution help information learn about explain what is how do i fix how to solve documentation search kb search knowledge base article",
-    
+
     "GET_ENDPOINTS": "service endpoints networking connectivity routing backend pods ip addresses port mappings service discovery connection between services unreachable cannot connect service not reachable endpoint addresses backend ips pod ips service routing",
-    
+
     "GET_NAMESPACE": "namespace status phase terminating active stuck deletion finalizers cannot delete namespace hanging namespace details information namespace stuck deleting namespace won't delete namespace info",
-    
+
     "LIST_FINALIZERS": "finalizers blocking deletion stuck resources cleanup cannot delete hanging permanently terminating resource finalizer removal orphan kubernetes cleanup stuck deleting finalizer what is blocking deletion remove finalizers",
-    
+
     # Platform and infrastructure tools
     "GET_CROSSPLANE": "crossplane managed resources providers compositions claims xr composite cloud aws azure gcp infrastructure as code external resources cloud provisioning terraform alternative crossplane status provider health managed resource status azure resources aws resources gcp resources upbound",
-    
+
     "GET_ISTIO": "istio service mesh gateway virtualservice destinationrule sidecar envoy proxy mtls traffic routing ingress load balancing traffic management microservices networking istio status proxy configuration istio gateway istio routing 503 error 404 not found routing issues",
-    
+
     "GET_WEBHOOKS": "admission webhook validating mutating certificate configuration blocking create resource stuck webhook failure admission controller policy enforcement security webhook timeout cannot create resource webhook blocking creation admission webhook error",
-    
+
     "GET_UIPATH": "uipath automation suite orchestrator robot aicenter action center asea rpa process automation automation suite pods status orchestrator health robots connection document understanding automation suite status uipath pods uipath namespace",
-    
-    # New specialized tools  
+
+    # New specialized tools
     "GET_CAPI": "cluster api capi cluster machine machinedeployment machineset kubeadmcontrolplane infrastructure bootstrap controlplane provisioning phase multi-cluster management cluster provisioning machine status node provisioning infrastructure cluster capi clusters cluster.x-k8s.io",
-    
+
     "GET_CASTAI": "castai cast ai autoscaler cost optimization node configuration rebalancing hibernation spot instances node templates kubernetes optimization cluster optimization node scaling cost reduction cast ai status autoscaling",
-    
+
     "VCLUSTER_CMD": "vcluster virtual cluster connect inside kubectl run command nested cluster management cluster customer cluster vcluster connect run command in vcluster execute inside vcluster vcluster kubectl",
-    
+
     "GET_UIPATH_CRD": "customercluster managementcluster uipath dedicated crds custom resources asfailed infrainprogress customer cluster management cluster provisioning customercluster status managementcluster status uipath crd dedicated.uipath.com customer cluster state management cluster ready",
-    
+
     # Power tools
     "RUN_KUBECTL": "run kubectl command custom query bash pipe grep awk sed filter search sort head tail wc count advanced query jsonpath custom format output transform data shell command line powerful flexible custom kubectl command run any kubectl arbitrary kubectl shell pipe filter results",
 
@@ -82,7 +93,58 @@ TOOL_DESCRIPTIONS = {
 }
 
 
-def load_json_doc(filepath: Path) -> list[dict]:
+def embed_with_ollama(texts: list, show_progress: bool = True) -> list:
+    """Generate embeddings using Ollama's nomic-embed-text model."""
+    embeddings = []
+    total = len(texts)
+
+    for i, text in enumerate(texts):
+        if show_progress:
+            print(f"\r  Embedding {i+1}/{total}...", end="", flush=True)
+
+        payload = json.dumps({"model": MODEL_NAME, "prompt": text}).encode('utf-8')
+
+        if USE_HTTPX:
+            try:
+                response = httpx.post(
+                    f"{OLLAMA_URL}/api/embeddings",
+                    json={"model": MODEL_NAME, "prompt": text},
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                data = response.json()
+            except httpx.HTTPError as e:
+                print(f"\n[ERROR] Ollama API error: {e}")
+                sys.exit(1)
+        else:
+            try:
+                req = urllib.request.Request(
+                    f"{OLLAMA_URL}/api/embeddings",
+                    data=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+            except urllib.error.URLError as e:
+                print(f"\n[ERROR] Ollama API error: {e}")
+                print(f"\nMake sure Ollama is running and nomic-embed-text is installed:")
+                print(f"  ollama pull nomic-embed-text")
+                sys.exit(1)
+
+        embedding = data.get("embedding")
+        if not embedding:
+            print(f"\n[ERROR] No embedding returned for text {i+1}")
+            sys.exit(1)
+
+        embeddings.append(embedding)
+
+    if show_progress:
+        print()  # Newline after progress
+
+    return embeddings
+
+
+def load_json_doc(filepath: Path) -> list:
     """Load and extract text content from a JSON knowledge file."""
     with open(filepath, 'r') as f:
         data = json.load(f)
@@ -134,7 +196,7 @@ def load_json_doc(filepath: Path) -> list[dict]:
     return docs
 
 
-def load_jsonl_doc(filepath: Path) -> list[dict]:
+def load_jsonl_doc(filepath: Path) -> list:
     """Load and extract text content from a JSONL knowledge file (one JSON object per line)."""
     docs = []
 
@@ -183,11 +245,11 @@ def load_jsonl_doc(filepath: Path) -> list[dict]:
     return docs
 
 
-def load_md_doc(filepath: Path) -> list[dict]:
+def load_md_doc(filepath: Path) -> list:
     """Load markdown knowledge file."""
     with open(filepath, 'r') as f:
         content = f.read()
-    
+
     return [{
         'id': filepath.stem,
         'file': filepath.name,
@@ -225,13 +287,29 @@ def extract_text(obj, depth=0) -> str:
 
 
 def main():
-    print(f"Loading model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME)
-    
+    print(f"Using Ollama model: {MODEL_NAME}")
+    print(f"Ollama URL: {OLLAMA_URL}")
+
+    # Test Ollama connection
+    print("\nTesting Ollama connection...")
+    try:
+        test_embedding = embed_with_ollama(["test"], show_progress=False)
+        actual_dim = len(test_embedding[0])
+        print(f"  Connection OK. Embedding dimension: {actual_dim}")
+        if actual_dim != DIMENSION:
+            print(f"  [WARNING] Expected {DIMENSION} dims, got {actual_dim}. Updating...")
+            global DIMENSION
+            DIMENSION = actual_dim
+    except SystemExit:
+        print("\n[FATAL] Cannot connect to Ollama. Please ensure:")
+        print("  1. Ollama is running: ollama serve")
+        print("  2. Model is installed: ollama pull nomic-embed-text")
+        sys.exit(1)
+
     # Load all knowledge documents
     print(f"\nLoading documents from: {KNOWLEDGE_DIR}")
     all_docs = []
-    
+
     for filepath in KNOWLEDGE_DIR.glob("*.json"):
         if filepath.name == "kb-index.json":
             continue
@@ -248,16 +326,16 @@ def main():
         docs = load_md_doc(filepath)
         all_docs.extend(docs)
         print(f"  {filepath.name}: {len(docs)} doc(s)")
-    
+
     print(f"\nTotal documents: {len(all_docs)}")
-    
+
     # Generate document embeddings
     print("\nGenerating document embeddings...")
     doc_texts = [f"{d['title']} {d['content']}" for d in all_docs]
-    doc_embeddings = model.encode(doc_texts, show_progress_bar=True)
-    
+    doc_embeddings = embed_with_ollama(doc_texts)
+
     for i, doc in enumerate(all_docs):
-        doc['embedding'] = doc_embeddings[i].tolist()
+        doc['embedding'] = doc_embeddings[i]
         # Keep a clean summary (first 500 chars) for display, remove full content
         content = doc.get('content', '')
         # Extract first meaningful paragraph or sentences
@@ -267,20 +345,20 @@ def main():
             summary = summary.rsplit(' ', 1)[0] + '...'
         doc['summary'] = summary
         del doc['content']  # Don't store full content in embeddings file
-    
+
     # Generate tool embeddings
     print("\nGenerating tool embeddings...")
     tool_docs = []
     tool_texts = list(TOOL_DESCRIPTIONS.values())
-    tool_embeddings = model.encode(tool_texts)
-    
+    tool_embeddings = embed_with_ollama(tool_texts)
+
     for i, (name, desc) in enumerate(TOOL_DESCRIPTIONS.items()):
         tool_docs.append({
             'name': name,
             'description': desc,
-            'embedding': tool_embeddings[i].tolist()
+            'embedding': tool_embeddings[i]
         })
-    
+
     # Save output
     output = {
         'model': MODEL_NAME,
@@ -288,16 +366,16 @@ def main():
         'documents': all_docs,
         'tools': tool_docs
     }
-    
+
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT_FILE, 'w') as f:
         json.dump(output, f)
-    
+
     file_size = OUTPUT_FILE.stat().st_size / 1024
-    print(f"\n[done] Generated: {OUTPUT_FILE}")
-    print(f"       Documents: {len(all_docs)}")
-    print(f"       Tools: {len(tool_docs)}")
-    print(f"       File size: {file_size:.1f} KB")
+    print(f"\n[OK] Generated: {OUTPUT_FILE}")
+    print(f"     Documents: {len(all_docs)}")
+    print(f"     Tools: {len(tool_docs)}")
+    print(f"     File size: {file_size:.1f} KB")
 
 
 if __name__ == "__main__":

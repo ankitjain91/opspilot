@@ -1,6 +1,12 @@
 # Dependencies for embedding generation (build-time only)
 # These are NOT bundled into the agent-server binary
-# Install: pip install -r requirements-embeddings.txt
-
-sentence-transformers>=2.2.2
-numpy>=1.24.0
+#
+# NOTE: As of v0.2.5, embeddings use Ollama's nomic-embed-text model
+# instead of sentence-transformers. This eliminates the torch dependency
+# and ensures build-time and runtime embeddings are compatible.
+#
+# Requirements:
+#   - Ollama installed and running (ollama serve)
+#   - nomic-embed-text model pulled (ollama pull nomic-embed-text)
+#
+# No Python packages required for embedding generation - using Ollama API.

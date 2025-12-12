@@ -95,11 +95,11 @@ ollama pull nomic-embed-text   # Embeddings (REQUIRED for knowledge base)
 
 OpsPilot includes a **curated Knowledge Base** of 57+ Kubernetes troubleshooting patterns (CrashLoopBackOff fixes, Crossplane debugging, cert-manager issues, etc.). To match your questions to the right knowledge:
 
-- **At Build Time**: We pre-generate embeddings using `all-MiniLM-L6-v2` (384-dim vectors)
-- **At Runtime**: Ollama's `nomic-embed-text` converts your query to a vector
+- **At Build Time**: We pre-generate embeddings using Ollama's `nomic-embed-text` (768-dim vectors)
+- **At Runtime**: The same `nomic-embed-text` model converts your query to a vector
 - **Matching**: Cosine similarity finds the most relevant KB articles
 
-This enables the agent to instantly recall expert patterns like "OOMKilled → check memory limits" without sending your data to the cloud.
+Using the same model for both build-time and runtime ensures perfect vector compatibility. This enables the agent to instantly recall expert patterns like "OOMKilled → check memory limits" without sending your data to the cloud.
 
 ### Advanced: Custom Modelfiles for Power Users
 
