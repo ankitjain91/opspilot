@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Embedding-based semantic search module
 //!
 //! As of v0.2.6+, embeddings are generated at runtime via the Python agent

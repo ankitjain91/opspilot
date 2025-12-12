@@ -4424,7 +4424,7 @@ async fn spawn_and_monitor_vcluster(
     name: &str,
     namespace: &str,
     host_context: &str,
-    state: &State<'_, AppState>,
+    _state: &State<'_, AppState>,
     timeout_secs: u64
 ) -> Result<(String, u32), String> {
     println!("DEBUG: Spawning vcluster with args: {:?}", args);
