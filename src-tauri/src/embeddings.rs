@@ -42,7 +42,11 @@ static EMBEDDINGS_CACHE: Mutex<Option<EmbeddingsData>> = Mutex::new(None);
 /// Global TextEmbedding model cache (loads once, reused)
 static TEXT_EMBEDDING_MODEL: Mutex<Option<TextEmbedding>> = Mutex::new(None);
 
-/// Load pre-computed embeddings from bundled resources
+/// Load pre-computed embeddings from bundled resources or user cache
+///
+/// Note: As of v0.2.5+, KB embeddings are primarily generated at runtime
+/// via the Python agent using nomic-embed-text (768-dim). The Rust side
+/// falls back to keyword search if embeddings are unavailable or incompatible.
 pub fn load_embeddings(app_handle: &tauri::AppHandle) -> Result<EmbeddingsData, String> {
     // Check cache first
     if let Ok(cache) = EMBEDDINGS_CACHE.lock() {
@@ -50,43 +54,56 @@ pub fn load_embeddings(app_handle: &tauri::AppHandle) -> Result<EmbeddingsData, 
             return Ok(data.clone());
         }
     }
-    
+
     let resource_path = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
     let embeddings_path = resource_path.join("kb_embeddings.json");
-    
+
+    // User cache path - platform appropriate location:
+    // - Linux: ~/.local/share/opspilot/kb_embeddings_cache.json
+    // - macOS: ~/Library/Application Support/opspilot/kb_embeddings_cache.json
+    // - Windows: C:\Users\<user>\AppData\Local\opspilot\kb_embeddings_cache.json
+    // Fallback to ~/.opspilot for compatibility with Python agent
+    let user_cache_path = dirs::data_local_dir()
+        .map(|d| d.join("opspilot").join("kb_embeddings_cache.json"))
+        .or_else(|| dirs::home_dir().map(|h| h.join(".opspilot").join("kb_embeddings_cache.json")))
+        .unwrap_or_default();
+
     // Multiple fallback paths for development and production
     let cwd = std::env::current_dir().unwrap_or_default();
     let search_paths = vec![
+        // User cache has priority (most recent)
+        user_cache_path,
+        // Bundled resources
         embeddings_path.clone(),
         cwd.join("src-tauri/resources/kb_embeddings.json"),
         cwd.join("resources/kb_embeddings.json"),
         // Parent dir (when running from src-tauri)
         cwd.parent().map(|p| p.join("src-tauri/resources/kb_embeddings.json")).unwrap_or_default(),
-        // Absolute path as last resort
-        std::path::PathBuf::from("/Users/ankitjain/lens-killer/src-tauri/resources/kb_embeddings.json"),
     ];
-    
-    eprintln!("[DEBUG] CWD: {:?}", cwd);
+
     let mut found_path = None;
     for path in &search_paths {
-        eprintln!("[DEBUG] Checking embeddings path: {:?} exists={}", path, path.exists());
         if path.exists() {
+            eprintln!("[DEBUG] Found embeddings at: {:?}", path);
             found_path = Some(path.clone());
             break;
         }
     }
-    
-    let path = found_path.ok_or("kb_embeddings.json not found")?;
+
+    let path = found_path.ok_or("kb_embeddings.json not found (this is OK - using keyword search fallback)")?;
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read embeddings: {}", e))?;
     let data: EmbeddingsData = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse embeddings: {}", e))?;
-    
+
     // Cache the loaded data
     if let Ok(mut cache) = EMBEDDINGS_CACHE.lock() {
         *cache = Some(data.clone());
     }
-    
+
+    eprintln!("[DEBUG] Loaded {} KB embeddings (model: {}, dim: {})",
+        data.documents.len(), data.model, data.dimension);
+
     Ok(data)
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, ExternalLink, Eye, EyeOff, Copy, AlertCircle, Terminal, Sparkles, Download, Database, Loader2 } from 'lucide-react';
+import { Settings, X, Check, ExternalLink, Eye, EyeOff, Copy, AlertCircle, Terminal, Sparkles, Download, Database, Loader2, Zap, BookOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
 import { DEFAULT_LLM_CONFIGS } from './constants';
@@ -22,6 +22,16 @@ interface EmbeddingModelStatus {
     size_mb: number | null;
     ollama_connected: boolean;
     error?: string;
+}
+
+interface KBEmbeddingsStatus {
+    available: boolean;
+    source: 'bundled' | 'cached' | null;
+    document_count: number;
+    kb_files_found?: number;
+    can_generate?: boolean;
+    embedding_model?: string;
+    embedding_model_available?: boolean;
 }
 
 const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
@@ -63,6 +73,12 @@ export function LLMSettingsPanel({
     const [checkingEmbedding, setCheckingEmbedding] = useState(false);
     const [downloadingEmbedding, setDownloadingEmbedding] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+
+    // KB Embeddings state
+    const [kbEmbeddingsStatus, setKBEmbeddingsStatus] = useState<KBEmbeddingsStatus | null>(null);
+    const [generatingKBEmbeddings, setGeneratingKBEmbeddings] = useState(false);
+    const [kbGenProgress, setKBGenProgress] = useState<number | null>(null);
+    const [kbGenMessage, setKBGenMessage] = useState<string | null>(null);
 
     const checkClaudeCodeStatus = async () => {
         setCheckingClaudeCode(true);
@@ -147,6 +163,77 @@ export function LLMSettingsPanel({
         setTimeout(checkEmbeddingModel, 1000);
     };
 
+    const checkKBEmbeddingsStatus = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/status?llm_endpoint=${encodeURIComponent(localConfig.base_url)}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setKBEmbeddingsStatus(data);
+            }
+        } catch (err) {
+            console.error('Failed to check KB embeddings status:', err);
+        }
+    };
+
+    const generateKBEmbeddings = async () => {
+        setGeneratingKBEmbeddings(true);
+        setKBGenProgress(0);
+        setKBGenMessage('Starting...');
+
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/generate?llm_endpoint=${encodeURIComponent(localConfig.base_url)}`, {
+                method: 'POST',
+            });
+
+            if (!resp.body) throw new Error('No response body');
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.percent !== undefined) {
+                                setKBGenProgress(data.percent);
+                            }
+                            if (data.message) {
+                                setKBGenMessage(data.message);
+                            }
+                            if (data.status === 'success') {
+                                setKBEmbeddingsStatus(prev => prev ? {
+                                    ...prev,
+                                    available: true,
+                                    source: 'cached',
+                                    document_count: data.document_count || prev.document_count
+                                } : null);
+                                setKBGenProgress(100);
+                            }
+                            if (data.status === 'error') {
+                                console.error('KB generation error:', data.message);
+                                setKBGenMessage(`Error: ${data.message}`);
+                            }
+                        } catch { }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to generate KB embeddings:', err);
+            setKBGenMessage('Failed to connect to agent server');
+        }
+
+        setGeneratingKBEmbeddings(false);
+        // Re-check status after generation
+        setTimeout(checkKBEmbeddingsStatus, 1000);
+    };
+
     const checkConnection = async () => {
         setChecking(true);
         setStatus(null);
@@ -224,6 +311,13 @@ export function LLMSettingsPanel({
             checkEmbeddingModel();
         }
     }, [localConfig.provider, status?.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Check KB embeddings when embedding model is available
+    useEffect(() => {
+        if (embeddingStatus?.available) {
+            checkKBEmbeddingsStatus();
+        }
+    }, [embeddingStatus?.available]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="p-5 space-y-5 max-h-full overflow-y-auto">
@@ -591,6 +685,84 @@ export function LLMSettingsPanel({
                             {!embeddingStatus.available && !downloadingEmbedding && (
                                 <p className="mt-2 text-[10px] text-zinc-500">
                                     Optional: Improves agent accuracy with curated K8s troubleshooting knowledge.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* KB Embeddings Generation - Show after embedding model is installed */}
+                    {localConfig.provider === 'ollama' && embeddingStatus?.available && kbEmbeddingsStatus && (
+                        <div className={`relative rounded-xl p-4 border ${kbEmbeddingsStatus.available
+                            ? 'bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border-blue-500/20'
+                            : 'bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-purple-500/20'
+                            }`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${kbEmbeddingsStatus.available ? 'bg-blue-500/20' : 'bg-purple-500/20'}`}>
+                                        <BookOpen size={16} className={kbEmbeddingsStatus.available ? 'text-blue-400' : 'text-purple-400'} />
+                                    </div>
+                                    <div>
+                                        <p className={`text-sm font-semibold ${kbEmbeddingsStatus.available ? 'text-blue-300' : 'text-purple-300'}`}>
+                                            {kbEmbeddingsStatus.available
+                                                ? `Knowledge Indexed (${kbEmbeddingsStatus.document_count} docs)`
+                                                : 'Index Knowledge Base'
+                                            }
+                                        </p>
+                                        <p className="text-[11px] text-zinc-400">
+                                            {kbEmbeddingsStatus.available
+                                                ? `Source: ${kbEmbeddingsStatus.source === 'cached' ? 'Local cache' : 'Bundled'}`
+                                                : `Generate embeddings for ${kbEmbeddingsStatus.kb_files_found || 0} KB files`
+                                            }
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {!kbEmbeddingsStatus.available && (
+                                    <button
+                                        onClick={generateKBEmbeddings}
+                                        disabled={generatingKBEmbeddings}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-xs font-medium transition-all disabled:opacity-50"
+                                    >
+                                        {generatingKBEmbeddings ? (
+                                            <>
+                                                <Loader2 size={14} className="animate-spin" />
+                                                {kbGenProgress !== null ? `${kbGenProgress.toFixed(0)}%` : 'Generating...'}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Zap size={14} />
+                                                Generate
+                                            </>
+                                        )}
+                                    </button>
+                                )}
+
+                                {kbEmbeddingsStatus.available && (
+                                    <div className="flex items-center gap-1.5 text-blue-400">
+                                        <Check size={16} />
+                                        <span className="text-xs font-medium">Ready</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Generation Progress Bar */}
+                            {generatingKBEmbeddings && kbGenProgress !== null && (
+                                <div className="mt-3">
+                                    <div className="h-1.5 bg-black/20 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
+                                            style={{ width: `${kbGenProgress}%` }}
+                                        />
+                                    </div>
+                                    {kbGenMessage && (
+                                        <p className="mt-1 text-[10px] text-zinc-400">{kbGenMessage}</p>
+                                    )}
+                                </div>
+                            )}
+
+                            {!kbEmbeddingsStatus.available && !generatingKBEmbeddings && (
+                                <p className="mt-2 text-[10px] text-zinc-500">
+                                    One-time setup: Index 57+ K8s troubleshooting patterns for RAG-enhanced responses.
                                 </p>
                             )}
                         </div>

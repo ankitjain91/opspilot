@@ -287,6 +287,8 @@ def extract_text(obj, depth=0) -> str:
 
 
 def main():
+    global DIMENSION  # Declare at start of function
+
     print(f"Using Ollama model: {MODEL_NAME}")
     print(f"Ollama URL: {OLLAMA_URL}")
 
@@ -298,7 +300,6 @@ def main():
         print(f"  Connection OK. Embedding dimension: {actual_dim}")
         if actual_dim != DIMENSION:
             print(f"  [WARNING] Expected {DIMENSION} dims, got {actual_dim}. Updating...")
-            global DIMENSION
             DIMENSION = actual_dim
     except SystemExit:
         print("\n[FATAL] Cannot connect to Ollama. Please ensure:")

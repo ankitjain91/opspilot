@@ -527,8 +527,42 @@ def _find_precomputed_embeddings() -> str | None:
     return None
 
 
+def _get_kb_cache_path() -> str:
+    """Get path for cached KB embeddings (user's local cache, not bundled).
+
+    Platform-specific paths:
+    - Linux: ~/.local/share/opspilot/kb_embeddings_cache.json
+    - macOS: ~/Library/Application Support/opspilot/kb_embeddings_cache.json
+    - Windows: C:\\Users\\<user>\\AppData\\Local\\opspilot\\kb_embeddings_cache.json
+    Fallback: ~/.opspilot/kb_embeddings_cache.json
+    """
+    # Allow override via env var
+    env_dir = os.environ.get("K8S_AGENT_CACHE_DIR")
+    if env_dir:
+        cache_dir = env_dir
+    else:
+        import platform
+        system = platform.system()
+        home = os.path.expanduser("~")
+
+        if system == "Windows":
+            # Use LOCALAPPDATA on Windows
+            local_app_data = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
+            cache_dir = os.path.join(local_app_data, "opspilot")
+        elif system == "Darwin":
+            # macOS: ~/Library/Application Support/opspilot
+            cache_dir = os.path.join(home, "Library", "Application Support", "opspilot")
+        else:
+            # Linux/Unix: ~/.local/share/opspilot (XDG standard)
+            xdg_data = os.environ.get("XDG_DATA_HOME", os.path.join(home, ".local", "share"))
+            cache_dir = os.path.join(xdg_data, "opspilot")
+
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, "kb_embeddings_cache.json")
+
+
 async def _ensure_kb_loaded(embed_endpoint: str):
-    """Load pre-computed KB embeddings from kb_embeddings.json (no runtime embedding needed)."""
+    """Load pre-computed KB embeddings from kb_embeddings.json or user cache (no runtime embedding needed)."""
     global kb_loaded, kb_entries, kb_embeddings
 
     async with kb_lock:
@@ -536,10 +570,20 @@ async def _ensure_kb_loaded(embed_endpoint: str):
             return
 
         # Try to load pre-computed embeddings first (PREFERRED - no Ollama embedding model needed)
+        # Check both bundled path and user cache
         precomputed_path = _find_precomputed_embeddings()
+        user_cache_path = _get_kb_cache_path()
+
+        # Prefer user cache if it exists (more recent), then bundled
+        paths_to_try = []
+        if os.path.isfile(user_cache_path):
+            paths_to_try.append(("user_cache", user_cache_path))
         if precomputed_path:
+            paths_to_try.append(("bundled", precomputed_path))
+
+        for source, emb_path in paths_to_try:
             try:
-                with open(precomputed_path, "r", encoding="utf-8") as f:
+                with open(emb_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
                 docs = data.get("documents", [])
@@ -556,11 +600,11 @@ async def _ensure_kb_loaded(embed_endpoint: str):
                     })
                     kb_embeddings.append(doc.get("embedding", []))
 
-                print(f"[KB] Loaded {len(kb_entries)} pre-computed embeddings from {precomputed_path}", flush=True)
+                print(f"[KB] Loaded {len(kb_entries)} embeddings from {source}: {emb_path}", flush=True)
                 kb_loaded = True
                 return
             except Exception as e:
-                print(f"[KB] Failed to load pre-computed embeddings: {e}", flush=True)
+                print(f"[KB] Failed to load embeddings from {source} ({emb_path}): {e}", flush=True)
 
         # Fallback: Load raw KB files and embed at runtime (requires Ollama nomic-embed-text)
         print("[KB] No pre-computed embeddings found, falling back to runtime embedding...", flush=True)
@@ -2387,6 +2431,210 @@ async def pull_embedding_model(llm_endpoint: str = "http://localhost:11434"):
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(stream_progress(), media_type="text/event-stream")
+
+
+# =============================================================================
+# KB EMBEDDINGS GENERATION (Runtime Setup)
+# =============================================================================
+
+@app.get("/kb-embeddings/status")
+async def kb_embeddings_status(llm_endpoint: str = "http://localhost:11434"):
+    """Check if KB embeddings are available (either pre-computed or cached)."""
+    global kb_loaded, kb_entries, kb_embeddings
+
+    # Check for pre-computed embeddings (bundled with app)
+    precomputed_path = _find_precomputed_embeddings()
+    if precomputed_path and os.path.isfile(precomputed_path):
+        try:
+            with open(precomputed_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            doc_count = len(data.get("documents", []))
+            return {
+                "available": True,
+                "source": "bundled",
+                "document_count": doc_count,
+                "path": precomputed_path,
+            }
+        except Exception as e:
+            pass  # Fall through to check cache
+
+    # Check for user-local cached embeddings
+    cache_path = _get_kb_cache_path()
+    if os.path.isfile(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            doc_count = len(data.get("documents", []))
+            return {
+                "available": True,
+                "source": "cached",
+                "document_count": doc_count,
+                "path": cache_path,
+            }
+        except Exception as e:
+            pass
+
+    # No embeddings available - check if we can generate them
+    embed_available = await _check_embedding_model_available(llm_endpoint)
+
+    # Count KB files that would be embedded
+    kb_file_count = 0
+    if os.path.isdir(KB_DIR):
+        for name in os.listdir(KB_DIR):
+            if name.endswith(('.json', '.jsonl', '.md')) and name != 'kb-index.json':
+                kb_file_count += 1
+
+    return {
+        "available": False,
+        "source": None,
+        "document_count": 0,
+        "kb_files_found": kb_file_count,
+        "can_generate": embed_available,
+        "embedding_model": EMBEDDING_MODEL,
+        "embedding_model_available": embed_available,
+    }
+
+
+@app.post("/kb-embeddings/generate")
+async def generate_kb_embeddings(llm_endpoint: str = "http://localhost:11434"):
+    """Generate KB embeddings using local Ollama and cache them."""
+    global kb_loaded, kb_entries, kb_embeddings
+
+    async def stream_progress():
+        try:
+            # Check embedding model availability
+            if not await _check_embedding_model_available(llm_endpoint):
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Embedding model {EMBEDDING_MODEL} not available. Download it first.'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Loading knowledge base files...'})}\n\n"
+
+            # Load all KB entries from files
+            entries: list[dict] = []
+            if not os.path.isdir(KB_DIR):
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Knowledge base directory not found: {KB_DIR}'})}\n\n"
+                return
+
+            files_processed = 0
+            for name in os.listdir(KB_DIR):
+                path = os.path.join(KB_DIR, name)
+                lower_name = name.lower()
+                try:
+                    if lower_name.endswith(".jsonl"):
+                        with open(path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    entry = json.loads(line)
+                                    entry["_source_file"] = name
+                                    entries.append(entry)
+                        files_processed += 1
+                    elif lower_name.endswith(".json") and name != "kb-index.json":
+                        with open(path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            if isinstance(data, list):
+                                for item in data:
+                                    item["_source_file"] = name
+                                entries.extend(data if isinstance(data, list) else [data])
+                            else:
+                                data["_source_file"] = name
+                                entries.append(data)
+                        files_processed += 1
+                    elif lower_name.endswith(".md"):
+                        with open(path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        entries.append({
+                            "id": name.replace(".md", ""),
+                            "title": name.replace("-", " ").replace(".md", "").title(),
+                            "content": content[:3000],
+                            "_source_file": name
+                        })
+                        files_processed += 1
+                except Exception as e:
+                    print(f"[KB] Failed to load {path}: {e}", flush=True)
+
+            if not entries:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'No KB entries found to embed'})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'status': 'progress', 'message': f'Loaded {len(entries)} entries from {files_processed} files', 'percent': 10})}\n\n"
+
+            # Generate embeddings
+            yield f"data: {json.dumps({'status': 'progress', 'message': 'Generating embeddings (this may take a minute)...', 'percent': 15})}\n\n"
+
+            texts = [_kb_entry_to_text(e) for e in entries]
+            embeddings_list = []
+
+            # Process in batches to show progress
+            batch_size = 10
+            total_batches = (len(texts) + batch_size - 1) // batch_size
+
+            base = llm_endpoint or ""
+            clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
+            url = f"{clean_endpoint}/api/embeddings"
+
+            async with httpx.AsyncClient() as client:
+                for batch_idx in range(total_batches):
+                    start = batch_idx * batch_size
+                    end = min(start + batch_size, len(texts))
+                    batch_texts = texts[start:end]
+
+                    for text in batch_texts:
+                        resp = await client.post(
+                            url,
+                            json={"model": EMBEDDING_MODEL, "prompt": text},
+                            timeout=120.0,
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        if "embedding" in data:
+                            embeddings_list.append(data["embedding"])
+                        else:
+                            raise ValueError("Unexpected embedding response format")
+
+                    # Progress update
+                    progress_pct = 15 + int(80 * (batch_idx + 1) / total_batches)
+                    yield f"data: {json.dumps({'status': 'progress', 'message': f'Embedded {end}/{len(texts)} entries', 'percent': progress_pct})}\n\n"
+
+            # Build the cache structure
+            documents = []
+            for i, entry in enumerate(entries):
+                doc = {
+                    "id": entry.get("id", f"entry-{i}"),
+                    "file": entry.get("_source_file", "unknown"),
+                    "title": entry.get("title", entry.get("root_cause", f"Entry {i}")),
+                    "summary": _kb_entry_to_text(entry)[:500],
+                    "embedding": embeddings_list[i]
+                }
+                documents.append(doc)
+
+            cache_data = {
+                "model": EMBEDDING_MODEL,
+                "dimension": len(embeddings_list[0]) if embeddings_list else 768,
+                "documents": documents,
+                "tools": []  # Tools are optional, can be added later
+            }
+
+            # Save to cache
+            cache_path = _get_kb_cache_path()
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f)
+
+            yield f"data: {json.dumps({'status': 'progress', 'message': 'Saved embeddings to cache', 'percent': 98})}\n\n"
+
+            # Reload into memory
+            kb_entries = entries
+            kb_embeddings = embeddings_list
+            kb_loaded = True
+
+            yield f"data: {json.dumps({'status': 'success', 'message': f'Generated embeddings for {len(entries)} KB entries', 'document_count': len(entries), 'percent': 100})}\n\n"
+
+        except Exception as e:
+            print(f"[KB] Embedding generation error: {e}", flush=True)
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(stream_progress(), media_type="text/event-stream")
+
 
 @app.post("/analyze")
 async def analyze(request: AgentRequest):
