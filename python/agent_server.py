@@ -909,7 +909,11 @@ def select_relevant_examples(query: str, max_examples: int = 15) -> list[str]:
     return sorted(selected, key=sort_key)
 
 def get_examples_text(example_ids: list[str], full_examples: str) -> str:
-    """Extract specific examples from the full examples string by their IDs."""
+    """Extract specific examples from the full examples string by their IDs.
+
+    Returns text with braces escaped ({{ and }}) so it can be safely used
+    in str.format() calls.
+    """
     import re
     pattern = r'(EXAMPLE\s+(\d+[a-z]?):[^\n]*\n(?:.*?\n)*?(?=EXAMPLE\s+\d|# ===|$))'
     matches = re.findall(pattern, full_examples, re.DOTALL)
@@ -924,7 +928,9 @@ def get_examples_text(example_ids: list[str], full_examples: str) -> str:
         if eid in example_dict:
             selected_texts.append(example_dict[eid])
 
-    return '\n\n'.join(selected_texts)
+    # Escape braces for safe use with str.format()
+    result = '\n\n'.join(selected_texts)
+    return result.replace('{', '{{').replace('}', '}}')
 
 # =============================================================================
 # PROMPT DEFINITIONS (SUPERVISOR_EXAMPLES_FULL OMITTED HERE FOR BREVITY)
@@ -2145,14 +2151,18 @@ async def supervisor_node(state: AgentState) -> dict:
     selected_examples = get_examples_text(selected_example_ids, SUPERVISOR_EXAMPLES_FULL)
     print(f"[agent-sidecar] Selected {len(selected_example_ids)} examples (Max 25)", flush=True)
 
+    # Helper to escape braces for str.format()
+    def escape_braces(s: str) -> str:
+        return s.replace('{', '{{').replace('}', '}}')
+
     prompt = SUPERVISOR_PROMPT.format(
-        kb_context=kb_context,
-        examples=selected_examples,
-        query=query,
-        kube_context=state['kube_context'] or 'default',
-        cluster_info=state.get('cluster_info', 'Not available'),
-        command_history=format_command_history(state['command_history']),
-        mcp_tools_desc=json.dumps(state.get("mcp_tools", []), indent=2),
+        kb_context=escape_braces(kb_context),
+        examples=selected_examples,  # Already escaped in get_examples_text
+        query=escape_braces(query),
+        kube_context=escape_braces(state['kube_context'] or 'default'),
+        cluster_info=escape_braces(state.get('cluster_info', 'Not available')),
+        command_history=escape_braces(format_command_history(state['command_history'])),
+        mcp_tools_desc=escape_braces(json.dumps(state.get("mcp_tools", []), indent=2)),
     )
 
     try:
