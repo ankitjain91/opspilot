@@ -225,6 +225,7 @@ async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "olla
                     clean_endpoint = endpoint.rstrip('/').removesuffix('/v1').rstrip('/')
                     url = f"{clean_endpoint}/api/generate"
                     print(f"DEBUG: Calling Ollama: {url} | Model: {model}", flush=True)
+                    print(f"DEBUG: Waiting for massive 70B model response (this can take 30-60s)...", flush=True)
                     
                     response = await client.post(
                         url,
@@ -928,9 +929,9 @@ def get_examples_text(example_ids: list[str], full_examples: str) -> str:
         if eid in example_dict:
             selected_texts.append(example_dict[eid])
 
-    # Escape braces for safe use with str.format()
+    # Return as-is (arguments to str.format do NOT need escaping)
     result = '\n\n'.join(selected_texts)
-    return result.replace('{', '{{').replace('}', '}}')
+    return result
 
 # =============================================================================
 # PROMPT DEFINITIONS (SUPERVISOR_EXAMPLES_FULL OMITTED HERE FOR BREVITY)
@@ -1955,7 +1956,7 @@ RULES:
 
 ABSOLUTE SHELL RULES (IMPORTANT):
 - DO NOT use shell variables like `NS=...`, `POD_NAME=...`, or refer to `$NS`, `$POD_NAME`, etc.
-- DO NOT use command substitution like `$(kubectl ...)` or `${...}`.
+- DO NOT use command substitution like $(kubectl ...) or ${{...}}.
 - Return a **single straightforward kubectl command** (plus simple pipes like `| grep`, `| awk`, `| wc`, `| head`, `| tail`).
 - DO NOT mix a discovery step with a deep-dive in the same command.
   - Example of what NOT to do:
@@ -2146,23 +2147,19 @@ async def supervisor_node(state: AgentState) -> dict:
     # Embeddings RAG: fetch KB snippets for this query
     kb_context = await get_relevant_kb_snippets(query, state)
 
-    # Dynamic example selection (max 25 examples)
-    selected_example_ids = select_relevant_examples(query, max_examples=25)
+    # Dynamic example selection (reduced to max 5 to prevent context overload/timeouts with 70B model)
+    selected_example_ids = select_relevant_examples(query, max_examples=5)
     selected_examples = get_examples_text(selected_example_ids, SUPERVISOR_EXAMPLES_FULL)
-    print(f"[agent-sidecar] Selected {len(selected_example_ids)} examples (Max 25)", flush=True)
-
-    # Helper to escape braces for str.format()
-    def escape_braces(s: str) -> str:
-        return s.replace('{', '{{').replace('}', '}}')
+    print(f"[agent-sidecar] Selected {len(selected_example_ids)} examples (Max 5)", flush=True)
 
     prompt = SUPERVISOR_PROMPT.format(
-        kb_context=escape_braces(kb_context),
-        examples=selected_examples,  # Already escaped in get_examples_text
-        query=escape_braces(query),
-        kube_context=escape_braces(state['kube_context'] or 'default'),
-        cluster_info=escape_braces(state.get('cluster_info', 'Not available')),
-        command_history=escape_braces(format_command_history(state['command_history'])),
-        mcp_tools_desc=escape_braces(json.dumps(state.get("mcp_tools", []), indent=2)),
+        kb_context=kb_context,
+        examples=selected_examples,
+        query=query,
+        kube_context=state['kube_context'] or 'default',
+        cluster_info=state.get('cluster_info', 'Not available'),
+        command_history=format_command_history(state['command_history']),
+        mcp_tools_desc=json.dumps(state.get("mcp_tools", []), indent=2),
     )
 
     try:

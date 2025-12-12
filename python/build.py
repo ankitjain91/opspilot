@@ -43,6 +43,29 @@ def build():
         "--hidden-import", "httpx",
         "--hidden-import", "langgraph",
         "--hidden-import", "langchain_core",
+        # Optimize build size/speed by excluding unused heavy ML/Science libraries
+        "--exclude-module", "torch",
+        "--exclude-module", "tensorflow",
+        "--exclude-module", "jax",
+        "--exclude-module", "scipy",
+        "--exclude-module", "pandas",
+        "--exclude-module", "nvidia",
+        "--exclude-module", "sympy",
+        "--exclude-module", "matplotlib",
+        "--exclude-module", "ipython",
+        # SAFETY FIRST: Reverting aggressive exclusions. 
+        # Only excluding the truly massive libraries that we 100% know are unused.
+        # "--exclude-module", "sklearn",
+        # "--exclude-module", "scikit-learn", 
+        # "--exclude-module", "transformers",
+        # "--exclude-module", "sentence_transformers",
+        # "--exclude-module", "huggingface_hub",
+        # "--exclude-module", "tokenizers",
+        # "--exclude-module", "safetensors",
+        # "--exclude-module", "regex", 
+        # "--exclude-module", "pyarrow", 
+        # "--exclude-module", "pandas",
+        # "--exclude-module", "scipy",
         str(script_dir / "agent_server.py"),
     ]
 

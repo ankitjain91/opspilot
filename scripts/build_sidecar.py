@@ -36,17 +36,28 @@ def main():
         print(f"[error] Python executable not found at {venv_python}")
         sys.exit(1)
 
-    # Install dependencies
-    print("[build] Installing build dependencies...")
-    try:
-        # Upgrade pip
-        subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
-        # Install requirements
-        req_file = python_source_dir / "requirements.txt"
-        subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(req_file)], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"[error] Failed to install dependencies: {e}")
-        sys.exit(1)
+    # Check checksum to avoid re-installing if satisfied
+    import hashlib
+    req_file = python_source_dir / "requirements.txt"
+    hash_file = venv_dir / "requirements.hash"
+    
+    current_hash = hashlib.md5(req_file.read_bytes()).hexdigest()
+    stored_hash = hash_file.read_text() if hash_file.exists() else ""
+    
+    if current_hash == stored_hash and venv_python.exists():
+        print("[build] Dependencies up to date, skipping pip install.")
+    else:
+        print("[build] Installing/Upgrading build dependencies...")
+        try:
+            # Upgrade pip (only if we are installing)
+            subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=True)
+            # Install requirements
+            subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(req_file)], check=True)
+            # Update hash
+            hash_file.write_text(current_hash)
+        except subprocess.CalledProcessError as e:
+            print(f"[error] Failed to install dependencies: {e}")
+            sys.exit(1)
 
     # Run the actual build
     print("[build] Building Agent Server binary...")
