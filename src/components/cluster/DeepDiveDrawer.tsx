@@ -363,6 +363,7 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                                     namespace: resource.namespace
                                 }}
                                 currentContext={currentContext}
+                                onClose={() => setActiveContentTab('overview')}
                             />
                         </div>
                     ) : (

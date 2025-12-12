@@ -26,3 +26,32 @@ dist-ssr
 # Security
 *.key
 *.key.pub
+
+# Build Artifacts (Rust & Tauri)
+src-tauri/target/
+src-tauri/binaries
+src-tauri/binaries/
+src-tauri/gen/schemas/
+**/target/
+**/binaries/
+**/gen/
+
+# Python Build
+python/build/
+python/dist/
+*.spec
+
+# AI Model Cache
+src-tauri/.fastembed_cache/
+.fastembed_cache/
+__pycache__/
+*.pyc
+
+# Runtime Data
+src-tauri/cluster-info/
+cluster-info/
+src-tauri/resources/kb_embeddings.json
+src-tauri/resources/knowledge/mcp-integration.json
+
+# OS
+.DS_Store

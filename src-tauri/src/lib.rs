@@ -14,6 +14,8 @@ use std::io::{Read, Write};
 use std::fs;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::path::PathBuf;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use std::process::Stdio;
 
 mod ai_local;
 mod knowledge;
@@ -599,13 +601,21 @@ async fn create_client(state: State<'_, AppState>) -> Result<Client, String> {
             if path_val.is_some() && context_val.is_some() {
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         (path_val.flatten(), context_val.flatten())
     };
 
-    // Create cache key from path and context
+    if let Some(ctx) = &context {
+        println!("DEBUG: create_client using context: {}", ctx);
+    } else {
+        println!("DEBUG: create_client using default context");
+    }
+
+    // Check cache
+
     let cache_key = format!("{}:{}", path.as_deref().unwrap_or("default"), context.as_deref().unwrap_or("default"));
+    println!("DEBUG: create_client cache key: {}", cache_key);
 
     // Check if we have a cached client (2 minute TTL)
     {
@@ -2654,6 +2664,8 @@ pub fn run() {
             mcp::commands::install_mcp_presets,
             mcp::commands::install_uvx,
             get_current_context_name,
+            check_dependencies,
+            download_dependency,
             start_local_shell,
             send_shell_input,
             resize_shell,
@@ -2766,6 +2778,137 @@ async fn test_connectivity(context: String, path: Option<String>) -> Result<Stri
 
     Ok("Connected".to_string())
 }
+
+// --- Dependency Management ---
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct DependencyStatus {
+    name: String,
+    installed: bool,
+    version: Option<String>,
+    path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct ProgressEvent {
+    id: String,
+    percentage: u64,
+    status: String,
+    error: Option<String>,
+}
+
+#[tauri::command]
+async fn check_dependencies(_app: tauri::AppHandle) -> Result<Vec<DependencyStatus>, String> {
+    let tools = vec!["kubectl", "helm", "vcluster"];
+    let mut statuses = Vec::new();
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let bin_dir = std::path::Path::new(&home).join(".opspilot").join("bin");
+
+    for tool in tools {
+        let mut installed = false;
+        let mut found_path = None;
+        let mut version = None;
+
+        // 1. Check our private bin dir
+        let local_path = bin_dir.join(tool);
+        if local_path.exists() {
+            installed = true;
+            found_path = Some(local_path.to_string_lossy().to_string());
+            if let Ok(output) = std::process::Command::new(&local_path).arg("--version").output() {
+                version = String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string());
+            }
+        }
+
+        // 2. If not found, check global PATH
+        if !installed {
+            // Simple 'which' check
+            if let Ok(output) = std::process::Command::new("which").arg(tool).output() {
+                if output.status.success() {
+                    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path_str.is_empty() {
+                        installed = true;
+                        found_path = Some(path_str.clone());
+                        if let Ok(ver_out) = std::process::Command::new(&path_str).arg("--version").output() {
+                             version = String::from_utf8(ver_out.stdout).ok().map(|s| s.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        statuses.push(DependencyStatus {
+            name: tool.to_string(),
+            installed,
+            version,
+            path: found_path,
+        });
+    }
+
+    Ok(statuses)
+}
+
+#[tauri::command]
+async fn download_dependency(app: tauri::AppHandle, name: String, url: String) -> Result<String, String> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt; 
+
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let bin_dir = std::path::Path::new(&home).join(".opspilot").join("bin");
+    
+    if !bin_dir.exists() {
+        std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
+    }
+    
+    let target_path = bin_dir.join(&name);
+    
+    let _ = app.emit("download_progress", ProgressEvent {
+        id: name.clone(),
+        percentage: 0,
+        status: "starting".to_string(),
+        error: None
+    });
+
+    let client = reqwest::Client::new();
+    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let total_size = res.content_length().unwrap_or(0);
+    
+    let mut file = std::fs::File::create(&target_path).map_err(|e| e.to_string())?;
+    let mut downloaded: u64 = 0;
+    
+    let mut stream = res.bytes_stream();
+    
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        
+        if total_size > 0 {
+            let percentage = (downloaded * 100) / total_size;
+            // Emit progress (every iteration might be too frequent, but works for now)
+             let _ = app.emit("download_progress", ProgressEvent {
+                id: name.clone(),
+                percentage,
+                status: "downloading".to_string(),
+                error: None
+            });
+        }
+    }
+    
+    // Make executable
+    let mut perms = std::fs::metadata(&target_path).map_err(|e| e.to_string())?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&target_path, perms).map_err(|e| e.to_string())?;
+    
+    let _ = app.emit("download_progress", ProgressEvent {
+        id: name.clone(),
+        percentage: 100,
+        status: "completed".to_string(),
+        error: None
+    });
+
+    Ok(target_path.to_string_lossy().to_string())
+}
+
 
 #[tauri::command]
 async fn get_current_context_name(state: State<'_, AppState>, custom_path: Option<String>) -> Result<String, String> {
@@ -2952,7 +3095,13 @@ async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, S
     );
 
     // Critical: If nodes fail, the cluster is likely unreachable. Propagate error.
-    let nodes_count = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?.items.len();
+    let nodes_count = match nodes_res {
+        Ok(list) => list.items.len(),
+        Err(e) => {
+            eprintln!("Warning: Cannot list nodes (might be vcluster/restricted): {}", e);
+            0
+        }
+    };
 
     let pods_count = match pods_res {
         Ok(list) => list.items.len(),
@@ -3034,7 +3183,15 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
     );
 
     // Process nodes
-    let nodes_list = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?;
+    // Process nodes
+    // Process nodes (Direct Vec<Node> to avoid NodeList struct error)
+    let nodes_items = match nodes_res {
+        Ok(l) => l.items,
+        Err(e) => {
+            eprintln!("Warning: Cannot list nodes (cockpit): {}", e);
+            vec![]
+        }
+    };
     let pods_items: Vec<_> = pods_res.map(|l| l.items).unwrap_or_default();
     let deployments_items: Vec<_> = deployments_res.map(|l| l.items).unwrap_or_default();
     let services_count = services_res.map(|l| l.items.len()).unwrap_or(0);
@@ -3128,7 +3285,7 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
     let mut warning_count = 0;
     let mut critical_count = 0;
 
-    let nodes: Vec<NodeHealth> = nodes_list.items.iter().map(|node| {
+    let nodes: Vec<NodeHealth> = nodes_items.iter().map(|node| {
         let name = node.metadata.name.clone().unwrap_or_default();
         let status_obj = node.status.as_ref();
         let spec = node.spec.as_ref();
@@ -3257,7 +3414,7 @@ async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpi
     top_namespaces.truncate(10);
 
     Ok(ClusterCockpitData {
-        total_nodes: nodes_list.items.len(),
+        total_nodes: nodes_items.len(),
         healthy_nodes,
         total_pods: pods_items.len(),
         total_deployments: deployments_items.len(),
@@ -3942,8 +4099,15 @@ async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialC
     );
 
     // Process nodes - this is required, fail if unavailable
-    let nodes_list = nodes_res.map_err(|e| format!("Cluster unreachable: {}", e))?;
-    let nodes: Vec<ResourceSummary> = nodes_list.items.iter().map(|node| {
+    // Process nodes - this is required, fail if unavailable
+    let nodes_items = match nodes_res {
+        Ok(l) => l.items,
+        Err(e) => {
+            eprintln!("Warning: Cannot list nodes (topology): {}", e);
+            vec![]
+        }
+    };
+    let nodes: Vec<ResourceSummary> = nodes_items.iter().map(|node| {
         let name = node.metadata.name.clone().unwrap_or_default();
         let status = node.status.as_ref()
             .and_then(|s| s.conditions.as_ref())
@@ -4244,6 +4408,136 @@ async fn azure_login() -> Result<String, String> {
     Ok("Logged in successfully".to_string())
 }
 
+// Helper for robust vcluster connection monitoring
+// Returns (Context Name, PID) on success
+async fn spawn_and_monitor_vcluster(
+    args: &[&str],
+    name: &str,
+    namespace: &str,
+    host_context: &str,
+    state: &State<'_, AppState>,
+    timeout_secs: u64
+) -> Result<(String, u32), String> {
+    println!("DEBUG: Spawning vcluster with args: {:?}", args);
+    let mut child = tokio::process::Command::new("vcluster")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn vcluster: {}", e))?;
+
+    let pid = child.id().ok_or("Failed to get process ID")?;
+    let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to open stderr")?;
+    
+    let mut reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
+
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    let predicted_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
+    let mut successful_api_calls = 0;
+    const REQUIRED_SUCCESSFUL_CALLS: i32 = 2; // Reduced to 2 for faster feedback, still stable
+
+    loop {
+        if start.elapsed() > timeout {
+            let _ = child.kill().await;
+            return Err("Connection timed out".to_string());
+        }
+
+        tokio::select! {
+            // Monitor stdout for signals
+            line_res = reader.next_line() => {
+                match line_res {
+                    Ok(Some(line)) => {
+                        println!("vcluster[stdout]: {}", line);
+                        if line.contains("level=fatal") || line.contains("level=error") {
+                             let _ = child.kill().await;
+                             return Err(format!("vcluster fatal error: {}", line));
+                        }
+                        // If we see "Switched to context", it's a strong signal to check immediately
+                        // But we don't return immediately, we still need API verification.
+                    }
+                    Ok(None) => {}, // EOF
+                    Err(_) => {}
+                }
+            }
+            // Monitor stderr for errors (vcluster often prints logs to stderr)
+            line_res = stderr_reader.next_line() => {
+                match line_res {
+                    Ok(Some(line)) => {
+                        println!("vcluster[stderr]: {}", line);
+                         if line.contains("level=fatal") || line.contains("level=error") {
+                             let _ = child.kill().await;
+                             return Err(format!("vcluster fatal error: {}", line));
+                        }
+                    }
+                    Ok(None) => {}, // EOF
+                    Err(_) => {}
+                }
+            }
+            // Periodic Verification
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {
+                // Check process status
+                if let Ok(Some(status)) = child.try_wait() {
+                    if !status.success() {
+                        return Err(format!("Process exited with status: {:?}", status));
+                    }
+                    // Process succeeded (foreground finish), proceed to verification
+                }
+
+                // Verify Connectivity
+                let raw_config = Kubeconfig::read().unwrap_or_default();
+                let mut target_context = String::new();
+
+                // 1. Is current context switched?
+                if let Some(ctx) = &raw_config.current_context {
+                    if ctx.contains("vcluster") || (ctx.contains(name) && ctx.contains(namespace)) {
+                        target_context = ctx.clone();
+                    }
+                }
+                // 2. Is predicted context present?
+                if target_context.is_empty() {
+                    for ctx_name in raw_config.contexts.iter().map(|c| c.name.clone()) {
+                        if ctx_name == predicted_context || (ctx_name.contains("vcluster") && ctx_name.contains(name)) {
+                            target_context = ctx_name;
+                            break;
+                        }
+                    }
+                }
+
+                if !target_context.is_empty() {
+                    // Try to connect
+                     let parse_res = kube::Config::from_custom_kubeconfig(
+                        raw_config,
+                        &KubeConfigOptions {
+                            context: Some(target_context.clone()),
+                            ..Default::default()
+                        }
+                    ).await;
+
+                    if let Ok(mut config) = parse_res {
+                        config.connect_timeout = Some(std::time::Duration::from_millis(1500));
+                        config.read_timeout = Some(std::time::Duration::from_millis(1500));
+                        config.accept_invalid_certs = true;
+                        
+                        if let Ok(client) = Client::try_from(config) {
+                             if let Ok(_) = Api::<k8s_openapi::api::core::v1::Namespace>::all(client).list(&ListParams::default().limit(1)).await {
+                                 successful_api_calls += 1;
+                                 if successful_api_calls >= REQUIRED_SUCCESSFUL_CALLS {
+                                     return Ok((target_context, pid));
+                                 }
+                                 continue;
+                             }
+                        }
+                    }
+                    successful_api_calls = 0; // Reset on failure
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 async fn connect_vcluster(
     state: State<'_, AppState>,
@@ -4280,193 +4574,71 @@ async fn connect_vcluster(
         }
     }
 
-    // ATTEMPT 1: Primary Connect
-    // We spawn it as a child process.
-    let mut child = tokio::process::Command::new("vcluster")
-        .args(&["connect", &name, "-n", &namespace, "--context", &host_context])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped()) // Capture stderr for errors
-        .spawn()
-        .map_err(|e| format!("Failed to spawn vcluster connect: {}", e))?;
+    // ATTEMPT 1: Standard Connect
+    // Try standard connection (uses platform login if configured, or port-forwarding)
+    println!("DEBUG: Attempting Standard vCluster Connect...");
+    let attempt1 = spawn_and_monitor_vcluster(
+        &["connect", &name, "-n", &namespace, "--context", &host_context],
+        &name,
+        &namespace,
+        &host_context,
+        &state,
+        25 // 25s timeout
+    ).await;
 
-    let pid = child.id().ok_or("Failed to get vcluster process ID")?;
-    
-    // Store PID immediately
-    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
-        *pid_guard = Some(pid);
-    }
-
-    // Polling / Verification Loop
-    let mut new_context = format!("vcluster_{}_{}_{}", name, namespace, host_context);
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(10);
-    let mut connected = false;
-
-    // We loop for 10s. If process exits, we break and check status.
-    // If process runs, we try to create client.
-    
-    // Note: To check if child exited without blocking, we can use try_wait()
-    // But since we consumed `child` (it's not Copy), we need to keep it.
-    // Actually, `spawn` returns a `Child`.
-    
-    loop {
-        if start.elapsed() > timeout {
-            break;
+    if let Ok((ctx, pid)) = attempt1 {
+        // Success!
+        println!("vCluster Standard Connect Successful. Context: {}, PID: {}", ctx, pid);
+        if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+            *pid_guard = Some(pid);
         }
-
-        // Check if process is dead
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success() {
-                    // Process exited successfully (foreground mode)
-                    // This is acceptable, we just proceed to verify connectivity.
-                    // We can stop checking the process status now.
-                } else {
-                    // Process failed!
-                    println!("vcluster connect process exited unexpectedly with: {:?}", status);
-                    break;
-                }
-            }
-            Ok(None) => {
-                // Still running (background proxy mode), good.
-            }
-            Err(e) => {
-                println!("Error waiting for child: {}", e);
-                break;
-            }
-        }
-
-        // Check Kubeconfig for current context
-        // vcluster CLI usually updates the current-context to the new vcluster context.
-        // We initially predicted the name, but we should verify what's actually in the file.
-        let raw_config = Kubeconfig::read().unwrap_or_default();
-        let mut target_context = new_context.clone();
-        
-        if let Some(ctx) = &raw_config.current_context {
-            if ctx.contains("vcluster") || ctx.contains(&name) {
-                target_context = ctx.clone();
-            }
-        }
-
-        let config_res = kube::Config::from_custom_kubeconfig(
-            raw_config,
-            &KubeConfigOptions {
-                context: Some(target_context.clone()),
-                ..Default::default()
-            }
-        ).await;
-
-        if let Ok(mut config) = config_res {
-             // Save the actual context name we successfully used
-             new_context = target_context.clone();
-             
-             config.connect_timeout = Some(std::time::Duration::from_millis(1000));
-            config.read_timeout = Some(std::time::Duration::from_millis(1000));
-            config.accept_invalid_certs = true;
-            
-            if let Ok(client) = Client::try_from(config) {
-                let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
-                if namespaces.list(&ListParams::default().limit(1)).await.is_ok() {
-                    connected = true;
-                    break;
-                }
-            }
-        }
-        
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
-
-    if connected {
-        // Update selected context
         if let Ok(mut context_guard) = state.selected_context.try_lock() {
-            *context_guard = Some(new_context.clone());
+            *context_guard = Some(ctx);
         }
-        // Notify success
         return Ok(format!("Connected to vcluster '{}' (PID: {})", name, pid));
+    } else {
+        println!("Standard connect failed: {}. Retrying with helm driver...", attempt1.err().unwrap());
     }
 
-    // FAILURE RECOVERY - ATTEMPT 2 (Helm Driver)
-    println!("Standard vcluster connect failed/timed out inside 10s. Retrying with --driver=helm");
+    // ATTEMPT 2: Fallback to Helm Driver
+    // Use --driver=helm to avoid platform requirements/prompts
+    println!("DEBUG: Attempting vCluster Connect with --driver=helm...");
+    let attempt2 = spawn_and_monitor_vcluster(
+        &["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm", "--update-current"],
+        &name,
+        &namespace,
+        &host_context,
+        &state,
+        30 // 30s timeout (longer for retry)
+    ).await;
+
+    if let Ok((ctx, pid)) = attempt2 {
+        // Success!
+        println!("vCluster Helm Driver Connect Successful. Context: {}, PID: {}", ctx, pid);
+        if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+            *pid_guard = Some(pid);
+        }
+        if let Ok(mut context_guard) = state.selected_context.try_lock() {
+            *context_guard = Some(ctx);
+        }
+        return Ok(format!("Connected to vcluster '{}' (OSS Mode, PID: {})", name, pid));
+    }
+
+    // Capture failure reason
+    let error_msg = attempt2.err().unwrap_or("Unknown error".to_string());
+    println!("Helm driver connect failed: {}", error_msg);
     
-    // Kill the first process if it's still running (e.g. hanging)
-    let _ = std::process::Command::new("kill").arg(pid.to_string()).output();
-    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
+    // Ensure cleanup
+     if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
         *pid_guard = None;
     }
 
-    // Spawn Retry
-    let mut child_retry = tokio::process::Command::new("vcluster")
-        .args(&["connect", &name, "-n", &namespace, "--context", &host_context, "--driver=helm"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped()) 
-        .spawn()
-        .map_err(|e| format!("Failed to spawn vcluster connect (retry): {}", e))?;
-
-    let retry_pid = child_retry.id().ok_or("Failed to get vcluster process ID (retry)")?;
-    
-    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
-        *pid_guard = Some(retry_pid);
-    }
-
-    // Poll again (slightly longer timeout for fallback?)
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(15);
-    
-    loop {
-        if start.elapsed() > timeout { break; }
-        
-        match child_retry.try_wait() {
-            Ok(Some(_)) => break, // Exited
-            Ok(None) => {}, // Running
-            Err(_) => break
-        }
-
-        let raw_config = Kubeconfig::read().unwrap_or_default();
-        let mut target_context = new_context.clone();
-        
-        if let Some(ctx) = &raw_config.current_context {
-            if ctx.contains("vcluster") || ctx.contains(&name) {
-                target_context = ctx.clone();
-            }
-        }
-
-        let config_res = kube::Config::from_custom_kubeconfig(
-            raw_config,
-            &KubeConfigOptions {
-                context: Some(target_context.clone()),
-                ..Default::default()
-            }
-        ).await;
-
-         if let Ok(mut config) = config_res {
-            config.connect_timeout = Some(std::time::Duration::from_millis(1000));
-            config.accept_invalid_certs = true;
-            if let Ok(client) = Client::try_from(config) {
-                let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client);
-                if namespaces.list(&ListParams::default().limit(1)).await.is_ok() {
-                    // Update selected context
-                    if let Ok(mut context_guard) = state.selected_context.try_lock() {
-                        *context_guard = Some(new_context.clone());
-                    }
-                     return Ok(format!("Connected to vcluster '{}' (OSS Mode, PID: {})", name, retry_pid));
-                }
-            }
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
-
-    // Final Failure
-    // Kill the retry process
-    let _ = std::process::Command::new("kill").arg(retry_pid.to_string()).output();
-    if let Ok(mut pid_guard) = state.vcluster_pid.try_lock() {
-        *pid_guard = None;
-    }
-
-    Err("Failed to connect to vcluster. Both standard and fallback (helm) modes failed to establish API connectivity within timeout.".to_string())
+    Err(format!("Failed to connect to vcluster '{}': {}", name, error_msg))
 }
 
 #[tauri::command]
 async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, String> {
+    println!("DEBUG: disconnect_vcluster command invoked");
     // Get current context to check if we're in a vcluster
     let current_context = get_current_context_name(state.clone(), None).await.unwrap_or_default();
 

@@ -38,6 +38,8 @@ interface PythonAgentRequest {
 // PYTHON LANGGRAPH SERVER
 // =============================================================================
 
+import { invoke } from '@tauri-apps/api/core';
+
 const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
 
 async function checkPythonAgentAvailable(): Promise<boolean> {
@@ -57,6 +59,37 @@ async function checkPythonAgentAvailable(): Promise<boolean> {
     }
 }
 
+async function ensureAgentRunning(): Promise<boolean> {
+    // First check if already running
+    if (await checkPythonAgentAvailable()) {
+        return true;
+    }
+
+    // Try to start it via Tauri command
+    console.log('[AgentOrchestrator] Agent not available, attempting to start...');
+    try {
+        const result = await invoke('start_agent');
+        console.log('[AgentOrchestrator] start_agent result:', result);
+
+        // Wait for it to become available (up to 8 seconds)
+        for (let i = 0; i < 16; i++) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (await checkPythonAgentAvailable()) {
+                console.log('[AgentOrchestrator] Agent started successfully after', (i + 1) * 500, 'ms');
+                return true;
+            }
+            if (i % 4 === 3) {
+                console.log('[AgentOrchestrator] Still waiting for agent...', (i + 1) * 500, 'ms');
+            }
+        }
+        console.error('[AgentOrchestrator] Agent failed to become available after 8 seconds');
+    } catch (e: any) {
+        console.error('[AgentOrchestrator] Failed to start agent:', e?.message || e);
+    }
+
+    return false;
+}
+
 async function runPythonAgent(
     query: string,
     kubeContext: string,
@@ -67,109 +100,194 @@ async function runPythonAgent(
     onProgress?: (msg: string) => void,
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal,
+    mcpTools?: any[],
 ): Promise<string> {
+    // Pre-flight check: ensure the Python agent is running (auto-start if needed)
+    onProgress?.('🔍 Checking agent server...');
+    const isAvailable = await ensureAgentRunning();
+    if (!isAvailable) {
+        throw new Error("❌ **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
+    }
+
     onProgress?.('🧠 Reasoning...');
 
-    const request: PythonAgentRequest = {
-        query,
-        kube_context: kubeContext || '',
-        llm_endpoint: llmEndpoint,
-        llm_provider: llmProvider,
-        llm_model: llmModel,
-        executor_model: executorModel,
-    };
+    // State for the agent loop
+    let currentHistory: any[] = [];
+    let currentToolOutput: any | null = null;
 
-    try {
-        const response = await fetch(`${PYTHON_AGENT_URL}/analyze`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'text/event-stream',
-            },
-            body: JSON.stringify(request),
-            signal: abortSignal,
-        });
+    // Safety break
+    let loopCount = 0;
+    const MAX_LOOPS = 10;
 
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`Python agent error (${response.status}): ${text}`);
-        }
+    while (loopCount < MAX_LOOPS) {
+        loopCount++;
 
-        if (!response.body) {
-            throw new Error("No response body received from Python agent");
-        }
+        const request: PythonAgentRequest & { mcp_tools?: any[], tool_output?: any, history: any[] } = {
+            query,
+            kube_context: kubeContext || '',
+            llm_endpoint: llmEndpoint,
+            llm_provider: llmProvider,
+            llm_model: llmModel,
+            executor_model: executorModel,
+            mcp_tools: mcpTools || [],
+            tool_output: currentToolOutput,
+            history: currentHistory
+        };
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let finalResponse = '';
+        try {
+            const response = await fetch(`${PYTHON_AGENT_URL}/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
+                },
+                body: JSON.stringify(request),
+                signal: abortSignal,
+            });
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Python agent error (${response.status}): ${text}`);
+            }
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            if (!response.body) throw new Error("No response body received");
 
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const eventData = JSON.parse(line.slice(6));
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let finalResponse = '';
+            let toolCallRequest = null;
+            let currentServerHistory = null;
 
-                        // Handle different event types
-                        switch (eventData.type) {
-                            case 'progress':
-                                onProgress?.(eventData.message);
-                                break;
-                            case 'reflection':
-                                onStep?.({
-                                    role: eventData.assessment === 'PLANNING' ? 'SUPERVISOR' : 'SCOUT',
-                                    content: `**${eventData.assessment}**: ${eventData.reasoning}`
-                                });
-                                break;
-                            case 'command_selected':
-                                onStep?.({
-                                    role: 'SCOUT',
-                                    // Just show the command initially
-                                    content: `Executing: \`${eventData.command}\``
-                                });
-                                break;
-                            case 'command_output':
-                                // Update SCOUT step with actual output in JSON format expected by UI
-                                onStep?.({
-                                    role: 'SCOUT',
-                                    content: JSON.stringify({
-                                        command: eventData.command,
-                                        output: eventData.error ? `Error: ${eventData.error}\nOutput: ${eventData.output}` : eventData.output
-                                    })
-                                });
-                                break;
-                            case 'done':
-                                if (eventData.final_response) {
-                                    finalResponse = eventData.final_response;
-                                }
-                                break;
-                            case 'error':
-                                throw new Error(eventData.message);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const eventData = JSON.parse(line.slice(6));
+
+                            switch (eventData.type) {
+                                case 'progress':
+                                    onProgress?.(eventData.message);
+                                    break;
+                                case 'reflection':
+                                    onStep?.({
+                                        role: eventData.assessment === 'PLANNING' ? 'SUPERVISOR' : 'SCOUT',
+                                        content: `**${eventData.assessment}**: ${eventData.reasoning}`
+                                    });
+                                    break;
+                                case 'command_selected':
+                                    onStep?.({
+                                        role: 'SCOUT',
+                                        content: `Executing: \`${eventData.command}\``
+                                    });
+                                    break;
+                                case 'command_output':
+                                    onStep?.({
+                                        role: 'SCOUT',
+                                        content: JSON.stringify({
+                                            command: eventData.command,
+                                            output: eventData.error ? `Error: ${eventData.error}\nOutput: ${eventData.output}` : eventData.output
+                                        })
+                                    });
+                                    break;
+                                case 'tool_call_request':
+                                    toolCallRequest = eventData;
+                                    currentServerHistory = eventData.history;
+                                    onStep?.({
+                                        role: 'SPECIALIST',
+                                        content: `**Using Tool**: \`${eventData.tool}\`\nArguments: ${JSON.stringify(eventData.args)}`
+                                    });
+                                    break;
+                                case 'done':
+                                    if (eventData.final_response) {
+                                        finalResponse = eventData.final_response;
+                                    }
+                                    break;
+                                case 'error':
+                                    throw new Error(eventData.message);
+                            }
+                        } catch (e) {
+                            // Ignore parse errors or incomplete chunks
                         }
-                    } catch (e) {
-                        // Ignore parse errors for partial chunks
                     }
                 }
             }
-        }
 
-        return finalResponse || "Agent completed without a final response.";
+            // If we got a tool call request, execute it and LOOP
+            if (toolCallRequest) {
+                const requestedTool = toolCallRequest.tool; // e.g. "github__get_issue"
+                const toolDef = mcpTools?.find((t: any) => t.name === requestedTool);
 
-    } catch (error: any) {
-        if (error.name === 'AbortError') {
-            throw new Error("Request cancelled by user");
+                let toolResult = "";
+                let toolError = null;
+
+                if (!toolDef) {
+                    toolResult = "";
+                    toolError = `Tool '${requestedTool}' not found in available tools list.`;
+                } else {
+                    try {
+                        onProgress?.(`🛠️ Running ${toolDef.original_name}...`);
+                        const result = await invoke('call_mcp_tool', {
+                            serverName: toolDef.server,
+                            toolName: toolDef.original_name,
+                            args: toolCallRequest.args
+                        });
+
+                        // MCP Check: The result object usually has { content: [ { type: 'text', text: '...' } ] }
+                        // We need to verify if 'call_mcp_tool' returns the raw value or wrapped
+                        // The Rust 'call_mcp_tool' returns Result<Value, String>.
+                        // Assuming it returns the MCP 'CallToolResult' object.
+
+                        toolResult = JSON.stringify(result, null, 2);
+
+                        onStep?.({
+                            role: 'SPECIALIST',
+                            content: `**Tool Result**: \n\`\`\`json\n${toolResult.substring(0, 500)}${toolResult.length > 500 ? '...' : ''}\n\`\`\``
+                        });
+
+                    } catch (e: any) {
+                        toolResult = "";
+                        toolError = String(e);
+                        onStep?.({
+                            role: 'SPECIALIST',
+                            content: `**Tool Failed**: ${toolError}`
+                        });
+                    }
+                }
+
+                // Prepare next iteration
+                currentHistory = currentServerHistory || currentHistory;
+                currentToolOutput = {
+                    tool: requestedTool,
+                    output: toolResult,
+                    error: toolError
+                };
+
+                // CONTINUE LOOP
+                continue;
+            }
+
+            // If no tool call, we are done
+            return finalResponse || "Agent completed without a final response.";
+
+        } catch (error: any) {
+            if (error.name === 'AbortError') throw new Error("Request cancelled by user");
+
+            // Should we retry on network error? Probably not for now.
+            const errorMsg = error.message?.toLowerCase() || '';
+            if (errorMsg.includes('fetch failed') || errorMsg.includes('econnrefused')) {
+                throw new Error("❌ **Agent Server Unreachable**: The Python sidecar is not running.");
+            }
+            throw error;
         }
-        // Improve error message for connection failures
-        if (error.message.includes('fetch failed') || error.message.includes('ECONNREFUSED')) {
-            throw new Error("❌ **Agent Server Unreachable**: Is the Python sidecar running?");
-        }
-        throw error;
     }
+
+    return "Agent loop limit reached (max 10 turns). Stopping to prevent infinite loops.";
 }
 
 // =============================================================================
@@ -187,6 +305,7 @@ export async function runAgentLoop(
     abortSignal?: AbortSignal,
     kubeContext?: string,
     llmConfig?: { endpoint?: string; provider?: string; model?: string; executor_model?: string },
+    mcpTools?: any[]
 ): Promise<string> {
 
     try {
@@ -205,7 +324,8 @@ export async function runAgentLoop(
             executorModel,
             onProgress,
             onStep,
-            abortSignal
+            abortSignal,
+            mcpTools
         );
 
 

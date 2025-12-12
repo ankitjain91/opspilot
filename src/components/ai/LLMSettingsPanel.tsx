@@ -1,9 +1,14 @@
-
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, ExternalLink, Eye, EyeOff, Copy, AlertCircle, Terminal, Sparkles } from 'lucide-react';
+import { Settings, X, Check, ExternalLink, Eye, EyeOff, Copy, AlertCircle, Terminal, Sparkles, Download, Database, Loader2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
 import { DEFAULT_LLM_CONFIGS } from './constants';
+import { MCPSettings } from '../settings/MCPSettings';
+
+// Asset Imports
+import openAiLogo from '../../assets/openai-logo.png';
+import anthropicLogo from '../../assets/anthropic-logo.png';
+import ollamaLogo from '../../assets/ollama-logo.png';
 
 interface ClaudeCodeStatus {
     available: boolean;
@@ -11,9 +16,17 @@ interface ClaudeCodeStatus {
     error: string | null;
 }
 
-import { MCPSettings } from '../settings/MCPSettings';
+interface EmbeddingModelStatus {
+    model: string;
+    available: boolean;
+    size_mb: number | null;
+    ollama_connected: boolean;
+    error?: string;
+}
 
-// ... (existing imports)
+const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
+
+type ProviderGroup = 'openai' | 'anthropic' | 'local';
 
 export function LLMSettingsPanel({
     config,
@@ -36,49 +49,20 @@ export function LLMSettingsPanel({
     const [claudeCodeStatus, setClaudeCodeStatus] = useState<ClaudeCodeStatus | null>(null);
     const [checkingClaudeCode, setCheckingClaudeCode] = useState(false);
 
-    const providerInfo: Record<LLMProvider, { name: string; description: string; icon: string; requiresApiKey: boolean; defaultModel: string }> = {
-        ollama: {
-            name: 'Ollama',
-            description: 'Free, local AI. Runs on your machine.',
-            icon: '🦙',
-            requiresApiKey: false,
-            defaultModel: 'k8s-cli',
-        },
-        'claude-code': {
-            name: 'Claude Code',
-            description: 'Use your existing Claude Code CLI. No API key needed.',
-            icon: '💻',
-            requiresApiKey: false,
-            defaultModel: 'claude-code-cli',
-        },
-        openai: {
-            name: 'OpenAI',
-            description: 'GPT-4o and more. Requires API key.',
-            icon: '🤖',
-            requiresApiKey: true,
-            defaultModel: 'gpt-4o',
-        },
-        anthropic: {
-            name: 'Anthropic',
-            description: 'Claude models. Requires API key.',
-            icon: '🧠',
-            requiresApiKey: true,
-            defaultModel: 'claude-sonnet-4-20250514',
-        },
-        custom: {
-            name: 'Custom',
-            description: 'OpenAI-compatible endpoint (vLLM, etc.)',
-            icon: '⚙️',
-            requiresApiKey: false,
-            defaultModel: 'default',
-        },
+    // Determine initial provider group based on config
+    const getInitialGroup = (p: LLMProvider): ProviderGroup => {
+        if (p === 'anthropic' || p === 'claude-code') return 'anthropic';
+        if (p === 'ollama' || p === 'custom') return 'local';
+        return 'openai';
     };
 
-    const copyToClipboard = (text: string, id: string) => {
-        navigator.clipboard.writeText(text);
-        setCopiedCommand(id);
-        setTimeout(() => setCopiedCommand(null), 2000);
-    };
+    const [activeProviderGroup, setActiveProviderGroup] = useState<ProviderGroup>(getInitialGroup(config.provider));
+
+    // Embedding model state
+    const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingModelStatus | null>(null);
+    const [checkingEmbedding, setCheckingEmbedding] = useState(false);
+    const [downloadingEmbedding, setDownloadingEmbedding] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
     const checkClaudeCodeStatus = async () => {
         setCheckingClaudeCode(true);
@@ -93,6 +77,74 @@ export function LLMSettingsPanel({
             });
         }
         setCheckingClaudeCode(false);
+    };
+
+    const checkEmbeddingModel = async () => {
+        setCheckingEmbedding(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/status?llm_endpoint=${encodeURIComponent(localConfig.base_url)}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setEmbeddingStatus(data);
+            }
+        } catch (err) {
+            setEmbeddingStatus({
+                model: 'nomic-embed-text',
+                available: false,
+                size_mb: null,
+                ollama_connected: false,
+                error: 'Agent server not reachable'
+            });
+        }
+        setCheckingEmbedding(false);
+    };
+
+    const downloadEmbeddingModel = async () => {
+        setDownloadingEmbedding(true);
+        setDownloadProgress(0);
+
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/pull?llm_endpoint=${encodeURIComponent(localConfig.base_url)}`, {
+                method: 'POST',
+            });
+
+            if (!resp.body) throw new Error('No response body');
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.percent !== undefined) {
+                                setDownloadProgress(data.percent);
+                            }
+                            if (data.status === 'success') {
+                                setEmbeddingStatus(prev => prev ? { ...prev, available: true } : null);
+                                setDownloadProgress(100);
+                            }
+                            if (data.status === 'error') {
+                                console.error('Download error:', data.message);
+                            }
+                        } catch { }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to download embedding model:', err);
+        }
+
+        setDownloadingEmbedding(false);
+        // Re-check status after download
+        setTimeout(checkEmbeddingModel, 1000);
     };
 
     const checkConnection = async () => {
@@ -121,17 +173,39 @@ export function LLMSettingsPanel({
         setChecking(false);
     };
 
-    const handleProviderChange = (provider: LLMProvider) => {
-        const defaultConfig = DEFAULT_LLM_CONFIGS[provider];
-        setLocalConfig({ ...defaultConfig, api_key: provider === localConfig.provider ? localConfig.api_key : null });
+    const handleProviderGroupChange = (group: ProviderGroup) => {
+        setActiveProviderGroup(group);
+
+        // Reset provider based on group
+        // If switching to Anthropic, default to 'anthropic' (API Key) unless already claude-code
+        // If switching to Local, default to 'ollama' unless already custom
+        // If switching to OpenAI, set to 'openai'
+
+        let newProvider: LLMProvider = 'openai';
+        if (group === 'anthropic') newProvider = 'anthropic';
+        if (group === 'local') newProvider = 'ollama'; // Default to Ollama for local
+
+        const defaultConfig = DEFAULT_LLM_CONFIGS[newProvider];
+        setLocalConfig({
+            ...defaultConfig,
+            // Preserve API keys/urls if switching back to a provider we used before?
+            // For simplicity, just load default, but try to preserve key if matching
+            api_key: newProvider === localConfig.provider ? localConfig.api_key : null
+        });
         setStatus(null);
+    };
+
+    const copyToClipboard = (text: string, id: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedCommand(id);
+        setTimeout(() => setCopiedCommand(null), 2000);
     };
 
     const handleSave = () => {
         // Use default model if model field is empty
         const configToSave = {
             ...localConfig,
-            model: localConfig.model.trim() || currentProviderInfo.defaultModel,
+            model: localConfig.model.trim() || DEFAULT_LLM_CONFIGS[localConfig.provider].model,
         };
         onConfigChange(configToSave);
         // Save to localStorage
@@ -144,7 +218,12 @@ export function LLMSettingsPanel({
         checkConnection();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const currentProviderInfo = providerInfo[localConfig.provider];
+    // Check embedding model when Ollama connects
+    useEffect(() => {
+        if (localConfig.provider === 'ollama' && status?.connected) {
+            checkEmbeddingModel();
+        }
+    }, [localConfig.provider, status?.connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="p-5 space-y-5 max-h-full overflow-y-auto">
@@ -194,30 +273,66 @@ export function LLMSettingsPanel({
                     {/* Provider Selection */}
                     <div className="relative space-y-3">
                         <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Select Provider</label>
-                        <div className="grid grid-cols-2 gap-2.5">
-                            {(Object.keys(providerInfo) as LLMProvider[]).map(provider => (
-                                <button
-                                    key={provider}
-                                    onClick={() => handleProviderChange(provider)}
-                                    className={`relative p-3.5 rounded-xl text-left transition-all duration-200 border overflow-hidden group ${localConfig.provider === provider
-                                        ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
-                                        : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
-                                        }`}
-                                >
-                                    {localConfig.provider === provider && (
-                                        <div className="absolute top-2 right-2">
-                                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
-                                                <Check size={12} className="text-white" />
-                                            </div>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            <button
+                                onClick={() => handleProviderGroupChange('openai')}
+                                className={`relative p-3 rounded-xl flex flex-col items-center gap-2 transition-all duration-200 border overflow-hidden group ${activeProviderGroup === 'openai'
+                                    ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
+                                    : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                                    }`}
+                            >
+                                {activeProviderGroup === 'openai' && (
+                                    <div className="absolute top-2 right-2">
+                                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                                            <Check size={12} className="text-white" />
                                         </div>
-                                    )}
-                                    <div className="flex items-center gap-2.5 mb-1.5">
-                                        <span className="text-xl">{providerInfo[provider].icon}</span>
-                                        <span className="font-semibold text-white text-sm">{providerInfo[provider].name}</span>
                                     </div>
-                                    <p className="text-[11px] text-zinc-400 leading-relaxed">{providerInfo[provider].description}</p>
-                                </button>
-                            ))}
+                                )}
+                                <div className="w-10 h-10 flex items-center justify-center">
+                                    <img src={openAiLogo} alt="OpenAI" className="w-8 h-8 object-contain" />
+                                </div>
+                                <span className="font-semibold text-white text-xs">OpenAI</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleProviderGroupChange('anthropic')}
+                                className={`relative p-3 rounded-xl flex flex-col items-center gap-2 transition-all duration-200 border overflow-hidden group ${activeProviderGroup === 'anthropic'
+                                    ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
+                                    : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                                    }`}
+                            >
+                                {activeProviderGroup === 'anthropic' && (
+                                    <div className="absolute top-2 right-2">
+                                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                                            <Check size={12} className="text-white" />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="w-10 h-10 flex items-center justify-center">
+                                    <img src={anthropicLogo} alt="Anthropic" className="w-8 h-8 object-contain" />
+                                </div>
+                                <span className="font-semibold text-white text-xs">Anthropic</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleProviderGroupChange('local')}
+                                className={`relative p-3 rounded-xl flex flex-col items-center gap-2 transition-all duration-200 border overflow-hidden group ${activeProviderGroup === 'local'
+                                    ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border-violet-500/50 shadow-lg shadow-purple-500/10'
+                                    : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                                    }`}
+                            >
+                                {activeProviderGroup === 'local' && (
+                                    <div className="absolute top-2 right-2">
+                                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                                            <Check size={12} className="text-white" />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="w-10 h-10 flex items-center justify-center">
+                                    <img src={ollamaLogo} alt="Local / Custom" className="w-8 h-8 object-contain rounded-full bg-white/10 p-1" />
+                                </div>
+                                <span className="font-semibold text-white text-xs">Local / Custom</span>
+                            </button>
                         </div>
                     </div>
 
@@ -225,190 +340,258 @@ export function LLMSettingsPanel({
                     <div className="relative bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                {localConfig.provider === 'claude-code' ? (
-                                    <>
-                                        <div className={`relative w-3 h-3 rounded-full ${checking || checkingClaudeCode ? 'bg-amber-400' :
-                                            claudeCodeStatus?.available ? 'bg-emerald-400' : 'bg-red-400'
-                                            }`}>
-                                            {(checking || checkingClaudeCode) && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
-                                            {claudeCodeStatus?.available && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
-                                        </div>
-                                        <div>
-                                            <span className="text-sm font-medium text-white">Claude Code Status</span>
-                                            {claudeCodeStatus && (
-                                                <p className={`text-xs ${claudeCodeStatus.available ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                    {claudeCodeStatus.available
-                                                        ? `Available ${claudeCodeStatus.version ? `(${claudeCodeStatus.version})` : ''}`
-                                                        : (claudeCodeStatus.error || 'Not found')}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className={`relative w-3 h-3 rounded-full ${checking ? 'bg-amber-400' :
-                                            status?.connected ? 'bg-emerald-400' : 'bg-red-400'
-                                            }`}>
-                                            {checking && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
-                                            {status?.connected && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
-                                        </div>
-                                        <div>
-                                            <span className="text-sm font-medium text-white">Connection Status</span>
-                                            {status && (
-                                                <p className={`text-xs ${status.connected ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                    {status.connected ? `Connected to ${status.provider}` : (status.error || 'Not connected')}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
+                                <div className={`relative w-3 h-3 rounded-full ${checking ? 'bg-amber-400' :
+                                    status?.connected ? 'bg-emerald-400' : 'bg-red-400'
+                                    }`}>
+                                    {checking && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
+                                    {status?.connected && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
+                                </div>
+                                <div>
+                                    <span className="text-sm font-medium text-white">Connection Status</span>
+                                    {status && (
+                                        <p className={`text-xs ${status.connected ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {status.connected ? `Connected to ${status.provider}` : (status.error || 'Not connected')}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             <button
                                 onClick={checkConnection}
-                                disabled={checking || checkingClaudeCode}
+                                disabled={checking}
                                 className="text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-all disabled:opacity-50 font-medium"
                             >
-                                {checking || checkingClaudeCode ? 'Testing...' : 'Test Connection'}
+                                {checking ? 'Testing...' : 'Test Connection'}
                             </button>
                         </div>
                     </div>
 
-                    {/* Ollama Setup Instructions */}
-                    {localConfig.provider === 'ollama' && status && !status.connected && (
-                        <div className="relative bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-xl p-4 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <AlertCircle size={16} className="text-amber-400" />
-                                <p className="text-sm text-amber-300 font-semibold">Ollama Setup Required</p>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2 bg-black/20 rounded-lg p-2">
-                                    <code className="flex-1 text-[11px] text-cyan-300 font-mono">brew install ollama && ollama serve</code>
-                                    <button
-                                        onClick={() => copyToClipboard('brew install ollama && ollama serve', 'install')}
-                                        className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
-                                    >
-                                        {copiedCommand === 'install' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                                    </button>
+                    {/* ANTHROPIC / CLAUDE CODE SPECIAL TOGGLE */}
+                    {activeProviderGroup === 'anthropic' && (
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-500/20 rounded-lg">
+                                        <Terminal size={16} className="text-indigo-400" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-white">Use Claude Code CLI</p>
+                                        <p className="text-[11px] text-zinc-400">Use local authentication instead of API Key</p>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-2 bg-black/20 rounded-lg p-2">
-                                    <code className="flex-1 text-[11px] text-cyan-300 font-mono">ollama pull {localConfig.model}</code>
-                                    <button
-                                        onClick={() => copyToClipboard(`ollama pull ${localConfig.model}`, 'pull')}
-                                        className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
-                                    >
-                                        {copiedCommand === 'pull' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
-                                    </button>
-                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        className="sr-only peer"
+                                        checked={localConfig.provider === 'claude-code'}
+                                        onChange={(e) => {
+                                            const isChecked = e.target.checked;
+                                            const newProvider = isChecked ? 'claude-code' : 'anthropic';
+                                            const def = DEFAULT_LLM_CONFIGS[newProvider];
+                                            setLocalConfig({ ...def, api_key: newProvider === 'anthropic' ? localConfig.api_key : null }); // Keep key if going back to api
+                                            setStatus(null);
+                                        }}
+                                    />
+                                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
+                                </label>
                             </div>
-                            <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1.5 transition-colors">
-                                Visit ollama.com for more info <ExternalLink size={12} />
-                            </a>
+
+                            {/* Claude Code Status Detail */}
+                            {localConfig.provider === 'claude-code' && (
+                                <div className="mt-3 pt-3 border-t border-white/10">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className={`w-2 h-2 rounded-full ${claudeCodeStatus?.available ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                        <span className="text-xs text-zinc-300">
+                                            {claudeCodeStatus?.available
+                                                ? `CLI Available ${claudeCodeStatus.version ? `(${claudeCodeStatus.version})` : ''}`
+                                                : (claudeCodeStatus?.error || 'Checking...')}
+                                        </span>
+                                    </div>
+                                    {!claudeCodeStatus?.available && (
+                                        <div className="bg-black/20 rounded-lg p-2 flex items-center gap-2">
+                                            <code className="text-[10px] text-cyan-300 flex-1">npm install -g @anthropic-ai/claude-code</code>
+                                            <button onClick={() => copyToClipboard('npm install -g @anthropic-ai/claude-code', 'cc')} className="p-1 hover:text-white text-zinc-500">
+                                                {copiedCommand === 'cc' ? <Check size={12} /> : <Copy size={12} />}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Claude Code Setup Instructions */}
-                    {localConfig.provider === 'claude-code' && claudeCodeStatus && !claudeCodeStatus.available && (
-                        <div className="relative bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20 rounded-xl p-4 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <Terminal size={16} className="text-violet-400" />
-                                <p className="text-sm text-violet-300 font-semibold">Claude Code Setup Required</p>
+                    {/* LOCAL / OLLAMA SPECIAL TOGGLE */}
+                    {activeProviderGroup === 'local' && (
+                        <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-orange-500/20 rounded-lg">
+                                        <Sparkles size={16} className="text-orange-400" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-white">Use Ollama</p>
+                                        <p className="text-[11px] text-zinc-400">Pull and run local models</p>
+                                    </div>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        className="sr-only peer"
+                                        checked={localConfig.provider === 'ollama'}
+                                        onChange={(e) => {
+                                            const isChecked = e.target.checked;
+                                            const newProvider = isChecked ? 'ollama' : 'custom';
+                                            const def = DEFAULT_LLM_CONFIGS[newProvider];
+                                            setLocalConfig({ ...def, base_url: isChecked ? 'http://localhost:11434' : localConfig.base_url });
+                                            setStatus(null);
+                                        }}
+                                    />
+                                    <div className="w-11 h-6 bg-white/10 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-orange-500/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                                </label>
                             </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2 bg-black/20 rounded-lg p-2">
-                                    <code className="flex-1 text-[11px] text-cyan-300 font-mono">npm install -g @anthropic-ai/claude-code</code>
+                        </div>
+                    )}
+
+                    {/* API Settings (Key & URL) */}
+                    <div className="space-y-4">
+                        {/* API Key Input - Show for OpenAI or Anthropic (logic: NOT local/custom/claude-code) */}
+                        {activeProviderGroup !== 'local' && localConfig.provider !== 'claude-code' && (
+                            <div className="space-y-2.5">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">API Key</label>
+                                <div className="relative">
+                                    <input
+                                        type={showApiKey ? 'text' : 'password'}
+                                        value={localConfig.api_key || ''}
+                                        onChange={(e) => setLocalConfig({ ...localConfig, api_key: e.target.value || null })}
+                                        placeholder={activeProviderGroup === 'openai' ? "sk-..." : "sk-ant-..."}
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-11 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all"
+                                    />
                                     <button
-                                        onClick={() => copyToClipboard('npm install -g @anthropic-ai/claude-code', 'install-claude')}
-                                        className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-all"
+                                        type="button"
+                                        onClick={() => setShowApiKey(!showApiKey)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition-colors"
                                     >
-                                        {copiedCommand === 'install-claude' ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
                                     </button>
                                 </div>
-                                <p className="text-[11px] text-zinc-400">Then run <code className="text-cyan-300">claude</code> once in your terminal to authenticate.</p>
                             </div>
-                            <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1.5 transition-colors">
-                                Learn more about Claude Code <ExternalLink size={12} />
-                            </a>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Claude Code Info when available */}
-                    {localConfig.provider === 'claude-code' && claudeCodeStatus?.available && (
-                        <div className="relative bg-gradient-to-br from-emerald-500/10 to-green-500/10 border border-emerald-500/20 rounded-xl p-4">
-                            <div className="flex items-center gap-2">
-                                <Terminal size={16} className="text-emerald-400" />
-                                <p className="text-sm text-emerald-300 font-semibold">Claude Code Ready</p>
-                            </div>
-                            <p className="text-[11px] text-zinc-400 mt-2">
-                                Using your terminal Claude Code installation. No API key needed - uses your existing authentication.
-                            </p>
-                        </div>
-                    )}
-
-                    {/* API Key */}
-                    {currentProviderInfo.requiresApiKey && (
-                        <div className="space-y-2.5">
-                            <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">API Key</label>
-                            <div className="relative">
+                        {/* Base URL Input - Show for Custom or Ollama */}
+                        {(activeProviderGroup === 'local') && (
+                            <div className="space-y-2.5">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Base URL</label>
                                 <input
-                                    type={showApiKey ? 'text' : 'password'}
-                                    value={localConfig.api_key || ''}
-                                    onChange={(e) => setLocalConfig({ ...localConfig, api_key: e.target.value || null })}
-                                    placeholder={`Enter your ${currentProviderInfo.name} API key`}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 pr-11 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all"
+                                    type="text"
+                                    value={localConfig.base_url}
+                                    onChange={(e) => setLocalConfig({ ...localConfig, base_url: e.target.value })}
+                                    placeholder="http://localhost:11434"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono text-xs"
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowApiKey(!showApiKey)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white transition-colors"
-                                >
-                                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
                             </div>
-                            <p className="text-[11px] text-zinc-500">
-                                {localConfig.provider === 'openai' && 'Get your API key from platform.openai.com'}
-                                {localConfig.provider === 'anthropic' && 'Get your API key from console.anthropic.com'}
-                            </p>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Base URL - hide for Claude Code */}
-                    {localConfig.provider !== 'claude-code' && (
-                        <div className="space-y-2.5">
-                            <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-                                Base URL
-                                {localConfig.provider !== 'custom' && <span className="text-zinc-500 font-normal normal-case">(optional)</span>}
-                            </label>
-                            <input
-                                type="text"
-                                value={localConfig.base_url}
-                                onChange={(e) => setLocalConfig({ ...localConfig, base_url: e.target.value })}
-                                placeholder="API endpoint URL"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono text-xs"
-                            />
-                        </div>
-                    )}
+                        {/* Model Name Input - Show for everyone except Claude Code which uses CLI default logic for now? Or allow override? Current code allows override. */}
+                        {localConfig.provider !== 'claude-code' && (
+                            <div className="space-y-2.5">
+                                <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Model Name</label>
+                                <input
+                                    type="text"
+                                    value={localConfig.model}
+                                    onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
+                                    placeholder={activeProviderGroup === 'openai' ? 'gpt-4o' : 'llama3'}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono text-xs"
+                                />
+                                {/* Helper for Ollama: Pull instructions */}
+                                {localConfig.provider === 'ollama' && (
+                                    <div className="bg-black/20 rounded-lg p-2 flex items-center gap-2 mt-1">
+                                        <code className="text-[10px] text-zinc-400 flex-1">ollama pull {localConfig.model}</code>
+                                        <button onClick={() => copyToClipboard(`ollama pull ${localConfig.model}`, 'pull')} className="p-1 hover:text-white text-zinc-500">
+                                            {copiedCommand === 'pull' ? <Check size={12} /> : <Copy size={12} />}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
-                    {/* Hardware Recommendation for Ollama */}
-                    {localConfig.provider === 'ollama' && systemSpecs && (
-                        <div className="bg-white/5 rounded-lg p-3 text-xs border border-white/10">
+                    {/* Hardware Specs - Only for Local */}
+                    {activeProviderGroup === 'local' && systemSpecs && (
+                        <div className="bg-white/5 rounded-lg p-3 text-xs border border-white/10 mt-4">
                             <div className="flex items-center justify-between mb-1">
                                 <span className="text-zinc-400 flex items-center gap-1.5"><Settings size={12} /> Hardware Detected</span>
                                 <span className="text-zinc-200 font-mono">{systemSpecs.cpu_brand} ({Math.round(systemSpecs.total_memory / 1024 / 1024 / 1024)}GB RAM)</span>
                             </div>
-                            {systemSpecs.is_apple_silicon && systemSpecs.total_memory > 17179869184 ? (
-                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
-                                    <Sparkles size={12} className="text-amber-400 flex-shrink-0" />
-                                    <span className="text-amber-300/90 leading-relaxed">
-                                        Your Mac is powerful! Switch model to <code className="bg-amber-500/20 px-1 rounded text-amber-200 border border-amber-500/30">qwen2.5:14b</code> for superior reasoning and deep dives.
-                                    </span>
+                        </div>
+                    )}
+
+                    {/* Embedding Model Status - For Knowledge Base RAG */}
+                    {localConfig.provider === 'ollama' && status?.connected && embeddingStatus && (
+                        <div className={`relative rounded-xl p-4 border ${embeddingStatus.available
+                            ? 'bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 border-emerald-500/20'
+                            : 'bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/20'
+                            }`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${embeddingStatus.available ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
+                                        <Database size={16} className={embeddingStatus.available ? 'text-emerald-400' : 'text-amber-400'} />
+                                    </div>
+                                    <div>
+                                        <p className={`text-sm font-semibold ${embeddingStatus.available ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                            Knowledge Base {embeddingStatus.available ? 'Ready' : 'Enhancement Available'}
+                                        </p>
+                                        <p className="text-[11px] text-zinc-400">
+                                            {embeddingStatus.available
+                                                ? `${embeddingStatus.model} - Enables smarter troubleshooting`
+                                                : `Download ${embeddingStatus.model} (~274MB) for RAG-powered insights`
+                                            }
+                                        </p>
+                                    </div>
                                 </div>
-                            ) : (
-                                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/10">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] flex-shrink-0" />
-                                    <span className="text-emerald-300/90 leading-relaxed">
-                                        Recommended: <code className="bg-emerald-500/20 px-1 rounded text-emerald-200 border border-emerald-500/30">k8s-cli</code> (Llama 3.1 8B) for best speed/performance balance.
-                                    </span>
+
+                                {!embeddingStatus.available && (
+                                    <button
+                                        onClick={downloadEmbeddingModel}
+                                        disabled={downloadingEmbedding}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium transition-all disabled:opacity-50"
+                                    >
+                                        {downloadingEmbedding ? (
+                                            <>
+                                                <Loader2 size={14} className="animate-spin" />
+                                                {downloadProgress !== null ? `${downloadProgress.toFixed(0)}%` : 'Downloading...'}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Download size={14} />
+                                                Download
+                                            </>
+                                        )}
+                                    </button>
+                                )}
+
+                                {embeddingStatus.available && (
+                                    <div className="flex items-center gap-1.5 text-emerald-400">
+                                        <Check size={16} />
+                                        <span className="text-xs font-medium">Installed</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Download Progress Bar */}
+                            {downloadingEmbedding && downloadProgress !== null && (
+                                <div className="mt-3">
+                                    <div className="h-1.5 bg-black/20 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-300"
+                                            style={{ width: `${downloadProgress}%` }}
+                                        />
+                                    </div>
                                 </div>
+                            )}
+
+                            {!embeddingStatus.available && !downloadingEmbedding && (
+                                <p className="mt-2 text-[10px] text-zinc-500">
+                                    Optional: Improves agent accuracy with curated K8s troubleshooting knowledge.
+                                </p>
                             )}
                         </div>
                     )}
@@ -501,7 +684,7 @@ export function LLMSettingsPanel({
                                     type="text"
                                     value={localConfig.model}
                                     onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                                    placeholder={currentProviderInfo.defaultModel}
+                                    placeholder={DEFAULT_LLM_CONFIGS[localConfig.provider]?.model || 'default'}
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-violet-500/50 focus:bg-white/10 focus:outline-none transition-all font-mono"
                                 />
                                 <p className="text-[10px] text-zinc-500">
@@ -536,7 +719,7 @@ export function LLMSettingsPanel({
                         </button>
                         <button
                             onClick={handleSave}
-                            disabled={currentProviderInfo.requiresApiKey && !localConfig.api_key}
+                            disabled={(localConfig.provider === 'openai' || localConfig.provider === 'anthropic') && !localConfig.api_key}
                             className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-[1.02] disabled:hover:scale-100"
                         >
                             <Check size={16} />

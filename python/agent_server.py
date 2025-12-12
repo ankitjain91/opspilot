@@ -55,7 +55,32 @@ MAX_ITERATIONS = 10
 MAX_OUTPUT_LENGTH = 8000
 
 # ---- Embeddings RAG config ----
-KB_DIR = os.environ.get("K8S_AGENT_KB_DIR", "./kb")  # directory with JSON KB files
+def _find_kb_dir() -> str:
+    """Find the knowledge directory in various possible locations."""
+    env_dir = os.environ.get("K8S_AGENT_KB_DIR")
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+
+    # Try multiple locations relative to script or CWD
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "..", "knowledge"),  # Dev: python/../knowledge
+        os.path.join(script_dir, "knowledge"),         # Bundled: same dir
+        os.path.join(os.getcwd(), "knowledge"),        # CWD/knowledge
+        os.path.join(os.getcwd(), "..", "knowledge"),  # CWD/../knowledge
+        "/tmp/knowledge",                              # Fallback for dev testing
+    ]
+
+    for path in candidates:
+        abs_path = os.path.abspath(path)
+        if os.path.isdir(abs_path):
+            print(f"[KB] Found knowledge directory: {abs_path}", flush=True)
+            return abs_path
+
+    # Return default even if not found
+    return os.path.join(script_dir, "..", "knowledge")
+
+KB_DIR = _find_kb_dir()
 EMBEDDING_MODEL = os.environ.get("K8S_AGENT_EMBED_MODEL", "nomic-embed-text")
 EMBEDDING_ENDPOINT = os.environ.get("K8S_AGENT_EMBED_ENDPOINT", "")  # if empty, reuse llm_endpoint
 KB_MAX_MATCHES = 5
@@ -70,6 +95,7 @@ kb_entries: list[dict] = []
 kb_embeddings: list[list[float]] = []
 kb_loaded = False
 kb_lock = asyncio.Lock()
+embedding_model_available: bool | None = None  # None = not checked yet
 
 
 def log_session(state: 'AgentState', duration: float, status: str = "COMPLETED"):
@@ -104,6 +130,9 @@ def log_session(state: 'AgentState', duration: float, status: str = "COMPLETED")
             "steps": steps,
             "reflection_reasoning": state.get('reflection_reasoning'),
             "context": state.get('kube_context'),
+            "llm_model": state.get('llm_model'),
+            "executor_model": state.get('executor_model'),
+            "cluster_info": state.get('cluster_info'),
             "error": state.get('error')
         }
         
@@ -147,6 +176,8 @@ class AgentState(TypedDict):
     events: list[dict]
     awaiting_approval: bool
     approved: bool
+    mcp_tools: list[dict] # Tool definitions passed from frontend
+    pending_tool_call: dict | None # { tool: str, args: dict } waiting for frontend execution
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -192,8 +223,11 @@ async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "olla
                 if provider == "ollama":
                     # Ollama /api/generate
                     clean_endpoint = endpoint.rstrip('/').removesuffix('/v1').rstrip('/')
+                    url = f"{clean_endpoint}/api/generate"
+                    print(f"DEBUG: Calling Ollama: {url} | Model: {model}", flush=True)
+                    
                     response = await client.post(
-                        f"{clean_endpoint}/api/generate",
+                        url,
                         json={
                             "model": model,
                             "prompt": prompt,
@@ -205,6 +239,9 @@ async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "olla
                         },
                         timeout=300.0
                     )
+                    if response.status_code != 200:
+                         print(f"Ollama Call Failed ({response.status_code}): {response.text}", flush=True)
+                    
                     response.raise_for_status()
                     return response.json()['response']
                 
@@ -212,6 +249,7 @@ async def call_llm(prompt: str, endpoint: str, model: str, provider: str = "olla
                     # OpenAI-compatible
                     clean_endpoint = endpoint.rstrip('/')
                     url = f"{clean_endpoint}/chat/completions"
+                    print(f"DEBUG: Calling OpenAI-compat: {url} | Model: {model}", flush=True)
                     
                     response = await client.post(
                         url,
@@ -321,6 +359,8 @@ def parse_supervisor_response(response: str) -> dict:
             "plan": data.get("plan", ""),
             "next_action": data.get("next_action", "respond"),
             "final_response": data.get("final_response"),
+            "tool": data.get("tool"),
+            "args": data.get("args"),
         }
     except Exception as e:
         print(f"Error parsing supervisor output: {e}\nRaw: {response}")
@@ -399,10 +439,46 @@ def _kb_entry_to_text(entry: dict) -> str:
         parts.append("Related patterns: " + ", ".join(entry["related_patterns"]))
     return "\n".join(parts)
 
+async def _check_embedding_model_available(endpoint: str) -> bool:
+    """Check if the embedding model is available in Ollama (no auto-pull - UI handles that)."""
+    global embedding_model_available
+
+    if embedding_model_available is not None:
+        return embedding_model_available
+
+    base = endpoint or ""
+    clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(f"{clean_endpoint}/api/tags", timeout=10.0)
+            if resp.status_code == 200:
+                models = resp.json().get("models", [])
+                model_names = [m.get("name", "").split(":")[0] for m in models]
+
+                if EMBEDDING_MODEL.split(":")[0] in model_names:
+                    print(f"[KB] Embedding model '{EMBEDDING_MODEL}' is available", flush=True)
+                    embedding_model_available = True
+                    return True
+
+            # Model not available - UI should prompt user to download
+            print(f"[KB] Embedding model '{EMBEDDING_MODEL}' not found. KB RAG disabled until user downloads it.", flush=True)
+            embedding_model_available = False
+            return False
+
+        except Exception as e:
+            print(f"[KB] Cannot check embedding model: {e}", flush=True)
+            embedding_model_available = False
+            return False
+
 async def _embed_texts(texts: list[str], endpoint: str) -> list[list[float]]:
     """Call local embedding model (e.g., Ollama /api/embeddings)."""
     if not texts:
         return []
+
+    # Check model availability first
+    if not await _check_embedding_model_available(endpoint):
+        raise ValueError(f"Embedding model '{EMBEDDING_MODEL}' not available")
 
     async with httpx.AsyncClient() as client:
         # Decide which endpoint to call
@@ -436,7 +512,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 async def _ensure_kb_loaded(embed_endpoint: str):
-    """Load KB JSON files and their embeddings once."""
+    """Load KB JSON/JSONL files and their embeddings once."""
     global kb_loaded, kb_entries, kb_embeddings
 
     async with kb_lock:
@@ -446,16 +522,26 @@ async def _ensure_kb_loaded(embed_endpoint: str):
         entries: list[dict] = []
         if os.path.isdir(KB_DIR):
             for name in os.listdir(KB_DIR):
-                if not name.lower().endswith(".json"):
-                    continue
                 path = os.path.join(KB_DIR, name)
+                lower_name = name.lower()
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        if isinstance(data, list):
-                            entries.extend(data)
-                        else:
-                            entries.append(data)
+                    if lower_name.endswith(".jsonl"):
+                        # JSONL: one JSON object per line
+                        with open(path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line:
+                                    entries.append(json.loads(line))
+                        print(f"[KB] Loaded JSONL file: {name}", flush=True)
+                    elif lower_name.endswith(".json"):
+                        # Regular JSON file
+                        with open(path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            if isinstance(data, list):
+                                entries.extend(data)
+                            else:
+                                entries.append(data)
+                        print(f"[KB] Loaded JSON file: {name}", flush=True)
                 except Exception as e:
                     print(f"[KB] Failed to load {path}: {e}", flush=True)
         else:
@@ -1110,9 +1196,20 @@ RESPONSE FORMAT (JSON):
 {{
     "thought": "Your analysis of the situation and user intent",
     "plan": "What the Worker should do next (natural language)",
-    "next_action": "delegate" | "respond",
-    "final_response": "Your complete answer (only when next_action=respond)"
-}}
+    "next_action": "delegate" | "respond" | "invoke_mcp",
+    "final_response": "Your complete answer (only when next_action=respond)",
+    "tool": "Name of the MCP tool to invoke (only when next_action=invoke_mcp)",
+    "args": { "arg_name": "arg_value" }
+}
+
+MCP / EXTERNAL TOOLS:
+If the user query requires info from outside the cluster (e.g. GitHub, Databases, Git), and tools are available:
+1. CHECK 'Available Custom Tools' below.
+2. Select the tool that matches the need.
+3. OUTPUT JSON including "tool" and "args" and next_action="invoke_mcp".
+
+Available Custom Tools:
+{mcp_tools_desc}}
 
 KEY RULES:
 - **PRIORITIZE RESPOND**: If the answer is purely definitional or known from a single successful command output, use `next_action: "respond"`. This prevents unnecessary looping.
@@ -1133,6 +1230,96 @@ EFFICIENT INVESTIGATION (for debugging queries only):
 - **STEP 2**: If root cause visible in output → RESPOND immediately
 - **STEP 3**: Only go deeper (logs, related resources) if step 2 didn't find cause
 - **MAX 3 STEPS** for most issues. If not found in 3 steps, summarize findings and ask user for direction.
+
+REASONING LOOP (SHERLOCK MODE):
+After every observation, perform:
+1) VALIDATE:
+   - Does the output confirm or contradict the hypothesis?
+2) REFINE:
+   - If hypothesis weak, generate alternative hypotheses.
+3) QUESTION:
+   - Identify missing information.
+4) INVESTIGATE:
+   - Generate the next best kubectl command to gather evidence.
+5) REPEAT until confidence is high.
+
+CLARIFYING QUESTION TEMPLATES:
+Use these forms:
+- "I found multiple matches for '<term>'. Which one should I inspect?"
+- "These namespaces contain matching pods: <list>. Which namespace is correct?"
+- "These pods match your description: <list>. Which one should I deep-dive?"
+- "Do you want logs from the current revision or previous container?"
+- "Should I focus on CrashLoopBackOff first or Pending pods first?"
+
+THINK-FIRST PROTOCOL:
+Before deciding an action or command:
+1. Summarize what is known.
+2. Summarize what is missing.
+3. If key information is missing, ask the user.
+4. If enough information is present, outline the next investigation step.
+5. Only THEN produce a kubectl command.
+
+UNCERTAINTY PROTOCOL (MANDATORY):
+- If ANY of the following are unknown or ambiguous:
+  • namespace
+  • exact resource kind (deploy/statefulset/job/cronjob)
+  • multiple pods match a partial name
+  • logs/describe do not confirm a single root cause
+  • cluster has more than one plausible failing component
+THEN YOU MUST:
+1. List what is ambiguous.
+2. Ask a precise clarifying question.
+3. WAIT for the user before running more commands.
+
+Never guess. Never invent namespaces. Never infer from context.
+
+Namespace Resolution Protocol:
+1. Never infer namespace from kubectl context.
+2. A kubectl context defines *cluster + user*, not namespace.
+3. When namespace is unknown:
+   - First run: kubectl get pods -A | grep -i <partial-name>
+   - Extract namespace from the row.
+4. If multiple namespaces match, ASK the user.
+
+NAMESPACE RULE:
+- Namespace must ALWAYS come from:
+  a) explicit user input, OR
+  b) discovery via `kubectl get <resource> -A`.
+
+- Never use:
+  • context
+  • last used namespace
+  • assumptions
+
+- Wrong namespace is a CRITICAL failure.
+
+POD RANKING ORDER:
+When multiple pods match a partial name:
+1. CrashLoopBackOff pods
+2. Error/Failed pods
+3. OOMKilled or high restart pods
+4. Pending pods
+5. Recently created/restarted pods
+6. Pods in namespaces the user mentioned
+7. Everything else
+
+If top two items are equal → ASK the user which one.
+
+DEEP INVESTIGATION SEQUENCE:
+For any failing pod:
+1. kubectl describe pod <ns>/<pod>
+2. kubectl logs <pod> --tail=120
+3. kubectl logs <pod> --previous --tail=120
+4. kubectl get events -n <ns> --sort-by=.lastTimestamp | tail -30
+5. Identify exact failure class:
+   - CrashLoopBackOff
+   - OOMKilled
+   - ImagePullBackOff
+   - Probe failures
+   - DNS/service/connectivity failures
+   - PVC binding failures
+   - Node pressure/taints
+   - Operator errors
 
 CRITICAL - CRD/Custom Resource Discovery:
 - **NEVER GUESS RESOURCE NAMES**: Generic names like 'managedresources', 'compositeresources', 'customresources' DO NOT EXIST.
@@ -1183,6 +1370,14 @@ RULES:
   - To find by name across namespaces: `kubectl get <type> -A | grep <name>`
   - NEVER use invalid syntax like `kubectl get <name> -A`.
 
+NAMESPACE RULE (IMPORTANT):
+- Namespace (ns) is NOT the same as context.
+- NEVER treat the current kubectl context as a namespace.
+- If the namespace is unknown, DO NOT guess it from context.
+- To discover namespace, ALWAYS use:
+  kubectl get pods -A | grep -i <name>
+- You must NEVER take any value that looks like a context (for example: names like "kind-kind", "gke_...", "aks-...", or other cluster identifiers) and use it as the `-n` / `--namespace` argument. If you're unsure whether a string is a namespace or a context, discover the correct namespace with `kubectl get ... -A | grep <name>` instead of guessing.
+
 SAFE BATCHING (Efficiency + Safety):
 - Use `&&` instead of `;` to chain commands, so later commands only run if earlier ones succeed.
 - Group commands by resource, e.g.:
@@ -1220,6 +1415,11 @@ SIMPLE QUERY PATTERNS (set found_solution=TRUE for informational queries):
 - User asked "how many" and output shows count → DONE
 - User asked "does X exist" and output confirms existence → DONE
 - User asked "what is the status" and output shows status → DONE
+
+DEBUGGING QUERY PATTERNS (set found_solution=FALSE if not yet isolated):
+- User asked to "find issues" or "diagnose" -> ONLY mark SOLVED if you have found the ROOT CAUSE of a specific failure, or if you have definitively proven the cluster is healthy (e.g. "No non-running pods found").
+- If the output shows errors (e.g. 50 pods crashing) but you haven't checked logs/events for them yet -> found_solution=FALSE.
+- If the output shows "No resources found" but you suspect namespace issues -> found_solution=FALSE.
 
 ASSESSMENT CRITERIA:
 - found_solution=TRUE if output matches ANY instant pattern above
@@ -1361,6 +1561,22 @@ async def supervisor_node(state: AgentState) -> dict:
                 'iteration': iteration,
                 'next_action': 'delegate',
                 'current_plan': result['plan'],
+                'events': events,
+            }
+        elif result['next_action'] == 'invoke_mcp':
+            # Emit tool call request and STOP graph (wait for client resumption)
+            tool_call = {
+                "tool": result.get('tool'),
+                "args": result.get('args'),
+                "history": state.get("command_history", [])
+            }
+            events.append(emit_event("tool_call_request", tool_call))
+            
+            return {
+                **state,
+                'iteration': iteration,
+                'next_action': 'invoke_mcp',
+                'pending_tool_call': tool_call,
                 'events': events,
             }
         else:
@@ -1643,6 +1859,9 @@ def should_continue(state: AgentState) -> Literal['worker', 'done']:
     """Determine next node based on supervisor decision."""
     if state['next_action'] == 'delegate':
         return 'worker'
+    # invoke_mcp maps to 'done' so the graph PAUSES/EXITS, allowing client to run the tool
+    if state['next_action'] == 'invoke_mcp':
+        return 'done'
     return 'done'
 
 def handle_approval(state: AgentState) -> Literal['execute', 'human_approval']:
@@ -1722,19 +1941,113 @@ class AgentRequest(BaseModel):
     llm_model: str = "opspilot-brain"
     executor_model: str = "k8s-cli"
     history: list[CommandHistory] = []
-    approved_command: bool = False 
+    approved_command: bool = False
+    mcp_tools: list[dict] = []
+    tool_output: dict | None = None 
 
 @app.get("/health")
 async def health():
     """Health check endpoint."""
     return {"status": "ok"}
 
+@app.get("/embedding-model/status")
+async def embedding_model_status(llm_endpoint: str = "http://localhost:11434"):
+    """Check if the embedding model is available."""
+    global embedding_model_available
+
+    base = llm_endpoint or ""
+    clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(f"{clean_endpoint}/api/tags", timeout=10.0)
+            if resp.status_code == 200:
+                models = resp.json().get("models", [])
+                model_names = [m.get("name", "").split(":")[0] for m in models]
+
+                is_available = EMBEDDING_MODEL.split(":")[0] in model_names
+                embedding_model_available = is_available
+
+                # Get model size info if available
+                model_size = None
+                for m in models:
+                    if m.get("name", "").split(":")[0] == EMBEDDING_MODEL.split(":")[0]:
+                        model_size = m.get("size", 0)
+                        break
+
+                return {
+                    "model": EMBEDDING_MODEL,
+                    "available": is_available,
+                    "size_bytes": model_size,
+                    "size_mb": round(model_size / (1024 * 1024), 1) if model_size else None,
+                    "ollama_connected": True
+                }
+
+            return {
+                "model": EMBEDDING_MODEL,
+                "available": False,
+                "ollama_connected": False,
+                "error": f"Ollama returned status {resp.status_code}"
+            }
+
+        except Exception as e:
+            return {
+                "model": EMBEDDING_MODEL,
+                "available": False,
+                "ollama_connected": False,
+                "error": str(e)
+            }
+
+@app.post("/embedding-model/pull")
+async def pull_embedding_model(llm_endpoint: str = "http://localhost:11434"):
+    """Pull/download the embedding model with user consent."""
+    global embedding_model_available
+
+    base = llm_endpoint or ""
+    clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
+
+    async def stream_progress():
+        async with httpx.AsyncClient() as client:
+            try:
+                # Start pull with streaming
+                async with client.stream(
+                    "POST",
+                    f"{clean_endpoint}/api/pull",
+                    json={"name": EMBEDDING_MODEL, "stream": True},
+                    timeout=600.0  # 10 min timeout
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                # Forward progress events
+                                if "status" in data:
+                                    progress = {
+                                        "status": data.get("status"),
+                                        "completed": data.get("completed", 0),
+                                        "total": data.get("total", 0),
+                                    }
+                                    if data.get("total", 0) > 0:
+                                        progress["percent"] = round(100 * data["completed"] / data["total"], 1)
+                                    yield f"data: {json.dumps(progress)}\n\n"
+                            except json.JSONDecodeError:
+                                pass
+
+                    # Mark as available after successful pull
+                    embedding_model_available = True
+                    yield f"data: {json.dumps({'status': 'success', 'message': f'Model {EMBEDDING_MODEL} ready'})}\n\n"
+
+            except Exception as e:
+                yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(stream_progress(), media_type="text/event-stream")
+
 @app.post("/analyze")
 async def analyze(request: AgentRequest):
     """Run the K8s troubleshooting agent with SSE streaming."""
     try:
         print(f"DEBUG REQUEST: {request.query} (Approved: {request.approved_command})", flush=True)
-        
+
         cluster_info = "Not gathered yet"
         if not request.history:
             print("DEBUG: Gathering cluster info...", flush=True)
@@ -1760,22 +2073,53 @@ async def analyze(request: AgentRequest):
             "events": [],
             "awaiting_approval": False,
             "approved": request.approved_command,
+            "mcp_tools": request.mcp_tools,
+            "pending_tool_call": None,
         }
+
+        # If resuming from a tool execution, inject the result into history
+        if request.tool_output:
+            tool_name = request.tool_output.get("tool", "unknown")
+            output = request.tool_output.get("output", "")
+            error = request.tool_output.get("error")
+            initial_state["command_history"].append({
+                "command": f"MCP_TOOL: {tool_name}",
+                "output": output,
+                "error": error,
+                "assessment": "EXECUTED",
+                "useful": True
+            })
 
         async def event_generator():
             import time
             start_time = time.time()
             emitted_events_count = 0 # Track how many events have been emitted from the state's event list
-            
-            async for event in agent.astream_events(initial_state, version="v1"):
+            last_heartbeat = time.time()
+            heartbeat_interval = 5  # Send heartbeat every 5 seconds
+            thinking_dots = 0
+
+            # Send initial progress event immediately
+            yield f"data: {json.dumps(emit_event('progress', {'message': '🧠 Starting analysis...'}))}\n\n"
+
+            config = {"recursion_limit": 150}
+            async for event in agent.astream_events(initial_state, version="v1", config=config):
                 kind = event["event"]
-                
+                current_time = time.time()
+
+                # Send heartbeat/thinking indicator if no events for a while (keeps SSE connection alive)
+                if current_time - last_heartbeat > heartbeat_interval:
+                    thinking_dots = (thinking_dots % 3) + 1
+                    dots = "." * thinking_dots
+                    elapsed = int(current_time - start_time)
+                    yield f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Thinking{dots} ({elapsed}s)'}))}\n\n"
+                    last_heartbeat = current_time
+
                 # Handle chain steps (updates from nodes)
                 if kind == "on_chain_end":
                     # Check if this is a specialized node update
                     if event['name'] in ['supervisor', 'worker', 'verify', 'human_approval', 'execute', 'reflect']:
                         node_update = event['data']['output']
-                        
+
                         # Apply update to our local state copy for logging
                         if isinstance(node_update, dict):
                             # Simplistic merge for flat fields
@@ -1787,12 +2131,13 @@ async def analyze(request: AgentRequest):
                             if len(current_events) > emitted_events_count:
                                 for new_evt in current_events[emitted_events_count:]:
                                     yield f"data: {json.dumps(new_evt)}\n\n"
+                                    last_heartbeat = time.time()  # Reset heartbeat timer
                                 emitted_events_count = len(current_events)
-                                
+
                         if node_update.get('next_action') == 'human_approval' and node_update.get('awaiting_approval') is True:
                             yield f"data: {json.dumps(emit_event('approval_needed', {'command': node_update.get('pending_command')}))}\n\n"
                             return
-            
+
             # Final response
             final_answer = initial_state.get('final_response')
             if not final_answer and initial_state.get('error'):
@@ -1804,7 +2149,7 @@ async def analyze(request: AgentRequest):
             # LOGGING
             duration = time.time() - start_time
             log_session(initial_state, duration, status="COMPLETED" if initial_state.get('final_response') else "FAILED")
-            
+
             yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer}))}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -1819,7 +2164,7 @@ async def analyze(request: AgentRequest):
                  "kube_context": request.kube_context,
                  "command_history": request.history or [],
                  "error": str(e),
-                 "iteration": 0, "next_action": "done", "executor_model": "", "llm_model": "", "llm_provider": "", "llm_endpoint": "", "events": [], "awaiting_approval": False, "approved": False, "continue_path": False
+                 "iteration": 0, "next_action": "done", "executor_model": "", "llm_model": "", "llm_provider": "", "llm_endpoint": "", "events": [], "awaiting_approval": False, "approved": False, "continue_path": False, "current_plan": None, "cluster_info": None, "final_response": None, "reflection_reasoning": None
              }
              log_session(err_state, 0.0, status="ERROR")
         except:
@@ -1830,5 +2175,113 @@ async def analyze(request: AgentRequest):
             media_type="text/event-stream"
         )
 
+def check_existing_server_healthy(port: int) -> bool:
+    """Check if there's already a healthy server on the port."""
+    import socket
+    import urllib.request
+
+    try:
+        # Quick socket check first
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', port))
+        sock.close()
+
+        if result != 0:
+            # Port not in use
+            return False
+
+        # Port is in use - check if it's our healthy server
+        req = urllib.request.Request(f'http://127.0.0.1:{port}/health', method='GET')
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.status == 200:
+                print(f"[agent-sidecar] Healthy server already running on port {port}", flush=True)
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
+def kill_process_on_port(port: int) -> bool:
+    """Kill any process using the specified port. Returns True if a process was killed."""
+    import platform
+    import signal
+
+    system = platform.system()
+    my_pid = os.getpid()
+
+    try:
+        if system == "Darwin" or system == "Linux":
+            # Use lsof to find process on port
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                killed_any = False
+                for pid in pids:
+                    pid_int = int(pid.strip()) if pid.strip() else 0
+                    if pid_int and pid_int != my_pid:
+                        try:
+                            os.kill(pid_int, signal.SIGKILL)
+                            print(f"[agent-sidecar] Killed existing process on port {port} (PID: {pid.strip()})", flush=True)
+                            killed_any = True
+                        except (ProcessLookupError, ValueError):
+                            pass
+                return killed_any
+        elif system == "Windows":
+            # Use netstat on Windows
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            for line in result.stdout.split('\n'):
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    if parts:
+                        pid = parts[-1]
+                        if int(pid) != my_pid:
+                            try:
+                                subprocess.run(["taskkill", "/F", "/PID", pid], timeout=5)
+                                print(f"[agent-sidecar] Killed existing process on port {port} (PID: {pid})", flush=True)
+                            except Exception:
+                                pass
+                            return True
+    except Exception as e:
+        print(f"[agent-sidecar] Warning: Could not check/kill process on port {port}: {e}", flush=True)
+
+    return False
+
+
 if __name__ == "__main__":
     import uvicorn
+    import time
+    import sys
+
+    PORT = 8765
+
+    # Kill any zombie/unhealthy process on the port (but not ourselves)
+    if kill_process_on_port(PORT):
+        # Give the OS time to release the port
+        time.sleep(1.0)
+
+    print(f"Starting agent server on port {PORT}...", flush=True)
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=PORT)
+    except OSError as e:
+        if "address already in use" in str(e).lower():
+            # One more check - maybe server just became healthy
+            if check_existing_server_healthy(PORT):
+                print(f"[agent-sidecar] Server now healthy on port {PORT}, exiting gracefully.", flush=True)
+                sys.exit(0)
+        print(f"Failed to start uvicorn: {e}", flush=True)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Failed to start uvicorn: {e}", flush=True)
+        sys.exit(1)

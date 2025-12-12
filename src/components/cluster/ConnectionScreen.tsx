@@ -1,4 +1,5 @@
 
+import { DependencyManager } from "../onboarding/DependencyManager";
 import React, { useState, useMemo } from "react";
 import {
     Sparkles,
@@ -259,7 +260,7 @@ interface ConnectionScreenProps {
 export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenProps) {
     const [customPath, setCustomPath] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [activeTab, setActiveTab] = useState<"local" | "azure">("local");
+    const [activeTab, setActiveTab] = useState<"local" | "azure" | "setup">("local");
     const [connectionLogs, setConnectionLogs] = useState<Array<{ time: string; message: string; status: 'pending' | 'success' | 'error' | 'info' }>>([]);
     const qc = useQueryClient();
 
@@ -493,6 +494,18 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500" />
                             )}
                         </button>
+                        <button
+                            onClick={() => setActiveTab("setup")}
+                            className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${activeTab === "setup" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        >
+                            <div className="flex items-center justify-center gap-2">
+                                <Terminal size={18} />
+                                <span>Setup</span>
+                            </div>
+                            {activeTab === "setup" && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
+                            )}
+                        </button>
                     </div>
 
                     {activeTab === "local" ? (
@@ -655,7 +668,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                                 </div>
                             </div>
                         </div>
-                    ) : (
+                    ) : activeTab === "azure" ? (
                         /* Azure Tab Content */
                         <div className="p-8">
                             <div className="text-center">
@@ -698,6 +711,11 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    ) : (
+                        /* Setup Tab Content */
+                        <div className="p-6">
+                            <DependencyManager />
                         </div>
                     )}
 

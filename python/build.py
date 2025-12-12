@@ -29,7 +29,6 @@ def build():
         "--distpath", str(script_dir / "dist"),
         "--workpath", str(script_dir / "build"),
         "--specpath", str(script_dir),
-        "--clean",
         # Hidden imports that PyInstaller might miss
         "--hidden-import", "uvicorn.logging",
         "--hidden-import", "uvicorn.loops",

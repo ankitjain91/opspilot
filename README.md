@@ -1,164 +1,110 @@
-<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/a3604bf0-2510-424e-bc65-4260fee2f938" />
+# OpsPilot (formerly Lens Killer)
 
-# OpsPilot
+**OpsPilot** is an intelligent, next-generation Kubernetes management platform designed to replace legacy tools like Lens. It combines a high-performance Rust/Tauri frontend with a powerful local AI Agent to provide deep insights, automated troubleshooting, and context-aware management of your clusters.
 
-A high-performance, beautiful Kubernetes IDE built with Tauri, React, and TypeScript. Designed to be a faster, cleaner alternative to existing tools.
+![OpsPilot Screenshot](docs/screenshots/overview.png) *[Placeholder for screenshot]*
 
-![License](https://img.shields.io/badge/license-BSL%201.1-blue)
+## 🚀 Key Features
 
-## Features
+*   **⚡ Blazing Fast UI**: Built with **Tauri** (Rust) and **React**, offering near-native performance and low memory footprint compared to Electron-based alternatives.
+*   **🤖 AI-Powered Sidecar**: A sophisticated **Python-based Agent** (using LangGraph) that runs locally. It acts as a "Supervisor" and "Scout", autonomously investigating cluster issues, analyzing logs, and suggesting fixes.
+*   **🧠 Context-Aware Deep Dive**: Open any resource (Pod, Deployment, etc.) in a dedicated "Deep Dive Drawer" where the AI is fully immersed in that specific context (logs, events, YAML).
+*   **🌐 vCluster Integration**: seamless support for creating and managing virtual clusters (vClusters) directly from the UI.
+*   **🔌 MCP Support**: Full support for the **Model Context Protocol (MCP)**, allowing you to extend the agent's capabilities with external tools (GitHub, Git, Postgres, etc.).
+*   **🔒 Privacy-First**: Designed for local LLMs (Ollama) with support for Azure OpenAI/Anthropic. Your data stays on your machine unless you choose cloud providers.
+*   **🛡️ Read-Only Mode**: Safety protocols to prevent accidental modifications during AI investigations.
 
-- 🚀 **Blazing Fast**: Built with Rust + Tauri for native performance
-- ✨ **Modern UI**: Sleek, dark-themed interface with analog gauges and real-time metrics
-- ☸️ **Kubernetes Native**: Full inspection of Pods, Deployments, Services, Nodes, ConfigMaps, Secrets, CRDs, and more
-- 🤖 **Multi-Provider AI Assistant**: Supports Ollama (local), OpenAI, Anthropic, and custom endpoints
-- 🔬 **Cluster-Wide AI Chat**: Global floating assistant that can investigate your entire cluster
-- 🎯 **Resource-Specific AI Chat**: Context-aware debugging for individual resources with autonomous investigation
-- 🛡️ **Safe & Read-Only**: All AI tools are strictly read-only with mutation command guardrails
-- 📊 **Cluster Cockpit**: Airplane-style dashboard with CPU/Memory speedometers, health indicators, and resource overview
-- 📑 **Structured Logs & Events**: Fast access to pod logs with container selection and categorized events
-- 📈 **Live Metrics**: Real-time CPU and memory charts for Pods and Nodes (with fallback for vclusters)
-- 🐚 **Integrated Terminal**: Exec into pod containers with container selection
-- 🔗 **Port Forwarding**: One-click port forwards with persistent list management
-- ☁️ **Virtual Cluster Support**: Seamless vcluster detection and connection
-- 🔧 **Context Management**: Switch contexts, delete unused contexts, and manage kubeconfig
-- 🧩 **Easy AI Setup**: One-click provider selection with guided setup instructions
+## 🆕 New in v0.2.4
+*   **Hardened vCluster Connection**: Improved process monitoring and fallback logic for reliable connectivity.
+*   **MCP Tool Visualization**: AI Chat now explicitly shows external tool execution (e.g. GitHub, Postgres) in the conversation stream.
+*   **Refactored Settings**: Streamlined AI provider configuration UI.
 
-## AI Debugging Brain (v0.2.0 Upgrade)
+## 🏗️ Architecture
 
-OpsPilot features a revamped autonomous AI engine:
+OpsPilot uses a hybrid architecture:
 
-- 🧠 **Autonomous Investigation**: The AI executes iterative "thoughts" (up to 10 steps), gathering evidence, verifying hypotheses, and filtering noise before answering.
-- ⚡ **Quick Fixes**: Automatically detects and highlights "Quick Fix" one-liners from the Knowledge Base for common errors (e.g., `kubectl logs -p`, `rollout restart`).
-- 📚 **Specialized Knowledge**: Deep troubleshooting guides for **UiPath Automation Suite, Crossplane, Istio, vCluster, Cert-Manager**, and core K8s issues (OOMKilled, CrashLoop).
-- 🛡️ **Smart Tooling**:
-    - **Context Awareness**: Remembers previous tool outputs in the conversation.
-    - **Semantic Routing**: Intelligently selects the best tool from 20+ specialized options (e.g., `GET_CROSSPLANE`, `GET_ISTIO`, `CHECK_WEBHOOKS`).
-    - **Clean UI**: Hides internal reasoning complexity while showing clear tool execution status.
+1.  **Frontend (Tauri/Rust)**: Handles the UI, window management, and direct Kubernetes API interactions via `kube-rs`.
+2.  **AI Sidecar (Python)**: A dedicated Python process (`agent_server.py`) that hosts the LangGraph agent. It exposes a local API for the frontend to communicate with.
+    *   **Supervisor Node**: Plans the investigation.
+    *   **Scout Node**: Executes safe `kubectl` commands.
+3.  **communication**: The Frontend and Sidecar communicate via a local HTTP interface.
 
-### Safety Guarantees
+## 🛠️ Prerequisites
 
-- **Read-Only**: Strictly non-mutating.
-- **Secure Execution**: Validates all commands against a strict allowlist.
-- **Privacy**: **Local Ops**: Embeddings are bundled. The inference model (~25MB) is downloaded once to your machine and runs **offline** thereafter.
+*   **Node.js** (v18+)
+*   **Rust** (latest stable)
+*   **Python** (3.10+) & `uv` (recommended for fast package management)
+*   **kubectl** & **helm** (installed in your PATH)
 
-## AI Provider Setup
+## 📦 Installation & Setup
 
-OpsPilot supports multiple AI providers. Choose the one that works best for you:
-
-### Supported Providers
-
-| Provider | Type | API Key Required | Default Model |
-|----------|------|------------------|---------------|
-| **Ollama** | Local (Free) | No | llama3.1:8b |
-| **OpenAI** | Cloud | Yes | gpt-4o |
-| **Anthropic** | Cloud | Yes | claude-sonnet-4 |
-| **Custom** | Any OpenAI-compatible | Optional | Configurable |
-
-### Quick Setup
-
-**Ollama (Local, Free):**
-```bash
-# macOS
-brew install ollama && ollama serve
-
-# Windows
-winget install Ollama.Ollama && ollama serve
-
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh && ollama serve
-```
-
-**OpenAI:**
-1. Get your API key from [platform.openai.com](https://platform.openai.com)
-2. Open AI Settings in OpsPilot and paste your key
-
-**Anthropic:**
-1. Get your API key from [console.anthropic.com](https://console.anthropic.com)
-2. Open AI Settings in OpsPilot and paste your key
-
-**Custom (vLLM, LM Studio, etc.):**
-1. Enter your OpenAI-compatible endpoint URL
-2. Add API key if required
-
-### Status Indicators
-
-The AI chat panel shows real-time connection status with automatic provider detection. Click the provider badge to access settings.
-
-## Development Quickstart
-
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/ankitjain91/opspilot.git
 cd opspilot
+```
+
+### 2. Backend (Rust) Setup
+Install system dependencies (macOS):
+```bash
+brew install rust upx
+```
+
+### 3. Frontend Setup
+```bash
 npm install
+```
+
+### 4. AI Agent Setup (Python)
+We recommend using `uv` or `venv`:
+```bash
+cd python
+# Install dependencies
+pip install -r requirements.txt
+# OR with uv
+uv pip install -r requirements.txt
+```
+
+### 5. Build & Run
+Run the development server (starts UI and Python sidecar automatically):
+```bash
 npm run tauri dev
 ```
 
-## Production Build
+## 🧠 AI Configuration (Ollama / Custom)
 
-```bash
-npm run tauri build
-```
+OpsPilot is optimized for **Ollama** running locally.
 
-Artifacts appear in `src-tauri/target/release/bundle/`.
+1.  **Install Ollama**: [ollama.com](https://ollama.com)
+2.  **Pull Recommended Models**:
+    *   **Brain**: `ollama pull qwen2.5:14b` (or `llama3.1`)
+    *   **Executor**: `ollama pull qwen2.5-coder:1.5b` (fast/lightweight)
+3.  **Embedding Model** (for Knowledge Base):
+    *   OpsPilot will prompt you to download `nomic-embed-text` automatically.
 
-## Installation
+**Settings**:
+Click the "AI Settings" (Sparkles icon) in the app to configure your provider (Ollama, OpenAI, Anthropic, or Custom).
 
-### Download Binaries
-Go to the [Releases](https://github.com/ankitjain91/opspilot/releases) page to download the latest installer for your OS:
--   **macOS**: Download the `.dmg` file.
--   **Windows**: Download the `.exe` or `.msi` file.
--   **Linux**: Download the `.AppImage` or `.deb`.
+## 🎮 Usage Guide
 
-> **⚠️ Security & Permission Instructions**
->
-> Since this is an open-source project (unsigned), you may need to approve the app manually:
->
-> **macOS ("App is damaged" error):**
-> 1. Open Terminal.
-> 2. Run: `xattr -cr /Applications/OpsPilot.app`
-> 3. Open the app normally.
->
-> **Windows (SmartScreen warning):**
-> 1. Click **More info**.
-> 2. Click **Run anyway**.
->
-> **Linux (.AppImage):**
-> 1. Right-click -> Properties -> Permissions -> Allow executing file as program.
-> 2. Or run: `chmod +x OpsPilot-*.AppImage`
+### Connecting to Clusters
+*   **Local Kubeconfig**: Simply browse to your `~/.kube/config`.
+*   **Azure AKS**: Sign in with Azure to auto-discover your AKS clusters.
+*   **Setup Tab**: Use the "Setup" tab on the connection screen to install `kubectl` or `vcluster` if missing.
 
-### Build from Source
+### The "Deep Dive" Drawer
+Click any resource in the dashboard to open the Deep Dive Drawer.
+*   **Overview**: Real-time health, metrics, and events.
+*   **YAML**: Read/Edit the resource definition.
+*   **AI Chat**: Ask questions like *"Why is this crashing?"*. The AI automatically locks context to this specific resource.
 
-**Prerequisites:**
--   [Node.js](https://nodejs.org/) (v18+)
--   [Rust](https://www.rust-lang.org/tools/install) (latest stable)
--   [pnpm](https://pnpm.io/) (recommended) or npm/yarn
+### MCP Extensions
+Go to **AI Settings > MCP Extensions** to connect external tools like GitHub or Postgres. The Agent can then use these tools during investigations (e.g., "Check GitHub issues for this error").
 
-**Steps:**
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/ankitjain91/opspilot.git
-    cd opspilot
-    ```
+## 🤝 Contributing
 
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
+We welcome contributions! Please see `CONTRIBUTING.md` for guidelines.
 
-3.  Run in development mode:
-    ```bash
-    npm run tauri dev
-    ```
+## 📄 License
 
-<!-- Production build section replaced by consolidated sections above -->
-
-## License
-
-This project is licensed under the **Business Source License 1.1 (BSL)**.
-
--   **Non-Commercial Use**: You are free to copy, modify, and use the code for non-production or personal use.
--   **Commercial Use**: Production use requires a commercial license. Please contact the author for details.
--   **Open Source Conversion**: The code will convert to the **Apache License, Version 2.0** on **2029-12-02**.
-
-See the [LICENSE](LICENSE) file for full details.
+MIT License. See `LICENSE` for details.

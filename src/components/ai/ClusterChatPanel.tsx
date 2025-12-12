@@ -579,13 +579,20 @@ export function ClusterChatPanel({
                     }));
 
                 // Inject Resource Context if available
+                // Inject Resource Context if available
                 if (resourceContext) {
-                    const resourceContextMsg = `You are focusing on a specific resource:\n` +
-                        `- Kind: ${resourceContext.kind}\n` +
-                        `- Name: ${resourceContext.name}\n` +
-                        `- Namespace: ${resourceContext.namespace}\n\n` +
-                        `When the user asks questions like "what's wrong?" or "logs", assume they mean THIS resource. ` +
-                        `Use 'search_knowledge' or 'describe' on this specific resource first.`;
+                    const resourceContextMsg = `CONTEXT LOCK: ACTIVE RESOURCE DEEP DIVE\n` +
+                        `You are currently analyzing a specific resource in the Deep Dive Drawer:\n` +
+                        `• Kind: ${resourceContext.kind}\n` +
+                        `• Name: ${resourceContext.name}\n` +
+                        `• Namespace: ${resourceContext.namespace}\n\n` +
+                        `CRITICAL INSTRUCTIONS:\n` +
+                        `1. ALL user queries imply THIS specific resource unless explicitly stated otherwise.\n` +
+                        `2. example: "why is it failing?" → check logs/events for ${resourceContext.name}.\n` +
+                        `3. example: "show logs" → fetch logs for ${resourceContext.name}.\n` +
+                        `4. DO NOT search for other pods or resources unless the user explicitly names them.\n` +
+                        `5. If the user asks a general question, answer it in the context of ${resourceContext.name}.\n` +
+                        `6. You are "immersed" in this resource. Do not broaden scope unnecessarily.`;
 
                     // Prepend to context as a system-like USER instruction
                     contextHistory.unshift({
@@ -663,15 +670,19 @@ export function ClusterChatPanel({
                         // Filter UI visibility based on user preference:
                         // 1. SUPERVISOR -> Show as "Thinking"
                         // 2. SCOUT -> Show as Tool (Terminal)
-                        // 3. SPECIALIST -> HIDE (Internal thought process)
-
-                        if (step.role === 'SPECIALIST') {
-                            // Skip rendering Specialist analysis (intermediate)
-                            return;
-                        }
+                        // 3. SPECIALIST -> Show as Tool (MCP)
 
                         const uiRole = step.role === 'SUPERVISOR' ? 'assistant' : 'tool';
-                        const contentToShow = step.role === 'SUPERVISOR' ? `🧠 Thinking: ${step.content}` : content;
+
+                        let contentToShow = content;
+                        if (step.role === 'SUPERVISOR') {
+                            contentToShow = `🧠 Thinking: ${step.content}`;
+                        } else if (step.role === 'SPECIALIST') {
+                            // Ensure SPECIALIST content (MCP Tools) is shown
+                            // We can strip the "**Using Tool**:" prefix if we want cleaner UI, but it's fine for now
+                            contentToShow = step.content;
+                            toolName = 'External Tool';
+                        }
 
                         // Add to UI immediately
                         setChatHistory(prev => [...prev, {
@@ -690,9 +701,12 @@ export function ClusterChatPanel({
                     // Pass LLM config for Python agent
                     {
                         endpoint: llmConfig.base_url,
+                        provider: llmConfig.provider,
                         model: llmConfig.model,
                         executor_model: llmConfig.executor_model || undefined
-                    }
+                    },
+                    // Pass available MCP tools for the agent to use
+                    listRegisteredMcpTools()
                 );
 
                 setChatHistory(prev => [...prev, { role: 'assistant', content: result }]);
@@ -1045,7 +1059,7 @@ export function ClusterChatPanel({
                                 </div>
                             )}
 
-                            {/* Tool Execution - Compact collapsible style */}
+                            {/* Tool Execution - Visible by default for live agent feedback */}
                             {msg.role === 'tool' && msg.content && !msg.content.startsWith('❌') && (
                                 <div className="relative pl-6 pb-2">
                                     {/* Timeline dot */}
@@ -1055,7 +1069,7 @@ export function ClusterChatPanel({
                                     <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/30 to-transparent" />
 
                                     <div className="ml-2">
-                                        <details className="group">
+                                        <details className="group" open>
                                             <summary className="cursor-pointer select-none flex items-center gap-2 py-1 hover:bg-white/5 rounded px-1 -ml-1 transition-colors">
                                                 <ChevronDown size={12} className="text-cyan-400 group-open:rotate-0 -rotate-90 transition-transform shrink-0" />
                                                 <Terminal size={12} className="text-cyan-400 shrink-0" />
@@ -1094,7 +1108,7 @@ export function ClusterChatPanel({
                                 </div>
                             )}
 
-                            {/* Assistant Response - Thinking/Reasoning (collapsed by default) */}
+                            {/* Assistant Response - Thinking/Reasoning (visible for live agent feedback) */}
                             {msg.role === 'assistant' && (
                                 (msg.isActivity || msg.content?.includes('🧠 Thinking') || msg.content?.includes('🧠 Supervisor') || msg.content?.includes('🔄 Investigating') || msg.content?.includes('Continuing investigation')) ? (
                                     <div className="relative pl-6 pb-2">
@@ -1104,7 +1118,7 @@ export function ClusterChatPanel({
                                         <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/30 to-transparent" />
 
                                         <div className="ml-2">
-                                            <details className="group">
+                                            <details className="group" open>
                                                 <summary className="cursor-pointer select-none flex items-center gap-2 py-1 hover:bg-white/5 rounded px-1 -ml-1 transition-colors">
                                                     <ChevronDown size={12} className="text-amber-400 group-open:rotate-0 -rotate-90 transition-transform shrink-0" />
                                                     <Loader2 size={12} className="text-amber-400 shrink-0" />
@@ -1244,7 +1258,7 @@ export function ClusterChatPanel({
                                         {isCancelling ? 'STOPPING...' : 'STOP GENERATING'}
                                     </button>
                                 </div>
-                                <p className="text-xs text-zinc-500 mt-1">{currentActivity}</p>
+                                <p className="text-sm text-zinc-300 mt-2 font-medium">{currentActivity}</p>
 
                                 {/* Investigation Chain of Thought Panel */}
                                 {investigationProgress && (
