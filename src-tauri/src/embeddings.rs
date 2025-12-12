@@ -1,12 +1,14 @@
 //! Embedding-based semantic search module
-//! 
-//! Uses pre-computed embeddings for KB documents and fastembed for runtime query embedding.
-//! Model downloads automatically on first use (~25MB) and is cached locally.
+//!
+//! As of v0.2.6+, embeddings are generated at runtime via the Python agent
+//! using Ollama's nomic-embed-text model. The Rust side only loads pre-computed
+//! embeddings and performs cosine similarity search.
+//!
+//! The fastembed dependency has been removed to reduce binary size.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::Manager;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 
 /// Pre-computed embedding for a document
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -36,17 +38,14 @@ pub struct EmbeddingsData {
     pub tools: Vec<ToolEmbedding>,
 }
 
-/// Global embeddings cache  
+/// Global embeddings cache
 static EMBEDDINGS_CACHE: Mutex<Option<EmbeddingsData>> = Mutex::new(None);
-
-/// Global TextEmbedding model cache (loads once, reused)
-static TEXT_EMBEDDING_MODEL: Mutex<Option<TextEmbedding>> = Mutex::new(None);
 
 /// Load pre-computed embeddings from bundled resources or user cache
 ///
-/// Note: As of v0.2.5+, KB embeddings are primarily generated at runtime
-/// via the Python agent using nomic-embed-text (768-dim). The Rust side
-/// falls back to keyword search if embeddings are unavailable or incompatible.
+/// Note: As of v0.2.6+, KB embeddings are generated at runtime via the Python
+/// agent using nomic-embed-text (768-dim). This function loads those embeddings
+/// for semantic search within the Rust backend.
 pub fn load_embeddings(app_handle: &tauri::AppHandle) -> Result<EmbeddingsData, String> {
     // Check cache first
     if let Ok(cache) = EMBEDDINGS_CACHE.lock() {
@@ -107,59 +106,20 @@ pub fn load_embeddings(app_handle: &tauri::AppHandle) -> Result<EmbeddingsData, 
     Ok(data)
 }
 
-/// Initialize the fastembed model (downloads on first use, ~25MB)
-fn get_or_init_embedding_model() -> Result<(), String> {
-    let mut model_guard = TEXT_EMBEDDING_MODEL.lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    
-    if model_guard.is_none() {
-        // Initialize with all-MiniLM-L6-v2 (same as the Python script uses)
-        let options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-            .with_show_download_progress(true);
-        
-        let model = TextEmbedding::try_new(options)
-            .map_err(|e| format!("Failed to load embedding model: {}", e))?;
-        
-        *model_guard = Some(model);
-    }
-    
-    Ok(())
-}
-
-/// Get embedding for a query using fastembed (local ONNX inference)
-pub fn embed_query(query: &str) -> Result<Vec<f32>, String> {
-    // Ensure model is loaded
-    get_or_init_embedding_model()?;
-    
-    let model_guard = TEXT_EMBEDDING_MODEL.lock()
-        .map_err(|e| format!("Lock error: {}", e))?;
-    
-    let model = model_guard.as_ref()
-        .ok_or("Embedding model not initialized")?;
-    
-    // fastembed expects a Vec of documents
-    let documents = vec![query];
-    let embeddings = model.embed(documents, None)
-        .map_err(|e| format!("Embedding failed: {}", e))?;
-    
-    embeddings.into_iter().next()
-        .ok_or_else(|| "No embedding generated".to_string())
-}
-
 /// Compute cosine similarity between two vectors
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    
+
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    
+
     if mag_a == 0.0 || mag_b == 0.0 {
         return 0.0;
     }
-    
+
     dot / (mag_a * mag_b)
 }
 
@@ -173,7 +133,7 @@ pub struct SemanticSearchResult {
     pub score: f32,
 }
 
-/// Search documents by semantic similarity
+/// Search documents by semantic similarity (requires pre-computed query embedding)
 pub fn search_documents(query_embedding: &[f32], embeddings: &EmbeddingsData, top_k: usize) -> Vec<SemanticSearchResult> {
     let mut results: Vec<_> = embeddings.documents
         .iter()
@@ -185,7 +145,7 @@ pub fn search_documents(query_embedding: &[f32], embeddings: &EmbeddingsData, to
             score: cosine_similarity(query_embedding, &doc.embedding),
         })
         .collect();
-    
+
     // Sort by score descending
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     results.truncate(top_k);
@@ -200,7 +160,7 @@ pub struct ToolSuggestion {
     pub confidence: f32,
 }
 
-/// Suggest tools based on query semantic similarity
+/// Suggest tools based on query semantic similarity (requires pre-computed query embedding)
 pub fn suggest_tools(query_embedding: &[f32], embeddings: &EmbeddingsData, top_k: usize) -> Vec<ToolSuggestion> {
     let mut results: Vec<_> = embeddings.tools
         .iter()
@@ -210,7 +170,7 @@ pub fn suggest_tools(query_embedding: &[f32], embeddings: &EmbeddingsData, top_k
             confidence: cosine_similarity(query_embedding, &tool.embedding),
         })
         .collect();
-    
+
     // Sort by confidence descending
     results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     results.truncate(top_k);
@@ -218,10 +178,10 @@ pub fn suggest_tools(query_embedding: &[f32], embeddings: &EmbeddingsData, top_k
 }
 
 // ============================================================================
-// Tauri Commands for Embedding Model Status
+// Tauri Commands - Stubs for backward compatibility
 // ============================================================================
 
-/// Status of the embedding model
+/// Status of the embedding model (stub - embeddings now handled by Python agent)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingModelStatus {
     pub available: bool,
@@ -230,52 +190,24 @@ pub struct EmbeddingModelStatus {
     pub error: Option<String>,
 }
 
-/// Check if the embedding model is ready (loads it if not)
+/// Check embedding model status - now returns stub indicating Python handles this
 #[tauri::command]
 pub async fn check_embedding_model_status() -> Result<EmbeddingModelStatus, String> {
-    match get_or_init_embedding_model() {
-        Ok(_) => Ok(EmbeddingModelStatus {
-            available: true,
-            model_name: "all-MiniLM-L6-v2".to_string(),
-            ready: true,
-            error: None,
-        }),
-        Err(e) => Ok(EmbeddingModelStatus {
-            available: false,
-            model_name: "all-MiniLM-L6-v2".to_string(),
-            ready: false,
-            error: Some(e),
-        }),
-    }
+    // Embeddings are now handled by Python agent via Ollama nomic-embed-text
+    Ok(EmbeddingModelStatus {
+        available: true,
+        model_name: "nomic-embed-text (via Python agent)".to_string(),
+        ready: true,
+        error: None,
+    })
 }
 
-/// Initialize the embedding model (call this on app startup)
+/// Initialize embedding model - now a no-op, Python agent handles embeddings
 #[tauri::command]
-pub async fn init_embedding_model(app_handle: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Emitter;
-    
-    // Emit starting event
-    let _ = app_handle.emit("embedding-model-status", serde_json::json!({
-        "status": "loading",
-        "message": "Loading embedding model..."
-    }));
-    
-    match get_or_init_embedding_model() {
-        Ok(_) => {
-            let _ = app_handle.emit("embedding-model-status", serde_json::json!({
-                "status": "ready",
-                "message": "Embedding model ready"
-            }));
-            Ok(())
-        },
-        Err(e) => {
-            let _ = app_handle.emit("embedding-model-status", serde_json::json!({
-                "status": "error",
-                "message": format!("Failed to load model: {}", e)
-            }));
-            Err(e)
-        }
-    }
+pub async fn init_embedding_model(_app_handle: tauri::AppHandle) -> Result<(), String> {
+    // No-op: embeddings are generated by Python agent using Ollama nomic-embed-text
+    // Users generate embeddings via AI Settings UI -> "Generate" button
+    Ok(())
 }
 
 // ============================================================================

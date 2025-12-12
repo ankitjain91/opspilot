@@ -507,7 +507,7 @@ ${(logs as string).slice(-2000)}
                     quick_fix?: string;
                     recommended_tools?: string[];
                 }
-                // Use semantic search with fastembed embeddings (falls back to keyword if needed)
+                // Search knowledge base (uses keyword matching in Rust, or semantic search via Python agent)
                 const results = await invoke<KBResult[]>("semantic_search_knowledge_base", { query });
                 if (results.length === 0) {
                     toolResult = `📚 No knowledge base articles found for "${query}".`;

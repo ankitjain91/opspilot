@@ -476,190 +476,30 @@ fn extract_text_from_json(value: &serde_json::Value) -> String {
 }
 
 /// Hybrid semantic + keyword search for best results
-/// Uses semantic search as primary, with keyword boost for exact matches
+/// As of v0.2.6+, fastembed has been removed. This function now falls back to
+/// keyword search since runtime embedding generation is handled by the Python agent.
 #[tauri::command]
 pub async fn semantic_search_knowledge_base(
     query: String,
     app_handle: tauri::AppHandle
 ) -> Result<Vec<SearchResult>, String> {
-    // Try to load embeddings
-    let kb_embeddings = match embeddings::load_embeddings(&app_handle) {
-        Ok(data) => {
-            eprintln!("[DEBUG] Loaded {} KB embeddings", data.documents.len());
-            data
-        },
-        Err(e) => {
-            eprintln!("[DEBUG] Failed to load KB embeddings: {}, falling back to keyword", e);
-            return search_knowledge_base(query.clone(), app_handle).await;
-        }
-    };
-
-    // Get query embedding using fastembed (local ONNX)
-    let query_embedding = match embeddings::embed_query(&query) {
-        Ok(emb) => {
-            eprintln!("[DEBUG] Query embedding dimension: {}", emb.len());
-            emb
-        },
-        Err(e) => {
-            eprintln!("[DEBUG] Embedding failed: {}, falling back to keyword", e);
-            return search_knowledge_base(query, app_handle).await;
-        }
-    };
-
-    // Perform semantic search with more results to allow reranking
-    let semantic_results = embeddings::search_documents(&query_embedding, &kb_embeddings, 15);
-    let top_score = semantic_results.first().map(|r| r.score).unwrap_or(0.0);
-    eprintln!("[DEBUG] Got {} semantic results, top score: {:.4}", semantic_results.len(), top_score);
-
-    // If semantic search completely fails, fall back to keyword
-    if semantic_results.is_empty() {
-        eprintln!("[DEBUG] No semantic results, falling back to keyword search");
-        return search_knowledge_base(query, app_handle).await;
-    }
-
-    // Load file content to build full SearchResult
-    let resource_path = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
-    let knowledge_path = resource_path.join("knowledge");
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let search_paths = vec![
-        knowledge_path.clone(),
-        cwd.join("knowledge"),
-        // When running from src-tauri, knowledge is in parent
-        cwd.parent().map(|p| p.join("knowledge")).unwrap_or_default(),
-    ];
-
-    let mut search_dir = None;
-    for path in search_paths {
-        if path.exists() {
-            search_dir = Some(path);
-            break;
-        }
-    }
-
-    let search_dir = match search_dir {
-        Some(p) => {
-            eprintln!("[DEBUG] Using knowledge dir: {:?}", p);
-            p
-        },
-        None => {
-            eprintln!("[DEBUG] No knowledge dir found!");
-            return Ok(vec![]);
-        }
-    };
-
-    // Prepare query terms for keyword boosting
-    let query_lower = query.to_lowercase();
-    let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
-
-    let mut results = Vec::new();
-    for semantic_result in semantic_results {
-        let file_path = search_dir.join(&semantic_result.file);
-        let (tags, category, quick_fix, recommended_tools, content) = if file_path.exists() {
-            let content = fs::read_to_string(&file_path).unwrap_or_default();
-
-            let mut qf = None;
-            let mut rt = None;
-
-            if file_path.extension().and_then(|e| e.to_str()) == Some("json") {
-                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                     if let Some(fix) = json.get("quick_fix").and_then(|v| v.as_str()) {
-                         qf = Some(fix.to_string());
-                     }
-                     if let Some(tools) = json.get("recommended_tools").and_then(|v| v.as_array()) {
-                         rt = Some(tools.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
-                     }
-                 }
-            }
-            let tags = extract_tags(&content);
-            let category = determine_category(&semantic_result.file, &content);
-            (tags, category, qf, rt, content)
-        } else {
-            (vec![], "troubleshooting".to_string(), None, None, String::new())
-        };
-
-        // Compute hybrid score: semantic + keyword boost
-        let mut hybrid_score = semantic_result.score;
-        let content_lower = content.to_lowercase();
-        let filename_lower = semantic_result.file.to_lowercase();
-        let title_lower = semantic_result.title.to_lowercase();
-
-        // Boost for exact keyword matches
-        for term in &query_terms {
-            if term.len() < 3 { continue; } // Skip short terms
-
-            // Strong boost for filename match (e.g., "crossplane" in "crossplane-troubleshooting.json")
-            if filename_lower.contains(term) {
-                hybrid_score += 0.15;
-                eprintln!("[DEBUG] Filename boost for '{}' in {}", term, semantic_result.file);
-            }
-
-            // Strong boost for title match
-            if title_lower.contains(term) {
-                hybrid_score += 0.12;
-            }
-
-            // Medium boost for tag match
-            if tags.iter().any(|t| t.to_lowercase().contains(term)) {
-                hybrid_score += 0.08;
-            }
-
-            // Small boost for content match
-            if content_lower.contains(term) {
-                hybrid_score += 0.03;
-            }
-        }
-
-        // Boost for category match (if query mentions category-like terms)
-        let category_terms = ["troubleshoot", "crossplane", "network", "storage", "security", "debug"];
-        for cat_term in category_terms {
-            if query_lower.contains(cat_term) && category.to_lowercase().contains(cat_term) {
-                hybrid_score += 0.1;
-            }
-        }
-
-        // Use summary from embeddings
-        let snippet = if semantic_result.summary.is_empty() {
-            format!("**{}**\n\nNo summary available.", semantic_result.title)
-        } else {
-            format!("**{}**\n\n{}", semantic_result.title, semantic_result.summary)
-        };
-
-        results.push(SearchResult {
-            file: semantic_result.file,
-            content: snippet,
-            score: hybrid_score * 10.0, // Scale for compatibility
-            tags,
-            category,
-            quick_fix,
-            recommended_tools,
-        });
-    }
-
-    // Re-sort by hybrid score
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Limit to top 8
-    results.truncate(8);
-
-    eprintln!("[DEBUG] Final results: {:?}", results.iter().map(|r| (&r.file, r.score)).collect::<Vec<_>>());
-
-    Ok(results)
+    // fastembed has been removed - embeddings are now generated by Python agent
+    // Fall back to keyword search for all queries from Rust side
+    eprintln!("[DEBUG] semantic_search_knowledge_base: using keyword search (fastembed removed)");
+    search_knowledge_base(query, app_handle).await
 }
 
-/// Get tool suggestions based on semantic similarity to query
+/// Get tool suggestions based on query (keyword matching only, fastembed removed)
 #[tauri::command]
 pub async fn suggest_tools_for_query(
     query: String,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
     mcp_manager: tauri::State<'_, crate::mcp::manager::McpManager>,
 ) -> Result<Vec<embeddings::ToolSuggestion>, String> {
-    let kb_embeddings = embeddings::load_embeddings(&app_handle)?;
-    let query_embedding = embeddings::embed_query(&query)?;
-    
-    // Get built-in tool suggestions
-    let mut suggestions = embeddings::suggest_tools(&query_embedding, &kb_embeddings, 5);
+    // fastembed has been removed - use keyword matching only
+    let mut suggestions: Vec<embeddings::ToolSuggestion> = Vec::new();
 
-    // Get MCP tools and add them if relevant (simple keyword matching for now)
+    // Get MCP tools and add them if relevant (keyword matching)
     let mcp_tools = mcp_manager.list_all_tools().await;
     let query_lower = query.to_lowercase();
     let query_parts: Vec<&str> = query_lower.split_whitespace().collect();
@@ -668,7 +508,7 @@ pub async fn suggest_tools_for_query(
         if let Some(tool) = tool_val.as_object() {
             let name = tool.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let desc = tool.get("description").and_then(|v| v.as_str()).unwrap_or("");
-            
+
             // Simple relevance check
             let mut score = 0.0;
             let name_lower = name.to_lowercase();
@@ -696,7 +536,7 @@ pub async fn suggest_tools_for_query(
         }
     }
 
-    // sort again
+    // sort by confidence
     suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     suggestions.truncate(8); // Limit total suggestions
 

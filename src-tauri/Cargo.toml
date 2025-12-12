@@ -28,7 +28,6 @@ chrono = { version = "0.4", features = ["serde", "clock"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 sysinfo = "0.30"
 walkdir = "2.5.0"
-fastembed = "4"
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
 dirs = "5"
