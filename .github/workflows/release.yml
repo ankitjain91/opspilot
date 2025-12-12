@@ -61,14 +61,19 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           python build.py
-          # For macOS universal build, we need both x86_64 and aarch64
-          # If running on ARM Mac, we only get aarch64. Create a symlink for x86_64 as fallback.
-          # In production, users should use the universal binary or their native arch.
+          # For macOS universal build, Tauri expects:
+          # - agent-server-universal-apple-darwin (for the universal target)
+          # - agent-server-x86_64-apple-darwin (for x86_64 component)
+          # - agent-server-aarch64-apple-darwin (for aarch64 component)
+          # Since we're on ARM Mac, copy the aarch64 binary to all targets
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
             cd ../src-tauri/binaries
-            if [ -f "agent-server-aarch64-apple-darwin" ] && [ ! -f "agent-server-x86_64-apple-darwin" ]; then
-              echo "Creating x86_64 symlink to aarch64 binary for universal build"
-              cp agent-server-aarch64-apple-darwin agent-server-x86_64-apple-darwin
+            NATIVE_BIN=$(ls agent-server-*-apple-darwin 2>/dev/null | head -1)
+            if [ -n "$NATIVE_BIN" ]; then
+              echo "Found native binary: $NATIVE_BIN"
+              cp "$NATIVE_BIN" agent-server-universal-apple-darwin
+              cp "$NATIVE_BIN" agent-server-x86_64-apple-darwin
+              cp "$NATIVE_BIN" agent-server-aarch64-apple-darwin
             fi
             ls -la
           fi
