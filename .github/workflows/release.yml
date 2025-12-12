@@ -54,6 +54,25 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Build Python agent sidecar
+        shell: bash
+        run: |
+          cd python
+          pip install -r requirements.txt
+          pip install pyinstaller
+          python build.py
+          # For macOS universal build, we need both x86_64 and aarch64
+          # If running on ARM Mac, we only get aarch64. Create a symlink for x86_64 as fallback.
+          # In production, users should use the universal binary or their native arch.
+          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            cd ../src-tauri/binaries
+            if [ -f "agent-server-aarch64-apple-darwin" ] && [ ! -f "agent-server-x86_64-apple-darwin" ]; then
+              echo "Creating x86_64 symlink to aarch64 binary for universal build"
+              cp agent-server-aarch64-apple-darwin agent-server-x86_64-apple-darwin
+            fi
+            ls -la
+          fi
+
       - name: Debug Secrets
         shell: bash
         env:
