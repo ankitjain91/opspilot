@@ -65,15 +65,20 @@ jobs:
           # - agent-server-universal-apple-darwin (for the universal target)
           # - agent-server-x86_64-apple-darwin (for x86_64 component)
           # - agent-server-aarch64-apple-darwin (for aarch64 component)
-          # Since we're on ARM Mac, copy the aarch64 binary to all targets
+          # Since we're on ARM Mac, copy the native binary to all targets
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
             cd ../src-tauri/binaries
             NATIVE_BIN=$(ls agent-server-*-apple-darwin 2>/dev/null | head -1)
             if [ -n "$NATIVE_BIN" ]; then
               echo "Found native binary: $NATIVE_BIN"
-              cp "$NATIVE_BIN" agent-server-universal-apple-darwin
-              cp "$NATIVE_BIN" agent-server-x86_64-apple-darwin
-              cp "$NATIVE_BIN" agent-server-aarch64-apple-darwin
+              # Copy to targets that don't match the native binary name
+              for target in universal-apple-darwin x86_64-apple-darwin aarch64-apple-darwin; do
+                target_file="agent-server-$target"
+                if [ "$NATIVE_BIN" != "$target_file" ]; then
+                  cp "$NATIVE_BIN" "$target_file"
+                  echo "Created $target_file"
+                fi
+              done
             fi
             ls -la
           fi

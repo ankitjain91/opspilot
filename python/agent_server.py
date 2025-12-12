@@ -1458,7 +1458,7 @@ Thought:
 Brain JSON:
 {
   "thought": "Need to find which nodes host payment pods. Use -o wide and awk to extract the node column.",
-  "plan": "Run `kubectl get pods -A -o wide | grep -i payment | awk '{print $2, $8}'` to show pod names and their nodes.",
+  "plan": "Run `kubectl get pods -A -o wide | grep -i payment | awk '{{print $2, $8}}'` to show pod names and their nodes.",
   "next_action": "delegate"
 }
 
@@ -1873,8 +1873,8 @@ You MUST be an expert at grep and regex patterns. Use these techniques:
    `kubectl get pods -A --show-labels | grep -i 'app=.*web'` # label pattern
 
 7. Extract specific fields with grep + awk:
-   `kubectl get pods -A | awk '/CrashLoop/ {print $1, $2}'`  # ns + name
-   `kubectl get pods -A -o wide | grep -i <name> | awk '{print $7}'`  # node
+   `kubectl get pods -A | awk '/CrashLoop/ {{print $1, $2}}'`  # ns + name
+   `kubectl get pods -A -o wide | grep -i <name> | awk '{{print $7}}'`  # node
 
 8. Find CRDs and custom resources:
    `kubectl api-resources | grep -i <operator>`              # find CRD types
@@ -1959,7 +1959,7 @@ ABSOLUTE SHELL RULES (IMPORTANT):
 - Return a **single straightforward kubectl command** (plus simple pipes like `| grep`, `| awk`, `| wc`, `| head`, `| tail`).
 - DO NOT mix a discovery step with a deep-dive in the same command.
   - Example of what NOT to do:
-    `kubectl get pods -A | grep sql && kubectl describe pod $(kubectl get pods -A | grep sql | awk '{print $2}') -n ...`
+    `kubectl get pods -A | grep sql && kubectl describe pod $(kubectl get pods -A | grep sql | awk '{{print $2}}') -n ...`
   - Instead, discovery is ONE command. The follow-up describe/logs is a **separate** command generated in a later step.
 
 CROSSPLANE-SPECIFIC RULES:
