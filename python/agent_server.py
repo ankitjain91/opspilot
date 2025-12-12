@@ -1681,14 +1681,25 @@ RULE 5 - CNCF/CRD DISCOVERY (CROSSPLANE, ARGOCD, ISTIO, ETC):
   * For ANY custom resource, FIRST delegate: `kubectl api-resources | grep -i <keyword>`
   * Use the EXACT resource names discovered (e.g., compositions.apiextensions.crossplane.io)
   * NEVER guess CRD names like 'managedresources' or 'customresources'.
+  * CROSSPLANE CATEGORY SHORTCUTS (Use these FIRST for "all crossplane"):
+    - `kubectl get managed -A` (Finds ALL managed resources like RDS/S3)
+    - `kubectl get claim -A` (Finds ALL claims)
+    - `kubectl get composite -A` (Finds ALL composite resources/XRs)
+    - `kubectl get composition -A`
   * Quick discovery patterns:
-    - Crossplane: `kubectl api-resources | grep -i crossplane`
+    - Crossplane: `kubectl api-resources | grep -E 'crossplane|upbound'` (Only if categories fail)
     - ArgoCD: `kubectl api-resources | grep -i argoproj`
     - Istio: `kubectl api-resources | grep -i istio`
     - Cert-Manager: `kubectl api-resources | grep -i cert-manager`
     - Flux: `kubectl api-resources | grep -i fluxcd`
 
-RULE 6 - CRD NAMING CONFLICTS (EXACT MATCH ONLY):
+RULE 6 - ANTI-LOOPING & RESOURCE EXISTENCE (STOP IF EMPTY):
+  * If a command like `kubectl get <type> -A` returns "No resources found", DO NOT TRY IT AGAIN.
+  * DO NOT try to "describe" a resource that does not exist.
+  * If `managed` is empty, try `claim`. If `claim` is empty, try `composite`.
+  * If ALL categories are empty, report "No Crossplane resources found".
+
+RULE 7 - CRD NAMING CONFLICTS (EXACT MATCH ONLY):
   * "clusters" usually refers to standard K8s clusters OR CAPI clusters.
   * "customerclusters" (or similar) are DISTINCT custom resources.
   * If user asks about "customercluster", DO NOT assume "clusters".
@@ -1730,6 +1741,12 @@ RULE 7 - CRD/OPERATOR INVESTIGATION SEQUENCE (FOR ALL CUSTOM RESOURCES):
 
   CRITICAL: The error is almost ALWAYS in status.conditions (Step 2)!
   NEVER skip Step 2. NEVER go to logs before checking the resource's own conditions.
+
+RULE 8 - DEFINING "FAILING" / "UNHEALTHY" (IGNORE COMPLETED JOBS):
+  * "Completed" or "Succeeded" status (Exit Code 0) is HEALTHY.
+  * DO NOT list them as failing pods unless specifically asked for "finished jobs".
+  * When searching for failures, use: `kubectl get pods -A | grep -vE 'Running|Completed|Succeeded'`
+  * "Evicted", "OOMKilled", "Error", "CrashLoopBackOff" ARE failing.
 
 ═══════════════════════════════════════════════════════════════════════════════
 

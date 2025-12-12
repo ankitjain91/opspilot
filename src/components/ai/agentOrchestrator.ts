@@ -162,7 +162,18 @@ async function runPythonAgent(
             let currentServerHistory = null;
 
             while (true) {
-                const { done, value } = await reader.read();
+                let done: boolean;
+                let value: Uint8Array | undefined;
+
+                try {
+                    const result = await reader.read();
+                    done = result.done;
+                    value = result.value;
+                } catch (readError: any) {
+                    // Stream read failed - could be network issue or server died
+                    throw new Error(`Stream read failed: ${readError?.message || 'Connection interrupted'}`);
+                }
+
                 if (done) break;
 
                 const chunk = decoder.decode(value, { stream: true });
@@ -212,10 +223,17 @@ async function runPythonAgent(
                                     }
                                     break;
                                 case 'error':
-                                    throw new Error(eventData.message);
+                                    // Agent server sent an explicit error - propagate it
+                                    const agentError = new Error(`Agent Server: ${eventData.message}`);
+                                    (agentError as any).isAgentError = true;
+                                    throw agentError;
                             }
-                        } catch (e) {
-                            // Ignore parse errors or incomplete chunks
+                        } catch (e: any) {
+                            // Only ignore JSON parse errors, not agent errors
+                            if (e?.isAgentError) {
+                                throw e;
+                            }
+                            // Ignore parse errors for incomplete SSE chunks (common with streaming)
                         }
                     }
                 }
