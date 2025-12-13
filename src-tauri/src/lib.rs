@@ -5264,6 +5264,39 @@ struct ClaudeCodeStatus {
     error: Option<String>,
 }
 
+/// Helper to get a robust PATH environment variable
+fn get_robust_path() -> String {
+    use std::env;
+    let current_path = env::var_os("PATH").unwrap_or_default();
+    
+    if cfg!(target_os = "windows") {
+        return current_path.to_string_lossy().to_string(); 
+    }
+
+    let common_paths = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/home/linuxbrew/.linuxbrew/bin",
+    ];
+
+    // Cleanly split and append
+    let mut paths = env::split_paths(&current_path).collect::<Vec<_>>();
+    for p in common_paths {
+        let p_buf = std::path::PathBuf::from(p);
+        if !paths.contains(&p_buf) && p_buf.exists() {
+            paths.push(p_buf);
+        }
+    }
+    
+    env::join_paths(paths)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| current_path.to_string_lossy().to_string())
+}
+
 /// Helper to resolve 'claude' command path (handles Homebrew on macOS)
 fn resolve_claude_path() -> String {
     use std::path::Path;
@@ -5323,6 +5356,7 @@ async fn check_claude_code_status() -> Result<ClaudeCodeStatus, String> {
 
     // Try to run 'claude --version' to check if it's installed
     let output = Command::new(&claude_bin)
+        .env("PATH", get_robust_path()) // CRITICAL: Ensure robust PATH
         .arg("--version")
         .output();
 
@@ -5409,6 +5443,7 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // Pass prompt as argument (not stdin) - Claude CLI expects: claude [options] [prompt]
     let claude_bin = resolve_claude_path();
     let output = Command::new(&claude_bin)
+        .env("PATH", get_robust_path()) // CRITICAL: Ensure robust PATH
         .arg("--print")
         .arg("--dangerously-skip-permissions")
         .arg(&full_prompt)  // Pass prompt as argument
@@ -5507,6 +5542,7 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // Construct the command using tokio::process::Command for async streaming
     let claude_bin = resolve_claude_path();
     let mut child = Command::new(&claude_bin)
+        .env("PATH", get_robust_path()) // CRITICAL: Ensure robust PATH
         .arg("--print")
         .arg("--dangerously-skip-permissions")
         .arg(&full_prompt)  // Pass prompt as argument

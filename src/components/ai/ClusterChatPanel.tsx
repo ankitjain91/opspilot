@@ -579,7 +579,6 @@ export function ClusterChatPanel({
                     }));
 
                 // Inject Resource Context if available
-                // Inject Resource Context if available
                 if (resourceContext) {
                     const resourceContextMsg = `CONTEXT LOCK: ACTIVE RESOURCE DEEP DIVE\n` +
                         `You are currently analyzing a specific resource in the Deep Dive Drawer:\n` +
@@ -599,6 +598,40 @@ export function ClusterChatPanel({
                         role: 'USER',
                         content: resourceContextMsg
                     });
+                }
+
+                // SPECIAL HANDLING: CLAUDE CODE CLI
+                // If using Claude Code, bypass the Python agent loop entirely.
+                // The CLI is an autonomous agent itself.
+                if (llmConfig.provider === 'claude-code') {
+                    setCurrentActivity("🤖 Handing over to Claude Code CLI...");
+
+                    const historyStr = chatHistory
+                        .filter(m => m.role === 'user' || m.role === 'assistant')
+                        .slice(-6)
+                        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+                        .join('\n\n');
+
+                    const fullPrompt = historyStr ? `${historyStr}\n\nUSER: ${message.trim()}` : message.trim();
+
+                    // Call the Rust command directly (streaming supported via call_claude_code_stream, but using blocking call for now per existing patterns or upgrading to stream?)
+                    // The existing code at lines 507 used 'call_claude_code'.
+                    // Wait, lines 507 were inside 'callLLM'. 
+                    // Here we are replacing 'runAgentLoop' which expects a Promise<string> but also handles UI updates.
+
+                    // We'll use invoke directly and update UI manually since we aren't using the orchestrator.
+                    const response = await invoke<string>("call_claude_code", {
+                        prompt: fullPrompt,
+                        // Claude Code doesn't really take a system prompt in CLI args easily without --system (if supported), ignoring for now
+                    });
+
+                    setChatHistory(prev => [...prev, {
+                        role: 'assistant',
+                        content: response // The CLI returns the full conversation output or just the response? Usually response.
+                    }]);
+                    setLlmLoading(false);
+                    setCurrentActivity("");
+                    return;
                 }
 
                 const result = await runAgentLoop(

@@ -943,8 +943,8 @@ EXAMPLE_CATEGORIES = {
         "examples": ["1", "2", "3", "4", "5", "6", "7", "8", "8e", "8f", "8g"],
     },
     "crossplane": {
-        "keywords": ["crossplane", "composition", "xrd", "provider", "managed resource", "claim"],
-        "examples": ["9", "9b", "9c", "10"],
+        "keywords": ["crossplane", "composition", "xrd", "provider", "managed resource", "claim", "synced", "healthy", "customercluster", "custom resource"],
+        "examples": ["9", "9b", "9c", "10", "10bh", "10e", "10f"],
     },
     "cert_manager": {
         "keywords": ["cert", "certificate", "tls", "ssl", "issuer", "letsencrypt", "acme"],
@@ -1287,6 +1287,35 @@ Brain JSON:
 
 ---
 
+EXAMPLE 10bh: Crossplane - ALL HEALTHY (respond immediately with good news)
+User: "Are my Crossplane resources all synced?"
+Command History:
+1) $ kubectl get providers
+   NAME                  INSTALLED   HEALTHY   PACKAGE                                         AGE
+   provider-azure        True        True      xpkg.upbound.io/upbound/provider-azure          5d
+   provider-kubernetes   True        True      xpkg.upbound.io/upbound/provider-kubernetes     5d
+2) $ kubectl get managed -A
+   NAME                                                    SYNCED   READY   EXTERNAL-NAME    AGE
+   bucket.storage.azure.upbound.io/my-bucket               True     True    my-bucket        2d
+   server.dbforpostgresql.azure.upbound.io/my-postgres     True     True    my-postgres      2d
+
+Thought:
+- ALL providers show INSTALLED=True HEALTHY=True
+- ALL managed resources show SYNCED=True READY=True
+- User asked about sync status → I have the answer
+- NO NEED for more commands - everything is healthy
+- RESPOND NOW with the good news
+
+Brain JSON:
+{
+  "thought": "All providers are healthy (INSTALLED=True, HEALTHY=True) and all managed resources are synced (SYNCED=True, READY=True). No issues detected.",
+  "plan": "Report healthy status to user.",
+  "next_action": "respond",
+  "final_response": "All your Crossplane resources are healthy and synced:\\n\\n**Providers:**\\n| Name | Installed | Healthy |\\n|------|-----------|---------|\\n| provider-azure | True | True |\\n| provider-kubernetes | True | True |\\n\\n**Managed Resources:**\\n| Resource | Synced | Ready |\\n|----------|--------|-------|\\n| bucket.storage.azure.upbound.io/my-bucket | True | True |\\n| server.dbforpostgresql.azure.upbound.io/my-postgres | True | True |\\n\\nNo issues detected - everything is working correctly."
+}
+
+---
+
 EXAMPLE 10c: Crossplane - Provider unhealthy (need controller logs)
 User: "All my Crossplane resources are stuck."
 Command History:
@@ -1346,6 +1375,54 @@ Brain JSON:
 {
   "thought": "cert-manager Certificate not ready. Standard CRD debug: get resource → describe → check conditions → controller logs if needed.",
   "plan": "First list certificates across all namespaces to find the stuck one.",
+  "next_action": "delegate",
+  "final_response": null
+}
+
+---
+
+EXAMPLE 10e: Custom CRD (CustomerCluster) - Status Check Complete
+User: "What's the status of my customerclusters?"
+Command History:
+1) $ kubectl api-resources | grep -i customer
+   customerclusters   dedicated.uipath.com/v1alpha1   true   CustomerCluster
+2) $ kubectl get customerclusters.dedicated.uipath.com -A
+   NAMESPACE    NAME           READY   SYNCED   AGE
+   production   customer-1     True    True     10d
+   staging      customer-2     True    True     5d
+
+Thought:
+- User asked about status of customerclusters
+- I discovered the CRD and listed all instances
+- Output shows READY=True, SYNCED=True for all
+- User's question is ANSWERED - respond with the status
+
+Brain JSON:
+{
+  "thought": "Found 2 customerclusters, both showing READY=True and SYNCED=True. User asked for status and I have it.",
+  "plan": "Report the status to user.",
+  "next_action": "respond",
+  "final_response": "Your CustomerCluster resources status:\\n\\n| Namespace | Name | Ready | Synced | Age |\\n|-----------|------|-------|--------|-----|\\n| production | customer-1 | True | True | 10d |\\n| staging | customer-2 | True | True | 5d |\\n\\nBoth clusters are healthy and synced."
+}
+
+---
+
+EXAMPLE 10f: Custom CRD - READY=False needs describe
+User: "Why is my customercluster not working?"
+Command History:
+1) $ kubectl get customerclusters.dedicated.uipath.com -A
+   NAMESPACE    NAME           READY   SYNCED   AGE
+   staging      customer-2     False   False    5d
+
+Thought:
+- Found customer-2 with READY=False, SYNCED=False
+- User asks WHY - I need to check status.conditions for the error
+- MUST describe to find root cause
+
+Brain JSON:
+{
+  "thought": "customer-2 shows READY=False and SYNCED=False. Need to describe to see status.conditions for the actual error.",
+  "plan": "Describe the customercluster to check status.conditions for the reconciliation error.",
   "next_action": "delegate",
   "final_response": null
 }
@@ -1662,6 +1739,13 @@ RULE 1 - RESPOND IMMEDIATELY IF YOU SEE ROOT CAUSE IN command_history:
   * Health: Degraded/Missing + Message → ArgoCD health issue identified
   * VirtualService 404/503 → Istio routing issue identified
   DO NOT delegate more commands. Set next_action="respond" with root cause.
+
+RULE 1b - RESPOND IMMEDIATELY IF ALL RESOURCES ARE HEALTHY:
+  * ALL providers show INSTALLED=True HEALTHY=True → "All Crossplane providers healthy"
+  * ALL resources show SYNCED=True READY=True → "All resources synced and ready"
+  * User asked "are resources healthy/synced/working?" and output shows all True → Answer "yes, all healthy"
+  * User asked "what's wrong?" but output shows all True/Healthy → Answer "nothing wrong, all healthy"
+  DO NOT delegate more commands for healthy status. Just respond with the good news.
 
 RULE 2 - RESPOND IMMEDIATELY FOR EXPLANATION QUESTIONS:
   * "What is X?" / "Explain Y" / "Difference between A and B"
@@ -2356,10 +2440,17 @@ CROSSPLANE/CRD INSTANT PATTERNS (found_solution=TRUE if you see specific error i
 - Certificate "Ready: False" + "Message:" with specific error → cert-manager issue found
 - Any CRD with status.conditions showing a specific error reason/message → ROOT CAUSE FOUND
 
+CROSSPLANE/CRD HEALTHY STATE PATTERNS (found_solution=TRUE - Answer with "all healthy"):
+- All providers show INSTALLED=True HEALTHY=True → "All Crossplane providers are installed and healthy"
+- All resources show SYNCED=True READY=True → "All resources are synced and ready"
+- User asked "are resources synced/healthy/working" and output shows all True → CONFIRMED HEALTHY, SOLVED
+- No resources in failed/error state visible → If user asked about health, answer is "healthy"
+
 CROSSPLANE/CRD CONTINUE PATTERNS (found_solution=FALSE, need more investigation):
 - SYNCED=False or READY=False but NO describe output yet → Need to run describe
 - Provider unhealthy but no controller logs checked → Need controller logs
 - Conditions show generic error without specific cloud API response → Need more detail
+- Some resources show False status but we haven't identified WHICH specific one is failing → Need to filter/describe
 
 SIMPLE QUERY PATTERNS (set found_solution=TRUE for informational queries):
 - User asked to "list" or "show" and output contains the **actual resource instances** (not just the CRD name) → DONE

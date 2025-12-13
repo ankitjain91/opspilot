@@ -85,11 +85,29 @@ export function LLMSettingsPanel({
         try {
             const result = await invoke<ClaudeCodeStatus>("check_claude_code_status");
             setClaudeCodeStatus(result);
+
+            // Sync with main status for the UI pill
+            setStatus({
+                connected: result.available,
+                provider: 'claude-code',
+                model: result.version || 'claude-code-cli',
+                available_models: [],
+                error: result.error
+            });
+
         } catch (err) {
+            const errorStr = String(err);
             setClaudeCodeStatus({
                 available: false,
                 version: null,
-                error: String(err),
+                error: errorStr,
+            });
+            setStatus({
+                connected: false,
+                provider: 'claude-code',
+                model: 'claude-code-cli',
+                available_models: [],
+                error: errorStr
             });
         }
         setCheckingClaudeCode(false);
