@@ -5264,29 +5264,65 @@ struct ClaudeCodeStatus {
     error: Option<String>,
 }
 
+/// Helper to resolve 'claude' command path (handles Homebrew on macOS)
+fn resolve_claude_path() -> String {
+    use std::path::Path;
+    use std::process::Command;
+
+    // 1. Check if 'claude' is in the system PATH
+    let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
+    
+    if let Ok(output) = Command::new(which_cmd).arg("claude").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // On Windows 'where' might return multiple lines, take the first one
+            let path = path.lines().next().unwrap_or("").trim().to_string();
+            
+            // Valid path found
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    // 2. Check common Homebrew locations if not in PATH (GUI apps often lack PATH)
+    let common_paths = [
+        "/opt/homebrew/bin/claude", // Apple Silicon
+        "/usr/local/bin/claude",    // Intel Mac
+        "/home/linuxbrew/.linuxbrew/bin/claude", // Linux Brew
+    ];
+
+    for path in common_paths {
+        if Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+
+    // 3. Fallback to just "claude" and hope for the best
+    "claude".to_string()
+}
+
 /// Check if Claude Code CLI is available
 #[tauri::command]
 async fn check_claude_code_status() -> Result<ClaudeCodeStatus, String> {
     use std::process::Command;
 
     // Safety Check: Resolve path first
-    let which_bucket = Command::new("which")
-        .arg("claude")
-        .output();
+    // Safety Check: Resolve path first
+    let claude_bin = resolve_claude_path();
     
-    if let Ok(output) = which_bucket {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-        if path.contains("calculator") || path.contains("calc.app") || path.contains("calc.exe") {
-             return Ok(ClaudeCodeStatus {
-                available: false,
-                version: None,
-                error: Some(format!("Security Block: 'claude' resolves to unsafe path: {}", path)),
-            });
-        }
+    // Check for unsafe paths directly from the resolved string
+    let path_lower = claude_bin.to_lowercase();
+    if path_lower.contains("calculator") || path_lower.contains("calc.app") || path_lower.contains("calc.exe") {
+            return Ok(ClaudeCodeStatus {
+            available: false,
+            version: None,
+            error: Some(format!("Security Block: 'claude' resolves to unsafe path: {}", claude_bin)),
+        });
     }
 
     // Try to run 'claude --version' to check if it's installed
-    let output = Command::new("claude")
+    let output = Command::new(&claude_bin)
         .arg("--version")
         .output();
 
@@ -5371,7 +5407,8 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // Use --dangerously-skip-permissions so it can run kubectl commands
     // The read-only instructions in the prompt prevent modifications
     // Pass prompt as argument (not stdin) - Claude CLI expects: claude [options] [prompt]
-    let output = Command::new("claude")
+    let claude_bin = resolve_claude_path();
+    let output = Command::new(&claude_bin)
         .arg("--print")
         .arg("--dangerously-skip-permissions")
         .arg(&full_prompt)  // Pass prompt as argument
@@ -5467,8 +5504,9 @@ If the user asks you to make changes, explain EXACTLY what commands would be nee
     // Use --dangerously-skip-permissions so it can run kubectl commands
     // The read-only instructions in the prompt prevent modifications
     // Note: Claude CLI with --print buffers output until completion (not real-time streaming)
-    // The UI shows "Waiting for Claude API response..." during this time
-    let mut child = Command::new("claude")
+    // Construct the command using tokio::process::Command for async streaming
+    let claude_bin = resolve_claude_path();
+    let mut child = Command::new(&claude_bin)
         .arg("--print")
         .arg("--dangerously-skip-permissions")
         .arg(&full_prompt)  // Pass prompt as argument

@@ -204,6 +204,20 @@ INSTANT SOLUTION PATTERNS (found_solution=true):
 - ImagePullBackOff + 401 → Auth failed
 - CrashLoopBackOff + error in logs → App crash identified
 
+CROSSPLANE/CRD PATTERNS:
+- All providers show INSTALLED=True HEALTHY=True → All healthy, SOLVED
+- SYNCED=False or READY=False with describe showing specific error → Root cause found, SOLVED
+- status.conditions with Reason/Message containing error details → Root cause found, SOLVED
+
+STATUS CHECK PATTERNS (found_solution=true if informational query answered):
+- User asked about status and output shows READY/SYNCED columns → Answer the status, SOLVED
+- User asked to list and output shows actual resource rows → List complete, SOLVED
+- User asked "what's wrong" and all resources show healthy → Cluster is healthy, SOLVED
+
+CONTINUE PATTERNS (found_solution=false):
+- SYNCED=False or READY=False but NO describe output showing why → Need describe
+- Output shows api-resources only, not actual instances → Need kubectl get <resource> -A
+
 RESPONSE FORMAT (JSON ONLY):
 {{
     "thought": "Analysis",
@@ -321,6 +335,68 @@ TEST_CASES = [
         expected_action="delegate",
         expected_contains=["api-resources", "crossplane"],  # Removed "crd" - model uses api-resources which is correct
         expected_not_contains=[],  # Don't be too restrictive
+    ),
+
+    TestCase(
+        name="crossplane_all_healthy",
+        description="When all Crossplane providers are healthy, should respond with healthy status",
+        query="Are all Crossplane resources synced?",
+        command_history=[
+            {"command": "kubectl get providers.pkg.crossplane.io", "output": "NAME                   INSTALLED   HEALTHY   PACKAGE                                    AGE\nprovider-azure         True        True      xpkg.upbound.io/upbound/provider-azure    5d\nprovider-kubernetes    True        True      xpkg.upbound.io/upbound/provider-k8s      5d"}
+        ],
+        expected_action="respond",
+        expected_contains=["healthy", "true"],
+        expected_not_contains=[],
+    ),
+
+    TestCase(
+        name="crossplane_provider_unhealthy",
+        description="When provider is unhealthy, should identify the issue",
+        query="What's wrong with my Crossplane setup?",
+        command_history=[
+            {"command": "kubectl get providers.pkg.crossplane.io", "output": "NAME                   INSTALLED   HEALTHY   PACKAGE                                    AGE\nprovider-azure         True        False     xpkg.upbound.io/upbound/provider-azure    5d"},
+            {"command": "kubectl describe provider.pkg.crossplane.io provider-azure", "output": "Status:\n  Conditions:\n    Type: Healthy\n    Status: False\n    Reason: UnhealthyPackageRevision\n    Message: cannot get package revision health: error authenticating to Azure: DefaultAzureCredential: failed to acquire a token"}
+        ],
+        expected_action="respond",
+        expected_contains=["credential", "azure", "token"],
+        expected_not_contains=[],
+    ),
+
+    TestCase(
+        name="customercluster_status_check",
+        description="CustomerCluster CRD status should respond with status",
+        query="What's the status of my customerclusters?",
+        command_history=[
+            {"command": "kubectl get customerclusters.dedicated.uipath.com -A", "output": "NAMESPACE    NAME           READY   SYNCED   AGE\nproduction   customer-1     True    True     10d\nstaging      customer-2     False   True     5d"}
+        ],
+        expected_action="respond",
+        expected_contains=["customer-1", "customer-2", "staging"],
+        expected_not_contains=[],
+    ),
+
+    TestCase(
+        name="crd_synced_false_needs_describe",
+        description="SYNCED=False without describe should delegate to describe",
+        query="Why is my customercluster not working?",
+        command_history=[
+            {"command": "kubectl get customerclusters.dedicated.uipath.com -A", "output": "NAMESPACE    NAME           READY   SYNCED   AGE\nstaging      customer-2     False   False    5d"}
+        ],
+        expected_action="delegate",
+        expected_contains=["describe", "customer-2"],
+        expected_not_contains=["respond"],
+    ),
+
+    TestCase(
+        name="crd_with_error_conditions",
+        description="CRD with error in conditions should respond with root cause",
+        query="Why is my customercluster failing?",
+        command_history=[
+            {"command": "kubectl get customerclusters.dedicated.uipath.com -A", "output": "NAMESPACE    NAME           READY   SYNCED   AGE\nstaging      customer-2     False   False    5d"},
+            {"command": "kubectl describe customercluster customer-2 -n staging", "output": "Status:\n  Conditions:\n    - Type: Ready\n      Status: False\n      Reason: ReconcileError\n      Message: cannot create Azure SQL Server: AuthorizationFailed: The client does not have permission to perform action 'Microsoft.Sql/servers/write'"}
+        ],
+        expected_action="respond",
+        expected_contains=["permission", "authorization", "sql"],
+        expected_not_contains=[],
     ),
 
     # --- EDGE CASES ---
