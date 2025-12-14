@@ -1,0 +1,12 @@
+aso-system                          azureserviceoperator-controller-manager            1/1     1            1           26d
+calico-system                       calico-kube-controllers                            1/1     1            1           26d
+capi-kubeadm-bootstrap-system       capi-kubeadm-bootstrap-controller-manager          1/1     1            1           9d
+capi-kubeadm-control-plane-system   capi-kubeadm-control-plane-controller-manager      1/1     1            1           9d
+capi-system                         capi-controller-manager                            1/1     1            1           9d
+kube-system                         azure-wi-webhook-controller-manager                2/2     2            2           26d
+kyverno                             kyverno-admission-controller                       1/1     1            1           26d
+kyverno                             kyverno-background-controller                      1/1     1            1           26d
+kyverno                             kyverno-cleanup-controller                         1/1     1            1           26d
+kyverno                             kyverno-reports-controller                         1/1     1            1           26d
+tetris                              controller                                         1/1     1            1           26d
+vcluster-infrastructure-system      cluster-api-provider-vcluster-controller-manager   1/1     1            1           9d

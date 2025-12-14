@@ -1,0 +1,7 @@
+NAMESPACE     LAST SEEN   TYPE      REASON                  OBJECT                          MESSAGE
+kube-system   2m          Warning   FreeDiskSpaceFailed     node/vmss000001                 Failed to garbage collect required amount of images. Wanted to free 5367299072 bytes, but freed 0 bytes
+kube-system   3m          Warning   EvictionThresholdMet    node/vmss000001                 Disk pressure: 85% disk usage
+production    5m          Warning   Evicted                 pod/api-server-6d8f9c-qw8rt     The node was low on resource: ephemeral-storage
+production    5m          Warning   Evicted                 pod/worker-5c7b8d-mn4kl         The node was low on resource: ephemeral-storage
+kube-system   6m          Warning   Evicted                 pod/coredns-789d4bf8f-x7k9m     The node was low on resource: ephemeral-storage
+kube-system   6m          Warning   Evicted                 pod/coredns-789d4bf8f-p2l4n     The node was low on resource: ephemeral-storage

@@ -1,0 +1,19 @@
+aso-system                          azureserviceoperator-controller-manager-6c94669977-vsq9g          1/1     Running     1 (33h ago)       2d10h
+calico-system                       calico-kube-controllers-5d97f9ccbd-9kjlv                          1/1     Running     0                 2d10h
+capi-kubeadm-bootstrap-system       capi-kubeadm-bootstrap-controller-manager-667d996d96-8ggbl        1/1     Running     0                 2d10h
+capi-kubeadm-control-plane-system   capi-kubeadm-control-plane-controller-manager-6fd8cd4fdb-f7699    1/1     Running     0                 2d10h
+capi-system                         capi-controller-manager-7c48879656-qbgkh                          1/1     Running     0                 2d10h
+kube-system                         azure-wi-webhook-controller-manager-54c58dd665-ftk52              1/1     Running     0                 2d10h
+kube-system                         azure-wi-webhook-controller-manager-54c58dd665-tdj9r              1/1     Running     0                 2d10h
+kyverno                             kyverno-admission-controller-695d98496f-b4wcl                     1/1     Running     0                 2d10h
+kyverno                             kyverno-background-controller-6c999f9b69-fpjhl                    1/1     Running     1 (33h ago)       2d10h
+kyverno                             kyverno-cleanup-controller-876cc98bb-vp4gr                        1/1     Running     0                 2d10h
+kyverno                             kyverno-reports-controller-846fb9dfbd-2m9wh                       1/1     Running     0                 2d10h
+taasvstst                           as-operator-controller-manager-c5c4d96f5-tm6zt-x-as--f8ee1d2c40   2/2     Running     1 (2d2h ago)      2d10h
+taasvstst                           azureserviceoperator-controller-manager-54f5c9fff4-v-3af8572411   1/1     Running     1 (2d2h ago)      2d10h
+taasvstst                           capi-controller-manager-858d9fd749-rwxzj-x-capi-syst-94bb81208e   1/1     Running     1 (2d2h ago)      2d10h
+taasvstst                           capi-kubeadm-bootstrap-controller-manager-677f969dbb-fb2e9c45fb   1/1     Running     1 (2d2h ago)      2d10h
+taasvstst                           capi-kubeadm-control-plane-controller-manager-86f44b-e89e4e85b8   1/1     Running     0                 2d10h
+taasvstst                           capz-controller-manager-77544588bb-tpd67-x-capz-syst-1281df0cc2   1/1     Running     1 (2d2h ago)      2d10h
+tetris                              controller-8458c6d557-sptkf                                       1/1     Running     0                 2d10h
+vcluster-infrastructure-system      cluster-api-provider-vcluster-controller-manager-d57dbf8f-8zbxx   2/2     Running     0                 2d10h

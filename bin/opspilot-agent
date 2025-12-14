@@ -11,8 +11,8 @@ PYTHON_SCRIPT=""
 count=0
 
 while [[ "$SEARCH_DIR" != "/" && $count -lt 5 ]]; do
-    if [ -f "$SEARCH_DIR/python/agent_server.py" ]; then
-        PYTHON_SCRIPT="$SEARCH_DIR/python/agent_server.py"
+    if [ -f "$SEARCH_DIR/python/start_agent.py" ]; then
+        PYTHON_SCRIPT="$SEARCH_DIR/python/start_agent.py"
         PROJECT_ROOT="$SEARCH_DIR"
         break
     fi
@@ -21,7 +21,7 @@ while [[ "$SEARCH_DIR" != "/" && $count -lt 5 ]]; do
 done
 
 if [ -z "$PYTHON_SCRIPT" ]; then
-    echo "Error: Could not locate python/agent_server.py (searched 5 levels up from $DIR)"
+    echo "Error: Could not locate python/start_agent.py (searched 5 levels up from $DIR)"
     exit 1
 fi
 

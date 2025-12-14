@@ -920,7 +920,16 @@ ${(logs as string).slice(-2000)}
             } else {
                 kubectlCommand = `ai-suggest: ${context}`;
                 try {
-                    const suggestions = await invoke<string[]>("generate_investigation_commands", { context });
+                    // Load LLM configuration dynamically
+                    const llmConfig = await invoke<any>('load_llm_config') || { base_url: 'http://127.0.0.1:11434', model: 'llama3.1' };
+
+                    // Use AI-driven command generation
+                    const suggestions = await generateInvestigationCommands(
+                        context,
+                        llmConfig.base_url,
+                        llmConfig.model
+                    );
+
                     if (suggestions.length === 0) {
                         toolResult = `🔍 No specific commands suggested for: "${context}". Try using FIND_ISSUES or GET_EVENTS to gather more context.`;
                     } else {
@@ -930,26 +939,18 @@ Based on: "${context}"
 
 The following kubectl commands are suggested for investigation:
 
-${suggestions.map((cmd, i) => `### ${i + 1}. ${cmd.split('|')[0].trim()}
+${suggestions.map((s, i) => `### ${i + 1}. ${s.purpose}
 \`\`\`bash
-${cmd.split('|')[1]?.trim() || cmd}
+${s.command}
 \`\`\`
-${cmd.split('|')[2] ? `*Purpose: ${cmd.split('|')[2].trim()}*` : ''}
 `).join('\n')}
 
 💡 **To execute any command**, use:
 \`TOOL: RUN_KUBECTL <command>\` or \`TOOL: RUN_BASH <command>\``;
                     }
                 } catch (e) {
-                    // Fallback: provide generic suggestions based on context keywords
-                    const suggestions = generateFallbackCommands(context);
-                    toolResult = `## 🔧 Suggested Investigation Commands
-
-Based on: "${context}"
-
-${suggestions.map((cmd, i) => `${i + 1}. \`${cmd}\``).join('\n')}
-
-💡 Use \`TOOL: RUN_KUBECTL <command>\` to execute.`;
+                    console.error('[SUGGEST_COMMANDS] AI generation failed:', e);
+                    toolResult = `⚠️ AI command generation unavailable. Try:\n- TOOL: FIND_ISSUES (discover problems)\n- TOOL: CLUSTER_HEALTH (get overview)\n- TOOL: GET_EVENTS (recent events)`;
                 }
             }
         } else if (toolName === 'LIST_CRDS') {
@@ -1196,7 +1197,9 @@ export interface ExecuteToolWithTrackingResult {
  */
 export async function executeToolWithTracking(
     toolName: string,
-    toolArgs: string | undefined
+    toolArgs: string | undefined,
+    llmEndpoint?: string,
+    llmModel?: string
 ): Promise<ExecuteToolWithTrackingResult> {
     const startTime = Date.now();
 
@@ -1219,14 +1222,32 @@ export async function executeToolWithTracking(
     let errorCategory: ErrorCategory | undefined;
     let recoverySuggestions: string[] | undefined;
 
-    // If error, categorize and include alternatives
+    // If error, use AI to suggest alternatives
     if (status === 'error' || status === 'empty') {
-        outcome.alternatives = getAlternatives(toolName, toolArgs);
         outcome.errorMessage = result.result.split('\n')[0]; // First line of error
 
         // Categorize the error for better recovery
         errorCategory = categorizeError(result.result);
         recoverySuggestions = getRecoverySuggestions(errorCategory, toolName);
+
+        // Get AI-driven alternatives if LLM config available
+        if (llmEndpoint && llmModel) {
+            try {
+                outcome.alternatives = await getAlternatives(
+                    toolName,
+                    toolArgs,
+                    result.result,
+                    llmEndpoint,
+                    llmModel
+                );
+            } catch (e) {
+                console.error('[Tool Tracking] AI alternatives failed:', e);
+                outcome.alternatives = ['FIND_ISSUES', 'CLUSTER_HEALTH'];
+            }
+        } else {
+            // Minimal fallback
+            outcome.alternatives = ['FIND_ISSUES', 'CLUSTER_HEALTH'];
+        }
     }
 
     return { result, outcome, errorCategory, recoverySuggestions };
@@ -1361,148 +1382,76 @@ export function autoCorrectToolArgs(
 }
 
 // =============================================================================
-// FALLBACK COMMAND GENERATION (when LLM backend unavailable)
+// AI-DRIVEN COMMAND GENERATION
 // =============================================================================
 
+import { generateAIDrivenCommands, buildClusterContextString } from './aiDrivenUtils';
+
 /**
- * Generate fallback investigation commands based on context keywords
- * Used when LLM-based command generation fails
+ * Generate investigation commands using AI reasoning
+ * Falls back to minimal discovery commands only if AI unavailable
  */
-function generateFallbackCommands(context: string): string[] {
-    const lower = context.toLowerCase();
-    const commands: string[] = [];
+async function generateInvestigationCommands(
+    context: string,
+    llmEndpoint: string,
+    llmModel: string
+): Promise<Array<{ command: string; purpose: string }>> {
+    try {
+        // Build current cluster state
+        const clusterState = await buildClusterContextString();
 
-    // Crash/restart related
-    if (lower.includes('crash') || lower.includes('restart') || lower.includes('loop') || lower.includes('backoff')) {
-        commands.push('kubectl get pods -A --field-selector=status.phase!=Running');
-        commands.push('kubectl get events -A --sort-by=.lastTimestamp | grep -iE "kill|oom|crash|backoff" | tail -20');
-        commands.push('kubectl get pods -A -o json | jq \'.items[] | select(.status.containerStatuses[]?.restartCount > 3) | {name:.metadata.name, ns:.metadata.namespace, restarts:.status.containerStatuses[].restartCount}\'');
+        // Use AI to generate context-aware commands
+        return await generateAIDrivenCommands(context, clusterState, llmEndpoint, llmModel);
+    } catch (e) {
+        console.error('[Command Generation] AI-driven generation failed:', e);
+        // Minimal fallback - just basic discovery tools
+        return [
+            { command: 'kubectl get pods -A --field-selector=status.phase!=Running', purpose: 'Find unhealthy pods' },
+            { command: 'kubectl get events -A --sort-by=.lastTimestamp | tail -30', purpose: 'Recent cluster events' },
+            { command: 'kubectl get nodes -o wide', purpose: 'Check node status' }
+        ];
     }
-
-    // Memory/OOM related
-    if (lower.includes('memory') || lower.includes('oom') || lower.includes('137')) {
-        commands.push('kubectl top pods -A --sort-by=memory | head -20');
-        commands.push('kubectl get events -A | grep -i oom');
-        commands.push('kubectl get pods -A -o json | jq \'.items[] | select(.status.containerStatuses[]?.lastState.terminated.exitCode == 137) | .metadata.name\'');
-    }
-
-    // CPU/throttling related
-    if (lower.includes('cpu') || lower.includes('throttl') || lower.includes('slow')) {
-        commands.push('kubectl top pods -A --sort-by=cpu | head -20');
-        commands.push('kubectl get pods -A -o json | jq \'.items[] | {name:.metadata.name, ns:.metadata.namespace, cpu:.spec.containers[].resources.limits.cpu}\'');
-    }
-
-    // Pending pods
-    if (lower.includes('pending') || lower.includes('schedule') || lower.includes('unschedulable')) {
-        commands.push('kubectl get pods -A --field-selector=status.phase=Pending');
-        commands.push('kubectl get events -A | grep -iE "insufficient|unschedulable|taint|affinity"');
-        commands.push('kubectl describe nodes | grep -A5 "Allocated resources"');
-    }
-
-    // Network/connectivity
-    if (lower.includes('network') || lower.includes('connect') || lower.includes('dns') || lower.includes('service')) {
-        commands.push('kubectl get endpoints -A | grep -v "none"');
-        commands.push('kubectl get networkpolicies -A');
-        commands.push('kubectl get svc -A -o wide');
-    }
-
-    // Storage/volume
-    if (lower.includes('storage') || lower.includes('volume') || lower.includes('pvc') || lower.includes('mount')) {
-        commands.push('kubectl get pvc -A');
-        commands.push('kubectl get pv');
-        commands.push('kubectl get events -A | grep -iE "volume|mount|attach"');
-    }
-
-    // Node issues
-    if (lower.includes('node') || lower.includes('kubelet') || lower.includes('ready')) {
-        commands.push('kubectl get nodes -o wide');
-        commands.push('kubectl describe nodes | grep -A10 "Conditions:"');
-        commands.push('kubectl top nodes');
-    }
-
-    // Deployment/scaling
-    if (lower.includes('deploy') || lower.includes('replica') || lower.includes('scale')) {
-        commands.push('kubectl get deployments -A');
-        commands.push('kubectl get rs -A | grep -v "0         0         0"');
-        commands.push('kubectl get hpa -A');
-    }
-
-    // Secrets/config
-    if (lower.includes('secret') || lower.includes('config') || lower.includes('env')) {
-        commands.push('kubectl get secrets -A --field-selector=type=Opaque | head -20');
-        commands.push('kubectl get configmaps -A | head -20');
-    }
-
-    // Generic investigation if no specific patterns matched
-    if (commands.length === 0) {
-        commands.push('kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded');
-        commands.push('kubectl get events -A --sort-by=.lastTimestamp | grep -iE "error|fail|warn" | tail -30');
-        commands.push('kubectl top pods -A | head -15');
-        commands.push('kubectl get nodes -o wide');
-    }
-
-    return commands.slice(0, 6); // Return at most 6 commands
 }
 
 // =============================================================================
-// TOOL ALTERNATIVES - What to try when a tool fails
+// AI-DRIVEN TOOL ALTERNATIVES
 // =============================================================================
 
-const TOOL_ALTERNATIVES: Record<string, string[]> = {
-    'GET_LOGS': [
-        'GET_EVENTS',
-        'DESCRIBE',
-        'RUN_KUBECTL get pod -o yaml',
-    ],
-    'DESCRIBE': [
-        'LIST_ALL',
-        'GET_EVENTS',
-        'RUN_KUBECTL get -o wide',
-    ],
-    'GET_EVENTS': [
-        'DESCRIBE',
-        'GET_LOGS',
-        'CLUSTER_HEALTH',
-    ],
-    'TOP_PODS': [
-        'DESCRIBE',
-        'GET_EVENTS',
-        'RUN_KUBECTL top nodes',
-        'CLUSTER_HEALTH',
-    ],
-    'GET_ENDPOINTS': [
-        'DESCRIBE Service',
-        'LIST_ALL Pod',
-        'GET_EVENTS',
-    ],
-    'LIST_FINALIZERS': [
-        'GET_NAMESPACE',
-        'DESCRIBE',
-        'RUN_KUBECTL get all',
-    ],
-    'GET_CROSSPLANE': [
-        'RUN_KUBECTL get providers.pkg.crossplane.io',
-        'RUN_KUBECTL get managed -A',
-        'GET_EVENTS',
-    ],
-    'GET_ISTIO': [
-        'RUN_KUBECTL get pods -n istio-system',
-        'RUN_KUBECTL get gateway,virtualservice -A',
-        'GET_EVENTS istio-system',
-    ],
-};
+import { getAIDrivenAlternatives } from './aiDrivenUtils';
 
-/** Get alternative tools when one fails */
-export function getAlternatives(toolName: string, failedArgs?: string): string[] {
-    const alternatives = TOOL_ALTERNATIVES[toolName] || [];
+/**
+ * Get alternative tools when one fails - using AI reasoning
+ * Falls back to minimal generic discovery if AI unavailable
+ */
+export async function getAlternatives(
+    toolName: string,
+    failedArgs: string | undefined,
+    errorMessage: string,
+    llmEndpoint: string,
+    llmModel: string
+): Promise<string[]> {
+    try {
+        // Build cluster context
+        const clusterContext = await buildClusterContextString();
 
-    // Add generic discovery tools if not already present
-    const genericAlternatives = ['FIND_ISSUES', 'LIST_ALL', 'CLUSTER_HEALTH'];
-    for (const generic of genericAlternatives) {
-        if (!alternatives.includes(generic) && generic !== toolName) {
-            alternatives.push(generic);
+        // Use AI to suggest intelligent alternatives
+        const alternatives = await getAIDrivenAlternatives(
+            toolName,
+            failedArgs,
+            errorMessage,
+            clusterContext,
+            llmEndpoint,
+            llmModel
+        );
+
+        if (alternatives.length > 0) {
+            return alternatives;
         }
+    } catch (e) {
+        console.error('[Tool Alternatives] AI-driven suggestion failed:', e);
     }
 
-    return alternatives.slice(0, 4);
+    // Minimal fallback - just generic discovery tools
+    const genericAlternatives = ['FIND_ISSUES', 'CLUSTER_HEALTH', 'LIST_ALL Pod'];
+    return genericAlternatives.filter(alt => alt !== toolName).slice(0, 3);
 }

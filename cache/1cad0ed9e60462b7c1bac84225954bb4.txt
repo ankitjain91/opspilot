@@ -1,0 +1,4 @@
+NAME                                STATUS   ROLES   AGE   VERSION
+aks-default-12345678-vmss000000     Ready    agent   30d   v1.27.7
+aks-default-12345678-vmss000001     Ready,DiskPressure    agent   30d   v1.27.7
+aks-default-12345678-vmss000002     Ready    agent   30d   v1.27.7

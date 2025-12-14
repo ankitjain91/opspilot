@@ -54,20 +54,18 @@ def build():
         "--exclude-module", "sympy",
         "--exclude-module", "matplotlib",
         "--exclude-module", "ipython",
-        # SAFETY FIRST: Reverting aggressive exclusions. 
-        # Only excluding the truly massive libraries that we 100% know are unused.
-        # "--exclude-module", "sklearn",
-        # "--exclude-module", "scikit-learn", 
-        # "--exclude-module", "transformers",
-        # "--exclude-module", "sentence_transformers",
-        # "--exclude-module", "huggingface_hub",
-        # "--exclude-module", "tokenizers",
-        # "--exclude-module", "safetensors",
-        # "--exclude-module", "regex", 
-        # "--exclude-module", "pyarrow", 
-        # "--exclude-module", "pandas",
-        # "--exclude-module", "scipy",
-        str(script_dir / "agent_server.py"),
+        # Agent doesn't use ML libraries - only httpx/fastapi/langchain
+        # Excluding these speeds up PyInstaller by 5-10x (67s → 10s)
+        "--exclude-module", "sklearn",
+        "--exclude-module", "scikit-learn",
+        "--exclude-module", "transformers",
+        "--exclude-module", "sentence_transformers",
+        "--exclude-module", "huggingface_hub",
+        "--exclude-module", "tokenizers",
+        "--exclude-module", "safetensors",
+        "--exclude-module", "regex",
+        "--exclude-module", "pyarrow",
+        str(script_dir / "start_agent.py"),
     ]
 
     print(f"Building {exe_name} for {system}...")

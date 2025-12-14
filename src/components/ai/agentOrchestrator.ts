@@ -40,6 +40,15 @@ interface PythonAgentRequest {
 // =============================================================================
 
 import { invoke } from '@tauri-apps/api/core';
+import { formatKubectlOutput } from './kubernetesFormatter';
+import { DEFAULT_LLM_CONFIGS } from './constants';
+import { LLMConfig } from '../../types/ai';
+import {
+    discoverClusterCapabilities,
+    buildClusterContextString,
+    getAIDrivenAlternatives,
+    createAIInvestigationPlan
+} from './aiDrivenUtils';
 
 const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
 
@@ -102,7 +111,11 @@ async function runPythonAgent(
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal,
     mcpTools?: any[],
-    initialHistory: Array<{ role: string, content: string }> = []
+    initialHistory: Array<{ role: string, content: string }> = [],
+    onPlanCreated?: (plan: any[], totalSteps: number) => void,
+    onStepCompleted?: (step: number, planSummary: string) => void,
+    onStepFailed?: (step: number, error: string) => void,
+    onPlanComplete?: (totalSteps: number) => void
 ): Promise<string> {
     // Pre-flight check: ensure the Python agent is running (auto-start if needed)
     onProgress?.('🔍 Checking agent server...');
@@ -201,13 +214,35 @@ async function runPythonAgent(
                                     });
                                     break;
                                 case 'command_output':
+                                    // Auto-format kubectl outputs for better readability
+                                    const rawOutput = eventData.error ? `Error: ${eventData.error}\nOutput: ${eventData.output}` : eventData.output;
+                                    let formattedOutput = rawOutput;
+
+                                    // Try to format kubectl output
+                                    if (eventData.command && eventData.command.includes('kubectl') && !eventData.error) {
+                                        const formatted = formatKubectlOutput(eventData.command, eventData.output);
+                                        formattedOutput = formatted.markdown;
+                                    }
+
                                     onStep?.({
                                         role: 'SCOUT',
                                         content: JSON.stringify({
                                             command: eventData.command,
-                                            output: eventData.error ? `Error: ${eventData.error}\nOutput: ${eventData.output}` : eventData.output
+                                            output: formattedOutput
                                         })
                                     });
+                                    break;
+                                case 'plan_created':
+                                    onPlanCreated?.(eventData.plan, eventData.total_steps);
+                                    break;
+                                case 'step_completed':
+                                    onStepCompleted?.(eventData.step, eventData.plan_summary);
+                                    break;
+                                case 'step_failed':
+                                    onStepFailed?.(eventData.step, eventData.error);
+                                    break;
+                                case 'plan_complete':
+                                    onPlanComplete?.(eventData.total_steps);
                                     break;
                                 case 'tool_call_request':
                                     toolCallRequest = eventData;
@@ -312,6 +347,46 @@ async function runPythonAgent(
 }
 
 // =============================================================================
+// CONFIGURATION MANAGEMENT - NO HARDCODED DEFAULTS
+// =============================================================================
+
+/**
+ * Load LLM configuration from user settings
+ * Falls back to DEFAULT_LLM_CONFIGS only if user hasn't configured
+ */
+async function loadLLMConfiguration(): Promise<LLMConfig> {
+    try {
+        // Try to load from user settings file
+        const userConfig = await invoke<LLMConfig | null>('load_llm_config');
+        if (userConfig) {
+            console.log('[LLM Config] Loaded user configuration:', userConfig.provider, userConfig.model);
+            return userConfig;
+        }
+    } catch (e) {
+        console.warn('[LLM Config] Failed to load user config:', e);
+    }
+
+    // Check if Ollama is available and use its default
+    try {
+        const ollamaStatus = await invoke<any>('check_ollama_status');
+        if (ollamaStatus.ollama_running && ollamaStatus.available_models?.length > 0) {
+            console.log('[LLM Config] Using Ollama with available models:', ollamaStatus.available_models);
+            return {
+                ...DEFAULT_LLM_CONFIGS.ollama,
+                model: ollamaStatus.available_models[0], // Use first available model
+                executor_model: ollamaStatus.available_models.length > 1 ? ollamaStatus.available_models[1] : null
+            };
+        }
+    } catch (e) {
+        console.warn('[LLM Config] Ollama check failed:', e);
+    }
+
+    // Last resort: use Ollama defaults but warn user
+    console.warn('[LLM Config] Using default Ollama configuration - please configure LLM settings');
+    return DEFAULT_LLM_CONFIGS.ollama;
+}
+
+// =============================================================================
 // LEGACY COMPATIBILITY LAYER
 // Replaces runAgentLoop with direct Python calls
 // =============================================================================
@@ -326,15 +401,26 @@ export async function runAgentLoop(
     abortSignal?: AbortSignal,
     kubeContext?: string,
     llmConfig?: { endpoint?: string; provider?: string; model?: string; executor_model?: string },
-    mcpTools?: any[]
+    mcpTools?: any[],
+    onPlanCreated?: (plan: any[], totalSteps: number) => void,
+    onStepCompleted?: (step: number, planSummary: string) => void,
+    onStepFailed?: (step: number, error: string) => void,
+    onPlanComplete?: (totalSteps: number) => void
 ): Promise<string> {
 
     try {
-        // Use provided config or safe defaults
-        const endpoint = llmConfig?.endpoint || 'http://127.0.0.1:11434';
-        const provider = llmConfig?.provider || 'ollama';
-        const model = llmConfig?.model || 'opspilot-brain';
-        const executorModel = llmConfig?.executor_model || 'k8s-cli';
+        // Load configuration from settings - NO HARDCODED DEFAULTS
+        const config = await loadLLMConfiguration();
+
+        // Use provided config or loaded config (fail if neither available)
+        const endpoint = llmConfig?.endpoint || config.base_url;
+        const provider = llmConfig?.provider || config.provider;
+        const model = llmConfig?.model || config.model;
+        const executorModel = llmConfig?.executor_model || config.executor_model || model;
+
+        if (!endpoint || !model) {
+            throw new Error('LLM configuration required. Please configure LLM settings first.');
+        }
 
         return await runPythonAgent(
             userGoal,
@@ -347,7 +433,11 @@ export async function runAgentLoop(
             onStep,
             abortSignal,
             mcpTools,
-            _initialHistory || []
+            _initialHistory || [],
+            onPlanCreated,
+            onStepCompleted,
+            onStepFailed,
+            onPlanComplete
         );
 
 

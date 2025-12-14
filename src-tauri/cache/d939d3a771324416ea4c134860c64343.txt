@@ -1,0 +1,1 @@
+customerclusters                                               dedicated.uipath.com/v1alpha1                    true         CustomerCluster

@@ -1,0 +1,20 @@
+taasvstst       37m         Normal    BeginCreateOrUpdate   roleassignment/acrpull-roleassignment                       Successfully sent resource to Azure with ID "/subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/providers/Microsoft.Authorization/roleAssignments/f3909d38-c8a1-484a-aad6-ebad6e901d6b"
+taasvstst       37m         Normal    CredentialFrom        roleassignment/acrpull-roleassignment                       Using credential from "taasvstst/52cc7587-e72f-46b8-8e64-6e699bb07c64"
+taasvstst       29m         Normal    CredentialFrom        resourcegroup/981e1dd9-316a-4365-8a58-3eac3687f3cb          Using credential from "taasvstst/981e1dd9-316a-4365-8a58-3eac3687f3cb"
+taasvstst       29m         Normal    BeginCreateOrUpdate   resourcegroup/981e1dd9-316a-4365-8a58-3eac3687f3cb          Successfully sent resource to Azure with ID "/subscriptions/981e1dd9-316a-4365-8a58-3eac3687f3cb/resourceGroups/mgmt-taasvstst"
+kube-system     25m         Normal    Started               pod/ama-metrics-989956579-qw64x                             Started container prometheus-collector
+kube-system     24m         Normal    Started               pod/ama-metrics-989956579-wtxfm                             Started container prometheus-collector
+opentelemetry   16m         Normal    Info                  opentelemetrycollector/collector                            applied status changes
+kube-system     8m53s       Warning   Unhealthy             pod/ama-metrics-node-rz7mm                                  Liveness probe failed: HTTP probe failed with statuscode: 503
+kube-system     8m53s       Normal    Killing               pod/ama-metrics-node-rz7mm                                  Container prometheus-collector failed liveness probe, will be restarted
+kube-system     8m52s       Normal    Pulled                pod/ama-metrics-node-rz7mm                                  Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine
+kube-system     8m52s       Normal    Started               pod/ama-metrics-node-rz7mm                                  Started container prometheus-collector
+kube-system     8m52s       Normal    Created               pod/ama-metrics-node-rz7mm                                  Created container: prometheus-collector
+kube-system     8m27s       Normal    Killing               pod/ama-metrics-989956579-qw64x                             Container prometheus-collector failed liveness probe, will be restarted
+kube-system     8m27s       Warning   Unhealthy             pod/ama-metrics-989956579-qw64x                             Liveness probe failed: HTTP probe failed with statuscode: 503
+kube-system     8m26s       Normal    Pulled                pod/ama-metrics-989956579-qw64x                             Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine
+kube-system     8m26s       Normal    Created               pod/ama-metrics-989956579-qw64x                             Created container: prometheus-collector
+kube-system     7m35s       Normal    Killing               pod/ama-metrics-989956579-wtxfm                             Container prometheus-collector failed liveness probe, will be restarted
+kube-system     7m35s       Warning   Unhealthy             pod/ama-metrics-989956579-wtxfm                             Liveness probe failed: HTTP probe failed with statuscode: 503
+kube-system     7m35s       Normal    Created               pod/ama-metrics-989956579-wtxfm                             Created container: prometheus-collector
+kube-system     7m35s       Normal    Pulled                pod/ama-metrics-989956579-wtxfm                             Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine

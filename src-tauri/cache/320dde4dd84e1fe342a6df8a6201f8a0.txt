@@ -1,0 +1,2 @@
+NAME                              STATUS   ROLES    AGE   VERSION
+aks-default-49089664-vmss000002   Ready    <none>   26d   v1.33.5

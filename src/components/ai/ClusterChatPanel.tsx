@@ -1,10 +1,14 @@
 
+
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
+import { ToolMessage } from './chat/ToolMessage';
+import { ThinkingMessage } from './chat/ThinkingMessage';
+import { InvestigationTimeline } from './chat/InvestigationTimeline';
 import remarkGfm from 'remark-gfm';
 import { LLMConfig, LLMStatus, ClusterHealthSummary } from '../../types/ai';
 import { fixMarkdownHeaders } from '../../utils/markdown';
@@ -26,10 +30,12 @@ import {
 } from './agentUtils';
 
 import { runAgentLoop, AgentStep, LLMOptions } from './agentOrchestrator';
+import { PlanProgressUI } from './PlanProgressUI';
+import { formatFailingPods } from './kubernetesFormatter';
 
 const KNOWN_MCP_SERVERS = [
     { name: 'azure-devops', command: 'npx', args: ['-y', '@azure-devops/mcp', 'YOUR_ORG_NAME'], env: {}, connected: false, autoConnect: false },
-    { name: 'kubernetes', command: 'uvx', args: ['mcp-server-kubernetes'], env: { KUBECONFIG: '~/.kube/config' }, autoConnect: true },
+    { name: 'kubernetes', command: 'uvx', args: ['mcp-server-kubernetes'], env: { KUBECONFIG: '~/.kube/config' }, autoConnect: false },
     { name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '...' }, autoConnect: false },
     { name: 'gitlab', command: 'npx', args: ['-y', '@modelcontextprotocol/server-gitlab'], env: { GITLAB_TOKEN: '...', GITLAB_API_URL: 'https://gitlab.com/api/v4' }, autoConnect: false },
     { name: 'git', command: 'uvx', args: ['mcp-server-git'], env: {}, autoConnect: true },
@@ -54,6 +60,40 @@ interface ClaudeCodeStreamEvent {
     content: string;
 }
 
+// Helper to group messages into interactions
+function groupMessages(history: any[]) {
+    const groups: any[] = [];
+    let currentGroup: any = null;
+
+    history.forEach((msg) => {
+        if (msg.role === 'user') {
+            if (currentGroup) groups.push(currentGroup);
+            currentGroup = { type: 'interaction', user: msg, steps: [], answer: null };
+        } else if (msg.role === 'tool' || (msg.role === 'assistant' && (msg.isActivity || msg.content?.includes('🧠 Thinking') || msg.content?.includes('🧠 Supervisor') || msg.content?.includes('🔄 Investigating') || msg.content?.includes('Continuing investigation')))) {
+            if (currentGroup) {
+                currentGroup.steps.push(msg);
+            } else {
+                if (groups.length === 0 || groups[groups.length - 1].type !== 'system_steps') {
+                    groups.push({ type: 'system_steps', steps: [msg] });
+                } else {
+                    groups[groups.length - 1].steps.push(msg);
+                }
+            }
+        } else if (msg.role === 'assistant') {
+            if (currentGroup && !currentGroup.answer) {
+                currentGroup.answer = msg;
+            } else {
+                groups.push({ type: 'raw', msg });
+            }
+        } else {
+            groups.push({ type: 'raw', msg });
+        }
+    });
+
+    if (currentGroup) groups.push(currentGroup);
+    return groups;
+}
+
 // Cluster-wide AI Chat Panel component - Global floating chat
 export function ClusterChatPanel({
     onClose,
@@ -74,7 +114,7 @@ export function ClusterChatPanel({
 
     // Unique storage key for resource-specific chats
     const storageKey = resourceContext
-        ? `ops-pilot-chat-${resourceContext.namespace}-${resourceContext.kind}-${resourceContext.name}`
+        ? `ops - pilot - chat - ${resourceContext.namespace} -${resourceContext.kind} -${resourceContext.name} `
         : 'ops-pilot-chat-history';
 
     const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool' | 'claude-code', content: string, toolName?: string, command?: string, isActivity?: boolean, isStreaming?: boolean }>>(() => {
@@ -90,6 +130,10 @@ export function ClusterChatPanel({
         }
     });
     const [userInput, setUserInput] = useState("");
+
+    // Group messages for better UI presentation (timeline)
+    const groupedHistory = useMemo(() => groupMessages(chatHistory), [chatHistory]);
+
     const [llmLoading, setLlmLoading] = useState(false);
     const [currentActivity, setCurrentActivity] = useState("Analyzing cluster data...");
     const [isExpanded, setIsExpanded] = useState(false);
@@ -135,6 +179,19 @@ export function ClusterChatPanel({
     // Model Download Progress State
     const [downloadProgress, setDownloadProgress] = useState<{ status: string; percent?: number; completed?: number; total?: number } | null>(null);
     const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
+
+    // Plan execution state (ReAct pattern)
+    const [currentPlan, setCurrentPlan] = useState<any[] | null>(null);
+    const [planTotalSteps, setPlanTotalSteps] = useState<number>(0);
+
+    // New enriched investigation signals from backend
+    const [phaseTimeline, setPhaseTimeline] = useState<Array<{ name: string; timestamp?: string }>>([]);
+    const [rankedHypotheses, setRankedHypotheses] = useState<Array<{ title: string; confidence?: number }>>([]);
+    const [approvalContext, setApprovalContext] = useState<{ command?: string; reason?: string; risk?: string; impact?: string } | null>(null);
+    const [coverageGaps, setCoverageGaps] = useState<Array<string>>([]);
+    const [agentHints, setAgentHints] = useState<Array<string>>([]);
+    const [goalVerification, setGoalVerification] = useState<{ met: boolean; reason: string } | null>(null);
+    const [extendedMode, setExtendedMode] = useState<{ preferred_checks?: string[]; prefer_mcp_tools?: boolean } | null>(null);
 
     // Check LLM status and fetch MCP tools on mount
     useEffect(() => {
@@ -425,7 +482,7 @@ export function ClusterChatPanel({
                         // REMOTE: Auto-fallback to first available model
                         // This prevents forcing a download on a remote server that might be read-only
                         const fallbackModel = status.available_models[0];
-                        console.log(`[Auto-Heal] Remote server detected. Fallback to existing model: ${fallbackModel}`);
+                        console.log(`[Auto - Heal] Remote server detected.Fallback to existing model: ${fallbackModel} `);
 
                         // Update config to use the available model
                         setLlmConfig(prev => ({ ...prev, model: fallbackModel }));
@@ -581,17 +638,17 @@ export function ClusterChatPanel({
                 // Inject Resource Context if available
                 if (resourceContext) {
                     const resourceContextMsg = `CONTEXT LOCK: ACTIVE RESOURCE DEEP DIVE\n` +
-                        `You are currently analyzing a specific resource in the Deep Dive Drawer:\n` +
-                        `• Kind: ${resourceContext.kind}\n` +
-                        `• Name: ${resourceContext.name}\n` +
-                        `• Namespace: ${resourceContext.namespace}\n\n` +
-                        `CRITICAL INSTRUCTIONS:\n` +
+                        `You are currently analyzing a specific resource in the Deep Dive Drawer: \n` +
+                        `• Kind: ${resourceContext.kind} \n` +
+                        `• Name: ${resourceContext.name} \n` +
+                        `• Namespace: ${resourceContext.namespace} \n\n` +
+                        `CRITICAL INSTRUCTIONS: \n` +
                         `1. ALL user queries imply THIS specific resource unless explicitly stated otherwise.\n` +
-                        `2. example: "why is it failing?" → check logs/events for ${resourceContext.name}.\n` +
+                        `2. example: "why is it failing?" → check logs / events for ${resourceContext.name}.\n` +
                         `3. example: "show logs" → fetch logs for ${resourceContext.name}.\n` +
                         `4. DO NOT search for other pods or resources unless the user explicitly names them.\n` +
                         `5. If the user asks a general question, answer it in the context of ${resourceContext.name}.\n` +
-                        `6. You are "immersed" in this resource. Do not broaden scope unnecessarily.`;
+                        `6. You are "immersed" in this resource.Do not broaden scope unnecessarily.`;
 
                     // Prepend to context as a system-like USER instruction
                     contextHistory.unshift({
@@ -609,28 +666,89 @@ export function ClusterChatPanel({
                     const historyStr = chatHistory
                         .filter(m => m.role === 'user' || m.role === 'assistant')
                         .slice(-6)
-                        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+                        .map(m => `${m.role.toUpperCase()}: ${m.content} `)
                         .join('\n\n');
 
-                    const fullPrompt = historyStr ? `${historyStr}\n\nUSER: ${message.trim()}` : message.trim();
+                    const fullPrompt = historyStr ? `${historyStr} \n\nUSER: ${message.trim()} ` : message.trim();
 
                     // Call the Rust command directly (streaming supported via call_claude_code_stream, but using blocking call for now per existing patterns or upgrading to stream?)
                     // The existing code at lines 507 used 'call_claude_code'.
                     // Wait, lines 507 were inside 'callLLM'. 
                     // Here we are replacing 'runAgentLoop' which expects a Promise<string> but also handles UI updates.
 
-                    // We'll use invoke directly and update UI manually since we aren't using the orchestrator.
-                    const response = await invoke<string>("call_claude_code", {
-                        prompt: fullPrompt,
-                        // Claude Code doesn't really take a system prompt in CLI args easily without --system (if supported), ignoring for now
-                    });
+                    // STREAMING IMPLEMENTATION
+                    // Generate a unique stream ID
+                    const streamId = `claude - ${Date.now()} `;
 
+                    // Add an initial placeholder message
                     setChatHistory(prev => [...prev, {
                         role: 'assistant',
-                        content: response // The CLI returns the full conversation output or just the response? Usually response.
+                        content: '',
+                        isStreaming: true
                     }]);
-                    setLlmLoading(false);
-                    setCurrentActivity("");
+                    setLlmLoading(true);
+                    setCurrentActivity("🤖 Claude Code is thinking...");
+
+                    // Setup listener
+                    // Note: In Tauri v2, listen returns a Promise<UnlistenFn>
+                    const unlisten = await listen<ClaudeCodeStreamEvent>('claude-code-stream', (event) => {
+                        if (event.payload.stream_id !== streamId) return;
+
+                        if (event.payload.event_type === 'chunk') {
+                            setChatHistory(prev => {
+                                const last = prev[prev.length - 1];
+                                if (last.role === 'assistant' && last.isStreaming) {
+                                    return [
+                                        ...prev.slice(0, -1),
+                                        { ...last, content: last.content + event.payload.content }
+                                    ];
+                                }
+                                return prev;
+                            });
+                        } else if (event.payload.event_type === 'done') {
+                            setChatHistory(prev => {
+                                const last = prev[prev.length - 1];
+                                if (last.role === 'assistant' && last.isStreaming) {
+                                    return [
+                                        ...prev.slice(0, -1),
+                                        { ...last, isStreaming: false }
+                                    ];
+                                }
+                                return prev;
+                            });
+                            setLlmLoading(false);
+                            setCurrentActivity("");
+                        } else if (event.payload.event_type === 'error') {
+                            setChatHistory(prev => {
+                                const last = prev[prev.length - 1];
+                                if (last.role === 'assistant' && last.isStreaming) {
+                                    return [
+                                        ...prev.slice(0, -1),
+                                        { ...last, content: last.content + `\n\n❌ Error: ${event.payload.content} `, isStreaming: false }
+                                    ];
+                                }
+                                return prev;
+                            });
+                            setLlmLoading(false);
+                            setCurrentActivity("");
+                        }
+                    });
+
+                    // Start the stream
+                    // Start the stream
+                    try {
+                        await invoke("call_claude_code_stream", {
+                            prompt: fullPrompt,
+                            kubeContext: currentContext || null,
+                            streamId: streamId
+                        });
+                    } catch (e) {
+                        console.error("Failed to start stream", e);
+                        setLlmLoading(false);
+                    } finally {
+                        unlisten();
+                    }
+
                     return;
                 }
 
@@ -691,6 +809,63 @@ export function ClusterChatPanel({
                         let toolName = step.role === 'SCOUT' ? 'Terminal' : step.role;
                         let command = undefined;
 
+                        // Try to interpret structured backend event payloads
+                        try {
+                            const maybe = JSON.parse(step.content);
+                            if (maybe && typeof maybe === 'object' && maybe.type) {
+                                switch (maybe.type) {
+                                    case 'phase': {
+                                        const name = maybe.phase || maybe.name || 'phase';
+                                        const timestamp = maybe.timestamp;
+                                        setPhaseTimeline(prev => [...prev, { name, timestamp }]);
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Phase: ${name}` }]);
+                                        return; // handled
+                                    }
+                                    case 'hypotheses': {
+                                        const list = Array.isArray(maybe.items) ? maybe.items : (Array.isArray(maybe.hypotheses) ? maybe.hypotheses : []);
+                                        const normalized = list.map((h: any) => ({ title: h.title || h.name || String(h), confidence: h.confidence }));
+                                        setRankedHypotheses(normalized);
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Hypotheses updated (${normalized.length})` }]);
+                                        return;
+                                    }
+                                    case 'approval_needed': {
+                                        setApprovalContext({ command: maybe.command, reason: maybe.reason, risk: maybe.risk, impact: maybe.impact });
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Approval needed: ${maybe.reason || 'See details'}` }]);
+                                        return;
+                                    }
+                                    case 'coverage': {
+                                        const missing = Array.isArray(maybe.missing) ? maybe.missing : [];
+                                        setCoverageGaps(missing);
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Coverage gaps: ${missing.join(', ') || 'none'}` }]);
+                                        return;
+                                    }
+                                    case 'hint': {
+                                        const text = maybe.message || maybe.hint;
+                                        if (text) {
+                                            setAgentHints(prev => [...prev, text]);
+                                            setChatHistory(prev => [...prev, { role: 'assistant', content: `Hint: ${text}` }]);
+                                        }
+                                        return;
+                                    }
+                                    case 'verification': {
+                                        const met = !!maybe.met;
+                                        const reason = maybe.reason || '';
+                                        setGoalVerification({ met, reason });
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Goal status: ${met ? 'MET' : 'NOT MET'} — ${reason}` }]);
+                                        return;
+                                    }
+                                    case 'plan_bias': {
+                                        setExtendedMode({ preferred_checks: maybe.preferred_checks || [], prefer_mcp_tools: !!maybe.prefer_mcp_tools });
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Extended mode: prioritizing ${Array.isArray(maybe.preferred_checks) ? maybe.preferred_checks.join(', ') : 'broader coverage'}${maybe.prefer_mcp_tools ? ' + MCP tools' : ''}` }]);
+                                        return;
+                                    }
+                                    default: {
+                                        // fall through to normal handling
+                                    }
+                                }
+                            }
+                        } catch { /* not JSON, continue */ }
+
                         // Parse Scout JSON for better display
                         if (step.role === 'SCOUT') {
                             try {
@@ -718,12 +893,22 @@ export function ClusterChatPanel({
                         }
 
                         // Add to UI immediately
-                        setChatHistory(prev => [...prev, {
-                            role: uiRole,
-                            content: contentToShow,
-                            toolName,
-                            command
-                        }]);
+                        setChatHistory(prev => {
+                            const last = prev[prev.length - 1];
+                            // Consolidate consecutive "Thinking" messages
+                            if (step.role === 'SUPERVISOR' && last && last.role === 'assistant' && (last.content.includes('🧠 Thinking') || last.content.includes('🧠 Supervisor'))) {
+                                return [
+                                    ...prev.slice(0, -1),
+                                    { ...last, content: last.content + "\n\n" + step.content }
+                                ];
+                            }
+                            return [...prev, {
+                                role: uiRole,
+                                content: contentToShow,
+                                toolName,
+                                command
+                            }];
+                        });
                     },
                     // Pass conversation context (User + Assistant only, exclude tools/activity)
                     contextHistory,
@@ -739,10 +924,50 @@ export function ClusterChatPanel({
                         executor_model: llmConfig.executor_model || undefined
                     },
                     // Pass available MCP tools for the agent to use
-                    listRegisteredMcpTools()
+                    listRegisteredMcpTools(),
+                    // Plan event callbacks
+                    (plan, totalSteps) => {
+                        // Plan created
+                        setCurrentPlan(plan);
+                        setPlanTotalSteps(totalSteps);
+                    },
+                    (step, planSummary) => {
+                        // Step completed - update plan
+                        setCurrentPlan(prev => {
+                            if (!prev) return prev;
+                            return prev.map(s =>
+                                s.step === step ? { ...s, status: 'completed' } : s
+                            );
+                        });
+                    },
+                    (step, error) => {
+                        // Step failed - update plan
+                        setCurrentPlan(prev => {
+                            if (!prev) return prev;
+                            return prev.map(s =>
+                                s.step === step ? { ...s, status: 'failed' } : s
+                            );
+                        });
+                    },
+                    () => {
+                        // Plan complete - clear after a delay
+                        setTimeout(() => {
+                            setCurrentPlan(null);
+                            setPlanTotalSteps(0);
+                        }, 3000);
+                    }
                 );
 
-                setChatHistory(prev => [...prev, { role: 'assistant', content: result }]);
+                // Post-process final response to format kubectl output
+                let formattedResult = result;
+
+                // Detect if response contains raw kubectl pod list output
+                if (result.includes('NAMESPACE') && result.includes('READY') && result.includes('STATUS') && result.includes('RESTARTS')) {
+                    const formatted = formatFailingPods(result);
+                    formattedResult = formatted.markdown;
+                }
+
+                setChatHistory(prev => [...prev, { role: 'assistant', content: formattedResult }]);
                 setLlmLoading(false);
             } catch (e: any) {
                 // Handle cancellation gracefully
@@ -834,6 +1059,14 @@ export function ClusterChatPanel({
                                 <span className="text-zinc-500 group-hover:text-zinc-400 truncate">{llmConfig.model.split(':')[0]}</span>
                                 <ChevronDown size={10} className="text-zinc-500 shrink-0" />
                             </button>
+                            {extendedMode && (
+                                <span
+                                    className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300"
+                                    title={`Extended mode • Checks: ${extendedMode.preferred_checks?.join(', ') || 'broader coverage'}${extendedMode.prefer_mcp_tools ? ' • Prefers MCP tools' : ''}`}
+                                >
+                                    Extended
+                                </span>
+                            )}
                             {currentContext && (
                                 <span className="text-[10px] text-cyan-400/80 flex items-center gap-1 truncate max-w-[150px]" title={`Kubernetes Context: ${currentContext}`}>
                                     <span className="text-zinc-500">→</span>
@@ -1070,118 +1303,70 @@ export function ClusterChatPanel({
 
                     )}
 
+                {/* Plan Progress UI - Show when plan is active */}
+                {currentPlan && currentPlan.length > 0 && (
+                    <PlanProgressUI
+                        plan={currentPlan}
+                        totalSteps={planTotalSteps}
+                        className="mb-4"
+                    />
+                )}
+
                 {
-                    chatHistory.map((msg, i) => (
-                        <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            {/* User Message - Task/Query */}
-                            {msg.role === 'user' && (
-                                <div className="relative pl-6 pb-4">
-                                    {/* Timeline dot */}
-                                    <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20" />
-                                    {/* Timeline line */}
-                                    <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
-
-                                    <div className="ml-2">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Task</span>
-                                        </div>
-                                        <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-3 py-2 border border-violet-500/30">
-                                            <p className="text-sm text-white">{msg.content}</p>
-                                        </div>
-                                    </div>
+                    groupedHistory.map((group, i) => {
+                        if (group.type === 'raw') {
+                            // Fallback for raw messages (likely system or orphaned)
+                            return (
+                                <div key={i} className="pl-6 pb-2">
+                                    <ThinkingMessage content={group.msg.content} isLatest={false} />
                                 </div>
-                            )}
-
-                            {/* Tool Execution - Visible by default for live agent feedback */}
-                            {msg.role === 'tool' && msg.content && !msg.content.startsWith('❌') && (
-                                <div className="relative pl-6 pb-2">
-                                    {/* Timeline dot */}
-                                    <div className={`absolute left-0 top-1 w-3 h-3 rounded-full ring-4 ${msg.content.startsWith('⚠️') ? 'bg-amber-500 ring-amber-500/20' : 'bg-cyan-500 ring-cyan-500/20'
-                                        }`} />
-                                    {/* Timeline line */}
-                                    <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-cyan-500/30 to-transparent" />
-
-                                    <div className="ml-2">
-                                        <details className="group" open>
-                                            <summary className="cursor-pointer select-none flex items-center gap-2 py-1 hover:bg-white/5 rounded px-1 -ml-1 transition-colors">
-                                                <ChevronDown size={12} className="text-cyan-400 group-open:rotate-0 -rotate-90 transition-transform shrink-0" />
-                                                <Terminal size={12} className="text-cyan-400 shrink-0" />
-                                                {msg.command ? (
-                                                    <code className="text-[11px] text-cyan-300/80 font-mono truncate max-w-[280px]">$ {msg.command}</code>
-                                                ) : (
-                                                    <span className="text-[11px] text-cyan-300/80">{msg.toolName}</span>
-                                                )}
-                                                <span className={`text-[9px] px-1.5 py-0.5 rounded ml-auto shrink-0 ${msg.content.startsWith('⚠️') ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
-                                                    }`}>
-                                                    {msg.content.startsWith('⚠️') ? 'WARN' : 'OK'}
-                                                </span>
-                                            </summary>
-                                            <div className="mt-1 bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
-                                                <div className="px-3 py-2 max-h-[200px] overflow-y-auto">
-                                                    <ReactMarkdown
-                                                        remarkPlugins={[remarkGfm]}
-                                                        components={{
-                                                            p: ({ children }) => <p className="text-xs text-zinc-300 my-1 leading-relaxed">{children}</p>,
-                                                            strong: ({ children }) => <strong className="text-emerald-300 font-semibold">{children}</strong>,
-                                                            code: ({ children }) => <code className="text-[11px] bg-black/40 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                            pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2 rounded overflow-x-auto my-1 font-mono text-zinc-300">{children}</pre>,
-                                                            ul: ({ children }) => <ul className="text-xs list-none ml-0 my-1 space-y-0.5">{children}</ul>,
-                                                            li: ({ children }) => <li className="text-zinc-400 before:content-['•'] before:text-cyan-500 before:mr-2">{children}</li>,
-                                                            table: ({ children }) => <table className="text-xs w-full border-collapse">{children}</table>,
-                                                            th: ({ children }) => <th className="text-left text-zinc-400 border-b border-zinc-700 pb-1 pr-4">{children}</th>,
-                                                            td: ({ children }) => <td className="text-zinc-300 border-b border-zinc-800 py-1 pr-4">{children}</td>,
-                                                        }}
-                                                    >
-                                                        {msg.content}
-                                                    </ReactMarkdown>
-                                                </div>
-                                            </div>
-                                        </details>
-                                    </div>
+                            );
+                        }
+                        if (group.type === 'system_steps') {
+                            return (
+                                <div key={i}>
+                                    <InvestigationTimeline
+                                        steps={group.steps}
+                                        isActive={i === groupedHistory.length - 1 && !group.answer}
+                                    />
                                 </div>
-                            )}
+                            )
+                        }
 
-                            {/* Assistant Response - Thinking/Reasoning (visible for live agent feedback) */}
-                            {msg.role === 'assistant' && (
-                                (msg.isActivity || msg.content?.includes('🧠 Thinking') || msg.content?.includes('🧠 Supervisor') || msg.content?.includes('🔄 Investigating') || msg.content?.includes('Continuing investigation')) ? (
-                                    <div className="relative pl-6 pb-2">
-                                        {/* Timeline dot */}
-                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-amber-500 ring-4 ring-amber-500/20" />
-                                        {/* Timeline line */}
-                                        <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-amber-500/30 to-transparent" />
+                        // Interaction Group
+                        const isLastGroup = i === groupedHistory.length - 1;
+                        const isInvestigating = isLastGroup && !group.answer;
 
-                                        <div className="ml-2">
-                                            <details className="group" open>
-                                                <summary className="cursor-pointer select-none flex items-center gap-2 py-1 hover:bg-white/5 rounded px-1 -ml-1 transition-colors">
-                                                    <ChevronDown size={12} className="text-amber-400 group-open:rotate-0 -rotate-90 transition-transform shrink-0" />
-                                                    <Loader2 size={12} className="text-amber-400 shrink-0" />
-                                                    <span className="text-[11px] text-amber-300/80 truncate max-w-[280px]">
-                                                        {(msg.content || '').replace(/🧠 (Thinking|Supervisor):\s*/g, '').slice(0, 50)}...
-                                                    </span>
-                                                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded ml-auto shrink-0">THINKING</span>
-                                                </summary>
-                                                <div className="mt-1 bg-amber-500/5 rounded-lg border border-amber-500/20 px-3 py-2">
-                                                    <div className="prose prose-invert prose-sm max-w-none text-xs">
-                                                        <ReactMarkdown
-                                                            remarkPlugins={[remarkGfm]}
-                                                            components={{
-                                                                p: ({ children }) => <p className="text-[12px] text-zinc-400 my-1 leading-relaxed">{children}</p>,
-                                                                strong: ({ children }) => <strong className="text-amber-300 font-semibold">{children}</strong>,
-                                                                code: ({ children }) => <code className="text-[10px] bg-black/30 px-1 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                            }}
-                                                        >
-                                                            {(msg.content || '').replace(/🧠 (Thinking|Supervisor):\s*/g, '').replace(/\*🔄 Investigating\.\.\.\*|\*🔄 Continuing investigation.*\*$/gm, '').trim()}
-                                                        </ReactMarkdown>
-                                                    </div>
-                                                </div>
-                                            </details>
-                                        </div>
-                                    </div>
-                                ) : (
+                        return (
+                            <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                {/* User Message */}
+                                {group.user && (
                                     <div className="relative pl-6 pb-4">
-                                        {/* Timeline dot */}
-                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
+                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20" />
+                                        <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
+                                        <div className="ml-2">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Task</span>
+                                            </div>
+                                            <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-3 py-2 border border-violet-500/30">
+                                                <p className="text-sm text-white">{group.user.content}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
+                                {/* Timeline */}
+                                {group.steps && group.steps.length > 0 && (
+                                    <InvestigationTimeline
+                                        steps={group.steps}
+                                        isActive={isInvestigating}
+                                    />
+                                )}
+
+                                {/* Final Answer */}
+                                {group.answer && (
+                                    <div className="relative pl-6 pb-4">
+                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-2">
                                                 <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">Answer</span>
@@ -1206,65 +1391,20 @@ export function ClusterChatPanel({
                                                             blockquote: ({ children }) => <blockquote className="border-l-2 border-amber-500 pl-3 my-2 text-amber-200/80 italic">{children}</blockquote>,
                                                         }}
                                                     >
-                                                        {fixMarkdownHeaders(msg.content)}
+                                                        {fixMarkdownHeaders(group.answer.content)}
                                                     </ReactMarkdown>
+                                                    {group.answer.isStreaming && group.answer.content && (
+                                                        <span className="inline-block w-1.5 h-4 bg-emerald-400 animate-pulse ml-0.5" />
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                )
-                            )}
-
-                            {/* Claude Code Output - Only show when we have content (the activity indicator handles the waiting state) */}
-                            {msg.role === 'claude-code' && (msg.content || !msg.isStreaming) && (
-                                <div className="relative pl-6 pb-4">
-                                    {/* Timeline dot */}
-                                    <div className={`absolute left - 0 top - 1 w - 3 h - 3 rounded - full ${msg.isStreaming ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-500'} ring - 4 ring - emerald - 500 / 20`} />
-
-                                    <div className="ml-2">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">
-                                                {msg.isStreaming ? 'Claude Code' : 'Answer'}
-                                            </span>
-                                            {msg.isStreaming && <Loader2 size={10} className="text-emerald-400 animate-spin" />}
-                                            {!msg.isStreaming && <Sparkles size={10} className="text-emerald-400" />}
-                                        </div>
-                                        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
-                                            <div className="px-4 py-3 prose prose-invert prose-sm max-w-none max-h-[500px] overflow-y-auto">
-                                                {msg.content && (
-                                                    <ReactMarkdown
-                                                        remarkPlugins={[remarkGfm]}
-                                                        components={{
-                                                            p: ({ children }) => <p className="text-[13px] text-zinc-300 my-1.5 leading-relaxed">{children}</p>,
-                                                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                                                            em: ({ children }) => <em className="text-zinc-400 not-italic">{children}</em>,
-                                                            code: ({ children }) => <code className="text-[11px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                            pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                                                            ul: ({ children }) => <ul className="text-[13px] list-none ml-0 my-1.5 space-y-1">{children}</ul>,
-                                                            ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
-                                                            li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-2 before:font-bold">{children}</li>,
-                                                            h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-4 mb-2 flex items-center gap-2 border-b border-zinc-700 pb-2">{children}</h1>,
-                                                            h2: ({ children }) => <h2 className="text-sm font-bold text-emerald-300 mt-4 mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{children}</h2>,
-                                                            h3: ({ children }) => <h3 className="text-sm font-semibold text-cyan-300 mt-3 mb-1.5">{children}</h3>,
-                                                            blockquote: ({ children }) => <blockquote className="border-l-2 border-amber-500 pl-3 my-2 text-amber-200/80 italic">{children}</blockquote>,
-                                                        }}
-                                                    >
-                                                        {fixMarkdownHeaders(msg.content)}
-                                                    </ReactMarkdown>
-                                                )}
-                                                {msg.isStreaming && msg.content && (
-                                                    <span className="inline-block w-1.5 h-4 bg-emerald-400 animate-pulse ml-0.5" />
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ))
-                }
-
-                {/* Loading State with Cancel Button */}
+                                )}
+                            </div>
+                        );
+                    })
+                }    {/* Loading State with Cancel Button */}
                 {
                     llmLoading && (
                         <div className="relative pl-6 pb-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -1348,6 +1488,100 @@ export function ClusterChatPanel({
 
                 <div ref={chatEndRef} />
             </div>
+
+            {/* Side insights panel for phases/hypotheses/coverage/approval/hints */}
+            {(phaseTimeline.length > 0 || rankedHypotheses.length > 0 || coverageGaps.length > 0 || approvalContext || agentHints.length > 0 || extendedMode) && (
+                <div className="px-4 pb-3 bg-[#16161a] border-t border-white/5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {extendedMode && (
+                            <div className="rounded-lg p-3 border bg-violet-500/10 border-violet-500/30">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-1">Mode</div>
+                                <div className="text-[11px] text-violet-300">Extended Investigation</div>
+                                {(extendedMode.preferred_checks && extendedMode.preferred_checks.length > 0) && (
+                                    <div className="text-[11px] text-zinc-300 mt-1">Checks: {extendedMode.preferred_checks.join(', ')}</div>
+                                )}
+                                {extendedMode.prefer_mcp_tools && (
+                                    <div className="text-[11px] text-zinc-300 mt-1">Prefers MCP Tools</div>
+                                )}
+                            </div>
+                        )}
+                        {goalVerification && (
+                            <div className={`rounded-lg p-3 border ${goalVerification.met ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                                <div className="text-[10px] font-medium text-zinc-300 mb-1">Goal</div>
+                                <div className={`text-[11px] ${goalVerification.met ? 'text-emerald-300' : 'text-rose-300'}`}>
+                                    {goalVerification.met ? 'MET' : 'NOT MET'}
+                                </div>
+                                {goalVerification.reason && (
+                                    <div className="text-[11px] text-zinc-300 mt-1">{goalVerification.reason}</div>
+                                )}
+                                {!goalVerification.met && (
+                                    <div className="mt-2">
+                                        <button
+                                            onClick={() => sendMessage('[EXTEND] Please extend investigation: collect missing signals (nodes/pods/events/resource-usage), try MCP tools if available, broaden command diversity, and re-evaluate hypotheses.')}
+                                            className="px-3 py-1.5 text-[11px] rounded-md bg-violet-600/20 border border-violet-500/40 hover:bg-violet-600/30 text-violet-200 transition-all"
+                                        >
+                                            Extend investigation
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {phaseTimeline.length > 0 && (
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-2">Phases</div>
+                                <div className="flex flex-wrap gap-1">
+                                    {phaseTimeline.map((p, idx) => (
+                                        <span key={idx} className="px-2 py-1 text-[10px] rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300">{p.name}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {rankedHypotheses.length > 0 && (
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-2">Hypotheses</div>
+                                <ul className="space-y-1">
+                                    {rankedHypotheses.map((h, i) => (
+                                        <li key={i} className="text-[11px] text-zinc-300">{h.title}{typeof h.confidence === 'number' ? ` (${Math.round(h.confidence * 100)}%)` : ''}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {coverageGaps.length > 0 && (
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-2">Coverage Gaps</div>
+                                <ul className="space-y-1">
+                                    {coverageGaps.map((c, i) => (<li key={i} className="text-[11px] text-amber-300">{c}</li>))}
+                                </ul>
+                            </div>
+                        )}
+                        {approvalContext && (
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-1">Approval Needed</div>
+                                {approvalContext.reason && (<div className="text-[11px] text-zinc-300"><span className="text-zinc-400">Reason:</span> {approvalContext.reason}</div>)}
+                                {approvalContext.command && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Command:</span> <code className="bg-black/40 px-1 rounded">{approvalContext.command}</code></div>)}
+                                {approvalContext.risk && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Risk:</span> {approvalContext.risk}</div>)}
+                                {approvalContext.impact && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Impact:</span> {approvalContext.impact}</div>)}
+                            </div>
+                        )}
+                        {agentHints.length > 0 && (
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
+                                <div className="text-[10px] font-medium text-zinc-300 mb-2">Hints</div>
+                                <ul className="space-y-1">
+                                    {agentHints.map((h, i) => (<li key={i} className="text-[11px] text-cyan-300">{h}</li>))}
+                                </ul>
+                                <div className="mt-2">
+                                    <button
+                                        onClick={() => sendMessage('[EXTEND] Apply hint and extend: act on emitted hint, expand coverage, use alternate tools, and reassess hypotheses.')}
+                                        className="px-3 py-1.5 text-[11px] rounded-md bg-cyan-600/20 border border-cyan-500/40 hover:bg-cyan-600/30 text-cyan-200 transition-all"
+                                    >
+                                        Apply hint and extend
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Suggested Actions Chips */}
             {suggestedActions.length > 0 && !llmLoading && (
