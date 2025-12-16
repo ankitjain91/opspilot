@@ -23,6 +23,10 @@ from ..config import EMBEDDING_MODEL, CACHE_DIR, KB_DIR
 # _kb_cache is now context-aware: {"default": [...], "context-name": [...]}
 _kb_cache: Optional[Dict[str, List[Dict]]] = {}
 _embeddings_cache: Optional[Dict[str, List[float]]] = None
+# Cache for keyword/BM25 index
+_bm25_index = None
+_bm25_corpus_tokens: Optional[List[List[str]]] = None
+_bm25_entries: Optional[List[Dict]] = None
 embedding_model_available = False # State tracker for UI checks
 
 
@@ -485,9 +489,36 @@ async def get_relevant_kb_snippets(
     if _embeddings_cache is None:
         _embeddings_cache = {}
 
+    # Build/refresh BM25 index lazily for keyword-based scoring
+    # We use a light tokenizer (split on non-word) to capture K8s jargon, error codes, names
+    global _bm25_index, _bm25_corpus_tokens, _bm25_entries
+    try:
+        from rank_bm25 import BM25Okapi
+        import re
+
+        if _bm25_index is None or _bm25_entries is None or len(_bm25_entries) != len(entries):
+            _bm25_entries = entries
+            _bm25_corpus_tokens = []
+            for e in entries:
+                text = entry_to_searchable_text(e)
+                tokens = [t.lower() for t in re.split(r"[^A-Za-z0-9_.-]+", text) if t]
+                _bm25_corpus_tokens.append(tokens)
+            _bm25_index = BM25Okapi(_bm25_corpus_tokens)
+        # Tokenize query
+        import re as _re
+        query_tokens = [t.lower() for t in _re.split(r"[^A-Za-z0-9_.-]+", query) if t]
+        bm25_scores = _bm25_index.get_scores(query_tokens)
+    except Exception as _bm_err:
+        bm25_scores = [0.0] * len(entries)
+        # Log but continue with semantic-only if BM25 not available
+        print(f"[KB] BM25 unavailable, proceeding with embeddings only: {_bm_err}", flush=True)
+
     results: List[Tuple[float, Dict]] = []
 
-    for entry in entries:
+    # Precompute normalization for BM25
+    max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+
+    for idx, entry in enumerate(entries):
         entry_id = entry.get('id', '')
 
         # Check cache
@@ -503,13 +534,23 @@ async def get_relevant_kb_snippets(
             else:
                 continue
 
-        # Compute similarity
+        # Compute semantic similarity
         similarity = cosine_similarity(query_embedding, entry_embedding)
 
-        if similarity >= min_similarity:
-            results.append((similarity, entry))
+        # Hybrid fusion: combine semantic similarity with BM25 keyword score
+        # Normalize BM25 by max to [0,1] to combine fairly
+        bm_score = 0.0
+        if bm25_scores:
+            bm_score = bm25_scores[idx] / max_bm25 if max_bm25 > 0 else 0.0
 
-    # Sort by similarity (descending)
+        # Fusion score: weighted sum prioritizing semantic while ensuring keyword hits boost
+        fusion = (0.7 * similarity) + (0.3 * bm_score)
+
+        if similarity >= min_similarity or bm_score > 0.6:
+            results.append((fusion, entry))
+        
+
+    # Sort by fusion score (descending)
     results.sort(key=lambda x: x[0], reverse=True)
 
     # Take top N
@@ -521,8 +562,8 @@ async def get_relevant_kb_snippets(
     # Format as context string
     context_parts = ["## Relevant Knowledge Base Patterns\n"]
 
-    for similarity, entry in top_results:
-        context_parts.append(f"### {entry.get('id', 'Unknown')} (relevance: {similarity:.2f})")
+    for fusion_score, entry in top_results:
+        context_parts.append(f"### {entry.get('id', 'Unknown')} (relevance: {fusion_score:.2f})")
         context_parts.append(f"**Category:** {entry.get('category', 'N/A')}")
 
         if 'symptoms' in entry:
@@ -547,7 +588,7 @@ async def get_relevant_kb_snippets(
 
     result = "\n".join(context_parts)
 
-    print(f"[KB] Found {len(top_results)} relevant patterns (top similarity: {top_results[0][0]:.2f})", flush=True)
+    print(f"[KB] Found {len(top_results)} relevant patterns (top fusion: {top_results[0][0]:.2f})", flush=True)
 
     return result
 

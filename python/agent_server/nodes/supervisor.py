@@ -24,6 +24,7 @@ from ..response_formatter import format_intelligent_response_with_llm, format_in
 from ..llm import call_llm
 from ..routing import select_model_for_query
 from ..tools import get_relevant_kb_snippets, ingest_cluster_knowledge  # KB/RAG semantic search
+from ..llm import call_llm
 
 async def classify_query_complexity(query: str, command_history: list, llm_endpoint: str, llm_model: str, llm_provider: str = "ollama", api_key: str = None) -> bool:
     """Use LLM to determine if a query requires deep investigation (complex) or can be answered quickly (simple)."""
@@ -100,6 +101,38 @@ async def supervisor_node(state: AgentState) -> dict:
         await ingest_cluster_knowledge(state, force_refresh=True, progress_callback=progress_callback)
 
     events.append(emit_event("progress", {"message": f"Supervisor Reasoning (iteration {iteration})..."}))
+
+    # Planner: rewrite vague queries into 1-3 specific sub-queries to guide retrieval
+    original_query = state.get('query', '')
+    try:
+        planner_prompt = f"""Rewrite the user's query into 1-3 specific retrieval-focused sub-queries for Kubernetes troubleshooting.
+
+Original: {original_query}
+
+Output JSON schema:
+{{"queries": ["q1", "q2", "q3"]}}
+
+Guidelines:
+- Target resources explicitly (pods/deployments/events/logs)
+- Include namespaces or 'all namespaces' if implied
+- Cover logs/events/status depending on the intent
+"""
+        planner_json = await call_llm(
+            prompt=planner_prompt,
+            endpoint=state.get('llm_endpoint'),
+            model=state.get('llm_model'),
+            provider=state.get('llm_provider', 'ollama'),
+            temperature=0.0,
+            force_json=True,
+            api_key=state.get('api_key')
+        )
+        import json as _json
+        planner_out = _json.loads(planner_json)
+        sub_queries = planner_out.get('queries') or [original_query]
+        state['planner_queries'] = sub_queries[:3]
+        events.append(emit_event("progress", {"message": f"Planner generated {len(sub_queries[:3])} focused queries"}))
+    except Exception as _e:
+        state['planner_queries'] = [original_query]
 
     # Check for command retry loops (prevents infinite blocked command loops)
     if state.get('error') and 'Command retry loop detected' in state.get('error', ''):
