@@ -57,11 +57,11 @@ INSTRUCTIONS:
 
 SMART EXECUTION EXAMPLES:
 
-Example 1 - SOLVED (Early Exit):
-Query: "Are there any vclusters in this cluster?"
-Step 1 Result: kubectl api-resources shows NO vcluster CRD exists
-→ directive: "SOLVED", final_response: "No vclusters are present. The vcluster CRD is not installed in this cluster."
-(Skip Step 2 - no need to list vclusters if CRD doesn't exist)
+Example 1 - RETRY (Multi-method resource discovery):
+Query: "Find all ArgoCD instances"
+Step 1 Result: kubectl api-resources shows NO argocd CRD exists
+→ directive: "RETRY", next_command_hint: "Try multi-method: kubectl get pods,deployments,svc -A | grep -i argo"
+(⚠️ NEVER conclude "resource not found" from just CRD check - resources can exist as pods/deployments/helm without CRDs!)
 
 Example 2 - RETRY:
 Query: "Why is payment-svc failing?"

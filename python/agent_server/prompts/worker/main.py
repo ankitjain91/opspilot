@@ -139,6 +139,41 @@ AVAILABLE TOOLS (Use the correct schema):
     - Network connectivity test: `services=$(getent hosts | awk '{{print $2}}'); for s in $services; do echo "Testing $s:"; nc -zv $s 80 2>&1; done`
     - Disk usage breakdown: `du -sh /* 2>/dev/null | sort -h`
 
+13. **ShellCommand**: Execute arbitrary shell commands with pipes, grep, awk, jq, and other CLI tools.
+    Use this for complex kubectl queries that need advanced filtering/parsing.
+    {{
+      "tool": "shell_command",
+      "command": "kubectl get pods -A | grep -v Running | wc -l",
+      "purpose": "Count non-Running pods across all namespaces"
+    }}
+
+    **EXAMPLES - Advanced Resource Discovery:**
+    - Count failed pods: `kubectl get pods -A -o json | jq '[.items[] | select(.status.phase=="Failed")] | length'`
+    - Find high CPU nodes: `kubectl top nodes --no-headers | awk '$3 > 80 {{print $1, $3}}'`
+    - Extract pod IPs: `kubectl get pods -A -o wide | grep Running | awk '{{print $7}}'`
+    - Filter events by type: `kubectl get events -A -o json | jq '.items[] | select(.type=="Warning") | .message'`
+    - Multi-step pipeline: `kubectl get pods -A -o json | jq '.items[] | select(.status.phase!="Running") | {{name: .metadata.name, namespace: .metadata.namespace, status: .status.phase}}'`
+    - Resource usage summary: `kubectl get pods -A -o json | jq '.items | group_by(.metadata.namespace) | map({{namespace: .[0].metadata.namespace, count: length}})'`
+
+    **EXAMPLES - Log Search & Investigation (BATCHED):**
+    - Search for errors in logs: `kubectl logs pod-name -n namespace --tail=1000 | grep -i "error\|fail\|exception"`
+    - Find resource name in logs: `kubectl logs pod-name -n namespace --tail=500 | grep -i "my-resource-name"`
+    - Get earlier logs in batches: `kubectl logs pod-name -n namespace --tail=1000 | head -n 100` (first 100 of last 1000)
+    - Search previous container logs: `kubectl logs pod-name -n namespace --previous --tail=500 | grep -i "crash"`
+    - Count specific errors: `kubectl logs pod-name -n namespace --tail=2000 | grep -i "connection refused" | wc -l`
+    - Extract timestamps for errors: `kubectl logs pod-name -n namespace --tail=1000 | grep -i "error" | awk '{{print $1, $2}}'`
+    - Multi-pod log search: `for pod in $(kubectl get pods -n namespace -o name); do echo "=== $pod ==="; kubectl logs $pod -n namespace --tail=200 | grep -i "fail"; done`
+    - Context around error: `kubectl logs pod-name -n namespace --tail=1000 | grep -B 5 -A 5 "error"`
+
+    **WHEN TO USE:**
+    - Complex filtering (grep, awk, jq)
+    - Counting/aggregating results (wc, sort, uniq)
+    - Extracting specific fields (awk, cut, jq)
+    - Combining multiple kubectl commands with pipes
+    - Advanced data transformation
+    - **Searching logs for specific strings (errors, resource names, patterns)**
+    - **Batched log analysis (--tail with head/grep for manageable chunks)**
+
 RESPONSE FORMAT:
 You MUST return a JSON object.
 For a SINGLE command:

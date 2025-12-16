@@ -139,7 +139,7 @@ The following issues were detected:
 - [Issue 1 in plain English]
 - [Issue 2 in plain English]
 
-**Recommended Fix:**
+**Recommended Action:**
 [Provide the exact kubectl command or action to resolve the issue]
 
 This means [what it means for the user in ONE sentence].

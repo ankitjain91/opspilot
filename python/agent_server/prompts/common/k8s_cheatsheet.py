@@ -64,7 +64,74 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     - `kubectl get pods -A -o wide | awk 'NR==1 || $5>3'`
       → Header + pods with >3 restarts
 
-**11. ANTI-PATTERNS & FORBIDDEN COMMANDS (DO NOT USE)**:
+**11. RESOURCE DISCOVERY STRATEGY** (finding any resource type):
+    ⚠️ IMPORTANT: Resources don't always have CRDs! Use multi-method discovery:
+
+    **When looking for ANY resource (e.g., "istio", "argocd", "prometheus", "vcluster"):**
+    1. `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` → Find workloads
+    2. `kubectl get svc,ingress -A | grep -i <NAME>` → Find network resources
+    3. `kubectl get ns | grep -i <NAME>` → Check if it has dedicated namespace
+    4. `kubectl api-resources | grep -i <NAME>` → Check for CRDs (may not exist)
+    5. `helm list -A | grep -i <NAME>` → Check Helm releases
+
+    **Why multi-method?**
+    - Resources can be deployed as plain YAML (no CRD)
+    - Names may vary: "argo-cd" vs "argocd" vs "argo"
+    - May use generic resources: Deployments, StatefulSets, DaemonSets
+    - Operator pattern: CRD exists but instances are StatefulSets/Pods
+
+    **⚠️ NEVER conclude "resource X not found" from just ONE check!**
+    - If CRD not found → check pods/deployments/services/helm
+    - If no pods found in default namespace → try -A (all namespaces)
+    - If exact name fails → try grep with partial match
+
+**12. CRD CONTROLLER DISCOVERY & ROOT CAUSE ANALYSIS** (climb the chain):
+    ⚠️ When a CRD resource is failing, find its controller to see WHY!
+
+    **Step-by-step controller discovery (try ALL methods):**
+
+    **Method 1: Label-based (most reliable)**
+    - Extract API group: `kubectl get <resource> <name> -n <ns> -o jsonpath='{.apiVersion}'`
+      Example: `compositions.apiextensions.crossplane.io/v1` → API group = `apiextensions.crossplane.io`
+    - Find controller: `kubectl get pods -A -l 'app.kubernetes.io/name=<api-group-keyword>'`
+      Example: `kubectl get pods -A -l 'app.kubernetes.io/name=crossplane'`
+
+    **Method 2: Namespace-based (common pattern)**
+    - Controllers usually run in system namespaces matching their name
+    - `kubectl get pods -n crossplane-system` (for Crossplane/Upbound)
+    - `kubectl get pods -n upbound-system` (for Upbound Universal Crossplane)
+    - `kubectl get pods -n azureserviceoperator-system` (for Azure Service Operator)
+    - `kubectl get pods -n argocd` (for ArgoCD)
+    - `kubectl get pods -n istio-system` (for Istio)
+    - `kubectl get pods -n cert-manager` (for cert-manager)
+    - `kubectl get pods -n kube-system | grep <resource-type>` (for core resources)
+
+    **Method 3: Owner Reference (if resource has one)**
+    - `kubectl get <resource> <name> -n <ns> -o jsonpath='{.metadata.ownerReferences}'`
+    - Follow the chain up to find the controller
+
+    **Method 4: Keyword search (last resort)**
+    - `kubectl get pods -A | grep -i <crd-name>`
+    - Example: `kubectl get pods -A | grep -i crossplane`
+
+    **After finding controller - CLIMB THE CHAIN (don't stop!):**
+    1. Check controller logs: `kubectl logs <controller-pod> -n <controller-ns> --tail=500 | grep -i "error\|fail\|<resource-name>"`
+    2. Search for YOUR resource name in logs: `kubectl logs <controller-pod> -n <controller-ns> --tail=2000 | grep -i "<your-resource-name>"`
+    3. Check controller events: `kubectl get events -n <controller-ns> --field-selector involvedObject.name=<controller-pod>`
+    4. Check controller's status: `kubectl describe pod <controller-pod> -n <controller-ns>`
+    5. If controller is crashing: `kubectl logs <controller-pod> -n <controller-ns> --previous --tail=500`
+    6. Check controller's configmaps/secrets: `kubectl get cm,secret -n <controller-ns>`
+    7. Look for webhook failures: `kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations`
+
+    **EXHAUSTIVE SEARCH RULES (keep trying!):**
+    - ✅ Found controller but no errors? → Search logs with resource name, check older logs
+    - ✅ Controller healthy but resource failing? → Check webhooks, RBAC, network policies
+    - ✅ Can't find controller? → Try all 4 methods above, check all system namespaces
+    - ✅ Controller logs empty? → Check if multiple controller pods exist, check all replicas
+    - ❌ NEVER give up after one method - try ALL discovery methods
+    - ❌ NEVER say "no errors found" without checking controller logs for the specific resource name
+
+**12. ANTI-PATTERNS & FORBIDDEN COMMANDS (DO NOT USE)**:
     - ⛔ `kubectl api-resources -o wider` → INVALID FLAG. `api-resources` does NOT support `-o wider`.
     - ⛔ `kubectl get events -w` → Infinite stream. Use `--sort-by='.lastTimestamp'` instead.
     - ⛔ `kubectl logs -f` (without timeout) → Infinite stream. Use `--tail=N` or `--since=time`.

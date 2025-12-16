@@ -105,6 +105,8 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
     const [optimisticReplicas, setOptimisticReplicas] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<'overview' | 'logs'>('overview');
     const containerRef = useRef<string>(''); // Ref to track active container for logs without re-rendering everything
+    const [isRestarting, setIsRestarting] = useState(false);
+    const { showToast, dismissToast } = useToast();
 
     // Data Extraction (Move up to ensure hooks run)
     const spec = fullObject?.spec || {};
@@ -183,12 +185,11 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
     // Legacy support (ensure kind is lowercased for checks above if not already)
     // Actually 'kind' variable from line 164 is already lowercased.
 
-    const [isRestarting, setIsRestarting] = useState(false);
-
     // ...
 
     // Toast hook
-    const { showToast, dismissToast } = useToast();
+    // Moved to top
+
 
     const handleScale = async (limit: number) => {
         // Default to 1 if undefined (Kubernetes default)

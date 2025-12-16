@@ -198,6 +198,25 @@ async def synthesizer_node(state: AgentState) -> Dict:
             if current_hypothesis and any(word in current_hypothesis.lower() for word in ['root cause', 'investigate', 'analyze']):
                 max_iter = 8
 
+            # CRD troubleshooting needs extra persistence (controller discovery, log analysis)
+            discovered_resources = state.get('discovered_resources', {})
+            is_crd_query = any(
+                resource_type in ['compositions', 'claims', 'managed', 'xrd', 'compositeresourcedefinitions']
+                for resource_type in discovered_resources.keys()
+            ) or any(word in query_lower for word in [
+                # Crossplane/Upbound
+                'crossplane', 'composition', 'claim', 'managed resource', 'xrd', 'upbound',
+                'provider', 'providerconfig', 'configuration',
+                # Azure Service Operator
+                'azure', 'aso', 'resourcegroup', 'storageaccount', 'sqldatabase',
+                'cosmosdb', 'keyvault', 'virtualnetwork', 'azureserviceoperator',
+                # Other operators
+                'argocd', 'application', 'appproject', 'istio', 'virtualservice',
+                'cert-manager', 'certificate', 'issuer', 'clusterissuer'
+            ])
+            if is_crd_query:
+                max_iter = 10  # CRDs need controller discovery + log analysis
+
             # Add recovery budget for failed commands
             recovery_attempts = len([cmd for cmd in command_history if cmd.get('error')])
             max_iter += min(recovery_attempts, 2)  # Max +2 for retries
