@@ -3,23 +3,24 @@ import os
 from datetime import datetime, timezone
 from typing import TypedDict, Literal, List, Dict, Optional, Any
 
-from .prompts_templates import (
-    SUPERVISOR_PROMPT,
-    REFLECT_PROMPT,
-    WORKER_PROMPT,
-    VERIFY_COMMAND_PROMPT
-)
+# Prompts removed from config to avoid circular imports / legacy usage
 from .prompts_examples import SUPERVISOR_EXAMPLES_FULL
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Dangerous write-verbs for kubectl
+# Dangerous write-verbs for kubectl (Strictly Blocked by default)
+# Dangerous write-verbs for kubectl (Strictly Blocked by default)
 DANGEROUS_VERBS = [
-    'delete', 'apply', 'edit', 'scale', 'patch', 'replace',
-    'create', 'rollout', 'cordon', 'drain', 'taint', 'annotate',
-    'label', 'set', 'cp'
+    'apply', 'edit', 'replace',
+    'create', 'cordon', 'drain', 'taint', 'annotate',
+    'label', 'cp'
+]
+
+# Remediation verbs (Allowed with explicit tool usage + Human Approval)
+REMEDIATION_VERBS = [
+    'delete', 'rollout', 'scale', 'set'
 ]
 
 # Azure CLI mutation verbs (ALWAYS BLOCKED - only read operations allowed)
@@ -65,8 +66,9 @@ AZURE_SAFE_COMMANDS = [
 ]
 
 # Commands that are SAFE but return large, complex output and require approval
+# Note: Removed 'get events' and 'events -A' - these are safe read-only queries for troubleshooting
 LARGE_OUTPUT_VERBS = [
-    'get all', 'top', 'events -A', 'logs -f', 'get --watch', 'get events'
+    'get all', 'top', 'logs -f', 'get --watch'
 ]
 
 MAX_ITERATIONS = 7  # Reduced from 10 - with better prompts/accuracy, fewer iterations needed
@@ -96,14 +98,28 @@ def _find_kb_dir() -> str:
 
 KB_DIR = _find_kb_dir()
 EMBEDDING_MODEL = os.environ.get("K8S_AGENT_EMBED_MODEL", "nomic-embed-text")
-EMBEDDING_ENDPOINT = os.environ.get("K8S_AGENT_EMBED_ENDPOINT", "")  # if empty, reuse llm_endpoint
+
+# Auto-detect if using Cloud LLM (Groq/OpenAI) and fallback to local Ollama for embeddings
+_llm_endpoint = os.environ.get("LLM_HOST", "http://localhost:11434")
+_is_cloud_llm = any(domain in _llm_endpoint for domain in ["groq.com", "openai.com", "anthropic.com"])
+
+# If explicitly set, use it. If not set, use llm_endpoint UNLESS it's a cloud provider, then default to localhost
+if os.environ.get("K8S_AGENT_EMBED_ENDPOINT"):
+    EMBEDDING_ENDPOINT = os.environ.get("K8S_AGENT_EMBED_ENDPOINT")
+elif _is_cloud_llm:
+    print(f"[config] ☁️ Cloud LLM detected ({_llm_endpoint}). Forcing embeddings to local Ollama.", flush=True)
+    EMBEDDING_ENDPOINT = "http://localhost:11434"
+else:
+    EMBEDDING_ENDPOINT = _llm_endpoint
+
 KB_MAX_MATCHES = 5
 KB_MIN_SIMILARITY = 0.35
 USE_CHROMADB = os.environ.get("USE_CHROMADB", "true").lower() == "true"
 CHROMADB_PERSIST_DIR = os.environ.get("CHROMADB_PERSIST_DIR", "./chroma_db")
 
 # ---- Query Routing Config ----
-ROUTING_ENABLED = os.environ.get("ROUTING_ENABLED", "true").lower() == "true"
+# ---- Query Routing Config ----
+ROUTING_ENABLED = False # Enforce Brain model for all queries
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 
 # ---- Logging Config ----

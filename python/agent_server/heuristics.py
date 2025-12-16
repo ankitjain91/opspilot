@@ -3,23 +3,8 @@ import re
 from typing import List, Tuple, Optional
 from .config import TYPO_CORRECTIONS
 
-def autocorrect_query(query: str) -> tuple[str, list[str]]:
-    """Auto-correct common typos in the query.
-
-    Returns (corrected_query, list_of_corrections_made)
-    """
-    corrected = query
-    corrections = []
-
-    words = re.findall(r'\b\w+\b', query.lower())
-    for word in words:
-        if word in TYPO_CORRECTIONS:
-            correct = TYPO_CORRECTIONS[word]
-            pattern = re.compile(re.escape(word), re.IGNORECASE)
-            corrected = pattern.sub(correct, corrected)
-            corrections.append(f"{word} → {correct}")
-
-    return corrected, corrections
+# Native AI Refactor: Removed autocorrect_query
+# LLMs are robust to typos; we don't need brittle dictionary lookups.
 
 def normalize_query(query: str) -> tuple[str, str | None]:
     """Minimal query normalization - let the LLM handle natural language variations.
@@ -29,6 +14,9 @@ def normalize_query(query: str) -> tuple[str, str | None]:
 
     Returns (normalized_query, normalization_note)
     """
+    if not query:  # Safety: handle None or empty string
+        return '', None
+
     q_lower = query.lower().strip()
 
     # Handle terse "adjective + noun" queries (no verb) - these are implicit "find" queries

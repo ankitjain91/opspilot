@@ -1,0 +1,100 @@
+Name:             as-operator-controller-manager-c5c4d96f5-tm6zt
+Namespace:        as-air-cluster-system
+Priority:         0
+Service Account:  as-operator-controller-manager
+Node:             aks-default-49089664-vmss000002/10.1.1.6
+Start Time:       Thu, 11 Dec 2025 14:30:25 -0800
+Labels:           azure.workload.identity/use=true
+                  control-plane=controller-manager
+                  pod-template-hash=c5c4d96f5
+Annotations:      cni.projectcalico.org/containerID: 472481bea5918f2e22983755031a9d343a888d258e382ce39efc6d2f997de042
+                  cni.projectcalico.org/podIP: 10.244.2.182/32
+                  cni.projectcalico.org/podIPs: 10.244.2.182/32
+                  kubectl.kubernetes.io/default-container: manager
+Status:           Running
+IP:               10.244.2.182
+IPs:
+  IP:           10.244.2.182
+Controlled By:  ReplicaSet/as-operator-controller-manager-c5c4d96f5
+Containers:
+  kube-rbac-proxy:
+    Container ID:  containerd://05bcbb58ce0a7e3638e2ee53d4507dea6dee44f7be636f4ef1f2ae206e5ac8d5
+    Image:         gcr.io/kubebuilder/kube-rbac-proxy:v0.13.0
+    Image ID:      gcr.io/kubebuilder/kube-rbac-proxy@sha256:d99a8d144816b951a67648c12c0b988936ccd25cf3754f3cd85ab8c01592248f
+    Port:          8443/TCP
+    Host Port:     0/TCP
+    Args:
+      --secure-listen-address=0.0.0.0:8443
+      --upstream=http://127.0.0.1:8080/
+      --logtostderr=true
+      --v=0
+    State:          Running
+      Started:      Thu, 11 Dec 2025 14:30:31 -0800
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     500m
+      memory:  128Mi
+    Requests:
+      cpu:        5m
+      memory:     64Mi
+    Environment:  <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-mbmnx (ro)
+  manager:
+    Container ID:  containerd://d73b224d3fb5ecb5d065623b329f4e8bcc7c18525b20c04fffe9b5e8249e9f04
+    Image:         sfbrdevhelmweacr.azurecr.io/uipath/cloudgen-operator:v1.2.0-995ca39
+    Image ID:      sfbrdevhelmweacr.azurecr.io/uipath/cloudgen-operator@sha256:7c1ba0d06e75d0666efd31a3bfabf942eede296c3f5946a6c9f23f1f89ef5caf
+    Port:          9443/TCP
+    Host Port:     0/TCP
+    Command:
+      /manager
+    Args:
+      --health-probe-bind-address=:8081
+      --metrics-bind-address=127.0.0.1:8080
+      --zap-time-encoding=iso8601
+      --leader-elect
+    State:          Running
+      Started:      Thu, 11 Dec 2025 22:19:07 -0800
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Thu, 11 Dec 2025 14:31:26 -0800
+      Finished:     Thu, 11 Dec 2025 22:19:06 -0800
+    Ready:          True
+    Restart Count:  1
+    Limits:
+      cpu:     500m
+      memory:  512Mi
+    Requests:
+      cpu:        10m
+      memory:     256Mi
+    Liveness:     http-get http://:8081/healthz delay=15s timeout=1s period=20s #success=1 #failure=3
+    Readiness:    http-get http://:8081/readyz delay=5s timeout=1s period=10s #success=1 #failure=3
+    Environment:  <none>
+    Mounts:
+      /tmp/k8s-webhook-server/serving-certs from cert (ro)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-mbmnx (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  cert:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  webhook-server-cert
+    Optional:    false
+  kube-api-access-mbmnx:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   Burstable
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:                      <none>

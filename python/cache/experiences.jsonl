@@ -1,0 +1,1 @@
+{"id": "test-run-123", "timestamp": "2024-01-01T12:00:00Z", "query": "fix crashLoop on frontend", "plan": "Check logs, found OOM, increased limit", "outcome": "SUCCESS", "analysis": "Pod validation confirmed running"}

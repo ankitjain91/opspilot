@@ -1,0 +1,15 @@
+GROUP:      operator.cluster.x-k8s.io
+KIND:       BootstrapProvider
+VERSION:    v1alpha2
+
+DESCRIPTION:
+    BootstrapProvider is the Schema for the bootstrapproviders API.
+    
+FIELDS:
+  apiVersion	<string>
+    APIVersion defines the versioned schema of this representation of an object.
+    Servers should convert recognized schemas to the latest internal value, and
+    may reject unrecognized values. More info:
+    https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+
+  kind	<string>

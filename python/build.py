@@ -42,8 +42,18 @@ def build():
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "httpx",
         "--hidden-import", "langgraph",
+        "--hidden-import", "langgraph.checkpoint.memory",
+        "--hidden-import", "langgraph.prebuilt",
+        "--hidden-import", "langgraph.prebuilt",
         "--hidden-import", "langchain_core",
         "--hidden-import", "encodings",
+        # FORCE include all agent components to prevent ModuleNotFoundError
+        "--hidden-import", "agent_server",
+        "--hidden-import", "agent_server.nodes",
+        "--hidden-import", "agent_server.tools",
+        "--hidden-import", "agent_server.tools.kb_search",
+        "--hidden-import", "agent_server.tools.safe_executor",
+        "--hidden-import", "agent_server.config",
         # Optimize build size/speed by excluding unused heavy ML/Science libraries
         "--exclude-module", "torch",
         "--exclude-module", "tensorflow",

@@ -1,0 +1,2 @@
+NAMESPACE   NAME                 AGE
+taasvstst   management-cluster   10d

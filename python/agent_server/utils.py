@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 import os
 import hashlib
-from .config import DANGEROUS_VERBS, LARGE_OUTPUT_VERBS, AZURE_MUTATION_VERBS, AZURE_SAFE_COMMANDS, MAX_OUTPUT_LENGTH, LOG_DIR, CACHE_DIR
+from .config import DANGEROUS_VERBS, REMEDIATION_VERBS, LARGE_OUTPUT_VERBS, AZURE_MUTATION_VERBS, AZURE_SAFE_COMMANDS, MAX_OUTPUT_LENGTH, LOG_DIR, CACHE_DIR
 
 def is_safe_command(cmd: str) -> tuple[bool, str]:
     """Check if a command is safe (read-only) and requires approval.
@@ -39,6 +39,10 @@ def is_safe_command(cmd: str) -> tuple[bool, str]:
     if any(re.search(rf'\b{verb}\b', lower) for verb in DANGEROUS_VERBS):
         return False, "MUTATING"
 
+    # Check for remediation verbs (allowed via tools but require approval)
+    if any(re.search(rf'\b{verb}\b', lower) for verb in REMEDIATION_VERBS):
+        return False, "REMEDIATION"
+
     if any(verb in lower for verb in LARGE_OUTPUT_VERBS):
         return False, "LARGE_OUTPUT"
 
@@ -66,6 +70,7 @@ def smart_truncate_output(output: str, max_chars: int = 3000) -> str:
         'ImagePull', 'False', '0/', 'Evicted', 'Terminating',
         'BackOff', 'Warning', 'Unhealthy', 'NotReady',
         'Invalid', 'Unknown', 'Degraded', 'ASFailed', 'EnvFailed', # CRD failure patterns
+        'Killing', 'Preempting', 'ContainerStatusUnknown', # K8s events
     ]
 
     important = [header] if header else []
@@ -313,8 +318,50 @@ def log_session(state: dict, duration: float, status: str = "COMPLETED"):
             json.dump(log_data, f, indent=2, default=str)
             
         print(f"[agent-sidecar] Session logged to {filepath}", flush=True)
+
+        # 🧠 THE LIBRARY: Learn from this session
+        try:
+             save_session_experience(state)
+        except Exception as e:
+             print(f"[Library] Failed to save experience: {e}", flush=True)
+
     except Exception as e:
         print(f"[agent-sidecar] Failed to log session: {e}", flush=True)
+
+def save_session_experience(state: dict):
+    """Extract and save session experience to The Library."""
+    if not state.get('query'): return
+
+    # Heuristic for outcome
+    outcome = "UNKNOWN"
+    if state.get('error'):
+        outcome = "FAILURE"
+    elif state.get('confidence_score', 0) >= 0.8:
+        outcome = "SUCCESS"
+    
+    # Only save definitive outcomes to avoid polluting DB with noise
+    if outcome == "UNKNOWN": return
+    
+    # Extract plan summary
+    plan = "Direct Execution"
+    if state.get('execution_plan'):
+        plan = get_plan_summary(state['execution_plan'])
+    elif state.get('current_plan'):
+        plan = state['current_plan']
+        
+    final_resp = state.get('final_response', '')
+    
+    try:
+        from .memory.experience import save_experience
+        save_experience({
+            "query": state['query'],
+            "plan": plan,
+            "outcome": outcome,
+            "analysis": f"Final Response: {final_resp[:300]}...", # Truncate analysis
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except ImportError:
+        pass # Handle case where memory module not fully available yet
 
 def calculate_confidence_score(state: dict) -> float:
     """Calculate confidence based on history and reflection."""
@@ -329,9 +376,8 @@ def calculate_confidence_score(state: dict) -> float:
     if last_cmd and last_cmd.get('error'):
         confidence -= 0.3
         
-    reasoning = state.get('reflection_reasoning', '').lower()
+    reasoning = (state.get('reflection_reasoning') or '').lower()
     uncertain_words = ['uncertain', 'unsure', 'might', 'maybe', 'not sure', 'failed to verify']
-    
     
     if any(w in reasoning for w in uncertain_words):
         confidence -= 0.4
@@ -388,3 +434,203 @@ def cache_command_result(state: dict, command: str, output: str) -> dict:
         print(f"Cache write failed: {e}", flush=True)
         
     return state
+
+def parse_kubectl_json_output(json_str: str) -> str:
+    """
+    Parse kubectl JSON output using Pydantic models for strict validation.
+    
+    Returns structured summaries (e.g., "Found 5 Pods, 2 Unhealthy: ...") rather than strict dictionaries.
+    """
+    try:
+        if not json_str.strip():
+            return "(empty output)"
+            
+        data = json.loads(json_str)
+        kind = data.get('kind', 'Unknown')
+        
+        # Import models inside function to avoid circular imports
+        from .models.k8s import K8sPod, K8sDeployment, K8sEvent, K8sNode
+        
+        # Handle List type
+        if kind == 'List' or 'items' in data:
+            items = data.get('items', [])
+            count = len(items)
+            if count == 0:
+                return "No resources found (0 items)."
+                
+            # Detect resource type from first item
+            first_kind = items[0].get('kind')
+            
+            # --- POD PARSING ---
+            if first_kind == 'Pod':
+                pods = [K8sPod.from_dict(item) for item in items]
+                unhealthy = [p for p in pods if not p.is_healthy]
+                
+                parts = [f"Found {len(pods)} Pods."]
+                if unhealthy:
+                    parts.append(f"{len(unhealthy)} Unhealthy:")
+                    for p in unhealthy[:10]:
+                        parts.append(f"- {p.summary()}")
+                    if len(unhealthy) > 10:
+                        parts.append(f"... ({len(unhealthy)-10} more omitted)")
+                else:
+                    parts.append("✅ All pods are verified healthy (Running/Ready).")
+                return "\n".join(parts)
+
+            # --- DEPLOYMENT PARSING ---
+            elif first_kind == 'Deployment':
+                deps = [K8sDeployment.from_dict(item) for item in items]
+                unhealthy = [d for d in deps if not d.is_healthy]
+                
+                parts = [f"Found {len(deps)} Deployments."]
+                if unhealthy:
+                    parts.append(f"{len(unhealthy)} Unhealthy:")
+                    for d in unhealthy:
+                        parts.append(f"- {d.summary()}")
+                else:
+                    parts.append("✅ All deployments are fully reconciled.")
+                return "\n".join(parts)
+
+            # --- EVENT PARSING ---
+            elif first_kind == 'Event':
+                events = [K8sEvent.from_dict(item) for item in items]
+                warnings = [e for e in events if e.type == 'Warning']
+                
+                if not warnings:
+                    return "No warning events found."
+                
+                parts = [f"Found {len(warnings)} Warning events:"]
+                # De-duplicate events
+                seen = set()
+                count = 0
+                for e in warnings:
+                   key = f"{e.reason}-{e.object}-{e.message}"
+                   if key not in seen:
+                       seen.add(key)
+                       parts.append(f"- {e.summary()}")
+                       count += 1
+                       if count >= 15:
+                           break
+                return "\n".join(parts)
+
+            # --- NODE PARSING ---
+            elif first_kind == 'Node':
+                nodes = [K8sNode.from_dict(item) for item in items]
+                # ... simple summary 
+                return f"Found {len(nodes)} Nodes. {[n.summary() for n in nodes]}"
+
+            else:
+                # Fallback for generic resources - extract FULL details for LLM
+                # Instead of summarizing, provide comprehensive JSON representation
+                resource_details = []
+
+                for item in items[:10]:  # Limit to 10 for readability
+                    metadata = item.get('metadata', {})
+                    spec = item.get('spec', {})
+                    status_obj = item.get('status', {})
+
+                    name = metadata.get('name', 'unknown')
+                    namespace = metadata.get('namespace')
+
+                    # Build comprehensive detail block
+                    detail = f"\n## {first_kind}: {name}"
+                    if namespace:
+                        detail += f" (namespace: {namespace})"
+
+                    # Add creation timestamp
+                    created = metadata.get('creationTimestamp')
+                    if created:
+                        detail += f"\n  Created: {created}"
+
+                    # Add labels if present
+                    labels = metadata.get('labels', {})
+                    if labels:
+                        detail += f"\n  Labels: {', '.join([f'{k}={v}' for k, v in list(labels.items())[:5]])}"
+
+                    # Add spec details with VALUES (first level)
+                    if spec:
+                        detail += "\n  Spec:"
+                        for key, value in list(spec.items())[:10]:
+                            # Format value based on type
+                            if isinstance(value, (str, int, float, bool)):
+                                detail += f"\n    - {key}: {value}"
+                            elif isinstance(value, dict):
+                                # Show nested dict keys or compact JSON
+                                if len(value) <= 3:
+                                    detail += f"\n    - {key}: {json.dumps(value)}"
+                                else:
+                                    dict_keys = ', '.join(list(value.keys())[:5])
+                                    detail += f"\n    - {key}: {{{dict_keys}...}}"
+                            elif isinstance(value, list):
+                                detail += f"\n    - {key}: [{len(value)} items]"
+                            else:
+                                detail += f"\n    - {key}: {str(value)[:100]}"
+
+                    # Add status details
+                    if status_obj:
+                        # Common status fields
+                        phase = status_obj.get('phase', status_obj.get('state'))
+                        if phase:
+                            detail += f"\n  Status/Phase: {phase}"
+
+                        # Conditions
+                        conditions = status_obj.get('conditions', [])
+                        if conditions:
+                            detail += "\n  Conditions:"
+                            for cond in conditions[:3]:  # Show first 3 conditions
+                                cond_type = cond.get('type', 'Unknown')
+                                cond_status = cond.get('status', 'Unknown')
+                                cond_reason = cond.get('reason', '')
+                                detail += f"\n    - {cond_type}: {cond_status}"
+                                if cond_reason and cond_status != 'True':
+                                    detail += f" ({cond_reason})"
+
+                        # Other status fields with VALUES (show first 10 fields)
+                        other_status = {k: v for k, v in status_obj.items() if k not in ['conditions', 'phase', 'state']}
+                        if other_status:
+                            detail += "\n  Additional Status:"
+                            for key, value in list(other_status.items())[:10]:
+                                # Format value based on type
+                                if isinstance(value, (str, int, float, bool)):
+                                    detail += f"\n    - {key}: {value}"
+                                elif isinstance(value, dict):
+                                    # Show nested dict keys or compact JSON
+                                    if len(value) <= 3:
+                                        detail += f"\n    - {key}: {json.dumps(value)}"
+                                    else:
+                                        dict_keys = ', '.join(list(value.keys())[:5])
+                                        detail += f"\n    - {key}: {{{dict_keys}...}}"
+                                elif isinstance(value, list):
+                                    detail += f"\n    - {key}: [{len(value)} items]"
+                                else:
+                                    detail += f"\n    - {key}: {str(value)[:100]}"
+
+                    resource_details.append(detail)
+
+                header = f"Found {count} {first_kind} resource(s):"
+                if count > 10:
+                    header += f" (showing first 10)"
+
+                return header + "".join(resource_details)
+
+        else:
+            # Single Object
+            if kind == 'Pod':
+                return K8sPod.from_dict(data).summary()
+            elif kind == 'Deployment':
+                return K8sDeployment.from_dict(data).summary()
+            else:
+                metadata = data.get('metadata', {})
+                name = metadata.get('name', 'unknown')
+                namespace = metadata.get('namespace')
+                ns_str = f" (namespace: {namespace})" if namespace else ""
+                status = data.get('status', {})
+                phase = status.get('phase', status.get('state', 'Unknown'))
+                return f"Resource: {kind}/{name}{ns_str}\nStatus: {phase}"
+
+    except json.JSONDecodeError:
+        return f"(Output was not valid JSON: {json_str[:100]}...)"
+    except Exception as e:
+        # Fallback to heuristic parsing if strict validation fails (graceful degradation)
+        print(f"[agent-sidecar] ⚠️ Strict parsing failed: {e}. Falling back to heuristic.", flush=True)
+        return smart_truncate_output(json_str, max_chars=2000)

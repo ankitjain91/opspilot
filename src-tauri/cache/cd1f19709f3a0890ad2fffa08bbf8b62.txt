@@ -1,0 +1,27 @@
+NAME                                              HEALTHY   REVISION   IMAGE                                                                   STATE    DEP-FOUND   DEP-INSTALLED   AGE
+provider-azure-authorization-b61976532d69         True      1          xpkg.upbound.io/upbound/provider-azure-authorization:v1.13.1            Active                               9d
+provider-terraform-6b7837f3b5b8                   True      1          xpkg.upbound.io/upbound/provider-terraform:v0.21.2                      Active                               9d
+provider-azure-search-b1e4b32d944e                True      1          xpkg.upbound.io/upbound/provider-azure-search:v1.13.1                   Active                               9d
+provider-azure-resources-f5f04e07c068             True      1          xpkg.upbound.io/upbound/provider-azure-resources:v1.13.1                Active                               9d
+provider-azure-storage-688414b5d843               True      1          xpkg.upbound.io/upbound/provider-azure-storage:v1.7.4                   Active                               9d
+provider-azure-keyvault-5f9b09f55155              True      1          xpkg.upbound.io/upbound/provider-azure-keyvault:v1.13.1                 Active                               9d
+provider-azure-web-8b6e4ec34df8                   True      1          xpkg.upbound.io/upbound/provider-azure-web:v1.13.1                      Active                               9d
+provider-azure-cache-c029ca04758a                 True      1          xpkg.upbound.io/upbound/provider-azure-cache:v1.13.1                    Active                               9d
+provider-azure-containerservice-59a053abd5d5      True      1          xpkg.upbound.io/upbound/provider-azure-containerservice:v1.13.1         Active                               9d
+provider-azure-cosmosdb-fecd06fd9239              True      1          xpkg.upbound.io/upbound/provider-azure-cosmosdb:v1.13.1                 Active                               9d
+provider-azure-compute-c95b33b7a970               True      1          xpkg.upbound.io/upbound/provider-azure-compute:v1.13.1                  Active                               9d
+provider-azure-sql-8b884646b494                   True      1          xpkg.upbound.io/upbound/provider-azure-sql:v1.13.1                      Active                               9d
+provider-azure-insights-ce331f469bd0              True      1          xpkg.upbound.io/upbound/provider-azure-insights:v1.13.1                 Active                               9d
+provider-azure-datafactory-f820485e9e8a           True      1          xpkg.upbound.io/upbound/provider-azure-datafactory:v1.13.1              Active                               9d
+provider-azure-network-de7f4e074fcb               True      1          xpkg.upbound.io/upbound/provider-azure-network:v1.13.1                  Active                               9d
+crossplane-provider-castai-5ba55744eb83           True      1          xpkg.upbound.io/crossplane-contrib/crossplane-provider-castai:v0.26.0   Active                               9d
+provider-family-azure-2ae825643602                True      1          xpkg.upbound.io/upbound/provider-family-azure:v1.13.1                   Active                               9d
+provider-helm-802eca6e59c4                        True      1          xpkg.upbound.io/upbound/provider-helm:v0.21.1                           Active                               9d
+provider-azure-dbformysql-eda7983f8ba6            True      1          xpkg.upbound.io/upbound/provider-azure-dbformysql:v1.13.1               Active                               9d
+provider-azure-dbforpostgresql-dae4a474d31d       True      1          xpkg.upbound.io/upbound/provider-azure-dbforpostgresql:v1.13.1          Active                               9d
+provider-azure-containerregistry-af47d4ee31fa     True      1          xpkg.upbound.io/upbound/provider-azure-containerregistry:v1.13.1        Active                               9d
+provider-azure-managedidentity-b1e58792940b       True      1          xpkg.upbound.io/upbound/provider-azure-managedidentity:v1.13.1          Active                               9d
+provider-azure-eventhub-6cedf8f375ed              True      1          xpkg.upbound.io/upbound/provider-azure-eventhub:v1.13.1                 Active                               9d
+provider-azure-operationalinsights-827749a09332   True      1          xpkg.upbound.io/upbound/provider-azure-operationalinsights:v1.13.1      Active                               9d
+provider-azure-signalrservice-08d277383d3f        True      1          xpkg.upbound.io/upbound/provider-azure-signalrservice:v1.13.1           Active                               9d
+provider-azure-dataprotection-ada6e81fbf6c        True      1          xpkg.upbound.io/upbound/provider-azure-dataprotection:v1.13.1           Active                               9d

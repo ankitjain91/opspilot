@@ -1,0 +1,2 @@
+NAME                                              AGE
+devtest-dedicated-static-ea-workloadidentity-xp   9d

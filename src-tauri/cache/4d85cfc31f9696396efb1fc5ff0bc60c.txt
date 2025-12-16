@@ -1,0 +1,4 @@
+taasvstst                           crossplane-844b54fc95-b4bjd-x-upbound-system-x-manag-9a078540ad   1/1     Running     0               2d14h
+taasvstst                           crossplane-844b54fc95-nsmfc-x-upbound-system-x-manag-58bcc191bf   1/1     Running     9 (2d14h ago)   9d
+taasvstst                           crossplane-provider-castai-5ba55744eb83-d4bb64cc9-xz-ae52222f59   1/1     Running     0               9d
+taasvstst                           crossplane-rbac-manager-6d585894bd-b2zm5-x-upbound-s-e5633fda94   1/1     Running     1 (2d6h ago)    2d14h

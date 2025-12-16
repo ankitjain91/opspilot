@@ -9,16 +9,24 @@ class CommandHistory(TypedDict):
     assessment: str | None  # Self-reflection assessment
     useful: bool | None
     reasoning: str | None
+ 
+class ReflectionData(TypedDict, total=False):
+    """Structured output from reflect node."""
+    directive: Literal['CONTINUE', 'RETRY', 'SOLVED', 'ABORT']
+    verified_facts: List[str]
+    next_command_hint: str | None
+    reason: str | None
 
 class AgentState(TypedDict):
     """State for the K8s troubleshooting agent."""
     query: str
     kube_context: str
+    known_contexts: list[str]  # Discovered kube contexts
     command_history: list[CommandHistory]
     conversation_history: list[dict] # Previous USER/ASSISTANT turns
     iteration: int
     current_hypothesis: str  # The active hypothesis being tested (e.g. "Pod is crashing due to OOM")
-    next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate', 'batch_execute', 'create_plan', 'execute_plan_step', 'validate_plan_step', 'invoke_mcp']
+    next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate', 'batch_execute', 'create_plan', 'execute_plan_step', 'validate_plan_step', 'invoke_mcp', 'execute_next_step']
     pending_command: str | None
     final_response: str | None
     error: str | None
@@ -28,6 +36,7 @@ class AgentState(TypedDict):
     llm_provider: str
     llm_model: str
     executor_model: str
+    api_key: str | None
     current_plan: str | None
     cluster_info: str | None
     events: list[dict]
@@ -43,3 +52,9 @@ class AgentState(TypedDict):
     blocked_commands: list[str] | None  # Commands that were blocked to prevent retry loops
     pending_batch_commands: list[str] | None  # List of commands to execute in parallel
     batch_results: list[dict] | None  # Results from parallel batch execution
+    completed_plan_summary: str | None  # Summary of completed plan for final synthesis
+    step_status: Literal['in_progress', 'success', 'failed', 'retrying', 'solved', 'blocked'] | None  # Outcome of last execution step
+    accumulated_evidence: list[str] | None  # Verified facts discovered across plan steps
+    retry_count: int | None  # Number of retries for the current step
+    last_reflection: ReflectionData | None  # Structured feedback from the reflect node
+    suggested_next_steps: list[str] | None  # Proactive suggestions for next queries (max 3)

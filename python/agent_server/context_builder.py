@@ -6,6 +6,7 @@ Instead of hardcoding placeholder validation, we GIVE THE AI THE INFORMATION IT 
 """
 
 import re
+import json
 from typing import Dict, List, Optional
 
 
@@ -24,7 +25,39 @@ def extract_resources_from_output(command: str, output: str) -> Dict[str, List[s
     """
     resources = {}
 
-    # Extract namespaces from any -A command
+    # Try parsing as JSON first (if -o json was used)
+    if output.strip().startswith('{'):
+        try:
+            data = json.loads(output)
+            items = data.get('items', [data] if data.get('metadata') else [])
+            namespaces = set()
+            names = set()
+
+            for item in items:
+                metadata = item.get('metadata', {})
+                name = metadata.get('name')
+                namespace = metadata.get('namespace')
+                if name:
+                    names.add(name)
+                if namespace:
+                    namespaces.add(namespace)
+
+            if namespaces:
+                resources["namespaces"] = sorted(list(namespaces))
+            if names:
+                # Determine resource type from command
+                resource_type = _extract_resource_type(command)
+                if resource_type:
+                    resources[resource_type] = sorted(list(names))
+                else:
+                    # Fallback to generic "resources" key
+                    resources["resources"] = sorted(list(names))
+
+            return resources
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass  # Fall through to table parsing
+
+    # Extract namespaces from any -A command (table format)
     if "-A" in command or "--all-namespaces" in command:
         # Parse table format: NAMESPACE   NAME   ...
         lines = output.strip().split('\n')

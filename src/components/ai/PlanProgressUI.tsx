@@ -10,7 +10,7 @@ import React from 'react';
 export interface PlanStep {
     step: number;
     description: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed';
+    status: 'pending' | 'in_progress' | 'completed' | 'skipped' | 'failed' | 'retrying' | 'blocked';
     result?: string | null;
     command?: string | null;
     output?: string | null;
@@ -34,6 +34,8 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
             case 'completed': return '✅';
             case 'skipped': return '⏭️';
             case 'failed': return '❌';
+            case 'retrying': return '🔄';
+            case 'blocked': return '⛔';
             default: return '❓';
         }
     };
@@ -45,6 +47,8 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
             case 'completed': return 'text-green-500';
             case 'skipped': return 'text-yellow-500';
             case 'failed': return 'text-red-500';
+            case 'retrying': return 'text-orange-500 animate-spin';
+            case 'blocked': return 'text-red-400';
             default: return 'text-gray-500';
         }
     };
@@ -73,23 +77,21 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
             </div>
 
             {/* Step Checklist */}
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                 {plan.map((step) => (
                     <div
                         key={step.step}
-                        className={`flex items-start gap-2 text-sm ${
-                            step.status === 'in_progress' ? 'bg-gray-700/50 rounded p-2' : ''
-                        }`}
+                        className={`flex items-start gap-2 text-sm ${step.status === 'in_progress' ? 'bg-gray-700/50 rounded p-2' : ''
+                            }`}
                     >
                         <span className={`text-lg leading-none ${getStatusColor(step.status)}`}>
                             {getStatusEmoji(step.status)}
                         </span>
                         <div className="flex-1 min-w-0">
-                            <span className={`${
-                                step.status === 'completed' ? 'text-gray-400 line-through' :
+                            <span className={`${step.status === 'completed' ? 'text-gray-400 line-through' :
                                 step.status === 'in_progress' ? 'text-white font-medium' :
-                                'text-gray-300'
-                            }`}>
+                                    'text-gray-300'
+                                }`}>
                                 {step.description}
                             </span>
                             {step.command && step.status === 'in_progress' && (

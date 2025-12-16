@@ -5,16 +5,15 @@ import json
 import asyncio
 
 # Add current dir to path
+# Add current dir to path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_server"))
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from agent_server import (
-        SUPERVISOR_PROMPT, 
-        SUPERVISOR_EXAMPLES_FULL, 
-        get_examples_text, 
-        select_relevant_examples,
-        format_command_history
-    )
+    from agent_server.prompts_templates import SUPERVISOR_PROMPT
+    from agent_server.prompts_examples import SUPERVISOR_EXAMPLES_FULL, get_examples_text
+    from agent_server.heuristics import select_relevant_examples
+    from agent_server.utils import format_command_history
     print("✅ Successfully imported agent_server components")
 except ImportError as e:
     print(f"❌ Failed to import agent_server: {e}")

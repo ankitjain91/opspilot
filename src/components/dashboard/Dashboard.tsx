@@ -328,11 +328,13 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
 
     useEffect(() => {
         const handler = () => {
+            console.log("Reload event received, invalidating all queries");
+            qc.invalidateQueries();
             refetchDiscovery();
         };
         window.addEventListener("lenskiller:reload", handler);
         return () => window.removeEventListener("lenskiller:reload", handler);
-    }, [refetchDiscovery]);
+    }, [refetchDiscovery, qc]);
 
     // Default to Cluster Overview
     useEffect(() => {

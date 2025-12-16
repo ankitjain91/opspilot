@@ -1,5 +1,5 @@
 // LLM Provider types
-export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'custom' | 'claude-code';
+export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'custom' | 'claude-code' | 'groq';
 
 export interface LLMConfig {
     provider: LLMProvider;
@@ -7,6 +7,8 @@ export interface LLMConfig {
     base_url: string;
     model: string;                    // Primary "Brain" model for planning/analysis
     executor_model?: string | null;   // Optional fast "Executor" model for CLI translation
+    embedding_model?: string | null;  // Optional embedding model
+    embedding_endpoint?: string | null;
     temperature: number;
     max_tokens: number;
 }

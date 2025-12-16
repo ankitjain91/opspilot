@@ -1,0 +1,3 @@
+NAME           READY   STATUS    RESTARTS   AGE
+backend-api    1/1     Running   0          10m
+frontend-ui    1/1     Running   0          10m

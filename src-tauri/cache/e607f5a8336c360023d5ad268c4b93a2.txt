@@ -1,0 +1,513 @@
+Name:         taasvstst
+Namespace:    taasvstst
+Labels:       PricingTier=TierStandard
+Annotations:  last-applied-spec:
+                {"infra":{"customerID":"","cloudType":"azure","cloudRegion":"eastus2","cloudAccount":"Dummy","cloudTags":{"BuildPipeline":"E2E","CustomerN...
+API Version:  dedicated.uipath.com/v1alpha1
+Kind:         CustomerCluster
+Metadata:
+  Creation Timestamp:  2025-12-04T17:39:04Z
+  Finalizers:
+    finalizer.dedicated.uipath.com
+  Generation:        1
+  Resource Version:  18083869
+  UID:               87e44a75-6636-4dc4-b7a0-d71a843e510c
+Spec:
+  AI Center:
+    Enabled:  false
+  Action Center:
+    Enabled:  true
+  Apps:
+    Enabled:  true
+  As Robots:
+    Enabled:               false
+    Max Size:              0
+    Min Size:              0
+    Package Cache Folder:  
+    Package Caching:       false
+  Automation Hub:
+    Enabled:  false
+  Automation Ops:
+    Enabled:  true
+  Automation Solution:
+    Enabled:  false
+  Autopilot Everyone:
+    Enabled:  false
+  Blackout Windows:
+  Data Service:
+    Enabled:  true
+  Document Understanding:
+    Enabled:  false
+  ECS:
+    Ai Search Count:  1
+    Enabled:          false
+  Insights:
+    Enabled:  true
+  Integration Services:
+    Enabled:  false
+  LLM Gateway:
+    Enabled:  true
+  LLM Observability:
+    Enabled:  true
+  Maestro:
+    Enabled:  true
+  Orchestrator:
+    Enabled:  true
+  Platform:
+    Enabled:  true
+  Process Mining:
+    Enabled:  false
+  Studio Web:
+    Enabled:  false
+  Taas:
+    Enabled:  true
+  Task Mining:
+    Enabled:  false
+  Test Manager:
+    Enabled:  true
+  Canary:     true
+  Dns:
+    Host:          taasvstst
+    Proxied:       true
+  Elastic Search:  true
+  Infra:
+    Cloud Account:  Dummy
+    Cloud Region:   eastus2
+    Cloud Tags:
+      Build Pipeline:         E2E
+      Customer Name:          taasvstst
+      Dedicated Environment:  Dev
+      Owner:                  sfbr@uipath.com
+      Project:                Dedicated
+      Sensitivity:            Medium
+    Cloud Type:               azure
+    Infra:
+      Azure:
+        Adf:
+          Failover:  false
+          Instances:
+            Failover:  false
+            Name:      taasvstst
+            Private:   true
+            Failover:  false
+            Name:      taasvstst-insights
+            Private:   true
+        Cache:
+          Failover:  false
+          Private:   false
+          Tier:      Basic
+          Version:   6
+          Zones:     1,2,3
+        Cosmos DB:
+          Failover:  false
+          Failover Region:
+            centralus
+          Multi AZ:  false
+          Name:      insights
+          Tables:
+            TargetTenants
+            Watermark
+          Failover:  false
+          Multi AZ:  false
+          Name:      processorchestration
+          Tables:
+        Databricks:
+          Instances:
+            Name:           taasvstst
+            Workspace Sku:  premium
+        Dns:
+          Enabled:  false
+        Elasticsearch:
+          Components:
+            Elasticsearch:
+              Memory:    30Gi
+              Replicas:  3
+              Storage:   4096Gi
+            Logstash:
+              Memory:    4Gi
+              Replicas:  3
+              Storage:   16Gi
+          Enabled:       true
+          Snapshots:
+            Cron Expression:  0 0 10 * * ?
+            Expire After:     2560d
+            Name:             snapshot-24h
+            Cron Expression:  0 15/30 * * * ?
+            Expire After:     60d
+            Name:             snapshot-30m
+        Event Hub:
+          Auto Inflate:           true
+          Capacity:               5.0
+          Capture Size In Bytes:  52428800.0
+          Failover:               false
+          Instances:
+            Auto Inflate:           true
+            Capacity:               1.0
+            Capture Size In Bytes:  52428800
+            Event Hubs:
+              Consumer Groups:
+                logstash
+                logstash-blue
+                insights-databricks
+              Enable Diagnostics:              true
+              Name:                            robot-logs
+              Storage Account Name Container:  robot-logs-backup
+              Storage Account Name Prefix:     orcheh
+            Failover:                          false
+            Maximum Throughput Units:          5.0
+            Multi AZ:                          false
+            Namespace:                         taasvstst
+            Partition Count:                   32.0
+            Private:                           false
+            Retention:                         4.0
+            Sku:                               Standard
+            Auto Inflate:                      true
+            Capacity:                          1.0
+            Capture Size In Bytes:             52428800
+            Event Hubs:
+              Consumer Groups:
+                publisher-events-eh_publisher
+                publisher-events-eh_publisher_all_tenants
+              Name:  publisher-events-eh
+              Consumer Groups:
+                publisher-events-enabled-tenants-eh_publisher
+              Name:  publisher-events-enabled-tenants-eh
+              Consumer Groups:
+                publisher-logs-eh_publisher
+              Name:  publisher-logs-eh
+              Consumer Groups:
+                publisher-logs-enabled-tenants-eh_publisher
+              Name:  publisher-logs-enabled-tenants-eh
+              Consumer Groups:
+                transform-events-eh_transform
+                insights-databricks
+              Name:                    transform-events-eh
+            Failover:                  false
+            Maximum Throughput Units:  5.0
+            Multi AZ:                  false
+            Namespace:                 taasvstst-insights
+            Partition Count:           32.0
+            Private:                   false
+            Retention:                 4.0
+            Sku:                       Standard
+            Auto Inflate:              true
+            Capacity:                  1.0
+            Capture Size In Bytes:     52428800
+            Event Hubs:
+              Consumer Groups:
+                maestro
+              Enable Diagnostics:              true
+              Name:                            raw
+              Storage Account Name Container:  raw-backup
+              Storage Account Name Prefix:     common
+            Failover:                          false
+            Maximum Throughput Units:          5.0
+            Multi AZ:                          false
+            Namespace:                         taasvstst-maestro
+            Partition Count:                   32.0
+            Private:                           false
+            Retention:                         4.0
+            Sku:                               Standard
+            Auto Inflate:                      true
+            Capacity:                          5.0
+            Capture Size In Bytes:             52428800
+            Event Hubs:
+              Consumer Groups:
+                llmops-audits_audits-runtime
+                llmops-audits_taskrunner
+              Name:  llmops-audit-events
+              Consumer Groups:
+                llmops-traces_traces-runtime
+                llmops-traces_taskrunner
+              Name:  llmops-trace-events
+              Consumer Groups:
+                llmops-batch_taskrunner
+              Name:                    llmops-batch-layer
+            Failover:                  false
+            Maximum Throughput Units:  20.0
+            Multi AZ:                  false
+            Namespace:                 taasvstst-llmops-eventhub-ns
+            Partition Count:           32.0
+            Private:                   false
+            Retention:                 7.0
+            Sku:                       Standard
+          Maximum Throughput Units:    5.0
+          Partition Count:             32.0
+          Retention:                   4.0
+          Sku:                         Standard
+        Function App:
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           inslogexp
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           insmon
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           inslogexpdelivery
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           inslogexpmapping
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           insrtm
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           insrtmvalidation
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           insdelalerts
+          Sku:            EP1
+          Tier:           Dynamic
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           llmopsconsumer
+          Sku:            FC1
+          Tier:           FlexConsumption
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           llmopsproducer
+          Sku:            FC1
+          Tier:           FlexConsumption
+          Worker Count:   1
+          Enabled:        true
+          Failover:       false
+          Instance Size:  Small
+          Kind:           FunctionApp
+          Name:           llmopspoconsumer
+          Sku:            FC1
+          Tier:           FlexConsumption
+          Worker Count:   1
+        k8s:
+          Enable AAD:           true
+          Failover:             false
+          Honor Patch Version:  true
+          Monitoring:
+            Enabled:  true
+          Secondary Cluster:
+            Availability Zones:  
+            Gpu SKU:             STANDARD_NC16AS_T4_V3
+          Use WI:                true
+          Version:               v1.31.11
+          Worker Pools:
+            Disable Auto Scaling:  true
+            Instance Type:         Standard_D8s_v3
+            Mode:                  System
+            Size:                  1
+            Instance Type:         Standard_D8s_v3
+            Mode:                  User
+            Size:                  5
+            Spot:                  false
+            Instance Type:         Standard_D16s_v3
+            Labels:
+              Load Type:  elasticsearch
+            Size:         3
+            Taints:
+              Effect:  NoSchedule
+              Key:     loadType
+              Value:   elasticsearch
+        Key Vault:
+          CMK Enabled:  true
+          Enabled:      true
+          Private:      true
+        Linux Function Apps:
+          Dotnet Version:  8
+          Enabled:         true
+          Size:            FC1
+          Sku:             FC1
+          Tier:            FlexConsumption
+        Managed Cassandra:
+          Data Centers:
+            Disk Capacity:  4
+            Disk Sku:       P30
+            Name:           taasvstst-dc1
+            Node Count:     3
+            Sku:            Standard_D8s_v4
+          Enabled:          true
+          Name:             taasvstst
+        Mysql:
+          backup_retention_days:  4
+          Enabled:                true
+          Failover:               false
+          Private:                true
+          Sku:                    GP_Standard_D2ds_v4
+          Storage:
+            auto_grow_enabled:  true
+            Size:               20
+          Version:              5.7
+        Signal R:
+          Enabled:   true
+          Failover:  false
+          Settings:
+            Capacity:      1
+            Name Prefix:   orch
+            Service Mode:  Default
+            Sku:           Premium_P1
+            Capacity:      1
+            Name Prefix:   maestro
+            Service Mode:  Default
+            Sku:           Premium_P1
+            Capacity:      1
+            Name Prefix:   llmops-signalr
+            Private:       false
+            Service Mode:  Default
+            Sku:           Standard_S1
+        Snowflake:
+          Enabled:  true
+        Sql:
+          Dbname Prefix:                       taasvstst
+          Differential Backup Freq Hours:      24
+          Differential Backup Retention Days:  7
+          Failover:                            false
+          Long Term Retention Monthly:         P1Y
+          Long Term Retention Weekly:          P30D
+          Long Term Retention Yearly:          P30D
+          Multi AZ:                            false
+          Per Database Capacity:               125
+          Pool Capacity:                       125
+          Private:                             true
+          Use WI:                              true
+        Storage:
+          Account Replication Type:  LRS
+          Accounts:
+            Account Replication Type:  LRS
+            Containers:
+              uipath-as-platform
+              uipath-as-dataservice
+              uipath-as-processmining
+              uipath-as-taskmining
+              uipath-as-backup
+              taas
+              uipath-as-llmobservability
+            Name Prefix:               common
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              robot-logs
+              robot-logs-backup
+            Name Prefix:               orcheh
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              insights-adf-licensingdb-parquet-staging
+              insights-adf-orchdb-parquet-staging
+              insights-robotlogs-parquet-container
+            Name Prefix:               insingest
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               inslogexp
+            Queues:
+              operational-trigger
+              robotlogs-file
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               inslogexpdelivery
+            Queues:
+              backfill-ready
+              tenant-ready
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               inslogexpmapping
+            Queues:
+              backfill-by-hour
+              backfill-dispatch
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               logexpfcmidstr
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insrtmpubev
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insrtmpublogs
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insrtmtransev
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insrtmval
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insrtmalert
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Name Prefix:               insdelalerts
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              uipath-as-llmobservability
+            Name Prefix:               llmopsconsumer
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              uipath-as-llmobservability
+            Name Prefix:               llmopsproducer
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              uipath-as-llmobservability
+            Name Prefix:               llmopspoconsumer
+            Retention In Days:         30
+            Account Replication Type:  LRS
+            Containers:
+              elasticsearch-snapshots
+            Name Prefix:        esbackup
+            Retention In Days:  30
+          Private:              false
+          Retention In Days:    0
+    Mgmt Infra Metadata:
+      Network Info:
+        Azure:
+          Subnet Arm Id:  /subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/resourceGroups/dedicated-rg-dev-eastus-ankitj/providers/Microsoft.Network/virtualNetworks/dedicated-vnet-dev-eastus-ankitj/subnets/default
+      Type:               azure
+  Ingress Access Control:
+  Monitoring:             true
+  Profile:                default
+  Provision Only Infra:   false
+  Region:                 eastus2
+  Release Version:        2.2610.0-rc.10608117
+  Rollout Delay Seconds:  0
+Status:
+  Current State:  ASFailed
+  Versions:
+    As Version:  2.2610.0-rc.10608117
+    k8sVersion:  v1.31.11
+Events:          <none>

@@ -80,7 +80,7 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                 </div>
                 <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${status?.model_available ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                    <span className="text-sm text-zinc-300">k8s-cli Model</span>
+                    <span className="text-sm text-zinc-300">Base Model (llama3.1)</span>
                     <span className={`text-xs ml-auto ${status?.model_available ? 'text-green-400' : 'text-yellow-400'}`}>
                         {status?.model_available ? 'Available' : 'Not Installed'}
                     </span>
@@ -176,13 +176,19 @@ export function OllamaSetupInstructions({ status, onRetry }: { status: OllamaSta
                         </div>
                         <div className="flex items-center gap-2 mb-2 mt-3">
                             <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">3</span>
-                            <span className="text-sm font-medium text-white">Let OpsPilot configure the model</span>
+                            <span className="text-sm font-medium text-white">Pull Base Model</span>
                         </div>
-                        <p className="ml-7 text-xs text-zinc-400 leading-relaxed">
-                            Click <strong className="text-white">Check Again</strong> below. OpsPilot will automatically download and configure the <code className="text-cyan-300">k8s-cli</code> tool for you.
-                        </p>
+                        <div className="ml-7 flex items-center gap-2">
+                            <code className="flex-1 text-xs bg-black/40 px-2 py-1.5 rounded text-cyan-300 font-mono">ollama pull llama3.1</code>
+                            <button
+                                onClick={() => copyToClipboard('ollama pull llama3.1', 'pull')}
+                                className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                            >
+                                {copiedCommand === 'pull' ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                            </button>
+                        </div>
                         <p className="ml-7 mt-1.5 text-[10px] text-zinc-500 italic">
-                            (This downloads ~4.7GB base model once)
+                            (Downloads ~4.7GB Meta Llama 3.1 model)
                         </p>
                     </div>
                 )}

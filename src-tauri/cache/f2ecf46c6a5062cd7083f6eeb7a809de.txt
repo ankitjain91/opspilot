@@ -1,0 +1,128 @@
+Name:             bootstrap-installer-p758r
+Namespace:        estest
+Priority:         0
+Service Account:  default
+Node:             aks-default-49089664-vmss000002/10.1.1.6
+Start Time:       Tue, 18 Nov 2025 19:29:39 -0800
+Labels:           app=bootstrap-cloudgen
+                  batch.kubernetes.io/controller-uid=15e66ebc-705d-41fb-99ab-5816e8d63700
+                  batch.kubernetes.io/job-name=bootstrap-installer
+                  controller-uid=15e66ebc-705d-41fb-99ab-5816e8d63700
+                  job-name=bootstrap-installer
+                  resource-version=aded71728b1e7a2c
+Annotations:      cni.projectcalico.org/containerID: 387396d9a3073048a5403c57b60b804166fa7b8aec96853b9507bc52e10fafd1
+                  cni.projectcalico.org/podIP: 
+                  cni.projectcalico.org/podIPs: 
+Status:           Succeeded
+IP:               10.244.2.72
+IPs:
+  IP:  10.244.2.72
+Containers:
+  mgmtinstaller:
+    Container ID:   containerd://b9875bc57eb8f7429bfd2aad60bb0223f0b9b645e757d1a6537da166b886f4a7
+    Image:          dedicatedacrdev.azurecr.io/mgmtinstaller:5dca19f
+    Image ID:       dedicatedacrdev.azurecr.io/mgmtinstaller@sha256:029f2d9a993af2ec4cc22e7e7cf0ee400d9c82ad9017afa2c4f99f9d35e45ddf
+    Port:           <none>
+    Host Port:      <none>
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Tue, 18 Nov 2025 19:29:55 -0800
+      Finished:     Tue, 18 Nov 2025 19:39:08 -0800
+    Ready:          False
+    Restart Count:  0
+    Environment:
+      INSTALL_PROVIDER:              azure
+      KUBECONFIG:                    /etc/kubeconfig/value
+      UIPATHCTL_OPERATOR_REGISTRY:   dedicatedacrdev.azurecr.io
+      UIPATHCTL_OPERATOR_IMAGE_TAG:  5dca19f
+    Mounts:
+      /etc/kubeconfig from kubeconfig (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-9r97s (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   False 
+  Initialized                 True 
+  Ready                       False 
+  ContainersReady             False 
+  PodScheduled                True 
+Volumes:
+  kubeconfig:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  management-cluster-kubeconfig
+    Optional:    false
+  kube-api-access-9r97s:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:                      <none>
+Name:             bootstrap-installer-dx4zb
+Namespace:        estest2
+Priority:         0
+Service Account:  default
+Node:             aks-default-49089664-vmss000002/10.1.1.6
+Start Time:       Tue, 18 Nov 2025 19:47:12 -0800
+Labels:           app=bootstrap-cloudgen
+                  batch.kubernetes.io/controller-uid=bc92f0b4-0755-4e08-884f-b12df21c352a
+                  batch.kubernetes.io/job-name=bootstrap-installer
+                  controller-uid=bc92f0b4-0755-4e08-884f-b12df21c352a
+                  job-name=bootstrap-installer
+                  resource-version=aded71728b1e7a2c
+Annotations:      cni.projectcalico.org/containerID: fe90687ab5fa4ff954cd50df0ff21dc74e6512f13b5423d20a2a178cfe164d2f
+                  cni.projectcalico.org/podIP: 
+                  cni.projectcalico.org/podIPs: 
+Status:           Succeeded
+IP:               10.244.2.112
+IPs:
+  IP:  10.244.2.112
+Containers:
+  mgmtinstaller:
+    Container ID:   containerd://ba3f0b9698b6c04a9a187652c730678fdee59144a22aec6b12a007ad36292be8
+    Image:          dedicatedacrdev.azurecr.io/mgmtinstaller:5dca19f
+    Image ID:       dedicatedacrdev.azurecr.io/mgmtinstaller@sha256:029f2d9a993af2ec4cc22e7e7cf0ee400d9c82ad9017afa2c4f99f9d35e45ddf
+    Port:           <none>
+    Host Port:      <none>
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Tue, 18 Nov 2025 19:47:13 -0800
+      Finished:     Tue, 18 Nov 2025 19:59:03 -0800
+    Ready:          False
+    Restart Count:  0
+    Environment:
+      INSTALL_PROVIDER:              azure
+      KUBECONFIG:                    /etc/kubeconfig/value
+      UIPATHCTL_OPERATOR_REGISTRY:   dedicatedacrdev.azurecr.io
+      UIPATHCTL_OPERATOR_IMAGE_TAG:  5dca19f
+    Mounts:
+      /etc/kubeconfig from kubeconfig (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-djkwp (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   False 
+  Initialized                 True 
+  Ready                       False 
+  ContainersReady             False 
+  PodScheduled                True 
+Volumes:
+  kubeconfig:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  management-cluster-kubeconfig
+    Optional:    false
+  kube-api-access-djkwp:
+    Type:                    Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:  3607
+    ConfigMapName:           kube-root-ca.crt
+    Optional:                false
+    DownwardAPI:             true
+QoS Class:                   BestEffort
+Node-Selectors:              <none>
+Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                             node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:                      <none>

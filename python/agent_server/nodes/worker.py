@@ -3,12 +3,12 @@ import asyncio
 import subprocess
 import re
 from ..state import AgentState
-from ..prompts_templates import WORKER_PROMPT
+from ..prompts.worker.main import WORKER_PROMPT
 from ..llm import call_llm
 from ..parsing import parse_worker_response
 from ..utils import (
     truncate_output, smart_truncate_output, emit_event,
-    get_cached_result, cache_command_result
+    get_cached_result, cache_command_result, parse_kubectl_json_output
 )
 from ..context_builder import (
     build_discovered_context,
@@ -56,9 +56,23 @@ async def worker_node(state: AgentState) -> dict:
     # Build context from discovered resources - THIS IS THE KEY FIX!
     discovered_context_str = build_discovered_context(state.get('discovered_resources'))
 
+    # Format accumulated evidence for the prompt
+    accumulated_evidence = state.get('accumulated_evidence', [])
+    evidence_str = "\n".join([f"- {fact}" for fact in accumulated_evidence]) if accumulated_evidence else "None yet."
+
+    # Hint from previous reflection (if retry)
+    previous_reflection = state.get('last_reflection', {})
+    retry_hint = ""
+    if previous_reflection and previous_reflection.get('directive') == 'RETRY':
+        hint_text = previous_reflection.get('next_command_hint') or previous_reflection.get('thought')
+        if hint_text:
+            retry_hint = f"\nADVICE FOR RETRY: {hint_text}"
+
     prompt = WORKER_PROMPT.format(
         plan=plan,
+        current_step_description=state.get('current_plan', 'Execute command'),
         kube_context=state['kube_context'] or 'default',
+        accumulated_evidence=evidence_str + retry_hint, # Append hint to evidence area or context
         last_command_info=last_cmd_str,
         avoid_commands=avoid_commands_str,
         discovered_context=discovered_context_str,
@@ -66,12 +80,180 @@ async def worker_node(state: AgentState) -> dict:
 
     try:
         executor_model = state.get('executor_model', 'k8s-cli')
-        response = await call_llm(prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.1)
+        response = await call_llm(prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.1, api_key=state.get('api_key'))
         parsed = parse_worker_response(response)
-        command = parsed['command']
-        thought = parsed['thought']
+        
+        # New Structured Tool Logic
+        command = ""
+        tool_call = parsed.get("tool_call")
+        thought = parsed.get("thought", "Executing tool")
+        context_override = None  # <-- MOVED HERE: Initialize at function scope
+
+        if tool_call:
+            try:
+                from ..tools.definitions import AgentToolWrapper, KubectlContext, GitCommit, PredictScaling
+                from ..tools.safe_executor import SafeExecutor
+                
+                # Validation (Discriminated Union)
+                # Input: {"tool": "kubectl_get", "resource": "pods", ...}
+                wrapper = AgentToolWrapper(tool_call=tool_call)
+                tool_obj = wrapper.tool_call
+                
+                # Safe Construction
+                command = SafeExecutor.build_command(tool_obj, kube_context=state['kube_context'])
+                
+                # 🪞 THE MIRROR: Automated Verification
+                # If the tool implies a state change, append a verification step
+                verify_cmd = SafeExecutor.get_verification_command(tool_obj, kube_context=state['kube_context'])
+                if verify_cmd:
+                    print(f"[agent-sidecar] 🪞 The Mirror: Appending verification: {verify_cmd}", flush=True)
+                    events.append(emit_event("progress", {"message": "🪞 Appending active verification step..."}))
+                    # Use '&&' to run verification only if mutation succeeds
+                    # Add echo to separate output for clearer parsing
+                    command = f"{command} && echo '\n--- VERIFICATION ---' && {verify_cmd}"
+
+                # SPECIAL HANDLING: Context Switching
+                # If the tool is KubectlContext(action='use'), we must update the agent's state
+                if isinstance(tool_obj, KubectlContext) and tool_obj.action == "use" and tool_obj.context_name:
+                    print(f"[agent-sidecar] 🔄 Switching context to: {tool_obj.context_name}", flush=True)
+                    events.append(emit_event("progress", {"message": f"Switching context to {tool_obj.context_name}"}))
+                    # Store context for return value (immutable pattern)
+                    context_override = tool_obj.context_name
+
+                # SPECIAL HANDLING: GitCommit (GitOps)
+                # Instead of a shell command, we perform the git operation directly
+                if isinstance(tool_obj, GitCommit):
+                    print(f"[agent-sidecar] 🐙 Executing GitOps: {tool_obj.repo_url}", flush=True)
+                    events.append(emit_event("progress", {"message": f"🐙 Creating Git Branch & Commit for {tool_obj.file_path}..."}))
+                    
+                    import tempfile
+                    import os
+                    import time
+                    
+                    # Generate branch name if missing
+                    branch = tool_obj.branch_name or f"agent/patch-{int(time.time())}"
+                    
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        # 1. Clone
+                        # Use subprocess for safety and simplicity
+                        subprocess.run(["git", "clone", "--depth", "1", tool_obj.repo_url, tmp_dir], check=True, capture_output=True)
+                        
+                        # 2. Checkout Branch
+                        subprocess.run(["git", "checkout", "-b", branch], cwd=tmp_dir, check=True, capture_output=True)
+                        
+                        # 3. Write File
+                        full_path = os.path.join(tmp_dir, tool_obj.file_path)
+                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                        with open(full_path, 'w') as f:
+                            f.write(tool_obj.file_content)
+                            
+                        # 4. Git Add & Commit
+                        subprocess.run(["git", "add", "."], cwd=tmp_dir, check=True, capture_output=True)
+                        subprocess.run(["git", "commit", "-m", tool_obj.commit_message], cwd=tmp_dir, check=True, capture_output=True)
+                        
+                        # 5. Push
+                        # Note: This might fail without auth. We catch exceptions.
+                        subprocess.run(["git", "push", "origin", branch], cwd=tmp_dir, check=True, capture_output=True)
+                        
+                    # Return a virtual success command/result
+                    # This tricks the supervisor into thinking a command ran successfully
+                    result_msg = f"SUCCESS: Created branch '{branch}' and pushed commit to {tool_obj.repo_url}"
+                    print(f"[agent-sidecar] ✅ GitOps Complete: {result_msg}", flush=True)
+                    
+                    # Create a virtual history entry
+                    events.append(emit_event("command_output", {"command": f"git push origin {branch}", "output": result_msg}))
+                    return {
+                        **state,
+                        'next_action': 'reflect', # Reflect on the success
+                        'command_history': state['command_history'] + [
+                            {'command': f"git push origin {branch}", 'output': result_msg, 'error': None}
+                        ],
+                        'pending_command': None,
+                        'events': events,
+                    }
+
+                # SPECIAL HANDLING: PredictScaling (Time Lord)
+                if isinstance(tool_obj, PredictScaling):
+                    print(f"[agent-sidecar] 🔮 Time Lord: Predicting scaling for {tool_obj.name}...", flush=True)
+                    events.append(emit_event("progress", {"message": f"🔮 Calculating scaling trend for {tool_obj.name}..."}))
+                    
+                    from ..tools.predictor import predict_scaling
+                    
+                    prediction = predict_scaling(
+                        resource_type=tool_obj.resource_type,
+                        name=tool_obj.name,
+                        history=tool_obj.history,
+                        horizon_minutes=tool_obj.horizon_minutes
+                    )
+                    
+                    print(f"[agent-sidecar] 📈 Prediction Result:\n{prediction}", flush=True)
+                    
+                    # Return virtual command result
+                    virtual_cmd = f"predict_scaling {tool_obj.resource_type}/{tool_obj.name}"
+                    events.append(emit_event("command_output", {"command": virtual_cmd, "output": prediction}))
+                    
+                    return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': state['command_history'] + [
+                            {'command': virtual_cmd, 'output': prediction, 'error': None}
+                        ],
+                        'pending_command': None,
+                        'events': events
+                    }
+                
+            except Exception as e:
+                print(f"Tool Execution Error: {e}", flush=True)
+                # Fallback to legacy string command if present (backwards compat)
+                command = parsed.get("command", "")
+                if not command:
+                     raise ValueError(f"Invalid tool call or execution failed: {e}")
+        else:
+            # Legacy Fallback
+            command = parsed.get("command", "")
+
+        if not command:
+             raise ValueError("No command or tool call generated")
 
         events.append(emit_event("reflection", {"assessment": "EXECUTING", "reasoning": f"🔧 Executor Plan: {thought}"}))
+        
+        # --- SAFETY CHECK: REMEDIATION VERBS ---
+        # Prevent execution of dangerous commands without checking config/state
+        from ..config import REMEDIATION_VERBS, DANGEROUS_VERBS
+        
+        # Check against strict dangerous list (always block)
+        if any(f"kubectl {verb}" in command or f" {verb} " in command for verb in DANGEROUS_VERBS):
+             return {
+                **state,
+                'next_action': 'supervisor',
+                'command_history': state['command_history'] + [
+                    {'command': command, 'output': '', 'error': f'SECURITY BLOCK: Command "{command}" contains banned verb. Execution denied.'}
+                ],
+                'events': list(state.get('events', [])) + [emit_event("blocked", {"command": command, "reason": "dangerous_verb"})]
+            }
+
+        # Check against remediation list (require approval)
+        # For now, we allow it ONLY if it came from a structured tool call (which we already validated)
+        # AND we might want a "dry run" or specific flag in the future.
+        # But since we defined specific Tool wrappers for these, we trust the Supervisor's intent 
+        # IF the tool wrappers were used.
+        # If raw string command was used, we BLOCK it.
+        
+        is_remediation = any(f"kubectl {verb}" in command or f" {verb} " in command for verb in REMEDIATION_VERBS)
+        if is_remediation and not tool_call:
+             return {
+                **state,
+                'next_action': 'supervisor',
+                'command_history': state['command_history'] + [
+                    {'command': command, 'output': '', 'error': f'SECURITY WARNING: remediation command "{command}" must be generated via precise tool calling, not raw text. Execution denied.'}
+                ],
+                'events': list(state.get('events', [])) + [emit_event("blocked", {"command": command, "reason": "unsafe_raw_remediation"})]
+            }
+
+        if is_remediation:
+             print(f"[agent-sidecar] ⚠️ EXECUTING REMEDIATION COMMAND: {command}", flush=True)
+             events.append(emit_event("warning", {"message": f"Executing remediation action: {command}"}))
+
 
         # Use normalized command comparison to catch variations (whitespace, --tail=N, etc.)
         normalized_new = normalize_command(command)
@@ -88,12 +270,16 @@ async def worker_node(state: AgentState) -> dict:
             }
 
         events.append(emit_event("command_selected", {"command": command}))
-        return {
+        result = {
             **state,
             'next_action': 'verify',
             'pending_command': command,
             'events': events,
         }
+        # Apply context override if set (immutable pattern)
+        if context_override:
+            result['kube_context'] = context_override
+        return result
     except Exception as e:
         events.append(emit_event("error", {"message": f"Worker Error: {e}"}))
         return {
@@ -146,6 +332,12 @@ async def execute_node(state: AgentState) -> dict:
 
         print(f"[agent-sidecar] 🚀 NOTE: Executing command with context: {full_command}", flush=True)
 
+        # STRUCTURED OBSERVATION: Force JSON for simple GET commands
+        # Logic: If it's a 'get' command, no pipes, no other output format -> append -o json
+        if "kubectl get" in full_command and "|" not in full_command and "-o" not in full_command:
+            full_command += " -o json"
+            print(f"[agent-sidecar] ⚡ Upgraded command to JSON mode: {full_command}", flush=True)
+
         # Use asyncio subprocess for non-blocking execution (allows parallelization in future)
         proc = await asyncio.create_subprocess_shell(
             full_command,
@@ -166,7 +358,37 @@ async def execute_node(state: AgentState) -> dict:
         # Use smart truncation to keep only important rows (errors, failures)
         # This prevents overwhelming the context with thousands of healthy pods
         raw_output = stdout or stderr or '(no output)'
-        output = smart_truncate_output(raw_output, max_chars=4000)
+        
+        # STRUCTURED OBSERVATION LOGIC (Phase 2)
+        # If this was a forced JSON command, parse it for the LLM
+        output = raw_output
+        is_json_output = False
+
+        if "-o json" in full_command and returncode == 0 and stdout:
+            try:
+                # Try to parse and summarize
+                summary = parse_kubectl_json_output(stdout)
+                output = summary
+                is_json_output = True
+                print(f"[agent-sidecar] 🧠 Parsed JSON Output: {summary[:100]}...", flush=True)
+            except Exception as e:
+                # Medium #15 fix: Try partial JSON extraction before fallback
+                print(f"[agent-sidecar] ⚠️ Full JSON parse failed: {e}", flush=True)
+                import re
+                json_match = re.search(r'\{[\s\S]*\}', stdout)
+                if json_match:
+                    try:
+                        partial_summary = parse_kubectl_json_output(json_match.group(0))
+                        output = partial_summary
+                        is_json_output = True
+                        print(f"[agent-sidecar] ✅ Partial JSON extraction succeeded", flush=True)
+                    except:
+                        output = smart_truncate_output(raw_output, max_chars=4000)
+                else:
+                    output = smart_truncate_output(raw_output, max_chars=4000)
+        else:
+             output = smart_truncate_output(raw_output, max_chars=4000)
+
         error = stderr if returncode != 0 else None
 
         # Extract discovered resources from output - FEED THE AI!
@@ -185,42 +407,8 @@ async def execute_node(state: AgentState) -> dict:
         events = list(state.get('events', []))
         events.append(emit_event("command_output", {"command": command, "output": output, "error": error}))
 
-        # FIX 5: Skip reflection for trivial queries (30-40% speedup)
-        # This prevents the agent from looping on simple GET commands
-        query_lower = (state.get('query') or '').lower().strip()
-
-        # Trivial patterns that don't need reflection
-        trivial_keywords = ['list', 'show', 'get nodes', 'get pods', 'get services',
-                            'get deployments', 'get namespaces']
-        simple_resources = ['nodes', 'pods', 'services', 'deployments', 'namespaces', 'configmaps']
-
-        is_trivial_listing = (
-            any(kw in query_lower for kw in trivial_keywords) or
-            query_lower in simple_resources
-        )
-        is_first_iteration = len(state.get('command_history', [])) == 0
-        is_successful = not error and len(output.strip()) > 0
-
-        skip_reflection = is_trivial_listing and is_first_iteration and is_successful
-
-        if skip_reflection:
-            # Mark as auto-solved, go straight to supervisor for formatting response
-            print(f"[agent-sidecar] ⚡ Skipping reflection for trivial query '{state['query']}'", flush=True)
-
-            updated_history = list(state['command_history']) + [
-                {'command': command, 'output': output, 'error': error,
-                 'assessment': 'AUTO_SOLVED',
-                 'useful': True,
-                 'reasoning': 'Trivial listing query - output is the answer'}
-            ]
-
-            return {
-                **updated_state,
-                'next_action': 'supervisor',  # Skip reflect, go straight back
-                'command_history': updated_history,
-                'pending_command': None,
-                'events': events,
-            }
+        # NOTE: Removed duplicate auto-solve logic (High #7 fix)
+        # Supervisor now handles all auto-solve decisions uniformly
 
         return {
             **updated_state,
@@ -312,12 +500,24 @@ async def execute_batch_node(state: AgentState) -> dict:
     execution_results = await asyncio.gather(*[execute_single_command(cmd) for cmd in uncached_commands])
 
     # Combine results maintaining original order from batch_commands
-    # This ensures that if we put 'get pods' last, it stays last in history
-    results_map = {r['command']: r for r in cached_results + execution_results}
+    # Use index-based lookup to handle duplicate commands correctly
+    all_combined = cached_results + execution_results
+    cmd_to_results = {}
+    for result in all_combined:
+        cmd = result['command']
+        if cmd not in cmd_to_results:
+            cmd_to_results[cmd] = []
+        cmd_to_results[cmd].append(result)
+
+    # Build final list in original order, consuming one result per command occurrence
     all_results = []
+    cmd_usage_count = {}
     for cmd in batch_commands:
-        if cmd in results_map:
-            all_results.append(results_map[cmd])
+        if cmd in cmd_to_results:
+            idx = cmd_usage_count.get(cmd, 0)
+            if idx < len(cmd_to_results[cmd]):
+                all_results.append(cmd_to_results[cmd][idx])
+                cmd_usage_count[cmd] = idx + 1
 
     # Cache successful results
     updated_state = state

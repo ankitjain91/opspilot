@@ -1,0 +1,13 @@
+customresourcedefinition.apiextensions.k8s.io/providers.clusterctl.cluster.x-k8s.io
+customresourcedefinition.apiextensions.k8s.io/compositeresourcedefinitions.apiextensions.crossplane.io
+customresourcedefinition.apiextensions.k8s.io/compositionrevisions.apiextensions.crossplane.io
+customresourcedefinition.apiextensions.k8s.io/configurations.pkg.crossplane.io
+customresourcedefinition.apiextensions.k8s.io/providers.pkg.crossplane.io
+customresourcedefinition.apiextensions.k8s.io/flexibleserverconfigurations.dbformysql.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/configurations.dbformysql.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/configurations.dbforpostgresql.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/flexibleserverconfigurations.dbforpostgresql.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/nodeconfigurations.castai.upbound.io
+customresourcedefinition.apiextensions.k8s.io/frontdoorcustomhttpsconfigurations.network.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/virtualhubsecuritypartnerproviders.network.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/vpnserverconfigurations.network.azure.upbound.io

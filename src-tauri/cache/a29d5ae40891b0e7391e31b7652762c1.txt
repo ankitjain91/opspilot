@@ -1,0 +1,8 @@
+  status:
+    currentState: ASFailed
+    versions:
+      asVersion: 2.2610.0-rc.10608117
+      k8sVersion: v1.31.11
+kind: List
+metadata:
+  resourceVersion: ""

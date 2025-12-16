@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import { ToolMessage } from './chat/ToolMessage';
 import { ThinkingMessage } from './chat/ThinkingMessage';
 import { InvestigationTimeline } from './chat/InvestigationTimeline';
+import { StreamingProgressCard, AgentPhase, CommandExecution } from './chat/StreamingProgressCard';
 import remarkGfm from 'remark-gfm';
 import { LLMConfig, LLMStatus, ClusterHealthSummary } from '../../types/ai';
 import { fixMarkdownHeaders } from '../../utils/markdown';
@@ -32,6 +33,7 @@ import {
 import { runAgentLoop, AgentStep, LLMOptions } from './agentOrchestrator';
 import { PlanProgressUI } from './PlanProgressUI';
 import { formatFailingPods } from './kubernetesFormatter';
+import { KBProgress } from './useSentinel';
 
 const KNOWN_MCP_SERVERS = [
     { name: 'azure-devops', command: 'npx', args: ['-y', '@azure-devops/mcp', 'YOUR_ORG_NAME'], env: {}, connected: false, autoConnect: false },
@@ -101,16 +103,33 @@ export function ClusterChatPanel({
     onToggleMinimize,
     currentContext,
     embedded = false,
-    resourceContext
+    resourceContext,
+    initialPrompt,
+    onPromptHandled,
+    kbProgress
 }: {
     onClose?: () => void,
     isMinimized?: boolean,
     onToggleMinimize?: () => void,
     currentContext?: string,
     embedded?: boolean,
-    resourceContext?: { kind: string; name: string; namespace: string }
+    resourceContext?: { kind: string; name: string; namespace: string },
+    initialPrompt?: string | null,
+    onPromptHandled?: () => void,
+    kbProgress?: KBProgress | null
 }) {
     const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+    // Trigger auto-investigation if initialPrompt is provided
+    useEffect(() => {
+        if (initialPrompt && !userInput && !llmLoading) {
+            // Wait briefly for mount
+            setTimeout(() => {
+                sendMessage(initialPrompt);
+                if (onPromptHandled) onPromptHandled();
+            }, 100);
+        }
+    }, [initialPrompt]);
 
     // Unique storage key for resource-specific chats
     const storageKey = resourceContext
@@ -142,6 +161,52 @@ export function ClusterChatPanel({
     const [checkingLLM, setCheckingLLM] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
     const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
+
+    // Chat State (Key interaction state)
+    // Chat State managed above (chatHistory)
+
+    // Investigation Plan State
+    const [investigationPlan, setInvestigationPlan] = useState<InvestigationPlan | null>(null);
+
+    // Persistent Session Thread ID
+
+    // Persistent Session Thread ID
+    const [threadId, setThreadId] = useState<string>(() => {
+        const saved = localStorage.getItem('agent_thread_id');
+        // Check if crypto global is available (browser context)
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return saved || crypto.randomUUID();
+        }
+        return saved || 'session-' + Math.random().toString(36).substr(2, 9);
+    });
+
+    // Save thread_id to ensure persistence across reloads
+    useEffect(() => {
+        if (threadId) {
+            localStorage.setItem('agent_thread_id', threadId);
+        }
+    }, [threadId]);
+
+    const handleClearHistory = useCallback(() => {
+        setChatHistory([]);
+        setInvestigationPlan(null);
+        setInvestigationProgress(null);
+        setPhaseTimeline([]);
+        setRankedHypotheses([]);
+        setApprovalContext(null);
+        setGoalVerification(null);
+        setExtendedMode(null);
+
+        // Rotate thread_id
+        let newThreadId = '';
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            newThreadId = crypto.randomUUID();
+        } else {
+            newThreadId = 'session-' + Math.random().toString(36).substr(2, 9);
+        }
+        setThreadId(newThreadId);
+        localStorage.setItem('agent_thread_id', newThreadId);
+    }, []);
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     // Claude Code streaming state
@@ -182,6 +247,10 @@ export function ClusterChatPanel({
 
     // Plan execution state (ReAct pattern)
     const [currentPlan, setCurrentPlan] = useState<any[] | null>(null);
+
+    // Streaming progress state for StreamingProgressCard
+    const [streamingPhase, setStreamingPhase] = useState<AgentPhase | null>(null);
+    const commandHistoryRef = useRef<CommandExecution[]>([]);
     const [planTotalSteps, setPlanTotalSteps] = useState<number>(0);
 
     // New enriched investigation signals from backend
@@ -191,6 +260,7 @@ export function ClusterChatPanel({
     const [coverageGaps, setCoverageGaps] = useState<Array<string>>([]);
     const [agentHints, setAgentHints] = useState<Array<string>>([]);
     const [goalVerification, setGoalVerification] = useState<{ met: boolean; reason: string } | null>(null);
+    const [autoExtendEnabled, setAutoExtendEnabled] = useState<boolean>(true);
     const [extendedMode, setExtendedMode] = useState<{ preferred_checks?: string[]; prefer_mcp_tools?: boolean } | null>(null);
 
     // Check LLM status and fetch MCP tools on mount
@@ -266,7 +336,8 @@ export function ClusterChatPanel({
                 }],
                 config: llmConfig,
                 systemPrompt: 'You are a witty DevOps engineer who loves dad jokes. Respond with ONLY the joke, nothing else. Never repeat the same joke twice.',
-                maxTokens: 100
+                maxTokens: 100,
+                thread_id: threadId, // Pass the persistent thread ID
             });
             setWelcomeJoke(response.trim());
         } catch (err) {
@@ -282,7 +353,7 @@ export function ClusterChatPanel({
             setWelcomeJoke(fallbacks[Math.floor(Math.random() * fallbacks.length)]);
         }
         setLoadingWelcomeJoke(false);
-    }, [llmConfig, loadingWelcomeJoke]);
+    }, [llmConfig, loadingWelcomeJoke, threadId]);
 
     // Auto-scroll to bottom when chat updates
     const scrollToBottom = () => {
@@ -579,6 +650,7 @@ export function ClusterChatPanel({
                 prompt,
                 systemPrompt,
                 conversationHistory,
+                thread_id: threadId, // Pass the persistent thread ID
             });
         }
     };
@@ -601,6 +673,44 @@ export function ClusterChatPanel({
         setCurrentActivity("");
     }, []);
 
+    // Helper to generate human-readable command summaries
+    const generateCommandSummary = (command: string, output: string): string => {
+        if (!output || output.trim() === '') return 'No output';
+
+        const lines = output.split('\n').filter(l => l.trim());
+
+        // Count resources for kubectl get commands
+        if (command.includes('get')) {
+            const dataLines = lines.filter(l =>
+                !l.startsWith('NAME') &&
+                !l.startsWith('NAMESPACE') &&
+                !l.startsWith('No resources') &&
+                l.trim() !== ''
+            );
+            if (dataLines.length > 0) {
+                return `Found ${dataLines.length} resource(s)`;
+            }
+            if (output.includes('No resources found')) {
+                return 'No resources found';
+            }
+        }
+
+        // Look for errors
+        if (output.toLowerCase().includes('error') || output.toLowerCase().includes('failed')) {
+            return 'Command failed - see raw output';
+        }
+
+        // Look for CrashLoopBackOff
+        if (output.includes('CrashLoopBackOff')) {
+            const count = (output.match(/CrashLoopBackOff/g) || []).length;
+            return `Found ${count} pod(s) in CrashLoopBackOff`;
+        }
+
+        // Default: first non-empty line (truncated)
+        const firstLine = lines[0];
+        return firstLine ? firstLine.substring(0, 80) + (firstLine.length > 80 ? '...' : '') : 'Command executed';
+    };
+
     const sendMessage = async (message: string) => {
         if (!message.trim() || llmLoading) return;
 
@@ -618,6 +728,14 @@ export function ClusterChatPanel({
             // See: agentOrchestrator.ts for the Supervisor/Scout/Specialist logic
             try {
                 setCurrentActivity("🚀 Initializing Supervisor Agent...");
+
+                // Initialize streaming progress UI
+                commandHistoryRef.current = [];
+                setStreamingPhase({
+                    phase: 'planning',
+                    message: 'Creating investigation plan...',
+                    commandHistory: []
+                });
 
                 // Create abort controller for this request
                 const controller = new AbortController();
@@ -673,7 +791,7 @@ export function ClusterChatPanel({
 
                     // Call the Rust command directly (streaming supported via call_claude_code_stream, but using blocking call for now per existing patterns or upgrading to stream?)
                     // The existing code at lines 507 used 'call_claude_code'.
-                    // Wait, lines 507 were inside 'callLLM'. 
+                    // Wait, lines 507 were inside 'callLLM'.
                     // Here we are replacing 'runAgentLoop' which expects a Promise<string> but also handles UI updates.
 
                     // STREAMING IMPLEMENTATION
@@ -763,7 +881,8 @@ export function ClusterChatPanel({
                                 model: options?.model || 'opspilot-brain',
                                 prompt,
                                 systemPrompt,
-                                temperature: options?.temperature || 0.7
+                                temperature: options?.temperature || 0.7,
+                                thread_id: threadId, // Pass the persistent thread ID
                             });
                         },
                         callLLMStream: async (prompt: string, systemPrompt: string, options: any) => {
@@ -788,6 +907,7 @@ export function ClusterChatPanel({
                                     prompt,
                                     systemPrompt,
                                     conversationHistory: [],
+                                    thread_id: threadId, // Pass the persistent thread ID
                                 });
                             } catch (e) {
                                 console.warn("Executor model failed, using Brain model:", e);
@@ -800,6 +920,12 @@ export function ClusterChatPanel({
                     // Progress callback
                     (msg) => {
                         setCurrentActivity(msg);
+                        // Update streaming phase based on progress message
+                        if (msg.includes('Reasoning') || msg.includes('Planning')) {
+                            setStreamingPhase(prev => prev ? { ...prev, phase: 'planning', message: msg } : null);
+                        } else if (msg.includes('Analyzing') || msg.includes('Reflecting')) {
+                            setStreamingPhase(prev => prev ? { ...prev, phase: 'analyzing', message: msg } : null);
+                        }
                     },
                     // Streaming step callback
                     (step) => {
@@ -852,6 +978,12 @@ export function ClusterChatPanel({
                                         const reason = maybe.reason || '';
                                         setGoalVerification({ met, reason });
                                         setChatHistory(prev => [...prev, { role: 'assistant', content: `Goal status: ${met ? 'MET' : 'NOT MET'} — ${reason}` }]);
+                                        if (!met && autoExtendEnabled && !llmLoading) {
+                                            setTimeout(() => {
+                                                if (goalVerification && goalVerification.met) return;
+                                                sendMessage('[EXTEND] Extend investigation automatically: collect missing signals, diversify commands, use MCP tools if available, and re-evaluate hypotheses.');
+                                            }, 500);
+                                        }
                                         return;
                                     }
                                     case 'plan_bias': {
@@ -872,6 +1004,23 @@ export function ClusterChatPanel({
                                 const json = JSON.parse(step.content);
                                 command = json.command;
                                 content = `\`$ ${json.command}\`\n\n${json.output}`;
+
+                                // Track command in streaming progress
+                                const cmdExecution: CommandExecution = {
+                                    command: json.command,
+                                    status: 'success',
+                                    output: json.output,
+                                    summary: generateCommandSummary(json.command, json.output),
+                                    timestamp: Date.now()
+                                };
+                                commandHistoryRef.current.push(cmdExecution);
+                                setStreamingPhase(prev => prev ? {
+                                    ...prev,
+                                    phase: 'executing',
+                                    message: 'Running kubectl commands...',
+                                    currentStep: json.command,
+                                    commandHistory: [...commandHistoryRef.current]
+                                } : null);
                             } catch (e) { /* keep raw content */ }
                         }
 
@@ -925,37 +1074,35 @@ export function ClusterChatPanel({
                     },
                     // Pass available MCP tools for the agent to use
                     listRegisteredMcpTools(),
-                    // Plan event callbacks
-                    (plan, totalSteps) => {
-                        // Plan created
+                    // Callbacks for plan updates
+                    undefined, // onPlanCreated (handled by onPlanUpdate)
+                    (plan, currentStep, totalSteps) => {
+                        // Plan Updated (Live State)
                         setCurrentPlan(plan);
                         setPlanTotalSteps(totalSteps);
-                    },
-                    (step, planSummary) => {
-                        // Step completed - update plan
-                        setCurrentPlan(prev => {
-                            if (!prev) return prev;
-                            return prev.map(s =>
-                                s.step === step ? { ...s, status: 'completed' } : s
-                            );
+                        setInvestigationPlan(prev => {
+                            if (!prev) return null;
+                            return { ...prev, steps: plan };
                         });
+
+                        // Update streaming phase with progress
+                        setStreamingPhase(prev => prev ? {
+                            ...prev,
+                            stepsCompleted: currentStep,
+                            totalSteps: totalSteps,
+                            commandHistory: commandHistoryRef.current
+                        } : null);
                     },
-                    (step, error) => {
-                        // Step failed - update plan
-                        setCurrentPlan(prev => {
-                            if (!prev) return prev;
-                            return prev.map(s =>
-                                s.step === step ? { ...s, status: 'failed' } : s
-                            );
-                        });
-                    },
+                    undefined, // onStepCompleted
+                    undefined, // onStepFailed
                     () => {
                         // Plan complete - clear after a delay
                         setTimeout(() => {
                             setCurrentPlan(null);
                             setPlanTotalSteps(0);
                         }, 3000);
-                    }
+                    },
+                    { thread_id: threadId } // baseParams
                 );
 
                 // Post-process final response to format kubectl output
@@ -966,6 +1113,20 @@ export function ClusterChatPanel({
                     const formatted = formatFailingPods(result);
                     formattedResult = formatted.markdown;
                 }
+
+                // Fallback if the agent returned an empty final response
+                if (!formattedResult || !String(formattedResult).trim()) {
+                    const stepsCount = Array.isArray(currentPlan) ? currentPlan.length : 0;
+                    const toolsUsed = (chatHistory.filter(m => m.role === 'tool').length);
+                    formattedResult = `Investigation completed, but no final answer was provided.\n\nSummary:\n- Steps executed: ${stepsCount > 0 ? stepsCount : 'n/a'}\n- Tools used: ${toolsUsed}\n\nIf you want me to continue, click Extend investigation or ask a specific follow-up (e.g., 'show warning events' or 'list failing pods').`;
+                }
+
+                // Set streaming phase to complete
+                setStreamingPhase({
+                    phase: 'complete',
+                    message: 'Investigation complete',
+                    commandHistory: commandHistoryRef.current
+                });
 
                 setChatHistory(prev => [...prev, { role: 'assistant', content: formattedResult }]);
                 setLlmLoading(false);
@@ -978,6 +1139,13 @@ export function ClusterChatPanel({
                 }
                 console.error("Agent Loop Failed:", e);
                 const errorMsg = String(e || '');
+
+                // Set streaming phase to error
+                setStreamingPhase({
+                    phase: 'error',
+                    message: errorMsg || 'An error occurred',
+                    commandHistory: commandHistoryRef.current
+                });
 
                 // Provider-specific error messages
                 if (llmConfig.provider === 'ollama' && (errorMsg.includes("not found") || errorMsg.includes("404"))) {
@@ -995,9 +1163,119 @@ export function ClusterChatPanel({
             }
         } catch (err: any) {
             setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Check your AI settings or provider connection.` }]);
+            setStreamingPhase({
+                phase: 'error',
+                message: String(err) || 'An error occurred',
+                commandHistory: commandHistoryRef.current
+            });
         } finally {
             setLlmLoading(false);
             setInvestigationProgress(null);
+            // Clear streaming phase after a delay to allow user to see final state
+            setTimeout(() => setStreamingPhase(null), 3000);
+        }
+    };
+
+    // Handle User Approval/Denial
+    const handleApproval = async (approved: boolean) => {
+        if (!approvalContext) return;
+
+        // 1. Update UI state immediately
+        const prevContext = approvalContext;
+        setApprovalContext(null);
+
+        setChatHistory(prev => [...prev, {
+            role: 'assistant',
+            content: approved
+                ? `✅ **Approved**: Executing \`${prevContext.command || 'action'}\`...`
+                : `❌ **Denied**: Cancelled \`${prevContext.command || 'action'}\`.`
+        }]);
+
+        // If denied, we define the behavior (usually just stop, or verify.py handles denied state if we proceed)
+        // With backend-only agent, we MUST call back with approved=False if we want the graph to know.
+
+        setLlmLoading(true);
+        setCurrentActivity(approved ? "🚀 Executing approved action..." : "🛑 Processing denial...");
+
+        try {
+            // Re-enter the agent loop with the approved flag
+            // We reuse the existing executors logic from sendMessage
+            await runAgentLoop(
+                approved ? "User approved execution." : "User declined execution.",
+                // LLM Executor
+                {
+                    callLLM: async (prompt: string, systemPrompt: string, options: any) => {
+                        return await invoke('call_llm', {
+                            model: options?.model || 'opspilot-brain',
+                            prompt,
+                            systemPrompt,
+                            temperature: options?.temperature || 0.7,
+                            thread_id: threadId,
+                        });
+                    },
+                    callLLMStream: async () => { }
+                },
+                // Fast Executor
+                async (prompt: string, systemPrompt: string, options: any) => {
+                    // Fallback to brain model logic if no executor
+                    const config = llmConfig.executor_model ? { ...llmConfig, model: llmConfig.executor_model } : llmConfig;
+                    return await invoke<string>("call_llm", {
+                        config,
+                        prompt,
+                        systemPrompt,
+                        conversationHistory: [],
+                        thread_id: threadId,
+                    });
+                },
+                // Progress
+                (msg) => setCurrentActivity(msg),
+                // Step
+                (step) => {
+                    // Reuse step handling logic partially? 
+                    // To avoid code duplication we should extract this, but for now we simplify:
+                    // We only care about displaying main output or new approvals
+                    setChatHistory(prev => {
+                        // ... simplistic append ...
+                        return [...prev, {
+                            role: step.role === 'SUPERVISOR' ? 'assistant' : 'tool',
+                            content: step.role === 'SUPERVISOR' ? `🧠 ${step.content}` : step.content
+                        }];
+                    });
+
+                    // IMPORTANT: We need to parse backend events too (like done, or another approval)
+                    // The runAgentLoop calls this callback with structured events too?
+                    // Actually runAgentLoop in agentOrchestrator handles the parsing and calls onStep with simplified content.
+                    // BUT it calls onApprovalRequired separately if we pass it!
+                },
+                [], // context history (not critical for resume)
+                abortControllerRef.current?.signal,
+                currentContext,
+                { endpoint: llmConfig.base_url, provider: llmConfig.provider, model: llmConfig.model },
+                listRegisteredMcpTools(),
+                undefined,
+                (plan, currentStep, totalSteps) => {
+                    setCurrentPlan(plan);
+                    setPlanTotalSteps(totalSteps);
+                },
+                undefined,
+                undefined,
+                () => {
+                    setTimeout(() => setCurrentPlan(null), 3000);
+                },
+                {
+                    thread_id: threadId,
+                    approved: approved,
+                    onApprovalRequired: (context) => {
+                        setApprovalContext(context);
+                        setChatHistory(prev => [...prev, { role: 'assistant', content: `🚨 **Approval Needed**: ${context.reason}` }]);
+                    }
+                }
+            );
+        } catch (e: any) {
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error during execution: ${e.message}` }]);
+        } finally {
+            setLlmLoading(false);
+            setCurrentActivity("");
         }
     };
 
@@ -1083,6 +1361,20 @@ export function ClusterChatPanel({
                         onClick={() => {
                             setChatHistory([]);
                             localStorage.removeItem('ops-pilot-chat-history');
+                            setCurrentPlan(null);
+                            setPlanTotalSteps(0);
+                            setInvestigationProgress(null);
+                            setPhaseTimeline([]);
+                            setRankedHypotheses([]);
+                            setCoverageGaps([]);
+                            setAgentHints([]);
+                            setGoalVerification(null);
+                            setApprovalContext(null);
+                            setExtendedMode(null);
+                            // Rotate thread_id to start fresh session
+                            const newThreadId = crypto.randomUUID();
+                            setThreadId(newThreadId);
+                            localStorage.setItem('agent_thread_id', newThreadId);
                         }}
                         className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-all"
                         title="Clear Chat History"
@@ -1323,12 +1615,19 @@ export function ClusterChatPanel({
                             );
                         }
                         if (group.type === 'system_steps') {
+                            const isActive = i === groupedHistory.length - 1 && !group.answer;
                             return (
                                 <div key={i}>
-                                    <InvestigationTimeline
-                                        steps={group.steps}
-                                        isActive={i === groupedHistory.length - 1 && !group.answer}
-                                    />
+                                    {isActive && streamingPhase ? (
+                                        <div className="pl-6 pb-4">
+                                            <StreamingProgressCard phase={streamingPhase} />
+                                        </div>
+                                    ) : (
+                                        <InvestigationTimeline
+                                            steps={group.steps}
+                                            isActive={false}
+                                        />
+                                    )}
                                 </div>
                             )
                         }
@@ -1356,12 +1655,16 @@ export function ClusterChatPanel({
                                 )}
 
                                 {/* Timeline */}
-                                {group.steps && group.steps.length > 0 && (
+                                {isInvestigating && streamingPhase ? (
+                                    <div className="pl-6 pb-4">
+                                        <StreamingProgressCard phase={streamingPhase} />
+                                    </div>
+                                ) : group.steps && group.steps.length > 0 ? (
                                     <InvestigationTimeline
                                         steps={group.steps}
-                                        isActive={isInvestigating}
+                                        isActive={false}
                                     />
-                                )}
+                                ) : null}
 
                                 {/* Final Answer */}
                                 {group.answer && (
@@ -1514,16 +1817,20 @@ export function ClusterChatPanel({
                                 {goalVerification.reason && (
                                     <div className="text-[11px] text-zinc-300 mt-1">{goalVerification.reason}</div>
                                 )}
-                                {!goalVerification.met && (
-                                    <div className="mt-2">
+                                <div className="mt-2 flex items-center gap-2">
+                                    {!goalVerification.met && (
                                         <button
                                             onClick={() => sendMessage('[EXTEND] Please extend investigation: collect missing signals (nodes/pods/events/resource-usage), try MCP tools if available, broaden command diversity, and re-evaluate hypotheses.')}
                                             className="px-3 py-1.5 text-[11px] rounded-md bg-violet-600/20 border border-violet-500/40 hover:bg-violet-600/30 text-violet-200 transition-all"
                                         >
                                             Extend investigation
                                         </button>
-                                    </div>
-                                )}
+                                    )}
+                                    <label className="text-[10px] text-zinc-400 flex items-center gap-1">
+                                        <input type="checkbox" checked={autoExtendEnabled} onChange={(e) => setAutoExtendEnabled(e.target.checked)} />
+                                        Auto-extend if NOT MET
+                                    </label>
+                                </div>
                             </div>
                         )}
                         {phaseTimeline.length > 0 && (
@@ -1555,12 +1862,36 @@ export function ClusterChatPanel({
                             </div>
                         )}
                         {approvalContext && (
-                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
-                                <div className="text-[10px] font-medium text-zinc-300 mb-1">Approval Needed</div>
-                                {approvalContext.reason && (<div className="text-[11px] text-zinc-300"><span className="text-zinc-400">Reason:</span> {approvalContext.reason}</div>)}
-                                {approvalContext.command && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Command:</span> <code className="bg-black/40 px-1 rounded">{approvalContext.command}</code></div>)}
-                                {approvalContext.risk && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Risk:</span> {approvalContext.risk}</div>)}
-                                {approvalContext.impact && (<div className="text-[11px] text-zinc-300 mt-1"><span className="text-zinc-400">Impact:</span> {approvalContext.impact}</div>)}
+                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3 animate-in fade-in slide-in-from-bottom-2 shadow-lg shadow-black/40">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <div className="text-[10px] font-bold text-amber-400 mb-1.5 flex items-center gap-1.5 uppercase tracking-wider">
+                                            <AlertCircle size={12} />
+                                            Approval Needed
+                                        </div>
+                                        {approvalContext.reason && (<div className="text-[11px] text-zinc-300 mb-1.5 leading-relaxed"><span className="text-zinc-500 font-medium">Reason:</span> {approvalContext.reason}</div>)}
+                                        {approvalContext.command && (<div className="text-[11px] text-zinc-300 mb-1.5"><span className="text-zinc-500 font-medium">Action:</span> <code className="bg-black/40 px-1.5 py-0.5 rounded text-amber-200/90 font-mono border border-amber-500/20 shadow-sm ml-1">{approvalContext.command}</code></div>)}
+                                        {approvalContext.risk && (<div className="text-[11px] text-zinc-300"><span className="text-zinc-500 font-medium">Risk:</span> {approvalContext.risk}</div>)}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 mt-3">
+                                    <button
+                                        onClick={() => handleApproval(true)}
+                                        disabled={llmLoading}
+                                        className="flex-1 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-emerald-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                    >
+                                        <CheckCircle2 size={14} />
+                                        Approve & Execute
+                                    </button>
+                                    <button
+                                        onClick={() => handleApproval(false)}
+                                        disabled={llmLoading}
+                                        className="flex-1 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-red-900/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+                                    >
+                                        <XCircle size={14} />
+                                        Deny
+                                    </button>
+                                </div>
                             </div>
                         )}
                         {agentHints.length > 0 && (

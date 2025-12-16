@@ -19,6 +19,9 @@ pub enum LLMProvider {
     OpenAI,
     Anthropic,
     Custom,
+    #[serde(rename = "claude-code")]
+    ClaudeCode, // Handling the hyphenated name if needed, though 'claude-code' string from JS might map here
+    Groq,
 }
 
 impl Default for LLMProvider {
@@ -33,6 +36,9 @@ pub struct LLMConfig {
     pub api_key: Option<String>,
     pub base_url: String,
     pub model: String,
+    pub executor_model: Option<String>,
+    pub embedding_model: Option<String>,
+    pub embedding_endpoint: Option<String>,
     pub temperature: f32,
     pub max_tokens: u32,
 }
@@ -43,7 +49,10 @@ impl Default for LLMConfig {
             provider: LLMProvider::Ollama,
             api_key: None,
             base_url: DEFAULT_OLLAMA_URL.to_string(),
-            model: "k8s-cli".to_string(),
+            model: "llama3.1".to_string(),
+            executor_model: Some("qwen2.5-coder:1.5b".to_string()),
+            embedding_model: Some("nomic-embed-text".to_string()),
+            embedding_endpoint: Some(DEFAULT_OLLAMA_URL.to_string()),
             temperature: 0.0,
             max_tokens: 8192,
         }
@@ -246,8 +255,15 @@ struct OpenAIModelsResponse {
 pub async fn check_llm_status(config: LLMConfig) -> Result<LLMStatus, String> {
     match config.provider {
         LLMProvider::Ollama => check_ollama_status_internal(&config).await,
-        LLMProvider::OpenAI | LLMProvider::Custom => check_openai_status_internal(&config).await,
+        LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => check_openai_status_internal(&config).await,
         LLMProvider::Anthropic => check_anthropic_status_internal(&config).await,
+        LLMProvider::ClaudeCode => Ok(LLMStatus {
+            connected: true,
+            provider: "Claude Code".to_string(),
+            model: "claude-code-cli".to_string(),
+            available_models: vec![],
+            error: None,
+        }),
     }
 }
 
@@ -357,11 +373,14 @@ pub async fn call_llm(
     conversationHistory: Vec<serde_json::Value>,
 ) -> Result<String, String> {
     match config.provider {
-        LLMProvider::Ollama | LLMProvider::OpenAI | LLMProvider::Custom => {
+        LLMProvider::Ollama | LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => {
             call_openai_compatible(&config, prompt, systemPrompt, conversationHistory).await
         }
         LLMProvider::Anthropic => {
             call_anthropic(&config, prompt, systemPrompt, conversationHistory).await
+        }
+        LLMProvider::ClaudeCode => {
+            Err("Claude Code not supported for direct LLM calls".to_string())
         }
     }
 }
@@ -996,6 +1015,9 @@ pub fn get_default_llm_config(provider: String) -> LLMConfig {
             api_key: None,
             base_url: DEFAULT_OPENAI_URL.to_string(),
             model: "gpt-4o".to_string(),
+            executor_model: Some("gpt-4o-mini".to_string()),
+            embedding_model: Some("text-embedding-3-small".to_string()),
+            embedding_endpoint: Some(DEFAULT_OPENAI_URL.to_string()),
             temperature: 0.2,
             max_tokens: 2048,
         },
@@ -1003,15 +1025,21 @@ pub fn get_default_llm_config(provider: String) -> LLMConfig {
             provider: LLMProvider::Anthropic,
             api_key: None,
             base_url: DEFAULT_ANTHROPIC_URL.to_string(),
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-3-5-sonnet-20241022".to_string(),
+            executor_model: None,
+            embedding_model: None,
+            embedding_endpoint: None,
             temperature: 0.2,
             max_tokens: 2048,
         },
         "custom" => LLMConfig {
             provider: LLMProvider::Custom,
             api_key: None,
-            base_url: "http://localhost:8000/v1".to_string(),
-            model: "default".to_string(),
+            base_url: "http://localhost:1234/v1".to_string(),
+            model: "local-model".to_string(),
+            executor_model: None,
+            embedding_model: Some("nomic-embed-text".to_string()),
+            embedding_endpoint: Some("http://localhost:11434".to_string()),
             temperature: 0.2,
             max_tokens: 2048,
         },

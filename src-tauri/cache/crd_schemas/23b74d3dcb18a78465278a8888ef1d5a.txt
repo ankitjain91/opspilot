@@ -1,0 +1,15 @@
+GROUP:      reports.kyverno.io
+KIND:       EphemeralReport
+VERSION:    v1
+
+DESCRIPTION:
+    EphemeralReport is the Schema for the EphemeralReports API
+    
+FIELDS:
+  apiVersion	<string>
+    APIVersion defines the versioned schema of this representation of an object.
+    Servers should convert recognized schemas to the latest internal value, and
+    may reject unrecognized values. More info:
+    https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+
+  kind	<string>

@@ -32,7 +32,10 @@ interface PythonAgentRequest {
     llm_provider: string;
     llm_model: string;
     executor_model: string;
+    embedding_model?: string;
+    api_key?: string;
     conversation_history: Array<{ role: string, content: string }>;
+    approved_command?: boolean;
 }
 
 // =============================================================================
@@ -107,15 +110,21 @@ async function runPythonAgent(
     llmProvider: string,
     llmModel: string,
     executorModel: string,
+    apiKey: string | undefined,
     onProgress?: (msg: string) => void,
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal,
     mcpTools?: any[],
     initialHistory: Array<{ role: string, content: string }> = [],
     onPlanCreated?: (plan: any[], totalSteps: number) => void,
+    onPlanUpdate?: (plan: any[], currentStep: number, totalSteps: number) => void,
     onStepCompleted?: (step: number, planSummary: string) => void,
     onStepFailed?: (step: number, error: string) => void,
-    onPlanComplete?: (totalSteps: number) => void
+    onPlanComplete?: (totalSteps: number) => void,
+    threadId?: string,
+    embeddingModel?: string,
+    approvedCommand?: boolean,
+    onApprovalRequired?: (context: any) => void
 ): Promise<string> {
     // Pre-flight check: ensure the Python agent is running (auto-start if needed)
     onProgress?.('🔍 Checking agent server...');
@@ -137,17 +146,20 @@ async function runPythonAgent(
     while (loopCount < MAX_LOOPS) {
         loopCount++;
 
-        const request: PythonAgentRequest & { mcp_tools?: any[], tool_output?: any, history: any[] } = {
+        const request: PythonAgentRequest & { mcp_tools?: any[], tool_output?: any, history: any[], thread_id?: string } = {
             query,
             kube_context: kubeContext || '',
             llm_endpoint: llmEndpoint,
             llm_provider: llmProvider,
             llm_model: llmModel,
             executor_model: executorModel,
+            embedding_model: embeddingModel,
+            api_key: apiKey,
             conversation_history: initialHistory || [],
             mcp_tools: mcpTools || [],
-            tool_output: currentToolOutput,
-            history: currentHistory
+            history: currentHistory,
+            thread_id: threadId,
+            approved_command: approvedCommand
         };
 
         try {
@@ -187,9 +199,10 @@ async function runPythonAgent(
                     throw new Error(`Stream read failed: ${readError?.message || 'Connection interrupted'}`);
                 }
 
-                if (done) break;
+                // Process final chunk before breaking (critical for receiving 'done' event with final_response)
+                if (done && !value) break;
 
-                const chunk = decoder.decode(value, { stream: true });
+                const chunk = decoder.decode(value, { stream: !done });
                 const lines = chunk.split('\n');
 
                 for (const line of lines) {
@@ -235,6 +248,9 @@ async function runPythonAgent(
                                 case 'plan_created':
                                     onPlanCreated?.(eventData.plan, eventData.total_steps);
                                     break;
+                                case 'plan_update':
+                                    onPlanUpdate?.(eventData.plan, eventData.current_step, eventData.total_steps);
+                                    break;
                                 case 'step_completed':
                                     onStepCompleted?.(eventData.step, eventData.plan_summary);
                                     break;
@@ -262,6 +278,9 @@ async function runPythonAgent(
                                     const agentError = new Error(`Agent Server: ${eventData.message}`);
                                     (agentError as any).isAgentError = true;
                                     throw agentError;
+                                case 'approval_needed':
+                                    onApprovalRequired?.(eventData);
+                                    break;
                             }
                         } catch (e: any) {
                             // Only ignore JSON parse errors, not agent errors
@@ -272,6 +291,9 @@ async function runPythonAgent(
                         }
                     }
                 }
+
+                // After processing chunk, if stream is done, break
+                if (done) break;
             }
 
             // If we got a tool call request, execute it and LOOP
@@ -400,12 +422,14 @@ export async function runAgentLoop(
     _initialHistory?: any[], // Ignored
     abortSignal?: AbortSignal,
     kubeContext?: string,
-    llmConfig?: { endpoint?: string; provider?: string; model?: string; executor_model?: string },
+    llmConfig?: { endpoint?: string; provider?: string; model?: string; executor_model?: string; api_key?: string },
     mcpTools?: any[],
     onPlanCreated?: (plan: any[], totalSteps: number) => void,
+    onPlanUpdate?: (plan: any[], currentStep: number, totalSteps: number) => void,
     onStepCompleted?: (step: number, planSummary: string) => void,
     onStepFailed?: (step: number, error: string) => void,
-    onPlanComplete?: (totalSteps: number) => void
+    onPlanComplete?: (totalSteps: number) => void,
+    baseParams?: { thread_id?: string; approved?: boolean; onApprovalRequired?: (context: any) => void }
 ): Promise<string> {
 
     try {
@@ -417,6 +441,7 @@ export async function runAgentLoop(
         const provider = llmConfig?.provider || config.provider;
         const model = llmConfig?.model || config.model;
         const executorModel = llmConfig?.executor_model || config.executor_model || model;
+        const apiKey = llmConfig?.api_key || config.api_key || undefined;
 
         if (!endpoint || !model) {
             throw new Error('LLM configuration required. Please configure LLM settings first.');
@@ -429,15 +454,21 @@ export async function runAgentLoop(
             provider,
             model,
             executorModel,
+            apiKey,
             onProgress,
             onStep,
             abortSignal,
             mcpTools,
             _initialHistory || [],
             onPlanCreated,
+            onPlanUpdate, // Pass to runPythonAgent
             onStepCompleted,
             onStepFailed,
-            onPlanComplete
+            onPlanComplete,
+            baseParams?.thread_id,
+            config.embedding_model || undefined,
+            baseParams?.approved,
+            baseParams?.onApprovalRequired
         );
 
 

@@ -1,0 +1,15 @@
+GROUP:      network.azure.com
+KIND:       ApplicationGateway
+VERSION:    v1api20220701
+
+DESCRIPTION:
+    Generator information:
+    - Generated from:
+    /network/resource-manager/Microsoft.Network/stable/2022-07-01/applicationGateway.json
+    - ARM URI:
+    /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/applicationGateways/{applicationGatewayName}
+    
+FIELDS:
+  apiVersion	<string>
+    APIVersion defines the versioned schema of this representation of an object.
+    Servers should convert recognized schemas to the latest internal value, and

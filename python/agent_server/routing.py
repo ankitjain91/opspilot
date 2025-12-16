@@ -109,48 +109,43 @@ def select_model_for_query(state: dict) -> tuple[str, str]:
 
     return (model, complexity)
 
-def should_continue(state: dict) -> Literal['worker', 'batch_execute', 'execute_plan_step', 'done']:
+def should_continue(state: dict) -> Literal['worker', 'batch_execute', 'execute_plan', 'supervisor', 'respond', 'synthesizer', 'human_approval', 'done']:
     """Determine next node based on supervisor decision."""
-    if state['next_action'] == 'delegate':
+    next_action = state.get('next_action')
+
+    if next_action == 'delegate':
         return 'worker'
-    if state['next_action'] == 'batch_execute':
+    if next_action == 'batch_execute':
         return 'batch_execute'
-    if state['next_action'] == 'execute_plan_step':
-        return 'execute_plan_step'
-    if state['next_action'] == 'create_plan':
-        return 'execute_plan_step' # Start plan execution from here
-    # invoke_mcp maps to 'done' so the graph PAUSES/EXITS, allowing client to run the tool
-    if state['next_action'] == 'invoke_mcp':
-        return 'done'
+    if next_action == 'create_plan':
+        return 'execute_plan'  # Start plan execution
+    if next_action == 'execute_next_step':
+        return 'execute_plan'  # Continue plan execution (loop back)
+    if next_action == 'supervisor':
+        return 'supervisor'    # Return to supervisor (from reflect or synthesizer)
+    if next_action == 'synthesizer':
+        return 'synthesizer'   # NEW: Route to evidence evaluation
+    if next_action == 'respond':
+        return 'respond'       # Classifier greeting response
+    if next_action == 'architect':
+        return 'architect'     # NEW: Route to Generative IaC Node
+    if next_action == 'human_approval':
+        return 'human_approval'  # Route to approval flow
+
     return 'done'
 
 def handle_approval(state: dict) -> Literal['execute', 'human_approval']:
-    """Determine next node based on approval status."""
+    """Determine next node based on approval status.
+
+    Checks both 'approved' flag AND 'next_action' to respect verify node decisions.
+    """
+    # If explicitly approved by user
     if state.get('approved'):
         return 'execute'
+
+    # If verify node already decided to execute (command is safe)
+    if state.get('next_action') == 'execute':
+        return 'execute'
+
+    # Otherwise route to human approval
     return 'human_approval'
-
-def route_after_execute(state: dict) -> Literal['reflect', 'validate_plan_step']:
-    """Route after command execution - plan mode or regular mode."""
-    # If the user is operating inside a plan (either execute or batch_execute)
-    if state.get('execution_plan'):
-        # We're in plan execution mode, validate the step
-        return 'validate_plan_step'
-    else:
-        # Regular mode, go to reflect
-        return 'reflect'
-
-def route_after_reflect(state: dict) -> Literal['supervisor', 'validate_plan_step']:
-    """Route after reflection - plan mode or regular mode."""
-    if state.get('execution_plan'):
-        return 'validate_plan_step'
-    else:
-        return 'supervisor'
-
-def route_after_validation(state: dict) -> Literal['execute_plan_step', 'supervisor']:
-    """Route after validating a plan step."""
-    next_action = state.get('next_action', 'supervisor')
-    if next_action == 'execute_plan_step':
-        return 'execute_plan_step'
-    else:
-        return 'supervisor'

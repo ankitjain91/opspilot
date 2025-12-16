@@ -90,9 +90,9 @@ export const InvestigationTimeline: React.FC<InvestigationTimelineProps> = ({ st
 
                     <div className={`
                         transition-[max-height,opacity] duration-500 ease-in-out
-                        ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}
+                        ${isExpanded ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}
                     `}>
-                        <div className="px-3 pb-3 pt-0 space-y-2">
+                        <div className="px-3 pb-3 pt-0 space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar">
                             {/* Inner Timeline Divider */}
                             <div className="w-full h-px bg-zinc-800/50 mb-3" />
 

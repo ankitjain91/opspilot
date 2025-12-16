@@ -2,7 +2,7 @@
 import re
 import json
 from ..state import AgentState
-from ..prompts_templates import VERIFY_COMMAND_PROMPT
+from ..prompts.worker.main import VERIFY_COMMAND_PROMPT
 from ..llm import call_llm
 from ..parsing import clean_json_response
 from ..utils import emit_event, is_safe_command
@@ -17,8 +17,8 @@ async def verify_command_node(state: AgentState) -> dict:
         return {**state, 'next_action': 'execute'}
 
     # LOOP PREVENTION: Track blocked commands to prevent infinite retry loops
-    # Only trigger if same command blocked 3+ times (allow some retries for legitimate reasons)
-    blocked_commands = state.get('blocked_commands', [])
+    # Medium #12 fix: Limit list to last 10 entries and deduplicate
+    blocked_commands = list(dict.fromkeys(state.get('blocked_commands', [])))[-10:]
     block_count = blocked_commands.count(command)
 
     if block_count >= 3:
@@ -87,7 +87,8 @@ async def verify_command_node(state: AgentState) -> dict:
         }
 
     # Hard guard: block complex shell with variables or command substitution
-    if re.search(r'\b[A-Za-z_][A-Za-z0-9_]*=', command) or '$(' in command or '${' in command:
+    # Only match variable assignments at start of command or after separators (not kubectl flags like --sort-by=)
+    if re.search(r'(^|[;&|])\s*[A-Za-z_][A-Za-z0-9_]*=', command) or '$(' in command or '${' in command:
         events.append(emit_event("blocked", {"command": command, "reason": "complex_shell"}))
         return {
             **state,
@@ -142,14 +143,22 @@ async def verify_command_node(state: AgentState) -> dict:
             'events': events,
         }
 
-    if not is_safe and reason == "LARGE_OUTPUT":
-        events.append(emit_event("awaiting_approval", {"command": command, "reason": "large_output"}))
+    if not is_safe and reason == "REMEDIATION":
+        print(f"[verify] ⚠️ Triggering approval for REMEDIATION: {command}", flush=True)
+        events.append(emit_event("awaiting_approval", {"command": command, "reason": "remediation"}))
         return {
             **state,
             'next_action': 'human_approval',
             'awaiting_approval': True,
             'events': events,
         }
+
+    if not is_safe and reason == "LARGE_OUTPUT":
+        # LARGE_OUTPUT commands are read-only and safe - no approval needed
+        # Just log and continue to execution
+        print(f"[verify] ℹ️ LARGE_OUTPUT command (safe, no approval needed): {command}", flush=True)
+        events.append(emit_event("reflection", {"assessment": "VERIFIED", "reasoning": "Large output command - read-only and safe"}))
+        return {**state, 'next_action': 'execute', 'events': events}
 
     prompt = VERIFY_COMMAND_PROMPT.format(
         plan=state.get('current_plan', 'Unknown'),
@@ -160,7 +169,7 @@ async def verify_command_node(state: AgentState) -> dict:
         # Use executor model (32B) for verification - it's rule-based checking, not complex reasoning
         # This is 40% faster than using the 70B brain model
         executor_model = state.get('executor_model', 'k8s-cli')
-        response = await call_llm(prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.0)
+        response = await call_llm(prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.0, api_key=state.get('api_key'))
 
         try:
             cleaned = clean_json_response(response)
@@ -213,7 +222,12 @@ async def verify_command_node(state: AgentState) -> dict:
         return {**state, 'next_action': 'execute'}
 
 async def human_approval_node(state: AgentState) -> dict:
-    """Node that stalls execution until user approval is received."""
+    """Node that stalls execution until user approval is received.
+
+    CRITICAL: This node should only execute ONCE per approval request.
+    If it executes multiple times, it indicates a graph configuration bug.
+    We add a counter to detect and break infinite loops.
+    """
     if state.get('approved'):
         events = list(state.get('events', []))
         events.append(emit_event("progress", {"message": "Human approved execution. Resuming."}))
@@ -224,5 +238,54 @@ async def human_approval_node(state: AgentState) -> dict:
             'approved': False,
             'events': events,
         }
-    
-    return {**state, 'next_action': 'human_approval', 'awaiting_approval': True}
+
+    # CRITICAL GUARD: Detect if we're being called repeatedly (graph bug)
+    approval_loop_count = state.get('approval_loop_count', 0) + 1
+
+    if approval_loop_count > 2:
+        # The graph is stuck in an approval loop - this is a BUG
+        # Generate an error response instead of looping forever
+        print(f"[human_approval] ❌ CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop.", flush=True)
+
+        from ..response_formatter import format_intelligent_response_with_llm, _format_simple_fallback
+
+        # Try to use LLM to generate intelligent response from available data
+        try:
+            error_response = await format_intelligent_response_with_llm(
+                query=state.get('query', ''),
+                command_history=state.get('command_history', []),
+                discovered_resources=state.get('discovered_resources', {}),
+                hypothesis=state.get('current_hypothesis'),
+                llm_endpoint=state.get('llm_endpoint'),
+                llm_model=state.get('llm_model'),
+                llm_provider=state.get('llm_provider', 'ollama'),
+                accumulated_evidence=state.get('accumulated_evidence', []),
+                api_key=state.get('api_key')
+            )
+        except Exception as e:
+            # Fallback to simple formatter if LLM call fails
+            print(f"[human_approval] ⚠️ LLM fallback failed: {e}, using simple fallback", flush=True)
+            error_response = _format_simple_fallback(
+                state.get('query', ''),
+                state.get('command_history', []),
+                state.get('discovered_resources', {})
+            )
+
+        # Append error notice
+        error_response += "\n\n⚠️ **Note**: This command requires manual approval, but the workflow encountered an error while waiting for approval. Please run the agent again and approve the command when prompted."
+
+        return {
+            **state,
+            'final_response': error_response,
+            'next_action': 'done',
+            'awaiting_approval': False,
+            'error': 'Approval loop detected - graph configuration bug'
+        }
+
+    # Normal approval wait - increment counter and return
+    return {
+        **state,
+        'next_action': 'human_approval',
+        'awaiting_approval': True,
+        'approval_loop_count': approval_loop_count
+    }

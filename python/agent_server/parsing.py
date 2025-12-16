@@ -16,6 +16,7 @@ def parse_confidence_from_response(response: str) -> float:
             return float(match.group(1))
 
         # Look for UNCERTAIN or UNSURE markers
+        if not response: return 1.0
         response_lower = response.lower()
         if any(marker in response_lower for marker in ['uncertain', 'unsure', 'not confident', 'need more info', 'escalate']):
             return 0.5
@@ -65,6 +66,16 @@ def clean_json_response(response: str) -> str:
 
 def parse_supervisor_response(response: str) -> dict:
     """Parse the Brain's JSON response with robust fallback extraction."""
+    if response.strip().startswith("Error:"):
+        print(f"[agent-sidecar] 🛑 LLM Error: {response}", flush=True)
+        return {
+            "thought": "LLM Call Failed",
+            "plan": "Stop execution due to LLM error.",
+            "next_action": "done",
+            "confidence": 0.0,
+            "final_response": f"I experienced an error communicating with the AI model: {response}",
+        }
+
     try:
         cleaned = clean_json_response(response)
         data = json.loads(cleaned)
@@ -145,18 +156,30 @@ def parse_supervisor_response(response: str) -> dict:
         }
 
 def parse_worker_response(response: str) -> dict:
-    """Parse the Worker's JSON response to get command and thought.
-
-    Includes fallback extraction for common malformed patterns.
-    """
+    """Parse the Worker's JSON response to get command or tool_call."""
     try:
         cleaned = clean_json_response(response)
         data = json.loads(cleaned)
+        
+        # New Structured Format
+        if "tool_call" in data:
+            return {
+                "tool_call": data.get("tool_call"),
+                "thought": data.get("thought", "Executing tool...")
+            }
+
+        # Legacy Format
         cmd = data.get("command", "")
         thought = data.get("thought", "Translating plan to command...")
 
         if not cmd:
-            raise ValueError("No command found in worker response")
+            # Try to infer command from tool-like fields if top-level
+            if "tool" in data:
+                 return {
+                    "tool_call": data,
+                    "thought": thought
+                }
+            raise ValueError("No command or tool_call found in worker response")
 
         return {"command": cmd, "thought": thought}
     except Exception as e:
@@ -171,13 +194,16 @@ def parse_worker_response(response: str) -> dict:
         match = re.search(r'"command"\s*:\s*"([^"]+)"', response)
         if match:
             return {"command": match.group(1), "thought": "Extracted from command field."}
-
-        # Fallback 3: Look for thought and command separately
-        thought_match = re.search(r'"thought"\s*:\s*"([^"]*)"', response)
-        cmd_match = re.search(r'"command"\s*:\s*"([^"]*)"', response)
-        if cmd_match:
-            thought = thought_match.group(1) if thought_match else "Recovered from partial JSON"
-            return {"command": cmd_match.group(1), "thought": thought}
+            
+        # Fallback 3: Tool Call pattern (Partial JSON)
+        if '"tool":' in response:
+            try:
+                # Try to extract the JSON object via regex if clean failed
+                match = re.search(r'(\{.*"tool".*\})', response, re.DOTALL)
+                if match:
+                    return {"tool_call": json.loads(match.group(1)), "thought": "Recovered tool call"}
+            except:
+                pass
 
         return {"command": "", "thought": "Failed to parse command - no kubectl found in response."}
 
@@ -192,13 +218,30 @@ def parse_reflection(response: str) -> dict:
             "hypothesis_status": data.get("hypothesis_status", None),
             "revised_hypothesis": data.get("revised_hypothesis", None),
             "final_response": data.get("final_response", ""),
-            "next_step_hint": data.get("next_step_hint", "")
+            "next_step_hint": data.get("next_step_hint", ""),
+            "directive": data.get("directive"), # New field
+            "verified_facts": data.get("verified_facts"), # New field
         }
-    except Exception as e:
+    except json.JSONDecodeError:
+        print("[agent-sidecar] ⚠️ Failed to parse reflection JSON", flush=True)
         return {
-            "thought": f"Failed to parse reflection: {e}",
-            "found_solution": False,
-            "hypothesis_status": None,
-            "final_response": "",
-            "next_step_hint": "Check output manually",
+            "thought": response[:500],
+            "directive": "CONTINUE",
+            "verified_facts": [],
+            "found_solution": False, # Backwards compatibility
+            "final_response": "I have analyzed the data.",
+            "next_step_hint": "",
+            "hypothesis_status": "unchanged" # Backwards compatibility
         }
+
+    # Normalize new fields
+    parsed["directive"] = parsed.get("directive", "CONTINUE").upper()
+    if parsed["directive"] not in ['CONTINUE', 'RETRY', 'SOLVED', 'ABORT']:
+        parsed["directive"] = "CONTINUE"
+        
+    parsed["verified_facts"] = parsed.get("verified_facts", [])
+    
+    # Map to old fields for compatibility if needed elsewhere
+    parsed["found_solution"] = (parsed["directive"] == "SOLVED")
+    
+    return parsed

@@ -4,7 +4,7 @@ from ..state import AgentState
 from ..config import (
     MAX_ITERATIONS, CONFIDENCE_THRESHOLD, ROUTING_ENABLED
 )
-from ..prompts_templates import SUPERVISOR_PROMPT
+from ..prompts.supervisor import SUPERVISOR_PROMPT
 from ..prompts_examples import SUPERVISOR_EXAMPLES_FULL
 from ..parsing import (
     parse_supervisor_response, parse_confidence_from_response
@@ -16,71 +16,90 @@ from ..utils import (
     get_current_step, mark_step_in_progress, is_plan_complete
 )
 from ..heuristics import (
-    autocorrect_query, normalize_query,
+    normalize_query,
     select_relevant_examples, get_examples_text
 )
 from ..context_builder import build_discovered_context
-from ..response_formatter import format_intelligent_response_with_llm, validate_response_quality
+from ..response_formatter import format_intelligent_response_with_llm, format_intelligent_response, validate_response_quality
 from ..llm import call_llm
 from ..routing import select_model_for_query
-from ..tools.search import get_relevant_kb_snippets
+from ..tools import get_relevant_kb_snippets, ingest_cluster_knowledge  # KB/RAG semantic search
+
+async def classify_query_complexity(query: str, command_history: list, llm_endpoint: str, llm_model: str, llm_provider: str = "ollama", api_key: str = None) -> bool:
+    """Use LLM to determine if a query requires deep investigation (complex) or can be answered quickly (simple)."""
+
+    # Build context from command history
+    cmd_summary = ""
+    if command_history:
+        cmd_summary = f"\n\nCommands executed so far:\n"
+        for i, cmd in enumerate(command_history[-3:], 1):  # Last 3 commands
+            cmd_summary += f"{i}. {cmd.get('command', 'N/A')}\n"
+
+    prompt = f"""Classify this Kubernetes query as either COMPLEX or SIMPLE.
+
+SIMPLE queries:
+- Basic resource listings (list pods, show deployments, get services)
+- Single-step information retrieval
+- No investigation needed, just return data
+
+COMPLEX queries require deep investigation:
+- Troubleshooting (debug, why failing, broken, crashed, issues, problems)
+- Configuration verification (verify, check, validate, inspect, audit configs)
+- Root cause analysis (investigate, analyze, diagnose)
+- Health checks across multiple resources
+- Finding specific patterns or anomalies
+
+User Query: "{query}"{cmd_summary}
+
+Based ONLY on the query intent, respond with JSON:
+{{"complexity": "COMPLEX"}}
+or
+{{"complexity": "SIMPLE"}}"""
+
+    try:
+        response = await call_llm(
+            prompt=prompt,
+            endpoint=llm_endpoint,
+            model=llm_model,
+            provider=llm_provider,
+            temperature=0.0,  # Deterministic
+            force_json=True,
+            api_key=api_key
+        )
+
+        result = json.loads(response)
+        is_complex = result.get('complexity', 'COMPLEX') == 'COMPLEX'
+        print(f"[agent-sidecar] 🧠 LLM Query Complexity: {result.get('complexity', 'COMPLEX')} for '{query[:50]}...'", flush=True)
+        return is_complex
+
+    except Exception as e:
+        print(f"[agent-sidecar] ⚠️ Complexity classification failed: {e}. Defaulting to COMPLEX (safe).", flush=True)
+        return True  # Default to complex (safer, won't cut off investigations)
 
 async def supervisor_node(state: AgentState) -> dict:
     """Brain Node (70B): Analyzes history and plans the next step."""
     iteration = state.get('iteration', 0) + 1
     events = list(state.get('events', []))
 
+    # Live RAG: Ingest cluster knowledge (CRDs) on first run with progress UI
+    if iteration == 1:
+        # Import broadcaster for SSE progress events
+        from ..server import broadcaster
+
+        # Progress callback to broadcast CRD loading progress
+        async def progress_callback(current: int, total: int, message: str):
+            context = state.get('kube_context', 'unknown')
+            await broadcaster.broadcast({
+                "type": "kb_progress",
+                "current": current,
+                "total": total,
+                "message": message,
+                "context": context
+            })
+
+        await ingest_cluster_knowledge(state, force_refresh=True, progress_callback=progress_callback)
+
     events.append(emit_event("progress", {"message": f"Supervisor Reasoning (iteration {iteration})..."}))
-
-    # Check if plan just completed - synthesize findings into final response
-    if state.get('execution_plan') and is_plan_complete(state['execution_plan']):
-        plan_summary = get_plan_summary(state['execution_plan'])
-        print(f"[agent-sidecar] ✅ Plan completed! Synthesizing findings...", flush=True)
-        events.append(emit_event("progress", {"message": "Plan completed. Generating comprehensive summary..."}))
-
-        final_response = await format_intelligent_response_with_llm(
-            query=state.get('query', ''),
-            command_history=state.get('command_history', []),
-            discovered_resources=state.get('discovered_resources', {}),
-            hypothesis=state.get('current_hypothesis'),
-            llm_endpoint=state.get('llm_endpoint'),
-            llm_model=state.get('llm_model'),
-            llm_provider=state.get('llm_provider', 'ollama')
-        )
-
-        # Add plan completion note
-        final_response += f"\n\n---\n**Investigation Plan Completed**: {len(state['execution_plan'])} steps executed systematically."
-
-        return {
-            **state,
-            'iteration': iteration,
-            'next_action': 'done',
-            'final_response': final_response,
-            'execution_plan': None,  # Clear plan
-            'events': events,
-        }
-
-    # Check for plan execution errors (prevents infinite loops in plan mode)
-    if state.get('error') and 'Plan execution exceeded' in state.get('error', ''):
-        events.append(emit_event("error", {"message": "Plan execution hit recursion limit, summarizing findings"}))
-
-        final_response = await format_intelligent_response_with_llm(
-            query=state.get('query', ''),
-            command_history=state.get('command_history', []),
-            discovered_resources=state.get('discovered_resources', {}),
-            hypothesis=state.get('current_hypothesis'),
-            llm_endpoint=state.get('llm_endpoint'),
-            llm_model=state.get('llm_model'),
-            llm_provider=state.get('llm_provider', 'ollama')
-        )
-
-        return {
-            **state,
-            'iteration': iteration,
-            'next_action': 'done',
-            'final_response': final_response + f"\n\n⚠️ Note: Plan execution was stopped after {state.get('plan_iteration', 0)} steps to prevent infinite loops.",
-            'events': events,
-        }
 
     # Check for command retry loops (prevents infinite blocked command loops)
     if state.get('error') and 'Command retry loop detected' in state.get('error', ''):
@@ -181,148 +200,144 @@ The same invalid command is being generated repeatedly, indicating I need more s
             'events': events,
         }
 
-    # FIX 2: Auto-respond for simple queries with successful output (iteration > 1)
-    if iteration > 1 and state['command_history']:
-        last_cmd = state['command_history'][-1]
-        query_lower = (state.get('query') or '').lower().strip()
+    # FIX 2: Auto-respond logic REMOVED to enforce planning for all queries
+    # All queries will now go through the Brain model and plan creation
 
-        # Terse patterns that map to simple queries (user types short form)
-        terse_patterns = {
-            'node pressure': 'resource usage',
-            'failing pods': 'search results',
-            'crashloop': 'find query',
-            'nodes': 'listing',
-            'pods': 'listing',
-            'services': 'listing',
-            'deployments': 'listing',
-            'namespaces': 'listing',
-        }
-
-        # Detect simple query patterns
-        simple_keywords = ['list', 'show', 'get', 'top', 'status', 'describe', 'nodes', 'pods',
-                           'services', 'deployments', 'namespaces', 'find', 'any', 'check']
-        is_simple = any(kw in query_lower for kw in simple_keywords)
-        is_terse = any(pattern in query_lower for pattern in terse_patterns.keys())
-
-        output = last_cmd.get('output', '').strip()
-        has_output = output and output != '(no output)'
-        no_error = not last_cmd.get('error')
-
-        # FIX: If it was a batch execution, find the most relevant command for the query
-        # (e.g. if asking for pods, don't return the events output even if it was last)
-        if (is_simple or is_terse) and has_output and no_error:
-            cmd_text = last_cmd.get('command', '').lower()
-            
-            # If query asks for pods but last command was events/nodes, scan back for pods
-            if ('pods' in query_lower or 'failing' in query_lower) and ('get events' in cmd_text or 'get nodes' in cmd_text):
-                # Look back in history for a better match
-                match_found = False
-                for hist_cmd in reversed(state['command_history']):
-                    # Broaden search for pod-related commands
-                    cmd_check = hist_cmd.get('command', '').lower()
-                    if ('get pods' in cmd_check or 'get pod' in cmd_check) and hist_cmd.get('output'):
-                        last_cmd = hist_cmd
-                        match_found = True
-                        break
-                
-                if not match_found:
-                    # If we only have events output but user wanted pods, DO NOT auto-respond
-                    # Let reflection handle it (it might notice the missing pod list)
-                    # Check against normalized "events" keyword to catch "get event", "get events", etc.
-                    is_events_command = 'event' in cmd_text
-                    if is_events_command:
-                        print(f"[agent-sidecar] ⚠️ Skipping auto-respond: User asked for pods/failing but only have events output.", flush=True)
-                        has_output = False # invalid for auto-respond
-
-            # Check if this is a simple single-command query that executed successfully
-            if (is_simple or is_terse) and has_output and no_error:
-                # Use intelligent response formatter instead of raw dump
-                final_response = format_intelligent_response(
-                    query=state.get('query', ''),
-                    command_history=state.get('command_history', []),
-                    discovered_resources=state.get('discovered_resources', {}),
-                    hypothesis=state.get('current_hypothesis')
-                )
-
-                # Validate response quality
-                is_valid, error_msg = validate_response_quality(final_response, state.get('query', ''))
-                if not is_valid:
-                    print(f"[agent-sidecar] ⚠️ Response quality check failed: {error_msg}, continuing investigation", flush=True)
-                    # Skip auto-respond, let investigation continue
-                else:
-                    confidence = calculate_confidence_score(state)
-                    print(f"[agent-sidecar] ✅ Auto-responding to simple query (iteration {iteration}), confidence: {confidence:.2%}", flush=True)
-
-                    events.append(emit_event("progress", {"message": f"Simple query completed successfully, providing intelligent analysis", "confidence": confidence}))
-                    return {
-                        **state,
-                        'iteration': iteration,
-                        'next_action': 'done',
-                        'final_response': final_response,
-                        'confidence_score': confidence,
-                        'events': events,
-                    }
-
-    # If reflection already marked solved OR auto-solved by execute, short-circuit to done
+    # If reflection already marked solved, route to synthesizer for proper response generation
+    # Don't short-circuit to done - let synthesizer create a detailed answer
     if state['command_history']:
         last_entry = state['command_history'][-1]
         if last_entry.get('assessment') in ['SOLVED', 'AUTO_SOLVED']:
-            reasoning = last_entry.get('reasoning', '')
-
-            # Use intelligent response formatter for SOLVED cases
-            if "SOLUTION FOUND:" in reasoning:
-                solution = reasoning.split("SOLUTION FOUND:", 1)[-1].strip()
-            else:
-                # Use intelligent formatting for better analysis
-                solution = format_intelligent_response(
-                    query=state.get('query', ''),
-                    command_history=state.get('command_history', []),
-                    discovered_resources=state.get('discovered_resources', {}),
-                    hypothesis=state.get('current_hypothesis')
-                )
-
-            # Calculate confidence score for the final response
-            confidence = calculate_confidence_score(state)
-            print(f"[agent-sidecar] 📊 Response confidence: {confidence:.2%}", flush=True)
-
-            events.append(emit_event("progress", {"message": "Solution identified. Wrapping up.", "confidence": confidence}))
+            print(f"[agent-sidecar] ✅ SOLVED detected, routing to synthesizer for final response", flush=True)
+            events.append(emit_event("progress", {"message": "Solution found - generating final response..."}))
             return {
                 **state,
                 'iteration': iteration,
-                'next_action': 'done',
-                'final_response': solution,
-                'confidence_score': confidence,
+                'next_action': 'synthesizer',  # Let synthesizer generate proper response
                 'events': events,
             }
 
-    # Auto-correct query only on first iteration
+    # Auto-Done for Simple Queries - Use LLM to determine complexity
+    query_safe = state.get('query') or ''
+
+    # Use LLM to classify query complexity
+    is_complex_query = await classify_query_complexity(
+        query=query_safe,
+        command_history=state.get('command_history', []),
+        llm_endpoint=state.get('llm_endpoint'),
+        llm_model=state.get('llm_model'),
+        llm_provider=state.get('llm_provider'),
+        api_key=state.get('api_key')
+    )
+
+    # Auto-solve conditions:
+    # 1. Simple query with results after iteration > 1
+    # 2. Complex queries never auto-solve (need full investigation)
+    should_auto_solve = False
+    if iteration > 1 and state.get('command_history') and not is_complex_query:
+        should_auto_solve = True
+
+    if should_auto_solve:
+        print(f"[agent-sidecar] 🛑 Auto-solving simple query after {iteration} iterations", flush=True)
+
+        # Calculate confidence score
+        confidence = calculate_confidence_score(state)
+
+        # Synthesize final response using LLM
+        final_response = await format_intelligent_response_with_llm(
+            query=query_safe,
+            command_history=state.get('command_history', []),
+            discovered_resources=state.get('discovered_resources', {}),
+            hypothesis=state.get('current_hypothesis'),
+            accumulated_evidence=state.get('accumulated_evidence'),
+            llm_endpoint=state.get('llm_endpoint'),
+            llm_model=state.get('llm_model'),
+            llm_provider=state.get('llm_provider') or 'ollama',
+            api_key=state.get('api_key')
+        )
+
+        # Validate response quality
+        if not final_response or len(final_response) < 10:
+             print(f"[agent-sidecar] ⚠️ Formatter returned empty/short response. Using fallback.", flush=True)
+             from ..response_formatter import _format_simple_fallback
+             final_response = _format_simple_fallback(query_safe, state.get('command_history', []), state.get('discovered_resources', {}))
+
+        events.append(emit_event("responding", {"confidence": confidence, "reason": "auto_solved_simple_query"}))
+        return {
+            **state,
+            'iteration': iteration,
+            'next_action': 'done',
+            'final_response': final_response,
+            'confidence_score': confidence,
+            'events': events,
+        }
+
+    # Smart Query Refinement (Brain Model) - REMOVED: refiner.py deleted as dead code
     query = state.get('query') or ''
-    if iteration == 1 and query:
-        corrected_query, corrections = autocorrect_query(query)
-        if corrections:
-            corrections_str = ", ".join(corrections)
-            events.append(emit_event("reflection", {
-                "assessment": "AUTO-CORRECTED",
-                "reasoning": f"Fixed typos in your query: {corrections_str}"
-            }))
-            query = corrected_query
-            print(f"[agent-sidecar] Auto-corrected query: {corrections}", flush=True)
+    # if iteration == 1 and query:
+    #     from .refiner import refine_query
+    #     refined_query = await refine_query(state)
+    #     if refined_query and refined_query != query:
+    #         events.append(emit_event("reflection", {
+    #             "assessment": "REFINED",
+    #             "reasoning": f"Rewrote query for clarity: '{refined_query}'"
+    #         }))
+    #         query = refined_query
+    #         state['query'] = query
+    #         query_lower = query.lower()
+    #         print(f"[agent-sidecar] 🧠 Query updated: {query}", flush=True)
 
-        # Normalize query to match standard patterns (dramatically improves pattern matching)
-        normalized_query, normalization_note = normalize_query(query)
-        if normalization_note:
-            events.append(emit_event("reflection", {
-                "assessment": "NORMALIZED",
-                "reasoning": normalization_note
-            }))
-            query = normalized_query
-            print(f"[agent-sidecar] {normalization_note}: '{query}'", flush=True)
+    # Normalize query (still useful for pattern matching)
+    normalized_query, normalization_note = normalize_query(query or '')  # Safety: ensure query is never None
+    if normalization_note:
+        events.append(emit_event("reflection", {
+            "assessment": "NORMALIZED",
+            "reasoning": normalization_note
+        }))
+        query = normalized_query or ''  # Safety: ensure query is never None
+        print(f"[agent-sidecar] {normalization_note}: '{query}'", flush=True)
 
-    # Embeddings RAG: fetch KB snippets for this query
+    # Embeddings RAG: Fetch relevant KB patterns
     kb_context = await get_relevant_kb_snippets(query, state)
 
+    # Emit KB search event for UI transparency
+    if kb_context and kb_context.strip():
+        # Extract snippet count from KB context (format: "## RELEVANT KNOWLEDGE\n\n### Entry 1\n...")
+        kb_snippet_count = kb_context.count('###')
+        events.append(emit_event("kb_search", {
+            "query": query,
+            "results_found": kb_snippet_count,
+            "has_results": kb_snippet_count > 0,
+            "preview": kb_context[:200] + "..." if len(kb_context) > 200 else kb_context
+        }))
+        print(f"[supervisor] 📚 KB Search: Found {kb_snippet_count} relevant entries for '{query}'", flush=True)
+    else:
+        events.append(emit_event("kb_search", {
+            "query": query,
+            "results_found": 0,
+            "has_results": False
+        }))
+        print(f"[supervisor] 📚 KB Search: No relevant entries found for '{query}'", flush=True)
+
+    # 🧠 THE LIBRARY: Experience Replay
+    try:
+        from ..memory.experience import search_experiences
+        past_exps = await search_experiences(query)
+        if past_exps:
+             print(f"[agent-sidecar] 🧠 The Library: Found {len(past_exps)} relevant past experiences", flush=True)
+             exp_str = "## 🧠 MEMORY: RELEVANT PAST EXPERIENCES (The Library)\n"
+             for exp in past_exps:
+                 # Format: [DATE] QUERY -> OUTCOME
+                 # Analysis: ...
+                 exp_str += f"- [{exp.timestamp}] '{exp.query}' -> {exp.outcome}\n  Analysis: {exp.analysis}\n"
+             
+             # Prepend to KB context so it's top of mind
+             kb_context = f"{exp_str}\n\n{kb_context}"
+    except Exception as e:
+        print(f"[Library] Error retrieving experiences: {e}", flush=True)
+
     # Dynamic example selection (increased to max 15 to utilize comprehensive KB for Crossplane, CRDs, vclusters, Azure)
-    selected_example_ids = select_relevant_examples(query, max_examples=15)
+    selected_example_ids = select_relevant_examples(query or '', max_examples=15)
     selected_examples = get_examples_text(selected_example_ids, SUPERVISOR_EXAMPLES_FULL)
     print(f"[agent-sidecar] Selected {len(selected_example_ids)} examples (Max 15)", flush=True)
 
@@ -347,38 +362,14 @@ The same invalid command is being generated repeatedly, indicating I need more s
     )
 
     try:
-        # Smart routing: use fast model for simple queries, brain for complex
-        selected_model, complexity = select_model_for_query(state)
+        # CRITICAL FIX: Supervisor ALWAYS uses brain model for planning/reasoning
+        # The executor model (k8s-cli) is for command generation in worker, not planning!
+        # Using executor model here causes silent failures because it's trained for a different task.
+        brain_model = state['llm_model']
 
-        # First attempt with routed model
-        response = await call_llm(prompt, state['llm_endpoint'], selected_model, state.get('llm_provider', 'ollama'))
-
-        # Self-verification: check if model is confident
-        # If using fast model and confidence is low, escalate to brain
-        if ROUTING_ENABLED and complexity == "simple":
-            confidence = parse_confidence_from_response(response)
-            preliminary_result = parse_supervisor_response(response)
-
-            # Check for escalation signals
-            thought_val = preliminary_result.get('thought') or ''
-            thought_lower = thought_val.lower()
-            should_escalate = (
-                confidence < CONFIDENCE_THRESHOLD or
-                preliminary_result.get('next_action') == 'escalate' or
-                'uncertain' in thought_lower or
-                'not sure' in thought_lower or
-                'need more context' in thought_lower or
-                'complex' in thought_lower or
-                'unsure' in thought_lower
-            )
-
-            if should_escalate:
-                brain_model = state['llm_model']
-                print(f"[agent-sidecar] ESCALATING to brain model ({brain_model}): confidence={confidence:.2f}", flush=True)
-                events.append(emit_event("progress", {"message": f"Escalating to advanced reasoning..."}))
-
-                # Re-run with brain model
-                response = await call_llm(prompt, state['llm_endpoint'], brain_model, state.get('llm_provider', 'ollama'))
+        # Call supervisor with brain model
+        llm_provider = state.get('llm_provider') or 'ollama'
+        response = await call_llm(prompt, state['llm_endpoint'], brain_model, llm_provider, api_key=state.get('api_key'))
 
         result = parse_supervisor_response(response)
 
@@ -391,90 +382,47 @@ The same invalid command is being generated repeatedly, indicating I need more s
 
         print(f"[agent-sidecar] 📊 Supervisor decision: action={next_action}, confidence={confidence:.2f}", flush=True)
 
+        # Emit plan decision event for UI transparency
+        events.append(emit_event("plan_decision", {
+            "action": next_action,
+            "confidence": confidence,
+            "model_used": brain_model,
+            "thought": result.get('thought', ''),
+            "plan_preview": result.get('plan', '')[:150] if result.get('plan') else ''
+        }))
+
         # Force plan creation for any kubectl query (unless responding to greeting/definition)
-        query_lower = query.lower()
+        # Using the same complexity logic defined above
+        query_safe = query or ''
+        query_lower = query_safe.lower()
         is_kubectl_query = not any(word in query_lower for word in ['hi', 'hello', 'hey', 'what is', 'explain', 'difference between'])
 
-        if is_kubectl_query and next_action in ['delegate', 'batch_delegate']:
-            print(f"[agent-sidecar] 🎯 kubectl query detected - forcing plan creation for systematic execution", flush=True)
-            events.append(emit_event("progress", {"message": f"📋 Creating systematic investigation plan for accuracy"}))
+        if is_kubectl_query:
+            # ONLY force plan creation for COMPLEX queries which need systematic steps
+            # Logic already defined above as 'is_complex_query' for auto-done check
+            
+            if is_complex_query and next_action in ['delegate', 'batch_delegate']:
+                print(f"[agent-sidecar] 🎯 Complex query detected - forcing systematic plan creation", flush=True)
+                # Override to create_plan
+                next_action = 'create_plan'
+                result['next_action'] = 'create_plan'
+                
+                # If model didn't provide steps (because it thought it was delegating), generate defaults
+                if not result.get('execution_steps'):
+                    print(f"[agent-sidecar] ⚠️ Model delegated without steps. Generating default plan.", flush=True)
+                    if result.get('plan'):
+                        result['execution_steps'] = [result['plan']]
+                    elif result.get('batch_commands'):
+                        result['execution_steps'] = [f"Execute: {cmd}" for cmd in result['batch_commands']]
+                    else:
+                        result['execution_steps'] = ["Analyze query and execute discovery commands"]
 
-            # Generate default execution steps based on query analysis
-            default_steps = []
-
-            # Check for "why" or "troubleshoot" patterns
-            if any(word in query_lower for word in ['why', 'troubleshoot', 'debug', 'investigate', 'root cause']):
-                if 'failed' in query_lower or 'failing' in query_lower or 'error' in query_lower:
-                    # Debug pattern: what's failing + why
-                    default_steps = [
-                        "Identify the resource type and list all instances",
-                        "Filter to resources in failed/error/unhealthy state",
-                        "Check status.conditions or status.message for detailed error information",
-                        "If needed, check recent events to understand what triggered the failure",
-                        "If status doesn't show root cause, check logs from the failing resource",
-                        "Summarize findings with specific error details and root cause"
-                    ]
-                else:
-                    # General investigation
-                    default_steps = [
-                        "Identify the resource type to investigate",
-                        "Check current state and status",
-                        "Review recent events for anomalies",
-                        "Summarize findings with detailed analysis"
-                    ]
-            elif 'find' in query_lower or 'which' in query_lower:
-                # Discovery pattern: find specific resources
-                default_steps = [
-                    "Identify the resource type to search for",
-                    "List all instances of the resource",
-                    "Filter based on the query criteria (state, status, labels, etc.)",
-                    "Present filtered results with relevant details"
-                ]
-            else:
-                # Generic multi-step investigation
-                default_steps = [
-                    "Analyze the query to determine what information is needed",
-                    "Execute discovery commands to gather data",
-                    "Filter and analyze results to answer the question",
-                    "Provide comprehensive summary"
-                ]
-
-            # Override to create_plan
-            result['next_action'] = 'create_plan'
-            result['execution_steps'] = default_steps
-            next_action = 'create_plan'
-
-            print(f"[agent-sidecar] Generated {len(default_steps)}-step investigation plan", flush=True)
-
-        if next_action == 'delegate':
+        if next_action in ['delegate', 'batch_delegate']:
             events.append(emit_event("progress", {"message": f"🧠 Brain Instruction: {result['plan']}"}))
             return {
                 **state,
                 'iteration': iteration,
                 'next_action': 'delegate',
-                'current_plan': result['plan'],
-                'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
-                'events': events,
-            }
-        elif result['next_action'] == 'batch_delegate':
-            batch_commands = result.get('batch_commands', [])
-            if not batch_commands:
-                # Fallback to regular delegate if no batch commands provided
-                events.append(emit_event("error", {"message": "batch_delegate requested but no batch_commands provided"}))
-                return {
-                    **state,
-                    'iteration': iteration,
-                    'next_action': 'delegate',
-                    'current_plan': result['plan'],
-                    'events': events,
-                }
-
-            events.append(emit_event("progress", {"message": f"🚀 Executing {len(batch_commands)} commands in parallel: {result['plan']}"}))
-            return {
-                **state,
-                'iteration': iteration,
-                'next_action': 'batch_execute',
-                'pending_batch_commands': batch_commands,
                 'current_plan': result['plan'],
                 'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
                 'events': events,
@@ -523,45 +471,48 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 "total_steps": len(plan)
             }))
 
-            # Immediately start executing first step
-            first_step = get_current_step(plan)
-            updated_plan = mark_step_in_progress(plan, first_step['step'])
-
+            # Route to plan_executor which will handle the entire plan systematically
             events.append(emit_event("progress", {
-                "message": f"🎯 Starting Step {first_step['step']}/{len(plan)}: {first_step['description']}"
+                "message": f"🎯 Executing {len(plan)}-step plan systematically..."
             }))
 
             return {
                 **state,
                 'iteration': iteration,
-                'next_action': 'execute_plan_step',
-                'execution_plan': updated_plan,
-                'current_step': first_step['step'],
+                'next_action': 'create_plan',  # Routing will map this to plan_executor
+                'execution_plan': plan,
                 'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
                 'events': events,
             }
         else:
-            # Calculate confidence score for the final response
+            # Calculate confidence score for the final response (High #9 fix)
             confidence = calculate_confidence_score(state)
             print(f"[agent-sidecar] 📊 Response confidence: {confidence:.2%}", flush=True)
 
             # Use LLM-driven intelligent response formatter if we have command history to analyze
             if state.get('command_history'):
                 final_response = await format_intelligent_response_with_llm(
-                    query=state.get('query', ''),
+                    query=state.get('query') or '',
                     command_history=state.get('command_history', []),
                     discovered_resources=state.get('discovered_resources', {}),
                     hypothesis=state.get('current_hypothesis'),
+                    accumulated_evidence=state.get('accumulated_evidence'),
                     llm_endpoint=state.get('llm_endpoint'),
                     llm_model=state.get('llm_model'),
-                    llm_provider=state.get('llm_provider', 'ollama')
+                    llm_provider=state.get('llm_provider') or 'ollama',
+                    api_key=state.get('api_key')
                 )
 
                 # Validate response quality
-                is_valid, error_msg = validate_response_quality(final_response, state.get('query', ''))
+                is_valid, error_msg = validate_response_quality(final_response, state.get('query') or '')
                 if not is_valid:
                     print(f"[agent-sidecar] ⚠️ Response quality check failed: {error_msg}", flush=True)
-                    # Log warning but still return response (user asked to respond)
+
+                # CRITICAL: Ensure we never return an empty response
+                if not final_response or len(final_response) < 10:
+                    print(f"[agent-sidecar] ⚠️ Empty response detected. using fallback.", flush=True)
+                    from ..response_formatter import _format_simple_fallback
+                    final_response = _format_simple_fallback(state.get('query') or '', state.get('command_history', []), state.get('discovered_resources', {}))
             else:
                 final_response = result['final_response'] or "Analysis complete."
 
@@ -571,7 +522,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 'iteration': iteration,
                 'next_action': 'done',
                 'final_response': final_response,
-                'confidence_score': confidence,
+                'confidence_score': confidence,  # Ensured
                 'events': events,
             }
 

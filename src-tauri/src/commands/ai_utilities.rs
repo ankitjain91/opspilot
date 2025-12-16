@@ -9,7 +9,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::State;
 use tokio::fs;
 
 // =============================================================================

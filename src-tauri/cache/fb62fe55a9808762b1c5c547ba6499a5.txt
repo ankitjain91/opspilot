@@ -1,0 +1,7 @@
+customresourcedefinition.apiextensions.k8s.io/consumergroups.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/eventhubs.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/namespaceauthorizationrules.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/namespaceschemagroups.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/eventhubnamespaces.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/authorizationrules.eventhub.azure.upbound.io
+customresourcedefinition.apiextensions.k8s.io/namespacedisasterrecoveryconfigs.eventhub.azure.upbound.io

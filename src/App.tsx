@@ -53,17 +53,33 @@ const persister = createSyncStoragePersister({
   key: 'opspilot-cache',
 });
 // --- Terminal Tab ---
+import { useSentinel } from './components/ai/useSentinel';
+import { KBProgressIndicator } from './components/ai/KBProgressIndicator';
+
 // --- Terminal Tab ---
 function AppContent() {
   const qc = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const [showAzure, setShowAzure] = useState(false);
   const { showToast } = useToast();
-  const prevContextRef = useRef<string | null>(null);
 
   // Global cluster chat state
   const [showClusterChat, setShowClusterChat] = useState(false);
   const [isClusterChatMinimized, setIsClusterChatMinimized] = useState(false);
+
+  // Handler for proactive investigations
+  const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
+
+  const handleAutoInvestigate = (prompt: string) => {
+    setInitialPrompt(prompt);
+    setShowClusterChat(true);
+    setIsClusterChatMinimized(false);
+  };
+
+  // Start Sentinel listener with auto-investigate handler
+  const { kbProgress } = useSentinel(handleAutoInvestigate);
+
+  const prevContextRef = useRef<string | null>(null);
 
   // Observe current context name globally
   const { data: globalCurrentContext } = useQuery({
@@ -291,8 +307,14 @@ function AppContent() {
           isMinimized={isClusterChatMinimized}
           onToggleMinimize={() => setIsClusterChatMinimized(!isClusterChatMinimized)}
           currentContext={globalCurrentContext}
+          initialPrompt={initialPrompt}
+          onPromptHandled={() => setInitialPrompt(null)}
+          kbProgress={kbProgress}
         />
       )}
+
+      {/* CRD Loading Progress Indicator */}
+      <KBProgressIndicator progress={kbProgress} />
     </>
   );
 }

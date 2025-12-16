@@ -1,0 +1,15 @@
+GROUP:      network.azure.com
+KIND:       DnsZonesNSRecord
+VERSION:    v1api20180501
+
+DESCRIPTION:
+    Generator information:
+    - Generated from:
+    /dns/resource-manager/Microsoft.Network/stable/2018-05-01/dns.json
+    - ARM URI:
+    /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/dnsZones/{zoneName}/NS/{relativeRecordSetName}
+    
+FIELDS:
+  apiVersion	<string>
+    APIVersion defines the versioned schema of this representation of an object.
+    Servers should convert recognized schemas to the latest internal value, and

@@ -1,0 +1,51 @@
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2025-12-11T22:31:27Z"
+    status: "True"
+    type: PodReadyToStartContainers
+  - lastProbeTime: null
+    lastTransitionTime: "2025-12-11T22:30:25Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2025-12-12T06:19:18Z"
+    status: "True"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2025-12-12T06:19:18Z"
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2025-12-11T22:30:25Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - allocatedResources:
+      cpu: 5m
+      memory: 64Mi
+    containerID: containerd://05bcbb58ce0a7e3638e2ee53d4507dea6dee44f7be636f4ef1f2ae206e5ac8d5
+    image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.0
+    imageID: gcr.io/kubebuilder/kube-rbac-proxy@sha256:d99a8d144816b951a67648c12c0b988936ccd25cf3754f3cd85ab8c01592248f
+    lastState: {}
+    name: kube-rbac-proxy
+    ready: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 5m
+        memory: 64Mi
+    restartCount: 0
+    started: true
+    state:
+      running:
+        startedAt: "2025-12-11T22:30:31Z"
+  - allocatedResources:
+      cpu: 10m
+      memory: 256Mi
+    containerID: containerd://d73b224d3fb5ecb5d065623b329f4e8bcc7c18525b20c04fffe9b5e8249e9f04
+    image: sfbrdevhelmweacr.azurecr.io/uipath/cloudgen-operator:v1.2.0-995ca39
+    imageID: sfbrdevhelmweacr.azurecr.io/uipath/cloudgen-operator@sha256:7c1ba0d06e75d0666efd31a3bfabf942eede296c3f5946a6c9f23f1f89ef5caf
+    lastState:

@@ -8,10 +8,14 @@ export interface Toast {
     message: string;
     type: ToastType;
     duration?: number;
+    action?: {
+        label: string;
+        onClick: () => void;
+    };
 }
 
 interface ToastContextType {
-    showToast: (message: string, type?: ToastType, duration?: number) => string;
+    showToast: (message: string, type?: ToastType, duration?: number, action?: { label: string, onClick: () => void }) => string;
     dismissToast: (id: string) => void;
 }
 
@@ -32,12 +36,15 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
-    const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000) => {
+    const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000, action?: { label: string, onClick: () => void }) => {
         const id = Math.random().toString(36).substr(2, 9);
-        setToasts(prev => [...prev, { id, message, type, duration }]);
+        setToasts(prev => [...prev, { id, message, type, duration, action }]);
 
-        if (duration > 0) {
+        if (duration > 0 && !action) { // Don't auto-dismiss if there is an action (or make it longer)
             setTimeout(() => dismissToast(id), duration);
+        } else if (duration > 0 && action) {
+            // Give more time for action to be clicked
+            setTimeout(() => dismissToast(id), duration * 3);
         }
         return id;
     }, [dismissToast]);
@@ -60,7 +67,20 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                         {toast.type === 'info' && <Info size={16} className="text-zinc-500 shrink-0" />}
                         {toast.type === 'loading' && <Loader2 size={16} className="text-cyan-500 animate-spin shrink-0" />}
 
+
                         <p className="text-sm font-medium flex-1 leading-snug">{toast.message}</p>
+
+                        {toast.action && (
+                            <button
+                                onClick={() => {
+                                    toast.action?.onClick();
+                                    dismissToast(toast.id);
+                                }}
+                                className="px-3 py-1 bg-white/10 hover:bg-white/20 text-xs font-semibold rounded border border-white/10 transition-colors mr-1"
+                            >
+                                {toast.action.label}
+                            </button>
+                        )}
 
                         <button
                             onClick={() => dismissToast(toast.id)}

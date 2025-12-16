@@ -17,6 +17,7 @@ mod commands {
     pub mod cluster;
     pub mod cost;
     pub mod ai_utilities;
+    pub mod vcluster;
 }
 
 use commands::context::{list_contexts, delete_context, set_kube_config, reset_state, get_current_context_name};
@@ -27,6 +28,7 @@ use commands::networking::{start_port_forward, stop_port_forward, list_port_forw
 use commands::cluster::{get_cluster_stats, get_cluster_cockpit};
 use commands::cost::get_cluster_cost_report;
 use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations};
+use commands::vcluster::{list_vclusters, connect_vcluster, disconnect_vcluster};
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
 use embeddings::{check_embedding_model_status, init_embedding_model};
@@ -113,6 +115,11 @@ pub fn run() {
             save_llm_config,
             store_investigation_pattern,
             find_similar_investigations,
+
+            // VCluster
+            list_vclusters,
+            connect_vcluster,
+            disconnect_vcluster,
 
             // Agent Sidecar Management
             start_agent,

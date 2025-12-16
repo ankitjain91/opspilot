@@ -1,0 +1,98 @@
+Name:         taasvstst-insights-publisher-logs-enabled-tenants-eh
+Namespace:    
+Labels:       clusterId=taasvstst
+              mode=primary
+              name=publisher-logs-enabled-tenants-eh
+Annotations:  crossplane.io/external-create-pending: 2025-12-04T18:09:51Z
+              crossplane.io/external-create-succeeded: 2025-12-04T18:09:51Z
+              crossplane.io/external-name: publisher-logs-enabled-tenants-eh
+              crossplane.io/paused: true
+API Version:  eventhub.azure.upbound.io/v1beta2
+Kind:         EventHub
+Metadata:
+  Creation Timestamp:  2025-12-04T18:05:12Z
+  Finalizers:
+    finalizer.managedresource.crossplane.io
+  Generation:        3
+  Resource Version:  62858
+  UID:               ef933128-589b-4d2c-8dbb-580f704924e0
+Spec:
+  Deletion Policy:  Delete
+  For Provider:
+    Message Retention:  4
+    Namespace Name:     taasvstst-insights
+    Namespace Name Ref:
+      Name:  taasvstst-insights
+    Namespace Name Selector:
+      Match Labels:
+        Cluster Id:       taasvstst
+        Mode:             primary
+        Name:             taasvstst-insights
+    Partition Count:      32
+    Resource Group Name:  taasvstst
+    Resource Group Name Ref:
+      Name:  taasvstst
+    Status:  Active
+  Init Provider:
+  Management Policies:
+    *
+  Provider Config Ref:
+    Name:  devtest-dedicated-static-ea-workloadidentity-xp
+  Write Connection Secret To Ref:
+    Name:       taasvstst-insights-publisher-logs-enabled-tenants-eh
+    Namespace:  taasvstst
+Status:
+  At Provider:
+    Id:                 /subscriptions/981e1dd9-316a-4365-8a58-3eac3687f3cb/resourceGroups/taasvstst/providers/Microsoft.EventHub/namespaces/taasvstst-insights/eventhubs/publisher-logs-enabled-tenants-eh
+    Message Retention:  4
+    Namespace Name:     taasvstst-insights
+    Partition Count:    32
+    Partition Ids:
+      0
+      1
+      10
+      11
+      12
+      13
+      14
+      15
+      16
+      17
+      18
+      19
+      2
+      20
+      21
+      22
+      23
+      24
+      25
+      26
+      27
+      28
+      29
+      3
+      30
+      31
+      4
+      5
+      6
+      7
+      8
+      9
+    Resource Group Name:  taasvstst
+    Status:               Active
+  Conditions:
+    Last Transition Time:  2025-12-04T18:09:58Z
+    Reason:                Available
+    Status:                True
+    Type:                  Ready
+    Last Transition Time:  2025-12-04T20:30:45Z
+    Reason:                ReconcilePaused
+    Status:                False
+    Type:                  Synced
+    Last Transition Time:  2025-12-04T18:09:54Z
+    Reason:                Success
+    Status:                True
+    Type:                  LastAsyncOperation
+Events:                    <none>

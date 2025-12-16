@@ -1,0 +1,11 @@
+NAME                                                     SYNCED   READY   EXTERNAL-NAME                         AGE
+taasvstst-insights-publisher-logs-enabled-tenants-eh     False    True    publisher-logs-enabled-tenants-eh     9d
+taasvstst-insights-publisher-logs-eh                     False    True    publisher-logs-eh                     9d
+taasvstst-robot-logs                                     False    True    robot-logs                            9d
+taasvstst-llmops-eventhub-ns-llmops-batch-layer          False    True    llmops-batch-layer                    9d
+taasvstst-insights-transform-events-eh                   False    True    transform-events-eh                   9d
+taasvstst-llmops-eventhub-ns-llmops-trace-events         False    True    llmops-trace-events                   9d
+taasvstst-insights-publisher-events-enabled-tenants-eh   False    True    publisher-events-enabled-tenants-eh   9d
+taasvstst-llmops-eventhub-ns-llmops-audit-events         False    True    llmops-audit-events                   9d
+taasvstst-insights-publisher-events-eh                   False    True    publisher-events-eh                   9d
+taasvstst-maestro-raw                                    False    True    raw                                   9d

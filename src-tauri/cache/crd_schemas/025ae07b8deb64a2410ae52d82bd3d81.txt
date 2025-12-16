@@ -1,0 +1,14 @@
+GROUP:      policy.networking.k8s.io
+KIND:       AdminNetworkPolicy
+VERSION:    v1alpha1
+
+DESCRIPTION:
+    AdminNetworkPolicy is  a cluster level resource that is part of the
+    AdminNetworkPolicy API.
+    
+FIELDS:
+  apiVersion	<string>
+    APIVersion defines the versioned schema of this representation of an object.
+    Servers should convert recognized schemas to the latest internal value, and
+    may reject unrecognized values. More info:
+    https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources

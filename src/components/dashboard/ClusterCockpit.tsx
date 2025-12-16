@@ -13,6 +13,7 @@ import {
 import { NavResource, NavGroup } from '../../types/k8s';
 import { ClusterCockpitData, NodeHealth, DeploymentHealth, NamespaceUsage } from '../../types/cockpit';
 import { COLORS, SpeedometerGauge, VerticalMeter, GradientProgress, Gauge, StatusIndicator } from './CockpitGauge';
+import { VclusterConnectButton } from './VclusterConnectButton';
 
 // Ollama Setup Instructions Component
 interface OllamaStatus {
@@ -67,19 +68,18 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
         queryKey: ["vclusters", currentContext],
         queryFn: async () => {
             try {
-                const vclusterResult = await invoke<string>("list_vclusters");
-                if (!vclusterResult || vclusterResult === "null" || vclusterResult.trim() === "") {
+                const vclusterResult = await invoke<any[]>("list_vclusters");
+                if (!vclusterResult || !Array.isArray(vclusterResult)) {
                     return [];
                 }
-                const vclusterList = JSON.parse(vclusterResult);
-                if (!Array.isArray(vclusterList)) return [];
-                return vclusterList.map((vc: any) => ({
-                    id: `vcluster-${vc.Name}-${vc.Namespace}`,
-                    name: vc.Name,
-                    namespace: vc.Namespace,
-                    status: vc.Status || 'Unknown',
-                    version: vc.Version || '',
-                    connected: vc.Connected || false,
+                // vclusterResult is already an array of objects
+                return vclusterResult.map((vc: any) => ({
+                    id: `vcluster-${vc.name}-${vc.namespace}`,
+                    name: vc.name,
+                    namespace: vc.namespace,
+                    status: vc.status || 'Unknown',
+                    version: vc.created || '', // Mapping created to version/age field
+                    connected: false, // Context check handles connection state
                 }));
             } catch {
                 return [];
@@ -386,6 +386,39 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                     </button>
                 </div>
             </div>
+
+            {/* vclusters Found Banner - Show if vclusters are detected (and we are on host) */}
+            {vclusters && vclusters.length > 0 && !isInsideVcluster && (
+                <div className="mb-6 bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-indigo-950/40 rounded-xl p-5 border border-purple-500/30 shadow-lg shadow-purple-900/20">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2.5 rounded-lg bg-purple-500/20 border border-purple-400/30">
+                            <Box className="w-5 h-5 text-purple-300" />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-semibold text-white">Virtual Clusters</h3>
+                            <p className="text-xs text-purple-200/70">{vclusters.length} vcluster{vclusters.length !== 1 ? 's' : ''} detected in this cluster</p>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {vclusters.map((vc: any) => (
+                            <div key={vc.id} className="bg-zinc-900/60 backdrop-blur-sm border border-purple-500/20 rounded-lg p-4 hover:border-purple-400/40 hover:bg-zinc-900/80 transition-all">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-sm text-white truncate">{vc.name}</div>
+                                        <div className="text-[10px] text-purple-300/60 uppercase tracking-wider mt-0.5">
+                                            Namespace: <span className="text-purple-200/80">{vc.namespace}</span>
+                                        </div>
+                                    </div>
+                                    <span className={`ml-2 text-[10px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${vc.status === 'Deployed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-zinc-700/50 text-zinc-400 border border-zinc-600'}`}>
+                                        {vc.status}
+                                    </span>
+                                </div>
+                                <VclusterConnectButton name={vc.name} namespace={vc.namespace} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Info Panel - How Metrics Are Calculated */}
             {showInfoPanel && (
@@ -1153,149 +1186,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                 </div>
             </div>
 
-            {/* Virtual Clusters Section - only show on host clusters, not inside vclusters */}
-            {!isInsideVcluster && vclusters && vclusters.length > 0 && (
-                <div className="mt-6 bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <Box className="w-4 h-4 text-purple-400" />
-                            Virtual Clusters ({vclusters.length})
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">Lightweight isolated Kubernetes clusters running in this host cluster</p>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                        {vclusters.map((vc: any) => (
-                            <div
-                                key={vc.id}
-                                className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700 hover:border-purple-500/50 transition-all group"
-                            >
-                                <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                        <Box className="w-5 h-5 text-purple-400" />
-                                        <div>
-                                            <div className="font-medium text-white text-sm">{vc.name}</div>
-                                            <div className="text-xs text-zinc-500">{vc.namespace}</div>
-                                        </div>
-                                    </div>
-                                    <span className={`text-xs px-2 py-0.5 rounded ${vc.status === 'Running' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                                        {vc.status}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between text-xs text-zinc-500 mb-3">
-                                    <span>v{vc.version}</span>
-                                    {vc.connected && <span className="text-cyan-400">Connected</span>}
-                                </div>
-                                {connectingVcluster === vc.id ? (
-                                    <div className="space-y-2">
-                                        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md bg-purple-900/50 border border-purple-500/30">
-                                            <Loader2 size={14} className="animate-spin text-purple-400" />
-                                            <span className="text-xs text-purple-200 flex-1">{connectionStatus || "Initializing..."}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setConnectCancelled(true);
-                                                setConnectingVcluster(null);
-                                                setConnectionStatus("");
-                                                if ((window as any).showToast) {
-                                                    (window as any).showToast('Connection cancelled', 'info');
-                                                }
-                                            }}
-                                            className="w-full px-3 py-1.5 rounded-md bg-zinc-700/50 hover:bg-zinc-600/50 text-zinc-300 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
-                                        >
-                                            <X size={12} />
-                                            Cancel
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={async () => {
-                                            const vcId = vc.id;
-                                            setConnectingVcluster(vcId);
-                                            setConnectCancelled(false);
-                                            setConnectionStatus("Disconnecting from current vcluster...");
-                                            try {
-                                                // First disconnect from any existing vcluster
-                                                try {
-                                                    await Promise.race([
-                                                        invoke("disconnect_vcluster"),
-                                                        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000))
-                                                    ]);
-                                                } catch (e) {
-                                                    // Ignore - might not be connected to a vcluster
-                                                }
 
-                                                setConnectionStatus("Starting vcluster proxy...");
-
-                                                // Simulate progress updates
-                                                const statusUpdates = [
-                                                    { delay: 500, msg: "Starting vcluster proxy..." },
-                                                    { delay: 2000, msg: "Waiting for proxy to initialize..." },
-                                                    { delay: 4000, msg: "Configuring kubeconfig..." },
-                                                    { delay: 6000, msg: "Verifying API connection..." },
-                                                    { delay: 10000, msg: "Establishing secure tunnel..." },
-                                                ];
-
-                                                const timeoutIds: ReturnType<typeof setTimeout>[] = [];
-                                                statusUpdates.forEach(({ delay, msg }) => {
-                                                    const id = setTimeout(() => {
-                                                        if (!connectCancelled) setConnectionStatus(msg);
-                                                    }, delay);
-                                                    timeoutIds.push(id);
-                                                });
-
-                                                await invoke("connect_vcluster", { name: vc.name, namespace: vc.namespace });
-
-                                                // Clear timeouts
-                                                timeoutIds.forEach(id => clearTimeout(id));
-
-                                                // Check if cancelled while waiting
-                                                if (connectCancelled) {
-                                                    return;
-                                                }
-                                                setConnectionStatus("Connected! Loading cluster...");
-                                                if ((window as any).showToast) {
-                                                    (window as any).showToast(`Connected to vcluster '${vc.name}'`, 'success');
-                                                }
-                                                // Clear all cached data from host cluster before switching context
-                                                qc.removeQueries({ predicate: (query) => query.queryKey[0] !== "current_context" });
-                                                // Now invalidate current_context to trigger refetch with new vcluster context
-                                                qc.invalidateQueries({ queryKey: ["current_context"] });
-                                            } catch (err) {
-                                                if (!connectCancelled) {
-                                                    console.error('vcluster connect error:', err);
-                                                    setConnectionStatus("");
-                                                    if ((window as any).showToast) {
-                                                        (window as any).showToast(`Failed to connect: ${err}`, 'error');
-                                                    }
-                                                }
-                                            } finally {
-                                                setConnectingVcluster(null);
-                                                setConnectionStatus("");
-                                            }
-                                        }}
-                                        disabled={connectingVcluster !== null}
-                                        className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-white text-xs font-medium transition-all ${connectingVcluster !== null
-                                            ? 'bg-purple-800/50 cursor-not-allowed'
-                                            : 'bg-purple-600/80 hover:bg-purple-500'
-                                            }`}
-                                    >
-                                        <Plug size={14} />
-                                        Connect
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-            {!isInsideVcluster && vclustersLoading && (
-                <div className="mt-6 bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span className="text-sm">Detecting virtual clusters...</span>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
