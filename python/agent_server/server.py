@@ -2,7 +2,8 @@
 import os
 import json
 import httpx
-from typing import Literal
+import asyncio
+from typing import Literal, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,6 +76,7 @@ def get_session_state(thread_id: str) -> dict | None:
 
     return {
         'command_history': command_history,
+        'conversation_history': session.get('conversation_history', []),
         'discovered_resources': session.get('discovered_resources'),
         'accumulated_evidence': session.get('accumulated_evidence'),
         'conversation_turns': session.get('conversation_turns', 0)
@@ -97,6 +99,7 @@ def update_session_state(thread_id: str, state: dict):
 
     session_store[thread_id] = {
         'command_history': state.get('command_history', []),
+        'conversation_history': state.get('conversation_history', []),
         'discovered_resources': state.get('discovered_resources'),
         'accumulated_evidence': state.get('accumulated_evidence'),
         'last_query': state.get('query', ''),
@@ -221,14 +224,34 @@ global_sentinel = None
 import asyncio
 from sse_starlette.sse import EventSourceResponse
 
+
+from collections import deque
+
+class CircularBuffer:
+    """Fixed-size circular buffer for storing recent events."""
+    def __init__(self, capacity: int = 100):
+        self._buffer = deque(maxlen=capacity)
+    
+    def add(self, item: Any):
+        self._buffer.append(item)
+        
+    def get_all(self) -> list[Any]:
+        return list(self._buffer)
+
 class GlobalBroadcaster:
     def __init__(self):
         self._queues = set()
+        self._history = CircularBuffer(100) # Keep last 100 events
 
     async def subscribe(self):
         q = asyncio.Queue()
         self._queues.add(q)
         try:
+            # Replay history first
+            for event in self._history.get_all():
+                yield {"data": json.dumps(event)}
+                
+            # Then stream new events
             while True:
                 msg = await q.get()
                 yield msg
@@ -236,6 +259,9 @@ class GlobalBroadcaster:
             self._queues.remove(q)
 
     async def broadcast(self, event: dict):
+        # Store in history
+        self._history.add(event)
+        
         # Format as SSE data
         import json
         payload = {"data": json.dumps(event)}
@@ -244,6 +270,7 @@ class GlobalBroadcaster:
             await q.put(payload)
 
 broadcaster = GlobalBroadcaster()
+
 
 # --- startup ---
 @asynccontextmanager
@@ -255,7 +282,6 @@ async def lifespan(app: FastAPI):
     global global_sentinel
     global_sentinel = SentinelLoop(kube_context=None, broadcaster=broadcaster)
 
-    import asyncio
     sentinel_task = asyncio.create_task(global_sentinel.start())
 
     # TODO: Background task for multi-context CRD pre-warming
@@ -587,7 +613,7 @@ async def analyze(request: AgentRequest):
             "kube_context": request.kube_context,
             # Merge session history with any history passed in request (frontend might pass context)
             "command_history": session_state['command_history'] if session_state else (request.history or []),
-            "conversation_history": request.conversation_history or [],
+            "conversation_history": (session_state.get('conversation_history') if session_state else []) or (request.conversation_history or []),
             "iteration": 0,
             "next_action": 'supervisor',
             "pending_command": None,
@@ -668,20 +694,26 @@ async def analyze(request: AgentRequest):
             })
             run_input["command_history"] = hist
 
+        # Heartbeat task reference (needs to be accessible for cleanup)
+        heartbeat_task_ref = None
+
         async def event_generator():
+            nonlocal heartbeat_task_ref
             import time
             start_time = time.time()
-            emitted_events_count = 0 
+            emitted_events_count = 0
             last_heartbeat = time.time()
-            heartbeat_interval = 5 
+            heartbeat_interval = 5
             thinking_dots = 0
 
             # Send initial progress event immediately
             yield f"data: {json.dumps(emit_event('progress', {'message': '🧠 Starting analysis...'}))}\n\n"
 
-            # Increase recursion/effort in extend mode
+            # CRITICAL FIX: Increased recursion limits to handle complex investigations
+            # Previous limits (150/250) were causing premature termination for deep debugging
+            # New limits provide 2-3x more capacity for multi-step troubleshooting
             run_config = {
-                "recursion_limit": 250 if initial_state.get("extend") else 150,
+                "recursion_limit": 500 if initial_state.get("extend") else 300,
                 "configurable": {"thread_id": request.thread_id}
             }
             if initial_state.get("extend"):
@@ -689,17 +721,31 @@ async def analyze(request: AgentRequest):
                 yield f"data: {json.dumps(emit_event('hint', {'action': 'extend', 'reason': 'User requested extended investigation'}))}\n\n"
                 # Provide planner guidance so downstream nodes can prioritize missing signals and MCP tools
                 yield f"data: {json.dumps(emit_event('plan_bias', {'preferred_checks': initial_state.get('preferred_checks'), 'prefer_mcp_tools': True}))}\n\n"
-            
+
             # Backtracking / Retry Loop
             max_attempts = 3
             final_answer = None
-            
-            for attempt in range(max_attempts):
-                # If retrying, inject a hint into the query
-                if attempt > 0:
+
+            # Queue for heartbeat communication
+            heartbeat_queue = asyncio.Queue()
+
+            # Heartbeat coroutine to keep SSE connection alive while waiting for Ollama
+            async def send_heartbeats():
+                """Send periodic heartbeats to prevent SSE timeout during slow LLM loading"""
+                dots = 0
+                while True:
+                    await asyncio.sleep(5)  # Every 5 seconds
+                    dots = (dots % 3) + 1
+                    elapsed = int(time.time() - start_time)
+                    await heartbeat_queue.put(f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Loading model{"." * dots} ({elapsed}s)'}))}\n\n")
+
+            try:
+                for attempt in range(max_attempts):
+                    # If retrying, inject a hint into the query
+                    if attempt > 0:
                      print(f"🔄 Backtracking Attempt {attempt+1}/{max_attempts}...", flush=True)
                      yield f"data: {json.dumps(emit_event('status', {'message': f'Previous path failed. Backtracking (Attempt {attempt+1})...', 'type': 'retry'}))}\n\n"
-                     
+
                      # Append hint to query to guide Supervisor
                      # We use a distinct separator so we can strip it later if needed, but LLM understanding is key.
                      # Note: We modify initial_state directly here, which will be passed to the agent.
@@ -714,237 +760,283 @@ async def analyze(request: AgentRequest):
                      initial_state['events'] = []
                      emitted_events_count = 0
 
-                # Run the agent
-                # Note: We use the same thread_id so history is preserved (agent sees what failed).
-                # We pass `initial_state` directly here, as it's being mutated for retries.
-                async for event in agent.astream_events(initial_state, version="v2", config=run_config):
-                    kind = event["event"]
-                    current_time = time.time()
+                    # Start heartbeat task to keep connection alive during model loading
+                    if not heartbeat_task_ref:
+                        heartbeat_task_ref = asyncio.create_task(send_heartbeats())
 
-                    # Send heartbeat/thinking indicator
-                    if current_time - last_heartbeat > heartbeat_interval:
-                        thinking_dots = (thinking_dots % 3) + 1
-                        dots = "." * thinking_dots
-                        elapsed = int(current_time - start_time)
-                        yield f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Thinking{dots} ({elapsed}s)'}))}\n\n"
-                        last_heartbeat = current_time
+                    # Run the agent
+                    # Note: We use the same thread_id so history is preserved (agent sees what failed).
+                    # We pass `initial_state` directly here, as it's being mutated for retries.
+                    event_stream = agent.astream_events(initial_state, version="v2", config=run_config)
+                    async for event in event_stream:
+                        # Check heartbeat queue and yield any pending heartbeats
+                        while not heartbeat_queue.empty():
+                            heartbeat_msg = await heartbeat_queue.get()
+                            yield heartbeat_msg
 
-                    # Handle chain steps (updates from nodes)
-                    if kind == "on_chain_end":
-                        if event['name'] in ['supervisor', 'worker', 'verify', 'human_approval', 'execute', 'batch_execute', 'reflect', 'plan_executor', 'synthesizer', 'k8s_agent']:
-                            node_update = event['data'].get('output') if event.get('data') else None
+                        kind = event["event"]
+                        current_time = time.time()
 
-                            if node_update is None:
-                                continue
+                        # Send heartbeat/thinking indicator
+                        if current_time - last_heartbeat > heartbeat_interval:
+                            thinking_dots = (thinking_dots % 3) + 1
+                            dots = "." * thinking_dots
+                            elapsed = int(current_time - start_time)
+                            yield f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Thinking{dots} ({elapsed}s)'}))}\n\n"
+                            last_heartbeat = current_time
 
-                            if isinstance(node_update, dict):
-                                # Simplistic merge for flat fields
-                                initial_state.update(node_update)
+                        # Handle chain steps (updates from nodes)
+                        if kind == "on_chain_end":
+                            if event['name'] in ['supervisor', 'worker', 'self_correction', 'command_validator', 'verify', 'human_approval', 'execute', 'batch_execute', 'reflect', 'plan_executor', 'synthesizer', 'k8s_agent']:
+                                node_update = event['data'].get('output') if event.get('data') else None
 
-                                # DEBUG: Log node completion
-                                print(f"🔍 NODE COMPLETE: {event['name']}, next_action={node_update.get('next_action')}, has_final_response={bool(node_update.get('final_response'))}", flush=True)
+                                if node_update is None:
+                                    continue
 
-                                # Capture final response if generated by any node
-                                if node_update.get('final_response'):
-                                    final_answer = node_update.get('final_response')
-                                    print(f"✅ FINAL RESPONSE CAPTURED from {event['name']}: {final_answer[:100]}...", flush=True)
-                                    # If a final answer is found, we can break out of the inner astream_events loop
-                                    # and the outer retry loop will also break.
-                                    break # Break from inner async for loop
+                                if isinstance(node_update, dict):
+                                    # Simplistic merge for flat fields
+                                    initial_state.update(node_update)
 
-                                # Phase tracking: emit phase markers when moving through key nodes
-                                phase_map = {
-                                    'supervisor': 'discovery',
-                                    'worker': 'evidence',
-                                    'verify': 'validation',
-                                    'reflect': 'hypothesis',
-                                    'plan_executor': 'recommendation',
-                                }
-                                phase_name = phase_map.get(event['name'])
-                                if phase_name:
-                                    yield f"data: {json.dumps(emit_phase_event(phase_name, detail=f'node={event['name']}'))}\n\n"
+                                    # DEBUG: Log node completion
+                                    print(f"🔍 NODE COMPLETE: {event['name']}, next_action={node_update.get('next_action')}, has_final_response={bool(node_update.get('final_response'))}", flush=True)
 
-                                if node_update.get('events'):
-                                    events_list = node_update.get('events', [])
-                                    if len(events_list) > emitted_events_count:
-                                        print(f"DEBUG: Emitting {len(events_list) - emitted_events_count} new events", flush=True)
-                                        for new_evt in events_list[emitted_events_count:]:
-                                            yield f"data: {json.dumps(new_evt)}\n\n"
-                                            last_heartbeat = time.time()
-                                        emitted_events_count = len(events_list)
+                                    # Capture final response if generated by any node
+                                    if node_update.get('final_response'):
+                                        final_answer = node_update.get('final_response')
+                                        print(f"✅ FINAL RESPONSE CAPTURED from {event['name']}: {final_answer[:100]}...", flush=True)
+                                        # If a final answer is found, we can break out of the inner astream_events loop
+                                        # and the outer retry loop will also break.
+                                        break # Break from inner async for loop
 
-                                # Hypothesis visibility: stream ranked hypotheses if present
-                                ranked = node_update.get('ranked_hypotheses') or node_update.get('hypotheses')
-                                if ranked and isinstance(ranked, list):
-                                    try:
-                                        yield f"data: {json.dumps(emit_hypotheses_event(ranked))}\n\n"
-                                    except Exception:
-                                        pass
+                                    # Phase tracking: emit phase markers when moving through key nodes
+                                    phase_map = {
+                                        'supervisor': 'discovery',
+                                        'worker': 'evidence',
+                                        'verify': 'validation',
+                                        'reflect': 'hypothesis',
+                                        'plan_executor': 'recommendation',
+                                    }
+                                    phase_name = phase_map.get(event['name'])
+                                    if phase_name:
+                                        yield f"data: {json.dumps(emit_phase_event(phase_name, detail=f'node={event['name']}'))}\n\n"
 
-                                if node_update.get('next_action') == 'human_approval' and node_update.get('awaiting_approval') is True:
-                                    # CRITICAL GUARD: Detect approval loop (graph bug)
-                                    approval_loop_count = initial_state.get('approval_loop_count', 0) + 1
-                                    initial_state['approval_loop_count'] = approval_loop_count
+                                    if node_update.get('events'):
+                                        events_list = node_update.get('events', [])
+                                        if len(events_list) > emitted_events_count:
+                                            print(f"DEBUG: Emitting {len(events_list) - emitted_events_count} new events", flush=True)
+                                            for new_evt in events_list[emitted_events_count:]:
+                                                yield f"data: {json.dumps(new_evt)}\n\n"
+                                                last_heartbeat = time.time()
+                                            emitted_events_count = len(events_list)
 
-                                    if approval_loop_count > 2:
-                                        print(f"[server] ❌ CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop with fallback response.", flush=True)
-
-                                        # Generate intelligent fallback response from available data
+                                    # Hypothesis visibility: stream ranked hypotheses if present
+                                    ranked = node_update.get('ranked_hypotheses') or node_update.get('hypotheses')
+                                    if ranked and isinstance(ranked, list):
                                         try:
-                                            from .response_formatter import format_intelligent_response_with_llm
-                                            fallback_response = await format_intelligent_response_with_llm(
-                                                query=initial_state.get('query', ''),
-                                                command_history=initial_state.get('command_history', []),
-                                                discovered_resources=initial_state.get('discovered_resources', {}),
-                                                hypothesis=initial_state.get('current_hypothesis'),
-                                                llm_endpoint=initial_state.get('llm_endpoint'),
-                                                llm_model=initial_state.get('llm_model'),
-                                                llm_provider=initial_state.get('llm_provider', 'ollama'),
-                                                accumulated_evidence=initial_state.get('accumulated_evidence', []),
-                                                api_key=initial_state.get('api_key')
-                                            )
-                                        except Exception as e:
-                                            print(f"[server] ❌ Fallback generation failed: {e}", flush=True)
-                                            # Simple fallback if LLM fails
-                                            cmd_hist = initial_state.get('command_history', [])
-                                            if cmd_hist:
-                                                last_output = cmd_hist[-1].get('output', 'No output available')
-                                                fallback_response = f"Based on the command execution:\n\n```\n{last_output[:500]}\n```\n\nI encountered an issue requiring approval but couldn't proceed automatically. Please review the output above."
-                                            else:
-                                                fallback_response = "I encountered an issue processing your request and couldn't proceed automatically."
+                                            yield f"data: {json.dumps(emit_hypotheses_event(ranked))}\n\n"
+                                        except Exception:
+                                            pass
 
-                                        # Set final response and emit completion
-                                        final_answer = fallback_response
-                                        initial_state['final_response'] = fallback_response
-                                        initial_state['next_action'] = 'done'
-                                        initial_state['error'] = 'Approval loop detected - graph configuration bug'
+                                    if node_update.get('next_action') == 'human_approval' and node_update.get('awaiting_approval') is True:
+                                        # CRITICAL GUARD: Detect approval loop (graph bug)
+                                        approval_loop_count = initial_state.get('approval_loop_count', 0) + 1
+                                        initial_state['approval_loop_count'] = approval_loop_count
 
-                                        yield f"data: {json.dumps(emit_event('done', {'final_response': fallback_response}))}\n\n"
-                                        break  # Break from astream_events loop
-                                    else:
-                                        # Normal approval flow - wait for user
-                                        print(f"[server] ⚠️ Approval needed (iteration {approval_loop_count}). Waiting for user...", flush=True)
-                                        approval_ctx = {
-                                            'command': node_update.get('pending_command'),
-                                            'reason': node_update.get('approval_reason') or 'Manual approval required for mutative action',
-                                            'risk': node_update.get('risk_level') or 'unknown',
-                                            'impact': node_update.get('expected_impact') or 'unspecified',
-                                        }
-                                        yield f"data: {json.dumps(emit_event('approval_needed', approval_ctx))}\n\n"
-                                        return # Exit generator if approval is needed
+                                        if approval_loop_count > 2:
+                                            print(f"[server] ❌ CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop with fallback response.", flush=True)
 
-                # Check if we got an answer after the stream ends (successfully or broken)
-                if final_answer:
-                    # Break the retry loop if we got an answer
-                    initial_state['final_response'] = final_answer
-                    break
-                else:
-                    # Log the state if we didn't get a final answer
-                    print(f"❌ Attempt {attempt+1} failed to produce final_response. Current keys: {initial_state.keys()}", flush=True)
-                    if 'error' in initial_state:
-                         print(f"❌ State Error: {initial_state['error']}", flush=True)
+                                            # Generate intelligent fallback response from available data
+                                            try:
+                                                from .response_formatter import format_intelligent_response_with_llm
+                                                fallback_response = await format_intelligent_response_with_llm(
+                                                    query=initial_state.get('query', ''),
+                                                    command_history=initial_state.get('command_history', []),
+                                                    discovered_resources=initial_state.get('discovered_resources', {}),
+                                                    hypothesis=initial_state.get('current_hypothesis'),
+                                                    llm_endpoint=initial_state.get('llm_endpoint'),
+                                                    llm_model=initial_state.get('llm_model'),
+                                                    llm_provider=initial_state.get('llm_provider', 'ollama'),
+                                                    accumulated_evidence=initial_state.get('accumulated_evidence', []),
+                                                    api_key=initial_state.get('api_key')
+                                                )
+                                            except Exception as e:
+                                                print(f"[server] ❌ Fallback generation failed: {e}", flush=True)
+                                                # Simple fallback if LLM fails
+                                                cmd_hist = initial_state.get('command_history', [])
+                                                if cmd_hist:
+                                                    last_output = cmd_hist[-1].get('output', 'No output available')
+                                                    fallback_response = f"Based on the command execution:\n\n```\n{last_output[:500]}\n```\n\nI encountered an issue requiring approval but couldn't proceed automatically. Please review the output above."
+                                                else:
+                                                    fallback_response = "I encountered an issue processing your request and couldn't proceed automatically."
 
-                # If final_answer was found during this attempt, break the outer retry loop
-                if final_answer:
-                    break
-            
-            # Fallback: If ended with approval needed (Graph interruption)
-            if initial_state.get('next_action') == 'human_approval' and initial_state.get('awaiting_approval'):
-                 cmd = initial_state.get('pending_command') or (initial_state.get('command_history')[-1].get('command') if initial_state.get('command_history') else "Unknown Command")
-                 yield f"data: {json.dumps(emit_event('approval_needed', {'command': cmd}))}\n\n"
-                 return
+                                            # Set final response and emit completion
+                                            final_answer = fallback_response
+                                            initial_state['final_response'] = fallback_response
+                                            initial_state['next_action'] = 'done'
+                                            initial_state['error'] = 'Approval loop detected - graph configuration bug'
 
-            # Final response (use the final_answer determined by the loop)
-            if not final_answer and initial_state.get('error'):
-                print(f"⚠️ Using error as final_answer: {initial_state['error']}", flush=True)
-                final_answer = f"Error: {initial_state['error']}"
-            elif not final_answer:
-                # Synthesize a useful final response from command history
-                print(f"⚠️ No final_answer from nodes, generating fallback response with {len(initial_state.get('command_history', []))} commands", flush=True)
+                                            yield f"data: {json.dumps(emit_event('done', {'final_response': fallback_response}))}\n\n"
+                                            break  # Break from astream_events loop
+                                        else:
+                                            # Normal approval flow - wait for user
+                                            print(f"[server] ⚠️ Approval needed (iteration {approval_loop_count}). Waiting for user...", flush=True)
+                                            approval_ctx = {
+                                                'command': node_update.get('pending_command'),
+                                                'reason': node_update.get('approval_reason') or 'Manual approval required for mutative action',
+                                                'risk': node_update.get('risk_level') or 'unknown',
+                                                'impact': node_update.get('expected_impact') or 'unspecified',
+                                            }
+                                            yield f"data: {json.dumps(emit_event('approval_needed', approval_ctx))}\n\n"
+                                            return # Exit generator if approval is needed
+
+                    # Check if we got an answer after the stream ends (successfully or broken)
+                    if final_answer:
+                        # Break the retry loop if we got an answer
+                        initial_state['final_response'] = final_answer
+                        break
+                    else:
+                        # Log the state if we didn't get a final answer
+                        print(f"❌ Attempt {attempt+1} failed to produce final_response. Current keys: {initial_state.keys()}", flush=True)
+                        if 'error' in initial_state:
+                             print(f"❌ State Error: {initial_state['error']}", flush=True)
+
+                    # If final_answer was found during this attempt, break the outer retry loop
+                    if final_answer:
+                        break
+
+                # Fallback: If ended with approval needed (Graph interruption)
+                if initial_state.get('next_action') == 'human_approval' and initial_state.get('awaiting_approval'):
+                     cmd = initial_state.get('pending_command') or (initial_state.get('command_history')[-1].get('command') if initial_state.get('command_history') else "Unknown Command")
+                     yield f"data: {json.dumps(emit_event('approval_needed', {'command': cmd}))}\n\n"
+                     return
+
+                # Final response (use the final_answer determined by the loop)
+                if not final_answer and initial_state.get('error'):
+                    print(f"⚠️ Using error as final_answer: {initial_state['error']}", flush=True)
+                    final_answer = f"Error: {initial_state['error']}"
+                elif not final_answer:
+                    # Synthesize a useful final response from command history
+                    print(f"⚠️ No final_answer from nodes, generating fallback response with {len(initial_state.get('command_history', []))} commands", flush=True)
+                    try:
+                        from .response_formatter import format_intelligent_response_with_llm
+                        print(f"🔄 Calling format_intelligent_response_with_llm...", flush=True)
+                        final_answer = await format_intelligent_response_with_llm(
+                            query=initial_state.get('query', ''),
+                            command_history=initial_state.get('command_history', []),
+                            discovered_resources=initial_state.get('discovered_resources') or {},
+                            hypothesis=initial_state.get('current_hypothesis') or None,
+                            llm_endpoint=initial_state.get('llm_endpoint'),
+                            llm_model=initial_state.get('llm_model'),
+                            llm_provider=initial_state.get('llm_provider') or 'ollama',
+                            api_key=initial_state.get('api_key')
+                        )
+                        print(f"✅ Fallback response generated: {final_answer[:100]}...", flush=True)
+                    except Exception as e:
+                        # Fallback simple summary
+                        print(f"❌ format_intelligent_response_with_llm failed: {e}, using simple fallback", flush=True)
+                        from .response_formatter import format_intelligent_response
+                        final_answer = format_intelligent_response(
+                            query=initial_state.get('query', ''),
+                            command_history=initial_state.get('command_history', []),
+                            discovered_resources=initial_state.get('discovered_resources') or {},
+                            hypothesis=initial_state.get('current_hypothesis') or None,
+                        )
+                        print(f"✅ Simple fallback response: {final_answer[:100]}...", flush=True)
+
+                # Coverage checks: emit warnings if key signals are missing
+                cov = compute_coverage_snapshot(initial_state)
+                missing = [k for k,v in cov.items() if not v]
+                if missing:
+                    yield f"data: {json.dumps(emit_event('coverage', {'missing': missing, 'message': 'Key signals missing, investigation may be incomplete'}))}\n\n"
+
+                # Adaptive iteration hint: recommend extension if warnings found
                 try:
-                    from .response_formatter import format_intelligent_response_with_llm
-                    print(f"🔄 Calling format_intelligent_response_with_llm...", flush=True)
-                    final_answer = await format_intelligent_response_with_llm(
-                        query=initial_state.get('query', ''),
-                        command_history=initial_state.get('command_history', []),
-                        discovered_resources=initial_state.get('discovered_resources') or {},
-                        hypothesis=initial_state.get('current_hypothesis') or None,
-                        llm_endpoint=initial_state.get('llm_endpoint'),
-                        llm_model=initial_state.get('llm_model'),
-                        llm_provider=initial_state.get('llm_provider') or 'ollama',
-                        api_key=initial_state.get('api_key')
-                    )
-                    print(f"✅ Fallback response generated: {final_answer[:100]}...", flush=True)
-                except Exception as e:
-                    # Fallback simple summary
-                    print(f"❌ format_intelligent_response_with_llm failed: {e}, using simple fallback", flush=True)
-                    from .response_formatter import format_intelligent_response
-                    final_answer = format_intelligent_response(
-                        query=initial_state.get('query', ''),
-                        command_history=initial_state.get('command_history', []),
-                        discovered_resources=initial_state.get('discovered_resources') or {},
-                        hypothesis=initial_state.get('current_hypothesis') or None,
-                    )
-                    print(f"✅ Simple fallback response: {final_answer[:100]}...", flush=True)
-
-            # Coverage checks: emit warnings if key signals are missing
-            cov = compute_coverage_snapshot(initial_state)
-            missing = [k for k,v in cov.items() if not v]
-            if missing:
-                yield f"data: {json.dumps(emit_event('coverage', {'missing': missing, 'message': 'Key signals missing, investigation may be incomplete'}))}\n\n"
-
-            # Adaptive iteration hint: recommend extension if warnings found
-            try:
-                had_warnings = any('Warning' in (h.get('output','')) for h in (initial_state.get('command_history') or []))
-                if had_warnings and missing:
-                    yield f"data: {json.dumps(emit_event('hint', {'action': 'extend', 'reason': 'Warnings detected with incomplete coverage'}))}\n\n"
-            except Exception:
-                pass
-
-            # Goal verification: ensure we state whether the user's goal seems met
-            # REMOVED: Legacy goal verification system that added "Goal status: NOT MET" prefix
-            # This was bypassing the response_formatter.py banned phrase validation
-            # and polluting responses with investigation-summary language.
-            # The response_formatter.py now handles all response quality control.
-
-            # LOGGING
-            duration = time.time() - start_time
-            # update final_response in state for logging purposes
-            if final_answer:
-                initial_state['final_response'] = final_answer
-
-            # Save session state for conversation continuity
-            update_session_state(request.thread_id, initial_state)
-
-            log_session(initial_state, duration, status="COMPLETED" if final_answer else "FAILED")
-
-            # Ensure a minimal thoughtful delay before completing
-            MIN_RUNTIME_SEC = 3
-            remaining = max(0, MIN_RUNTIME_SEC - duration)
-            if remaining > 0:
-                import asyncio
-                try:
-                    await asyncio.sleep(remaining)
+                    had_warnings = any('Warning' in (h.get('output','')) for h in (initial_state.get('command_history') or []))
+                    if had_warnings and missing:
+                        yield f"data: {json.dumps(emit_event('hint', {'action': 'extend', 'reason': 'Warnings detected with incomplete coverage'}))}\n\n"
                 except Exception:
                     pass
 
-            # Get suggested next steps from state (if generated by synthesizer)
-            suggested_next_steps = initial_state.get('suggested_next_steps', [])
+                # Goal verification: ensure we state whether the user's goal seems met
+                # REMOVED: Legacy goal verification system that added "Goal status: NOT MET" prefix
+                # This was bypassing the response_formatter.py banned phrase validation
+                # and polluting responses with investigation-summary language.
+                # The response_formatter.py now handles all response quality control.
 
-            print(f"📤 EMITTING 'done' EVENT with final_response: {bool(final_answer)} (length={len(final_answer) if final_answer else 0})", flush=True)
-            if final_answer:
-                print(f"   Preview: {final_answer[:150]}...", flush=True)
-            if suggested_next_steps:
-                print(f"   💡 Suggestions: {suggested_next_steps}", flush=True)
+                # LOGGING
+                duration = time.time() - start_time
+                # update final_response in state for logging purposes
+                if final_answer:
+                    initial_state['final_response'] = final_answer
 
-            yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': suggested_next_steps}))}\n\n"
+                # Append current turn to conversation history for continuity
+                c_hist = list(initial_state.get('conversation_history', []))
+                c_hist.append({'role': 'user', 'content': request.query})
+                if final_answer:
+                    c_hist.append({'role': 'assistant', 'content': final_answer})
+                else:
+                    # Provide an error response in history if available, or generic failure
+                    err_msg = initial_state.get('error') or "Investigation failed."
+                    c_hist.append({'role': 'assistant', 'content': f"(Investigation failed: {err_msg})"})
+                
+                initial_state['conversation_history'] = c_hist
 
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+                # Save session state for conversation continuity
+                update_session_state(request.thread_id, initial_state)
+
+                log_session(initial_state, duration, status="COMPLETED" if final_answer else "FAILED")
+
+                # Ensure a minimal thoughtful delay before completing
+                MIN_RUNTIME_SEC = 3
+                remaining = max(0, MIN_RUNTIME_SEC - duration)
+                if remaining > 0:
+                    try:
+                        await asyncio.sleep(remaining)
+                    except Exception:
+                        pass
+
+                # Get suggested next steps from state (if generated by synthesizer)
+                suggested_next_steps = initial_state.get('suggested_next_steps', [])
+
+                print(f"📤 EMITTING 'done' EVENT with final_response: {bool(final_answer)} (length={len(final_answer) if final_answer else 0})", flush=True)
+                if final_answer:
+                    print(f"   Preview: {final_answer[:150]}...", flush=True)
+                if suggested_next_steps:
+                    print(f"   💡 Suggestions: {suggested_next_steps}", flush=True)
+
+                yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': suggested_next_steps}))}\n\n"
+
+            except Exception as e:
+                print(f"❌ Error in event_generator: {e}", flush=True)
+                # Ensure we yield a final error event if something crashed
+                yield f"data: {json.dumps(emit_event('status', {'message': f'Internal Error: {str(e)}', 'type': 'error'}))}\n\n"
+
+            except Exception as e:
+                # Handle errors in backtracking/retry loop
+                print(f"[event_generator] Error during graph execution: {e}", flush=True)
+                yield f"data: {json.dumps(emit_event('error', {'message': f'Investigation error: {str(e)}'}))}\n\n"
+
+        async def event_generator_with_cleanup():
+            """Wrapper to ensure heartbeat task cleanup"""
+            nonlocal heartbeat_task_ref
+            try:
+                async for event in event_generator():
+                    yield event
+            finally:
+                # Cancel heartbeat task when generator completes
+                if heartbeat_task_ref and not heartbeat_task_ref.done():
+                    heartbeat_task_ref.cancel()
+                    try:
+                        await heartbeat_task_ref
+                    except asyncio.CancelledError:
+                        pass  # Expected
+
+        return StreamingResponse(event_generator_with_cleanup(), media_type="text/event-stream")
 
     except Exception as e:
         print(f"CRITICAL ERROR in analyze endpoint: {e}", flush=True)
         try:
-             # Minimal state reconstruction for logging
+            # Minimal state reconstruction for logging
             err_state: AgentState = {
                 "query": request.query,
                 "kube_context": request.kube_context,

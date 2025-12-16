@@ -14,6 +14,8 @@ CHAIN OF EVIDENCE (Facts discovered in previous steps):
 Result:
 {result}
 
+{error_guidance_section}
+
 INSTRUCTIONS:
 1. Analyze the Result:
     - Did the command work? (Exit code 0, non-empty output)

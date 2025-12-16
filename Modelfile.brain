@@ -10,6 +10,7 @@ PARAMETER num_ctx 32768
 # Low temp for consistent JSON output
 PARAMETER temperature 0.0
 PARAMETER top_p 0.9
+PARAMETER seed 42
 
 # 3. REPETITION CONTROL
 PARAMETER repeat_penalty 1.1
@@ -20,7 +21,16 @@ PARAMETER stop "<|start_header_id|>"
 PARAMETER stop "Observation:"
 PARAMETER stop "USER:"
 
-# 5. SYSTEM PROMPT - JSON ReAct Pattern
+# 6. OUTPUT TEMPLATE - Enforce Incident Report style
+TEMPLATE """
+### 🚨 Root Cause: {{root_cause}}
+**Impact**: {{impact}}
+**Evidence**:
+> {{evidence}}
+**Fix**:
+{{fix}}
+"""
+
 # 5. SYSTEM PROMPT - Pure K8s Expert
 SYSTEM """
 You are OpsPilot, an elite Kubernetes SRE.

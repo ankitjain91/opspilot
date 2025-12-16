@@ -214,7 +214,23 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
         # Process Directive
         directive = reflection.get('directive', 'CONTINUE')
         verified_facts = reflection.get('verified_facts', [])
-        
+
+        # --- HEURISTIC: PREVENT PREMATURE ABORT ON "NOT FOUND" ---
+        # If the agent wants to ABORT because a resource wasn't found, we should RETRY 
+        # with a discovery command (get all) instead.
+        if directive == 'ABORT' and any(err in last_output.lower() for err in ['not found', 'no such', 'does not exist']):
+             print(f"[agent-sidecar] 🛡️  Preventing ABORT on NotFound error. Forcing RETRY to discover correct resource name.", flush=True)
+             directive = 'RETRY'
+             reflection['directive'] = 'RETRY'
+             reflection['next_command_hint'] = "The resource was not found. List ALL resources in the namespace to find the correct name."
+             reflection['thought'] = "The targeted resource does not exist. I need to list available resources to find the correct name."
+             reflection['reason'] = "Resource not found recovery"
+
+        # --- FIX: ENSURE REASON IS POPULATED ---
+        if directive == 'ABORT' and not reflection.get('reason'):
+            # Fallback to thought or generic message if reason is missing
+            reflection['reason'] = reflection.get('thought', 'Investigation halted based on analysis.')
+
         # Log decision
         print(f"[agent-sidecar] 🧠 Reflection Decision: {directive}", flush=True)
         if verified_facts:
@@ -222,7 +238,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             
         events.append(emit_event("reflection", {
             "assessment": directive,
-            "reasoning": reflection["thought"],
+            "reasoning": reflection.get("reason") or reflection["thought"], # Use reason if available (for Abort), else thought
             "found_solution": (directive == 'SOLVED'),
             "verified_facts": verified_facts
         }))

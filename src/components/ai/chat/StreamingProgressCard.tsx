@@ -181,6 +181,23 @@ export const StreamingProgressCard: React.FC<StreamingProgressCardProps> = ({ ph
                     )}
                 </div>
             )}
+
+            {/* Suggestions Section (shown on complete) */}
+            {phase.suggestions && phase.suggestions.length > 0 && phase.phase === 'complete' && (
+                <div className="mt-3 border-t border-zinc-800 pt-3">
+                    <div className="text-xs text-zinc-400 mb-2 flex items-center gap-2">
+                        <Search size={12} />
+                        <span>Suggested next steps:</span>
+                    </div>
+                    <div className="space-y-1">
+                        {phase.suggestions.map((suggestion, idx) => (
+                            <div key={idx} className="text-xs text-zinc-300 bg-zinc-900/50 rounded px-2 py-1.5 border border-zinc-800">
+                                {suggestion}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

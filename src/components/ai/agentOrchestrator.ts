@@ -185,6 +185,7 @@ async function runPythonAgent(
             let finalResponse = '';
             let toolCallRequest = null;
             let currentServerHistory = null;
+            let lastError: string | null = null; // Track last error but don't fail immediately
 
             while (true) {
                 let done: boolean;
@@ -212,6 +213,9 @@ async function runPythonAgent(
 
                             switch (eventData.type) {
                                 case 'progress':
+                                    onProgress?.(eventData.message);
+                                    break;
+                                case 'intent':
                                     onProgress?.(eventData.message);
                                     break;
                                 case 'reflection':
@@ -272,21 +276,25 @@ async function runPythonAgent(
                                     if (eventData.final_response) {
                                         finalResponse = eventData.final_response;
                                     }
+                                    // Emit proactive suggestions to the UI if present
+                                    if (eventData.suggested_next_steps && Array.isArray(eventData.suggested_next_steps)) {
+                                        try {
+                                            onProgress?.(`[SUGGESTIONS] ${JSON.stringify(eventData.suggested_next_steps)}`);
+                                        } catch (_) {
+                                            // Non-fatal if suggestions fail to emit
+                                        }
+                                    }
                                     break;
                                 case 'error':
-                                    // Agent server sent an explicit error - propagate it
-                                    const agentError = new Error(`Agent Server: ${eventData.message}`);
-                                    (agentError as any).isAgentError = true;
-                                    throw agentError;
+                                    // Store error but don't throw immediately - agent may recover
+                                    lastError = eventData.message;
+                                    onProgress?.(`⚠️ ${eventData.message}`);
+                                    break;
                                 case 'approval_needed':
                                     onApprovalRequired?.(eventData);
                                     break;
                             }
                         } catch (e: any) {
-                            // Only ignore JSON parse errors, not agent errors
-                            if (e?.isAgentError) {
-                                throw e;
-                            }
                             // Ignore parse errors for incomplete SSE chunks (common with streaming)
                         }
                     }
@@ -351,7 +359,17 @@ async function runPythonAgent(
             }
 
             // If no tool call, we are done
-            return finalResponse || "Agent completed without a final response.";
+            // If we have a final response, return it (even if there were errors during retries)
+            if (finalResponse) {
+                return finalResponse;
+            }
+
+            // No final response - if there was an error, throw it
+            if (lastError) {
+                throw new Error(`Agent Server: ${lastError}`);
+            }
+
+            return "Agent completed without a final response.";
 
         } catch (error: any) {
             if (error.name === 'AbortError') throw new Error("Request cancelled by user");

@@ -230,6 +230,28 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
     try:
         # 1. Generate command
         worker_state = await worker_node(current_state)
+
+        # CHECK FOR BATCH EXECUTION (Parallel Read)
+        if worker_state.get('next_action') == 'execute_batch':
+             from .worker import execute_batch_node
+             batch_result = await execute_batch_node(worker_state)
+             
+             # Batch execution does its own reflection in a way (adding history)
+             # But here we loop back to 'execute_next_step' to start fresh planning
+             return {
+                 **batch_result,
+                 'execution_plan': working_plan,
+                 'next_action': 'execute_next_step',
+                 # Preserve retry count
+                 'retry_count': state.get('retry_count', 0),
+                 'step_status': 'in_progress',
+                 # Clear last reflection as we just did a batch run
+                 'last_reflection': {
+                     'directive': 'CONTINUE',
+                     'thought': 'Batch execution completed. Analyzing results...'
+                 }
+             }
+
         pending_cmd = worker_state.get('pending_command')
 
         if not pending_cmd:
@@ -293,9 +315,9 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
             'execution_plan': working_plan,
             'next_action': 'execute_next_step', # Loop back to STATE MACHINE
             'events': final_events,
-            # Preserve retry count from current_state (which may have been incremented)
-            'retry_count': current_state.get('retry_count', 0),
-            'step_status': current_state.get('step_status', 'in_progress')
+            # CRITICAL FIX: Preserve retry count from incoming state parameter
+            'retry_count': state.get('retry_count', 0),
+            'step_status': current_state['step_status']
         }
 
     except Exception as e:

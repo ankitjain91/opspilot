@@ -25,17 +25,31 @@ if [ -z "$PYTHON_SCRIPT" ]; then
     exit 1
 fi
 
-# Active virtual environment if it exists
-if [ -d "$PROJECT_ROOT/.venv" ]; then
+# Activate virtual environment if it exists
+# Prefer project-local python/venv if present, else use .venv
+if [ -d "$PROJECT_ROOT/python/venv" ]; then
+    source "$PROJECT_ROOT/python/venv/bin/activate"
+elif [ -d "$PROJECT_ROOT/.venv" ]; then
     source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
 # Install dependencies if needed (rudimentary check)
 # In production, this should be handled by the installer
 # Use python3 -m pip to ensure compatibility
-if ! python3 -m pip freeze | grep -q "fastapi"; then
+NEEDS_INSTALL=0
+python3 -m pip freeze | grep -qi "fastapi" || NEEDS_INSTALL=1
+python3 -m pip freeze | grep -qi "kubernetes-asyncio" || NEEDS_INSTALL=1
+python3 -m pip freeze | grep -qi "sse-starlette" || NEEDS_INSTALL=1
+
+if [ "$NEEDS_INSTALL" -eq 1 ]; then
     echo "Installing Python dependencies..."
-    python3 -m pip install fastapi uvicorn httpx langgraph langchain-core pydantic > /dev/null
+    if [ -f "$PROJECT_ROOT/python/requirements.txt" ]; then
+        python3 -m pip install -r "$PROJECT_ROOT/python/requirements.txt" >/dev/null
+    else
+        python3 -m pip install \
+            fastapi uvicorn httpx langgraph langchain-core pydantic \
+            kubernetes-asyncio sse-starlette aiohttp rank-bm25 >/dev/null
+    fi
 fi
 
 # Run the server

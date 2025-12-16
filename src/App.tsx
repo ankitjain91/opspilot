@@ -54,7 +54,6 @@ const persister = createSyncStoragePersister({
 });
 // --- Terminal Tab ---
 import { useSentinel } from './components/ai/useSentinel';
-import { KBProgressIndicator } from './components/ai/KBProgressIndicator';
 
 // --- Terminal Tab ---
 function AppContent() {
@@ -313,8 +312,6 @@ function AppContent() {
         />
       )}
 
-      {/* CRD Loading Progress Indicator */}
-      <KBProgressIndicator progress={kbProgress} />
     </>
   );
 }

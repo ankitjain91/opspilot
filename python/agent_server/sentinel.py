@@ -22,11 +22,15 @@ class SentinelLoop:
         self.last_alert_time = {} # Throttle alerts per resource
 
     async def start(self):
-        """Start the background monitoring loop."""
+        """Start the background monitoring loop.
+        Ensures Kubernetes ApiClient and Watch are properly closed to avoid aiohttp leaks.
+        """
         self.running = True
         logger.info(f"🛡️ Sentinel starting for context: {self.kube_context}")
-        
+
         while self.running:
+            api_client = None
+            w = None
             try:
                 # Load config asynchronously
                 try:
@@ -35,24 +39,38 @@ class SentinelLoop:
                 except config.ConfigException:
                     await config.load_kube_config(context=self.kube_context)
 
-                v1 = client.CoreV1Api()
+                # Create an ApiClient bound to the loaded config and ensure it closes
+                api_client = client.ApiClient()
+                v1 = client.CoreV1Api(api_client)
                 w = watch.Watch()
 
                 logger.info("🛡️ Watching for Warning events...")
-                
-                # Stream events
-                # Filter for Warning type to reduce noise
+
+                # Stream events; filter for Warning type to reduce noise
                 async for event in w.stream(v1.list_event_for_all_namespaces, timeout_seconds=60):
-                    if not self.running: 
+                    if not self.running:
                         break
 
                     obj = event['object']
-                    if obj.type == "Warning":
+                    if getattr(obj, 'type', None) == "Warning":
                         await self.process_warning(obj)
-            
+
             except Exception as e:
                 logger.error(f"Sentinel crash: {e}")
-                await asyncio.sleep(5) # Backoff before restart
+                await asyncio.sleep(5)  # Backoff before restart
+            finally:
+                # Stop watcher and close underlying aiohttp session to prevent leaks
+                try:
+                    if w is not None:
+                        w.stop()
+                except Exception:
+                    pass
+                try:
+                    if api_client is not None:
+                        # Close kubernetes_asyncio ApiClient (closes aiohttp session/connector)
+                        await api_client.close()
+                except Exception:
+                    pass
 
     async def stop(self):
         """Stop the loop."""

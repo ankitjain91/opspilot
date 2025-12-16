@@ -9,6 +9,18 @@ class CommandHistory(TypedDict):
     assessment: str | None  # Self-reflection assessment
     useful: bool | None
     reasoning: str | None
+    hypothesis_id: str | None  # Which hypothesis this command was testing
+
+class Hypothesis(TypedDict):
+    """A hypothesis about the root cause of an issue."""
+    id: str  # Unique identifier (e.g., "hyp-1", "hyp-2")
+    description: str  # The hypothesis statement
+    confidence: float  # Current confidence level (0.0-1.0)
+    status: Literal['active', 'confirmed', 'refuted', 'abandoned']
+    supporting_evidence: List[str]  # Evidence that supports this hypothesis
+    contradicting_evidence: List[str]  # Evidence that contradicts this hypothesis
+    created_at: int  # Iteration when created
+    last_updated: int  # Iteration when last modified
  
 class ReflectionData(TypedDict, total=False):
     """Structured output from reflect node."""
@@ -25,7 +37,9 @@ class AgentState(TypedDict):
     command_history: list[CommandHistory]
     conversation_history: list[dict] # Previous USER/ASSISTANT turns
     iteration: int
-    current_hypothesis: str  # The active hypothesis being tested (e.g. "Pod is crashing due to OOM")
+    current_hypothesis: str  # DEPRECATED: Use hypotheses list instead. Kept for backward compatibility.
+    hypotheses: List[Hypothesis] | None  # All hypotheses being tracked
+    active_hypothesis_id: str | None  # ID of currently active hypothesis being tested
     next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate', 'batch_execute', 'create_plan', 'execute_plan_step', 'validate_plan_step', 'invoke_mcp', 'execute_next_step']
     pending_command: str | None
     final_response: str | None

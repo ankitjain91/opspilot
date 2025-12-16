@@ -22,12 +22,16 @@ from ..config import EMBEDDING_MODEL, CACHE_DIR, KB_DIR
 # Simple in-memory cache
 # _kb_cache is now context-aware: {"default": [...], "context-name": [...]}
 _kb_cache: Optional[Dict[str, List[Dict]]] = {}
+_kb_cache_timestamps: Dict[str, float] = {}  # Track cache age per context
 _embeddings_cache: Optional[Dict[str, List[float]]] = None
 # Cache for keyword/BM25 index
 _bm25_index = None
 _bm25_corpus_tokens: Optional[List[List[str]]] = None
 _bm25_entries: Optional[List[Dict]] = None
 embedding_model_available = False # State tracker for UI checks
+
+# CRD cache TTL in seconds (5 minutes)
+CRD_CACHE_TTL = 300
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -315,14 +319,21 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         force_refresh: If True, bypass cache and re-fetch CRDs
         progress_callback: Optional async function(current, total, message) for progress reporting
     """
-    global _kb_cache
+    global _kb_cache, _kb_cache_timestamps
     try:
         kube_context = state.get('kube_context', 'default')
 
+        # Check cache age (TTL-based caching)
+        current_time = time.time()
+        cache_age = current_time - _kb_cache_timestamps.get(kube_context, 0)
+
         # Check if we already have dynamic knowledge in cache for this context
-        if not force_refresh and kube_context in _kb_cache:
-            print(f"[KB] ✅ Using cached CRDs for context '{kube_context}'", flush=True)
+        if not force_refresh and kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
+            print(f"[KB] ✅ Using cached CRDs for context '{kube_context}' (age: {int(cache_age)}s, TTL: {CRD_CACHE_TTL}s)", flush=True)
             return _kb_cache[kube_context]
+
+        if cache_age >= CRD_CACHE_TTL:
+            print(f"[KB] ⏰ CRD cache expired (age: {int(cache_age)}s), refreshing...", flush=True)
 
         print(f"[KB] 🧠 Ingesting live cluster knowledge (CRDs) for context '{kube_context}'...", flush=True)
         
@@ -409,6 +420,10 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         static_kb = _kb_cache.get("default", [])
         _kb_cache[kube_context] = static_kb + live_entries
 
+        # Update cache timestamp
+        _kb_cache_timestamps[kube_context] = time.time()
+        print(f"[KB] 💾 Cached {len(_kb_cache[kube_context])} entries for context '{kube_context}' (TTL: {CRD_CACHE_TTL}s)", flush=True)
+
         # Invalidate embedding cache for these new entries (they will be computed on demand)
         # We don't need to do anything as _embeddings_cache uses IDs, and these are new IDs.
 
@@ -454,6 +469,8 @@ async def get_relevant_kb_snippets(
     """
     Semantic search over KB to find relevant troubleshooting patterns.
 
+    Uses query expansion to find synonyms and improve coverage.
+
     Args:
         query: User's query
         state: Agent state (contains llm_endpoint)
@@ -468,7 +485,7 @@ async def get_relevant_kb_snippets(
     # Get config from state
     # Get config from state - check explicit state override first, then fall back to config global
     from ..config import EMBEDDING_ENDPOINT as GLOBAL_EMBEDDING_ENDPOINT
-    
+
     # Priority: State override > Config Global (which handles cloud logic) > Default
     llm_endpoint = state.get('embedding_endpoint') or GLOBAL_EMBEDDING_ENDPOINT or 'http://localhost:11434'
     kb_dir = state.get('kb_dir', os.environ.get('K8S_AGENT_KB_DIR', '/Users/ankitjain/lens-killer/knowledge'))
@@ -479,10 +496,22 @@ async def get_relevant_kb_snippets(
     if not entries:
         return ""
 
-    # Get query embedding
-    query_embedding = await get_embedding(query, llm_endpoint, embedding_model)
-    if not query_embedding:
-        print(f"[KB] Failed to generate query embedding, skipping KB search", flush=True)
+    # QUERY EXPANSION: Generate query variants with synonyms
+    from ..heuristics import expand_query
+    query_variants = expand_query(query)
+
+    if len(query_variants) > 1:
+        print(f"[KB] Query expansion: '{query}' → {len(query_variants)} variants", flush=True)
+
+    # Get embeddings for all query variants
+    query_embeddings = []
+    for variant in query_variants:
+        embedding = await get_embedding(variant, llm_endpoint, embedding_model)
+        if embedding:
+            query_embeddings.append(embedding)
+
+    if not query_embeddings:
+        print(f"[KB] Failed to generate query embeddings, skipping KB search", flush=True)
         return ""
 
     # Compute or retrieve embeddings for all entries
@@ -507,7 +536,8 @@ async def get_relevant_kb_snippets(
         # Tokenize query
         import re as _re
         query_tokens = [t.lower() for t in _re.split(r"[^A-Za-z0-9_.-]+", query) if t]
-        bm25_scores = _bm25_index.get_scores(query_tokens)
+        # BM25 returns a numpy array; convert to a plain list to avoid truth-value ambiguity
+        bm25_scores = list(_bm25_index.get_scores(query_tokens))
     except Exception as _bm_err:
         bm25_scores = [0.0] * len(entries)
         # Log but continue with semantic-only if BM25 not available
@@ -516,7 +546,7 @@ async def get_relevant_kb_snippets(
     results: List[Tuple[float, Dict]] = []
 
     # Precompute normalization for BM25
-    max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+    max_bm25 = max(bm25_scores) if len(bm25_scores) > 0 else 1.0
 
     for idx, entry in enumerate(entries):
         entry_id = entry.get('id', '')
@@ -534,13 +564,18 @@ async def get_relevant_kb_snippets(
             else:
                 continue
 
-        # Compute semantic similarity
-        similarity = cosine_similarity(query_embedding, entry_embedding)
+        # Compute semantic similarity against ALL query variants (use max similarity)
+        max_similarity = 0.0
+        for query_emb in query_embeddings:
+            sim = cosine_similarity(query_emb, entry_embedding)
+            max_similarity = max(max_similarity, sim)
+
+        similarity = max_similarity
 
         # Hybrid fusion: combine semantic similarity with BM25 keyword score
         # Normalize BM25 by max to [0,1] to combine fairly
         bm_score = 0.0
-        if bm25_scores:
+        if len(bm25_scores) > 0:
             bm_score = bm25_scores[idx] / max_bm25 if max_bm25 > 0 else 0.0
 
         # Fusion score: weighted sum prioritizing semantic while ensuring keyword hits boost

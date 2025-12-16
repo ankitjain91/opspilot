@@ -4,14 +4,16 @@ import tempfile
 import os
 from .definitions import (
     KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
-    KubectlApiResources, KubectlContext, KubectlDiff,
-    KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply
+    KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff,
+    KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
+    ShellCommand
 )
 
 ToolType = Union[
     KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
-    KubectlApiResources, KubectlContext, KubectlDiff,
-    KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply
+    KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff,
+    KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
+    ShellCommand
 ]
 
 class SafeExecutor:
@@ -116,11 +118,59 @@ class SafeExecutor:
             # cmd.append("-o wider")  <-- REMOVED: Invalid flag for api-resources
             return " ".join(cmd)
 
+        elif isinstance(tool, KubectlExec):
+            cmd = [base, "exec", shlex.quote(tool.pod_name)]
+            if tool.namespace:
+                cmd.append(f"-n {shlex.quote(tool.namespace)}")
+            if tool.container:
+                cmd.append(f"-c {shlex.quote(tool.container)}")
+
+            # Separator for command
+            cmd.append("--")
+
+            # Safe quoting of all command parts
+            for arg in tool.command:
+                cmd.append(shlex.quote(str(arg)))
+
+            return " ".join(cmd)
+
+        elif isinstance(tool, KubectlExecShell):
+            # Complex bash script execution
+            # If pod_name is provided: run inside pod via kubectl exec
+            # If pod_name is None: run on local terminal
+
+            if tool.pod_name:
+                # Run inside pod with full bash support
+                cmd = [base, "exec", shlex.quote(tool.pod_name)]
+                if tool.namespace:
+                    cmd.append(f"-n {shlex.quote(tool.namespace)}")
+                if tool.container:
+                    cmd.append(f"-c {shlex.quote(tool.container)}")
+
+                # Use bash -c to execute the script
+                cmd.append("--")
+                cmd.append("/bin/bash")
+                cmd.append("-c")
+                # Quote the entire script as a single argument
+                cmd.append(shlex.quote(tool.shell_script))
+
+                return " ".join(cmd)
+            else:
+                # Run on local terminal directly
+                # Wrap in bash -c for consistency
+                return f"/bin/bash -c {shlex.quote(tool.shell_script)}"
+
         elif isinstance(tool, KubectlContext):
             if tool.action == "list":
                  return f"{base} config get-contexts -o name"
             elif tool.action == "use":
                  return f"echo 'Switching internal context to {shlex.quote(tool.context_name)}'"
+
+        elif isinstance(tool, KubectlExplain):
+            cmd = [base, "explain", shlex.quote(tool.resource)]
+            if tool.recursive:
+                cmd.append("--recursive")
+            return " ".join(cmd)
 
         elif isinstance(tool, KubectlDiff):
             # Construct a composite command to fetch resource from both contexts
@@ -210,6 +260,15 @@ class SafeExecutor:
                 actual_apply_cmd = " ".join(apply_base)
                 cleanup_cmd = f"rm -f {shlex.quote(temp_file)}"
                 return f"{write_cmd} && {actual_apply_cmd}; {cleanup_cmd}"
+
+        elif isinstance(tool, ShellCommand):
+            # For shell commands, add context if needed but pass command through
+            # This allows pipes, grep, awk, etc. to work as intended
+            cmd = tool.command
+            if kube_context and 'kubectl' in cmd and '--context' not in cmd:
+                # Inject context into kubectl commands
+                cmd = cmd.replace('kubectl', f'kubectl --context={shlex.quote(kube_context)}', 1)
+            return cmd
 
         raise ValueError(f"Unknown tool type: {type(tool)}")
 

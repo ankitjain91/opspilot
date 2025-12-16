@@ -67,11 +67,40 @@ function groupMessages(history: any[]) {
     const groups: any[] = [];
     let currentGroup: any = null;
 
+    // Filter function to hide verbose internal reasoning
+    const shouldShowAsStep = (msg: any) => {
+        // Always show tool executions (actual commands)
+        if (msg.role === 'tool') return true;
+
+        // For assistant messages, filter out internal reasoning
+        if (msg.role === 'assistant') {
+            const content = msg.content || '';
+            // Hide verbose internal states
+            if (content.includes('PLANNING:') ||
+                content.includes('EXECUTING:') ||
+                content.includes('REASONING CHAIN') ||
+                content.includes('DONE') ||
+                content.includes('VERIFIED:') ||
+                content.includes('CONTINUE:') ||
+                content.includes('SOLVED:') ||
+                content.includes('WARN')) {
+                return false;
+            }
+            // Show meaningful thinking/investigation messages
+            return msg.isActivity ||
+                content.includes('🧠 Thinking') ||
+                content.includes('🧠 Supervisor') ||
+                content.includes('🔄 Investigating') ||
+                content.includes('Continuing investigation');
+        }
+        return false;
+    };
+
     history.forEach((msg) => {
         if (msg.role === 'user') {
             if (currentGroup) groups.push(currentGroup);
             currentGroup = { type: 'interaction', user: msg, steps: [], answer: null };
-        } else if (msg.role === 'tool' || (msg.role === 'assistant' && (msg.isActivity || msg.content?.includes('🧠 Thinking') || msg.content?.includes('🧠 Supervisor') || msg.content?.includes('🔄 Investigating') || msg.content?.includes('Continuing investigation')))) {
+        } else if (shouldShowAsStep(msg)) {
             if (currentGroup) {
                 currentGroup.steps.push(msg);
             } else {
@@ -285,6 +314,24 @@ export function ClusterChatPanel({
             setEmbeddingStatus('loading');
             setEmbeddingMessage('Loading knowledge base...');
             try {
+                // 1. First try to check if it's already ready on the backend
+                // This handles the "refresh page" case where backend is already running
+                const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
+                try {
+                    const statusResp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/status`);
+                    if (statusResp.ok) {
+                        const statusData = await statusResp.json();
+                        if (statusData.available) {
+                            setEmbeddingStatus('ready');
+                            setEmbeddingMessage('Knowledge base ready');
+                            return; // Exit early if already ready
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to check backend status, falling back to init:', e);
+                }
+
+                // 2. If not ready, trigger init
                 await invoke('init_embedding_model');
                 // If no event was fired, mark as ready
                 setEmbeddingStatus('ready');
@@ -920,11 +967,26 @@ export function ClusterChatPanel({
                     // Progress callback
                     (msg) => {
                         setCurrentActivity(msg);
+                        // Capture backend suggestions emitted via orchestrator
+                        if (msg.startsWith('[SUGGESTIONS]')) {
+                            try {
+                                const jsonStr = msg.replace('[SUGGESTIONS] ', '').trim();
+                                const suggestions = JSON.parse(jsonStr);
+                                if (Array.isArray(suggestions)) {
+                                    setSuggestedActions(suggestions);
+                                }
+                            } catch (_) {
+                                // ignore parse errors
+                            }
+                        }
                         // Update streaming phase based on progress message
-                        if (msg.includes('Reasoning') || msg.includes('Planning')) {
+                        const lowerMsg = msg.toLowerCase();
+                        if (lowerMsg.includes('reasoning') || lowerMsg.includes('planning') || lowerMsg.includes('translating')) {
                             setStreamingPhase(prev => prev ? { ...prev, phase: 'planning', message: msg } : null);
-                        } else if (msg.includes('Analyzing') || msg.includes('Reflecting')) {
+                        } else if (lowerMsg.includes('analyzing') || lowerMsg.includes('reflecting') || lowerMsg.includes('investigating')) {
                             setStreamingPhase(prev => prev ? { ...prev, phase: 'analyzing', message: msg } : null);
+                        } else if (lowerMsg.includes('executing') || lowerMsg.includes('running')) {
+                            setStreamingPhase(prev => prev ? { ...prev, phase: 'executing', message: msg } : null);
                         }
                     },
                     // Streaming step callback
@@ -1428,18 +1490,39 @@ export function ClusterChatPanel({
             </div>
 
             {/* Settings Panel Modal */}
-            {showSettings && (
-                <div className="absolute inset-0 z-50 bg-gradient-to-b from-[#1a1a2e] to-[#16161a] rounded-2xl overflow-y-auto">
-                    <LLMSettingsPanel
-                        config={llmConfig}
-                        onConfigChange={(newConfig) => {
-                            setLlmConfig(newConfig);
-                            setShowSettings(false);
-                        }}
-                        onClose={() => setShowSettings(false)}
-                        systemSpecs={systemSpecs}
-                    />
-                </div>
+            {showSettings && createPortal(
+                <>
+                    {/* Backdrop */}
+                    <div
+                        className="fixed inset-0 bg-black/70 backdrop-blur-md z-[59] flex items-center justify-center p-4 animate-in fade-in duration-200"
+                        onClick={() => setShowSettings(false)}
+                    >
+                        {/* Modal Container */}
+                        <div
+                            className="relative w-full max-w-2xl max-h-[90vh] bg-gradient-to-br from-[#1a1a2e] via-[#16161a] to-[#1a1a2e] rounded-3xl shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 duration-300"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Decorative gradient orbs */}
+                            <div className="absolute -top-24 -right-24 w-48 h-48 bg-violet-500/30 rounded-full blur-3xl pointer-events-none" />
+                            <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
+
+                            {/* Content */}
+                            <div className="relative z-10 overflow-y-auto max-h-[90vh]">
+                                <LLMSettingsPanel
+                                    config={llmConfig}
+                                    onConfigChange={(newConfig) => {
+                                        setLlmConfig(newConfig);
+                                        setShowSettings(false);
+                                    }}
+                                    onClose={() => setShowSettings(false)}
+                                    systemSpecs={systemSpecs}
+                                    kbProgress={kbProgress}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </>,
+                document.body
             )}
 
             {/* Messages */}
@@ -1734,7 +1817,7 @@ export function ClusterChatPanel({
                                         {isCancelling ? 'STOPPING...' : 'STOP GENERATING'}
                                     </button>
                                 </div>
-                                <p className="text-sm text-zinc-300 mt-2 font-medium">{currentActivity}</p>
+                                {!streamingPhase && <p className="text-sm text-zinc-300 mt-2 font-medium">{currentActivity}</p>}
 
                                 {/* Investigation Chain of Thought Panel */}
                                 {investigationProgress && (

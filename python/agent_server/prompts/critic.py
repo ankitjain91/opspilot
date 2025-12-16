@@ -12,8 +12,8 @@ Discovered Context:
 
 ---
 CLASSIFICATION (Determine this FIRST):
-- READ-ONLY Operations: kubectl get, kubectl describe, kubectl logs, kubectl exec cat/grep (no state change)
-- MUTATING Operations: kubectl apply, kubectl delete, kubectl scale, kubectl patch, kubectl create (changes cluster state)
+- READ-ONLY Operations: kubectl get, kubectl describe, kubectl logs, kubectl exec cat/grep/ls/env (no state change)
+- MUTATING Operations: kubectl apply, kubectl delete, kubectl scale, kubectl patch, kubectl create, kubectl exec rm/kill/chmod (changes cluster state)
 
 VALIDATION RULES BY TYPE:
 
@@ -21,6 +21,10 @@ VALIDATION RULES BY TYPE:
 ✅ APPROVE by default - reading is safe
 ✅ Step order doesn't matter much
 ✅ No verification steps needed
+✅ No verification steps needed
+✅ **Exec Safety**:
+   - `kubectl exec ... -- ls/cat/env/df/curl` -> APPROVE (Investigation)
+   - `kubectl exec ... -- rm/kill/chmod/mv` -> REJECT (Mutating/Dangerous)
 ❌ ONLY reject if the command is malformed or illogical
 
 **For MUTATING Operations (apply, delete, scale, etc.):**
@@ -30,6 +34,8 @@ VALIDATION RULES BY TYPE:
 
 Adversarial Review Examples:
 - "kubectl get customercluster -A" → APPROVE (read-only, no risk)
+- "kubectl exec mypod -- cat /app/config.json" → APPROVE (investigation)
+- "kubectl exec mypod -- rm -rf /" → REJECT (dangerous mutation)
 - "kubectl describe pod foo" → APPROVE (read-only, specific target)
 - "Delete the pod" (no name given) → REJECT (mutating, vague target)
 - "kubectl delete pod foo" (specific name) → APPROVE IF query explicitly requested deletion

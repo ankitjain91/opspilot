@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, Eye, EyeOff, Copy, AlertCircle, Terminal, Download, Zap, BookOpen, Brain, Network, HardDrive, RefreshCw, Server, ArrowRight, Info, ShieldCheck, Activity, Cpu, Loader2 } from 'lucide-react';
+import { Settings, X, Check, Eye, EyeOff, Copy, AlertCircle, Terminal, Download, Zap, BookOpen, Brain, Network, HardDrive, RefreshCw, Server, ArrowRight, Info, ShieldCheck, Activity, Cpu, Loader2, CheckCircle2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
 import { DEFAULT_LLM_CONFIGS } from './constants';
@@ -731,7 +731,7 @@ export function LLMSettingsPanel({
                         </div>
 
                         {/* NEW: Global CRD Loading Progress */}
-                        {kbProgress && (
+                        {kbProgress ? (
                             <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-2">
                                 <div className="flex justify-between text-[10px] items-center text-blue-200">
                                     <span className="font-bold flex items-center gap-1.5">
@@ -750,6 +750,24 @@ export function LLMSettingsPanel({
                                 </div>
                                 <div className="text-[9px] text-blue-300/60 truncate font-mono">
                                     Context: {kbProgress.context}
+                                </div>
+                            </div>
+                        ) : kbStatus?.available && (
+                            <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2">
+                                <div className="flex justify-between text-[10px] items-center text-emerald-200">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                        <CheckCircle2 size={10} className="text-emerald-400" />
+                                        Knowledge Base Ready
+                                    </span>
+                                    <span className="font-mono bg-emerald-500/20 px-1.5 py-0.5 rounded text-emerald-300">
+                                        {kbStatus.document_count} Docs
+                                    </span>
+                                </div>
+                                <div className="h-1.5 bg-emerald-900/50 rounded-full overflow-hidden">
+                                    <div className="h-full bg-emerald-500 w-full" />
+                                </div>
+                                <div className="text-[9px] text-emerald-300/60 truncate font-mono">
+                                    Source: {kbStatus.source}
                                 </div>
                             </div>
                         )}

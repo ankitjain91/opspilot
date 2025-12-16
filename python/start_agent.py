@@ -11,6 +11,10 @@ except ImportError as e:
     print(f"Error importing agent_server package: {e}", flush=True)
     # Fallback debug info
     print(f"sys.path: {sys.path}", flush=True)
+    try:
+        print(f"Contents of {os.path.dirname(__file__)}: {os.listdir(os.path.dirname(__file__))}", flush=True)
+    except Exception as dir_err:
+        print(f"Could not list dir: {dir_err}", flush=True)
     sys.exit(1)
 
 if __name__ == "__main__":

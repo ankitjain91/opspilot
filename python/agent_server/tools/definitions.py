@@ -53,6 +53,12 @@ class KubectlContext(BaseModel):
     action: Literal["list", "use"] = Field(..., description="Action: 'list' (show available) or 'use' (switch)")
     context_name: Optional[str] = Field(None, description="Name of context to switch to (required for 'use')")
 
+class KubectlExplain(BaseModel):
+    """Get schema documentation for a resource type. Equivalent to `kubectl explain <resource>`."""
+    tool: Literal["kubectl_explain"]
+    resource: str = Field(..., description="Resource type to explain (e.g., pod, deployment, deployment.spec, cronjob.spec.jobTemplate)")
+    recursive: bool = Field(False, description="If true, show all fields recursively (--recursive)")
+
 # --- REMEDIATION TOOLS (Requires Approval) ---
 class KubectlDelete(BaseModel):
     """Delete a resource (e.g., to restart a pod). REQUIRES APPROVAL."""
@@ -124,10 +130,36 @@ class PredictScaling(BaseModel):
     history: List[float] = Field(..., description="List of historical metric values (oldest to newest)")
     horizon_minutes: int = Field(30, description="Minutes into the future to predict")
 
+class ShellCommand(BaseModel):
+    """Execute arbitrary shell command with pipes, grep, awk, etc. Use for complex queries that need shell features."""
+    tool: Literal["shell_command"]
+    command: str = Field(..., description="Shell command to execute (supports pipes |, grep, awk, etc.)")
+    purpose: str = Field(..., description="Brief explanation of what this command does")
+
+class KubectlExec(BaseModel):
+    """Execute a command inside a container. Equivalent to `kubectl exec <pod> -c <container> -- <command>`."""
+    tool: Literal["kubectl_exec"]
+    pod_name: str = Field(..., description="Name of the pod")
+    namespace: Optional[str] = Field(None, description="Target namespace")
+    container: Optional[str] = Field(None, description="Container name (optional if pod has only one container)")
+    command: List[str] = Field(..., description="Command and arguments to run (e.g. ['ls', '-la', '/var/log'])")
+
+class KubectlExecShell(BaseModel):
+    """Execute a complex bash script inside a container OR on the local terminal.
+    Supports pipes, loops, functions, command substitution, etc.
+    Use this for advanced data gathering that requires bash features."""
+    tool: Literal["kubectl_exec_shell"]
+    pod_name: Optional[str] = Field(None, description="Name of the pod (omit to run on local terminal)")
+    namespace: Optional[str] = Field(None, description="Target namespace (only for pod execution)")
+    container: Optional[str] = Field(None, description="Container name (only for pod execution)")
+    shell_script: str = Field(..., description="Bash script to execute (supports full bash syntax: pipes, loops, functions, etc.)")
+    purpose: str = Field(..., description="Brief explanation of what this script does")
+
 # Discriminated Union Entry Point
 class AgentToolWrapper(BaseModel):
     tool_call: Annotated[Union[
         KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
-        KubectlApiResources, KubectlContext, KubectlDiff, GitCommit, PredictScaling,
-        KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply
+        KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff, GitCommit, PredictScaling,
+        KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
+        ShellCommand
     ], Field(discriminator='tool')]

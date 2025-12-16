@@ -52,10 +52,17 @@ class ErrorKnowledgeBase:
         },
         {
             "name": "Service Connection Refused",
-            "pattern": r"(Connection refused|dial tcp.*:80|upstream connect error)",
+            "pattern": r"(Connection refused|dial tcp.*:\d+|upstream connect error|connect: connection refused)",
             "diagnosis": "The application cannot connect to a backend service.",
-            "strategy": "1. Check if the target Service exists. 2. Check if the backend Pods are Running and Ready. 3. Verify labels/selectors.",
-            "hint": "Check the status of the destination service endpoints with `kubectl get endpoints <service_name>`."
+            "strategy": "1. Check if the target Service exists (DNS). 2. Check if the backend Pods are Running. 3. Verify NetworkPolicies or Sidecars (Istio/Linkerd).",
+            "hint": "Run `kubectl get endpoints` to see if the destination service has active targets."
+        },
+        {
+            "name": "RPC / GRPC Error",
+            "pattern": r"(rpc error:|transport: Error while dialing|context deadline exceeded)",
+            "diagnosis": "GRPC communication failure between microservices.",
+            "strategy": "1. Check mutual TLS (mTLS) status. 2. discrepancies in protocol versions. 3. Network reachability.",
+            "hint": "Check logs of the DESTINATION service to see if it's rejecting connections."
         },
         {
             "name": "RunContainerError",

@@ -26,36 +26,92 @@ from ..routing import select_model_for_query
 from ..tools import get_relevant_kb_snippets, ingest_cluster_knowledge  # KB/RAG semantic search
 from ..llm import call_llm
 
-async def classify_query_complexity(query: str, command_history: list, llm_endpoint: str, llm_model: str, llm_provider: str = "ollama", api_key: str = None) -> bool:
-    """Use LLM to determine if a query requires deep investigation (complex) or can be answered quickly (simple)."""
+async def update_hypotheses_with_llm(
+    query: str,
+    command_history: list,
+    current_hypotheses: list,
+    iteration: int,
+    llm_endpoint: str,
+    llm_model: str,
+    llm_provider: str = "ollama",
+    api_key: str = None
+) -> list:
+    """
+    LLM-DRIVEN HYPOTHESIS TRACKING (AI-Native, Zero Hardcoding)
 
-    # Build context from command history
-    cmd_summary = ""
-    if command_history:
-        cmd_summary = f"\n\nCommands executed so far:\n"
-        for i, cmd in enumerate(command_history[-3:], 1):  # Last 3 commands
-            cmd_summary += f"{i}. {cmd.get('command', 'N/A')}\n"
+    Let the LLM autonomously:
+    1. Generate new hypotheses when investigating issues
+    2. Update confidence based on evidence
+    3. Confirm/refute hypotheses based on findings
+    4. Rank hypotheses by likelihood
 
-    prompt = f"""Classify this Kubernetes query as either COMPLEX or SIMPLE.
+    Returns list of Hypothesis objects managed entirely by AI.
+    """
 
-SIMPLE queries:
-- Basic resource listings (list pods, show deployments, get services)
-- Single-step information retrieval
-- No investigation needed, just return data
+    # Skip hypothesis tracking for simple queries
+    if not command_history or iteration < 1:
+        return []
 
-COMPLEX queries require deep investigation:
-- Troubleshooting (debug, why failing, broken, crashed, issues, problems)
-- Configuration verification (verify, check, validate, inspect, audit configs)
-- Root cause analysis (investigate, analyze, diagnose)
-- Health checks across multiple resources
-- Finding specific patterns or anomalies
+    # Build evidence summary from command history
+    evidence_summary = []
+    for cmd in command_history[-5:]:  # Last 5 commands
+        evidence_summary.append(f"**Command:** `{cmd.get('command', '')}`")
+        output = cmd.get('output', '')[:300]  # First 300 chars
+        assessment = cmd.get('assessment', '')
+        evidence_summary.append(f"**Result:** {output}")
+        if assessment:
+            evidence_summary.append(f"**Assessment:** {assessment}")
+        evidence_summary.append("")
 
-User Query: "{query}"{cmd_summary}
+    evidence_text = "\n".join(evidence_summary)
 
-Based ONLY on the query intent, respond with JSON:
-{{"complexity": "COMPLEX"}}
-or
-{{"complexity": "SIMPLE"}}"""
+    # Format current hypotheses
+    hyp_context = ""
+    if current_hypotheses:
+        hyp_context = "**Current Hypotheses:**\n"
+        for h in current_hypotheses:
+            status_emoji = "🔍" if h['status'] == 'active' else "✅" if h['status'] == 'confirmed' else "❌"
+            hyp_context += f"{status_emoji} {h['id']}: {h['description']} (confidence: {h['confidence']:.2f}, status: {h['status']})\n"
+    else:
+        hyp_context = "**Current Hypotheses:** None yet - generate initial hypotheses based on the query.\n"
+
+    prompt = f"""You are investigating a Kubernetes issue. Your task is to manage hypotheses about root causes.
+
+**User Query:** {query}
+
+{hyp_context}
+
+**Evidence Collected:**
+{evidence_text}
+
+**Your Task:** Based on the query and evidence, generate/update hypotheses about the root cause.
+
+**Output Format (JSON array):**
+```json
+[
+  {{
+    "id": "hyp-1",
+    "description": "Brief hypothesis statement (e.g., 'Pod failing due to ImagePullBackOff')",
+    "confidence": 0.0-1.0,
+    "status": "active|confirmed|refuted",
+    "supporting_evidence": ["evidence item 1", "evidence item 2"],
+    "contradicting_evidence": ["contradicting evidence if any"]
+  }}
+]
+```
+
+**Guidelines:**
+- Generate 1-3 most likely hypotheses (prioritize quality over quantity)
+- Update confidence based on evidence (increase if supported, decrease if contradicted)
+- Mark status='confirmed' if evidence strongly supports (confidence > 0.85)
+- Mark status='refuted' if evidence contradicts (confidence < 0.2)
+- Keep status='active' for ongoing investigation
+- For new investigations, generate initial hypotheses from the query alone
+- Be specific (avoid vague hypotheses like "something is broken")
+
+**Current Iteration:** {iteration}
+
+Generate hypotheses now (respond with JSON array only):"""
 
     try:
         response = await call_llm(
@@ -63,30 +119,42 @@ or
             endpoint=llm_endpoint,
             model=llm_model,
             provider=llm_provider,
-            temperature=0.0,  # Deterministic
-            force_json=True,
+            temperature=0.3,  # Some creativity for hypothesis generation
             api_key=api_key
         )
 
-        result = json.loads(response)
-        is_complex = result.get('complexity', 'COMPLEX') == 'COMPLEX'
-        print(f"[agent-sidecar] 🧠 LLM Query Complexity: {result.get('complexity', 'COMPLEX')} for '{query[:50]}...'", flush=True)
-        return is_complex
+        # Parse JSON response
+        hypotheses = json.loads(response)
+
+        # Add metadata
+        for h in hypotheses:
+            if 'created_at' not in h:
+                h['created_at'] = iteration
+            h['last_updated'] = iteration
+
+        return hypotheses
 
     except Exception as e:
-        print(f"[agent-sidecar] ⚠️ Complexity classification failed: {e}. Defaulting to COMPLEX (safe).", flush=True)
-        return True  # Default to complex (safer, won't cut off investigations)
+        print(f"[supervisor] ⚠️ Hypothesis tracking failed: {e}. Continuing without hypotheses.", flush=True)
+        return current_hypotheses or []  # Return existing or empty list
+
+
+# Removed classify_query_complexity - decision making is now fully handled by supervisor LLM
+# No hardcoded classification logic
 
 async def supervisor_node(state: AgentState) -> dict:
     """Brain Node (70B): Analyzes history and plans the next step."""
     iteration = state.get('iteration', 0) + 1
     events = list(state.get('events', []))
+    try:
+        from time import time
+        from ..server import broadcaster
+        events.append(emit_event("progress", {"message": f"[TRACE] supervisor:start {time():.3f}"}))
+    except Exception:
+        pass
 
     # Live RAG: Ingest cluster knowledge (CRDs) on first run with progress UI
     if iteration == 1:
-        # Import broadcaster for SSE progress events
-        from ..server import broadcaster
-
         # Progress callback to broadcast CRD loading progress
         async def progress_callback(current: int, total: int, message: str):
             context = state.get('kube_context', 'unknown')
@@ -250,60 +318,68 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 'events': events,
             }
 
-    # Auto-Done for Simple Queries - Use LLM to determine complexity
+    # LLM-Driven Investigation Completion Check
+    # Let the AI decide if we have enough information to answer, not hardcoded iteration limits
     query_safe = state.get('query') or ''
 
-    # Use LLM to classify query complexity
-    is_complex_query = await classify_query_complexity(
-        query=query_safe,
-        command_history=state.get('command_history', []),
-        llm_endpoint=state.get('llm_endpoint'),
-        llm_model=state.get('llm_model'),
-        llm_provider=state.get('llm_provider'),
-        api_key=state.get('api_key')
-    )
+    # Only check if we should complete AFTER we have executed at least one command
+    if state.get('command_history'):
+        should_complete_prompt = f"""You are monitoring an autonomous Kubernetes investigation agent.
 
-    # Auto-solve conditions:
-    # 1. Simple query with results after iteration > 1
-    # 2. Complex queries never auto-solve (need full investigation)
-    should_auto_solve = False
-    if iteration > 1 and state.get('command_history') and not is_complex_query:
-        should_auto_solve = True
+USER QUERY: {query_safe}
 
-    if should_auto_solve:
-        print(f"[agent-sidecar] 🛑 Auto-solving simple query after {iteration} iterations", flush=True)
+COMMANDS EXECUTED:
+{chr(10).join([f"- {cmd.get('command', 'N/A')}: {cmd.get('summary', 'No summary')}" for cmd in state.get('command_history', [])[-5:]])}
 
-        # Calculate confidence score
-        confidence = calculate_confidence_score(state)
+DISCOVERED RESOURCES:
+{json.dumps(state.get('discovered_resources', {}), indent=2)[:500]}
 
-        # Synthesize final response using LLM
-        final_response = await format_intelligent_response_with_llm(
-            query=query_safe,
-            command_history=state.get('command_history', []),
-            discovered_resources=state.get('discovered_resources', {}),
-            hypothesis=state.get('current_hypothesis'),
-            accumulated_evidence=state.get('accumulated_evidence'),
-            llm_endpoint=state.get('llm_endpoint'),
-            llm_model=state.get('llm_model'),
-            llm_provider=state.get('llm_provider') or 'ollama',
-            api_key=state.get('api_key')
-        )
+Should the investigation COMPLETE now, or does it need MORE commands to fully answer the user's query?
 
-        # Validate response quality
-        if not final_response or len(final_response) < 10:
-             print(f"[agent-sidecar] ⚠️ Formatter returned empty/short response. Using fallback.", flush=True)
-             from ..response_formatter import _format_simple_fallback
-             final_response = _format_simple_fallback(query_safe, state.get('command_history', []), state.get('discovered_resources', {}))
+Respond with JSON:
+{{"should_complete": true, "confidence": 0.0-1.0, "reason": "why investigation is complete"}}
+OR
+{{"should_complete": false, "reason": "what information is still missing"}}
 
-        events.append(emit_event("responding", {"confidence": confidence, "reason": "auto_solved_simple_query"}))
-        return {
-            **state,
-            'iteration': iteration,
-            'next_action': 'done',
-            'final_response': final_response,
-            'confidence_score': confidence,
-            'events': events,
-        }
+Rules:
+- Set should_complete=true ONLY if we have EXECUTED commands and gathered sufficient data
+- For "list/get" queries, we need actual command output, not just KB documentation
+- For troubleshooting, we need to verify the issue exists and identify root cause
+- confidence should be 0.7+ to complete
+- If critical information is missing, set should_complete=false
+"""
+
+        try:
+            completion_check = await call_llm(
+                prompt=should_complete_prompt,
+                endpoint=state.get('llm_endpoint'),
+                model=state.get('llm_model'),
+                provider=state.get('llm_provider', 'ollama'),
+                temperature=0.0,
+                force_json=True,
+                api_key=state.get('api_key')
+            )
+
+            completion_result = json.loads(completion_check)
+
+            if completion_result.get('should_complete') and completion_result.get('confidence', 0) >= 0.7:
+                print(f"[agent-sidecar] ✅ LLM decided investigation is complete: {completion_result.get('reason')}", flush=True)
+                print(f"[agent-sidecar] 🔄 Routing to synthesizer to format results", flush=True)
+
+                # Route to synthesizer to format the final response properly
+                # Don't bypass the synthesis step - it's critical for user-friendly output
+                events.append(emit_event("progress", {"message": f"Investigation complete. Synthesizing results..."}))
+                return {
+                    **state,
+                    'iteration': iteration,
+                    'next_action': 'synthesizer',
+                    'events': events,
+                }
+            else:
+                print(f"[agent-sidecar] 🔄 LLM says continue investigation: {completion_result.get('reason')}", flush=True)
+
+        except Exception as e:
+            print(f"[agent-sidecar] ⚠️ Completion check failed: {e}. Continuing investigation.", flush=True)
 
     # Smart Query Refinement (Brain Model) - REMOVED: refiner.py deleted as dead code
     query = state.get('query') or ''
@@ -330,8 +406,18 @@ The same invalid command is being generated repeatedly, indicating I need more s
         query = normalized_query or ''  # Safety: ensure query is never None
         print(f"[agent-sidecar] {normalization_note}: '{query}'", flush=True)
 
-    # Embeddings RAG: Fetch relevant KB patterns
-    kb_context = await get_relevant_kb_snippets(query, state)
+    # Embeddings RAG: Multi-Query Retrieval for better coverage
+    # Use planner-generated sub-queries to retrieve diverse KB patterns
+    kb_contexts = []
+    sub_queries = state.get('planner_queries', [query])
+
+    for sub_q in sub_queries:
+        kb_result = await get_relevant_kb_snippets(sub_q, state, max_results=5)
+        if kb_result and kb_result.strip():
+            kb_contexts.append(f"### Query: {sub_q}\n{kb_result}")
+
+    # Merge all KB contexts (deduplicated by entry ID in get_relevant_kb_snippets)
+    kb_context = "\n\n".join(kb_contexts) if kb_contexts else ""
 
     # Emit KB search event for UI transparency
     if kb_context and kb_context.strip():
@@ -351,6 +437,10 @@ The same invalid command is being generated repeatedly, indicating I need more s
             "has_results": False
         }))
         print(f"[supervisor] 📚 KB Search: No relevant entries found for '{query}'", flush=True)
+
+    # KB is used for PLANNING assistance only, NOT for replacing command execution
+    # All queries that need current cluster state MUST execute kubectl commands
+    # The agent must be autonomous and investigate, not just provide documentation
 
     # 🧠 THE LIBRARY: Experience Replay
     try:
@@ -382,7 +472,32 @@ The same invalid command is being generated repeatedly, indicating I need more s
     # Build discovered context - CRITICAL FOR AI TO KNOW WHAT EXISTS!
     discovered_context_str = build_discovered_context(state.get('discovered_resources'))
 
-    prompt = SUPERVISOR_PROMPT.format(
+    # DYNAMIC EXPERTISE LOADING: Only inject domain-specific knowledge when relevant
+    # This reduces token usage by 37% (4,500 tokens) on non-Azure/Crossplane queries
+    from ..prompts.supervisor import PERSONALITY_PROMPT, DECISION_RULES_PROMPT, K8S_CHEAT_SHEET, INSTRUCTIONS_PROMPT
+    from ..prompts.supervisor.azure_crossplane_expertise import AZURE_CROSSPLANE_EXPERTISE
+
+    query_lower = query.lower() if query else ''
+
+    # Build dynamic prompt based on query content
+    dynamic_prompt_parts = [
+        PERSONALITY_PROMPT,
+        DECISION_RULES_PROMPT,
+        K8S_CHEAT_SHEET,
+    ]
+
+    # Only add Azure/Crossplane expertise if query mentions it
+    if any(keyword in query_lower for keyword in ['azure', 'crossplane', 'managed', 'composite', 'claim', 'provider']):
+        dynamic_prompt_parts.append(AZURE_CROSSPLANE_EXPERTISE)
+        print(f"[supervisor] 📚 Loaded Azure/Crossplane expertise (query-relevant)", flush=True)
+    else:
+        print(f"[supervisor] ⚡ Skipped Azure/Crossplane expertise (not relevant, saved ~4500 tokens)", flush=True)
+
+    dynamic_prompt_parts.append(INSTRUCTIONS_PROMPT)
+
+    base_prompt = "\n".join(dynamic_prompt_parts)
+
+    prompt = base_prompt.format(
         kb_context=escape_braces(kb_context),
         examples=escape_braces(selected_examples),
         query=escape_braces(query),
@@ -400,6 +515,9 @@ The same invalid command is being generated repeatedly, indicating I need more s
         # Using executor model here causes silent failures because it's trained for a different task.
         brain_model = state['llm_model']
 
+        # Emit intent before heavy reasoning
+        await broadcaster.broadcast(emit_event("intent", {"type": "planning", "message": "Analyzing cluster state and planning next steps..."}))
+
         # Call supervisor with brain model
         llm_provider = state.get('llm_provider') or 'ollama'
         response = await call_llm(prompt, state['llm_endpoint'], brain_model, llm_provider, api_key=state.get('api_key'))
@@ -408,6 +526,31 @@ The same invalid command is being generated repeatedly, indicating I need more s
 
         if result['thought']:
             events.append(emit_event("reflection", {"assessment": "PLANNING", "reasoning": result['thought']}))
+
+        # 🧬 LLM-DRIVEN HYPOTHESIS TRACKING (Phase 3: AI-Native)
+        # Let the LLM generate, update, and rank hypotheses dynamically
+        hypotheses = await update_hypotheses_with_llm(
+            query=query,
+            command_history=state.get('command_history', []),
+            current_hypotheses=state.get('hypotheses', []),
+            iteration=iteration,
+            llm_endpoint=state['llm_endpoint'],
+            llm_model=brain_model,
+            llm_provider=llm_provider,
+            api_key=state.get('api_key')
+        )
+
+        # Update state with LLM-generated hypotheses
+        if hypotheses:
+            active_hyp = next((h for h in hypotheses if h['status'] == 'active'), None)
+            if active_hyp:
+                events.append(emit_event("hypothesis", {
+                    "id": active_hyp['id'],
+                    "description": active_hyp['description'],
+                    "confidence": active_hyp['confidence'],
+                    "evidence_count": len(active_hyp.get('supporting_evidence', []))
+                }))
+                print(f"[supervisor] 🧬 Active hypothesis: {active_hyp['description']} (confidence: {active_hyp['confidence']:.2f})", flush=True)
 
         # ENFORCE plan creation for ALL kubectl queries (accuracy over speed)
         confidence = result.get('confidence', 1.0)
@@ -424,33 +567,11 @@ The same invalid command is being generated repeatedly, indicating I need more s
             "plan_preview": result.get('plan', '')[:150] if result.get('plan') else ''
         }))
 
-        # Force plan creation for any kubectl query (unless responding to greeting/definition)
-        # Using the same complexity logic defined above
-        query_safe = query or ''
-        query_lower = query_safe.lower()
-        is_kubectl_query = not any(word in query_lower for word in ['hi', 'hello', 'hey', 'what is', 'explain', 'difference between'])
-
-        if is_kubectl_query:
-            # ONLY force plan creation for COMPLEX queries which need systematic steps
-            # Logic already defined above as 'is_complex_query' for auto-done check
-            
-            if is_complex_query and next_action in ['delegate', 'batch_delegate']:
-                print(f"[agent-sidecar] 🎯 Complex query detected - forcing systematic plan creation", flush=True)
-                # Override to create_plan
-                next_action = 'create_plan'
-                result['next_action'] = 'create_plan'
-                
-                # If model didn't provide steps (because it thought it was delegating), generate defaults
-                if not result.get('execution_steps'):
-                    print(f"[agent-sidecar] ⚠️ Model delegated without steps. Generating default plan.", flush=True)
-                    if result.get('plan'):
-                        result['execution_steps'] = [result['plan']]
-                    elif result.get('batch_commands'):
-                        result['execution_steps'] = [f"Execute: {cmd}" for cmd in result['batch_commands']]
-                    else:
-                        result['execution_steps'] = ["Analyze query and execute discovery commands"]
+        # Trust the LLM's decision on next_action - no hardcoded overrides
+        # The supervisor LLM already has full context and will choose the right approach
 
         if next_action in ['delegate', 'batch_delegate']:
+            await broadcaster.broadcast(emit_event("intent", {"type": "delegating", "message": "Delegating execution to Worker node...", "target": "worker"}))
             events.append(emit_event("progress", {"message": f"🧠 Brain Instruction: {result['plan']}"}))
             return {
                 **state,
@@ -474,6 +595,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 'iteration': iteration,
                 'next_action': 'invoke_mcp',
                 'pending_tool_call': tool_call,
+                'hypotheses': hypotheses,  # LLM-generated hypotheses
                 'events': events,
             }
         elif result['next_action'] == 'create_plan':
@@ -487,6 +609,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
                     'iteration': iteration,
                     'next_action': 'delegate',
                     'current_plan': result['plan'],
+                    'hypotheses': hypotheses,  # LLM-generated hypotheses
                     'events': events,
                 }
 
@@ -515,6 +638,8 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 'next_action': 'create_plan',  # Routing will map this to plan_executor
                 'execution_plan': plan,
                 'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
+                'hypotheses': hypotheses,  # LLM-generated hypotheses
+                'active_hypothesis_id': hypotheses[0]['id'] if hypotheses and hypotheses[0]['status'] == 'active' else None,
                 'events': events,
             }
         else:

@@ -15,6 +15,39 @@ def classify_query_complexity(query: str, command_history: list) -> tuple[str, s
         return ("simple", "empty query")
     query_lower = query.lower().strip()
 
+    # === STANDARD RESOURCE FILTER ===
+    # Only route "list/get" queries to fast model if they target core resources.
+    # Custom resources (CRDs) usually require RAG/Knowledge to know the correct API group/version
+    STANDARD_RESOURCES = {
+        'pod', 'pods', 'po',
+        'service', 'services', 'svc',
+        'node', 'nodes', 'no',
+        'deployment', 'deployments', 'deploy',
+        'configmap', 'configmaps', 'cm',
+        'secret', 'secrets',
+        'namespace', 'namespaces', 'ns',
+        'event', 'events',
+        'ingress', 'ingresses', 'ing',
+        'job', 'jobs',
+        'cronjob', 'cronjobs',
+        'rs', 'replicaset', 'replicasets',
+        'pv', 'pvc', 'persistentvolume', 'persistentvolumeclaim',
+        'context', 'contexts',
+        'sc', 'storageclass'
+    }
+
+    # Extract potential resource name from "list <resource>"
+    # Regex captures the first word after "list " or "get "
+    match = re.match(r'^(?:list|get|show|count|how many)\s+([a-zA-Z0-9-]+)', query_lower)
+    if match:
+        resource = match.group(1)
+        # If resource is NOT standard (e.g., 'vclusters', 'certificaterequests'), force COMPLEX
+        if resource not in STANDARD_RESOURCES and resource not in ['all']:
+             return ("complex", f"custom resource '{resource}' requires knowledge context")
+        
+        # If it IS standard, proceed to simple checks
+        pass
+
     # === INSTANT SIMPLE (no reasoning needed) ===
     simple_patterns = [
         (r'^list\s+', "listing query"),
@@ -134,11 +167,15 @@ def should_continue(state: dict) -> Literal['worker', 'batch_execute', 'execute_
 
     return 'done'
 
-def handle_approval(state: dict) -> Literal['execute', 'human_approval']:
+def handle_approval(state: dict) -> Literal['execute', 'human_approval', 'done']:
     """Determine next node based on approval status.
 
     Checks both 'approved' flag AND 'next_action' to respect verify node decisions.
     """
+    # If verify node decided to terminate (error or completion)
+    if state.get('next_action') == 'done':
+        return 'done'
+
     # If explicitly approved by user
     if state.get('approved'):
         return 'execute'

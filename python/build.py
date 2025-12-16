@@ -29,6 +29,7 @@ def build():
         "--distpath", str(script_dir / "dist"),
         "--workpath", str(script_dir / "build"),
         "--specpath", str(script_dir),
+        "--paths", str(script_dir),
         # Hidden imports that PyInstaller might miss
         "--hidden-import", "uvicorn.logging",
         "--hidden-import", "uvicorn.loops",
@@ -47,13 +48,8 @@ def build():
         "--hidden-import", "langgraph.prebuilt",
         "--hidden-import", "langchain_core",
         "--hidden-import", "encodings",
-        # FORCE include all agent components to prevent ModuleNotFoundError
-        "--hidden-import", "agent_server",
-        "--hidden-import", "agent_server.nodes",
-        "--hidden-import", "agent_server.tools",
-        "--hidden-import", "agent_server.tools.kb_search",
-        "--hidden-import", "agent_server.tools.safe_executor",
-        "--hidden-import", "agent_server.config",
+        # FORCE include all agent components deeply
+        "--add-data", f"{script_dir / 'agent_server'}:agent_server",
         # Optimize build size/speed by excluding unused heavy ML/Science libraries
         "--exclude-module", "torch",
         "--exclude-module", "tensorflow",

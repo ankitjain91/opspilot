@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useToast } from '../ui/Toast';
 
 export interface KBProgress {
@@ -12,6 +12,8 @@ export interface KBProgress {
 export function useSentinel(onInvestigate?: (prompt: string) => void) {
     const { showToast } = useToast();
     const [kbProgress, setKBProgress] = useState<KBProgress | null>(null);
+    const progressThrottleRef = useRef<NodeJS.Timeout | null>(null);
+    const lastProgressRef = useRef<KBProgress | null>(null);
 
     useEffect(() => {
         // Connect to the global events stream
@@ -45,17 +47,36 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                     // Optional: Add sound or desktop notification here
                     console.log("🛡️ Sentinel Alert:", data);
                 } else if (data.type === 'kb_progress') {
-                    // CRD loading progress
-                    setKBProgress({
+                    // CRD loading progress - throttle updates to prevent flicker
+                    const newProgress = {
                         current: data.current,
                         total: data.total,
                         message: data.message,
                         context: data.context
-                    });
+                    };
 
-                    // Clear progress when complete
+                    lastProgressRef.current = newProgress;
+
+                    // Always show immediately if complete
                     if (data.current === data.total) {
+                        if (progressThrottleRef.current) {
+                            clearTimeout(progressThrottleRef.current);
+                        }
+                        setKBProgress(newProgress);
                         setTimeout(() => setKBProgress(null), 2000);
+                        return;
+                    }
+
+                    // Throttle intermediate updates to max 2 per second
+                    if (!progressThrottleRef.current) {
+                        setKBProgress(newProgress);
+                        progressThrottleRef.current = setTimeout(() => {
+                            progressThrottleRef.current = null;
+                            // Update with latest progress if it changed
+                            if (lastProgressRef.current) {
+                                setKBProgress(lastProgressRef.current);
+                            }
+                        }, 500);
                     }
                 }
             } catch (e) {
@@ -64,13 +85,17 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
         };
 
         eventSource.onerror = (err) => {
-            // SSE often disconnects on reload/sleep, silent reconnect logic is built-in to browser 
+            // SSE often disconnects on reload/sleep, silent reconnect logic is built-in to browser
             // but we log here for debugging
             console.debug("Sentinel SSE connection lost/retry", err);
         };
 
         return () => {
             eventSource.close();
+            // Clear any pending throttle timeout
+            if (progressThrottleRef.current) {
+                clearTimeout(progressThrottleRef.current);
+            }
         };
     }, [showToast, onInvestigate]);
 

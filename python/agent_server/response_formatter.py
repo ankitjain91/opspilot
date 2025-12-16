@@ -98,6 +98,11 @@ Output: {output if output else '(empty)'}
 5. **Specific** - Use exact names, numbers, and status from the evidence
 6. **Actionable** - If issues found, suggest what to do next (briefly)
 
+**MANDATORY: IF ISSUES ARE FOUND, YOU MUST SUGGEST A FIX:**
+- If you diagnosed a problem, provide the EXACT `kubectl` command to fix it.
+- Examples: "Run `kubectl delete pod X` to restart it", "Edit the deployment with `kubectl edit deployment Y`".
+- Do NOT be shy - the user wants to solve the problem.
+
 **ABSOLUTELY BANNED PHRASES & PATTERNS - NEVER USE:**
 - "Goal status: NOT MET"
 - "investigation" (in any form)
@@ -115,7 +120,6 @@ Output: {output if output else '(empty)'}
 - "Investigation steps"
 - "Next steps" (this is investigative, not an answer!)
 - Technical component names without explaining WHAT THEY MEAN (kube-apiserver, etcd, etc.)
-- Listing kubectl commands the user should run (unless specifically asked "how to debug")
 
 **USER-FRIENDLY REQUIREMENTS:**
 - Explain technical terms in plain English ("the control plane manages your cluster" NOT "kube-apiserver is down")
@@ -134,6 +138,9 @@ For health/status queries, use EXACTLY this template:
 The following issues were detected:
 - [Issue 1 in plain English]
 - [Issue 2 in plain English]
+
+**Recommended Fix:**
+[Provide the exact kubectl command or action to resolve the issue]
 
 This means [what it means for the user in ONE sentence].
 ```

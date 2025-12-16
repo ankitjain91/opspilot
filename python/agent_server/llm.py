@@ -90,6 +90,7 @@ class SmartLLMClient:
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
+                "keep_alive": -1,  # Keep model loaded in memory indefinitely
                 "options": {
                     "num_predict": 4096,
                     "temperature": temperature,

@@ -161,6 +161,12 @@ def parse_worker_response(response: str) -> dict:
         cleaned = clean_json_response(response)
         data = json.loads(cleaned)
         
+        if "batch" in data and isinstance(data["batch"], list):
+            return {
+                "batch_tool_calls": data["batch"],
+                "thought": data.get("thought", "Executing batch tools...")
+            }
+
         # New Structured Format
         if "tool_call" in data:
             return {

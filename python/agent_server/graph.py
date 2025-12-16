@@ -6,6 +6,8 @@ from .state import AgentState
 from .nodes.classifier import classifier_node
 from .nodes.supervisor import supervisor_node
 from .nodes.worker import worker_node, execute_node, execute_batch_node
+from .nodes.self_correction import self_correction_node
+from .nodes.command_validator import command_validator_node
 from .nodes.reflect import reflect_node
 from .nodes.verify import verify_command_node, human_approval_node
 from .nodes.plan_executor import plan_executor_node
@@ -42,7 +44,8 @@ def create_k8s_agent(checkpointer=None):
     # Classifier currently only routes to supervisor, but we use conditional edge for future proofing
     workflow.add_conditional_edges('classifier', should_continue, {
         'supervisor': 'supervisor',
-        'respond': 'supervisor', 
+        'respond': 'supervisor',
+        'done': END,
     })
 
     workflow.add_conditional_edges('supervisor', should_continue, {
@@ -78,16 +81,30 @@ def create_k8s_agent(checkpointer=None):
         'done': END, 
     })
 
-    workflow.add_edge('worker', 'verify')
+    # Route worker output through self-correction → validator → verify
+    workflow.add_edge('worker', 'self_correction')
+    workflow.add_node('self_correction', self_correction_node)
+    workflow.add_edge('self_correction', 'command_validator')
+    workflow.add_node('command_validator', command_validator_node)
+
+    # Validator can route to verify (if valid) or supervisor (if invalid)
+    workflow.add_conditional_edges('command_validator', should_continue, {
+        'verify': 'verify',
+        'supervisor': 'supervisor',
+        'done': END,
+    })
 
     workflow.add_conditional_edges('verify', handle_approval, {
         'human_approval': 'human_approval',
         'execute': 'execute',
+        'done': END,
     })
 
+    # Stay in human_approval until approved; then proceed to execute
     workflow.add_conditional_edges('human_approval', handle_approval, {
-        'human_approval': END, 
+        'human_approval': 'human_approval',
         'execute': 'execute',
+        'done': END,
     })
 
     # After execute/batch_execute, go to reflect then route based on context

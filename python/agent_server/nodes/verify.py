@@ -14,7 +14,7 @@ async def verify_command_node(state: AgentState) -> dict:
     command = state.get('pending_command', '')
 
     if not command:
-        return {**state, 'next_action': 'execute'}
+        return {**state, 'next_action': 'execute', 'events': events}
 
     # LOOP PREVENTION: Track blocked commands to prevent infinite retry loops
     # Medium #12 fix: Limit list to last 10 entries and deduplicate
@@ -184,7 +184,7 @@ async def verify_command_node(state: AgentState) -> dict:
 
         if approved_syntax:
             events.append(emit_event("reflection", {"assessment": "VERIFIED", "reasoning": "Command looks good."}))
-            return {**state, 'next_action': 'execute'}
+            return {**state, 'next_action': 'execute', 'events': events}
         else:
             new_command = corrected if corrected.strip() else command
 
@@ -214,12 +214,13 @@ async def verify_command_node(state: AgentState) -> dict:
             return {
                 **state,
                 'next_action': 'execute',
-                'pending_command': new_command
+                'pending_command': new_command,
+                'events': events
             }
 
     except Exception:
         # On verifier errors, just execute to avoid blocking
-        return {**state, 'next_action': 'execute'}
+        return {**state, 'next_action': 'execute', 'events': events}
 
 async def human_approval_node(state: AgentState) -> dict:
     """Node that stalls execution until user approval is received.

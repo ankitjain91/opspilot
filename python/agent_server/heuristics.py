@@ -6,6 +6,72 @@ from .config import TYPO_CORRECTIONS
 # Native AI Refactor: Removed autocorrect_query
 # LLMs are robust to typos; we don't need brittle dictionary lookups.
 
+# Query expansion for better KB retrieval
+SYNONYM_MAP = {
+    # Resource synonyms
+    'pod': ['pods', 'po', 'container'],
+    'deployment': ['deployments', 'deploy', 'app'],
+    'service': ['services', 'svc', 'endpoint'],
+    'node': ['nodes', 'worker', 'machine'],
+    'namespace': ['namespaces', 'ns', 'project'],
+
+    # State synonyms
+    'crashloop': ['crashloopbackoff', 'crashing', 'restarting', 'crash loop'],
+    'pending': ['not ready', 'waiting', 'stuck'],
+    'failing': ['failed', 'broken', 'unhealthy', 'down'],
+    'error': ['errors', 'erroring', 'failure'],
+
+    # Action synonyms
+    'troubleshoot': ['debug', 'diagnose', 'investigate', 'analyze', 'fix'],
+    'find': ['search', 'locate', 'discover', 'show', 'list'],
+    'check': ['verify', 'inspect', 'examine', 'review'],
+
+    # Technology synonyms
+    'crossplane': ['xp', 'composition', 'managed resource', 'claim'],
+    'postgres': ['postgresql', 'pg', 'database'],
+    'cert-manager': ['cert manager', 'certificate', 'tls', 'ssl'],
+}
+
+def expand_query(query: str) -> List[str]:
+    """
+    Expand query with synonyms for better KB retrieval.
+
+    Returns list of query variants (original + expansions).
+
+    Example:
+        Input: "crashloop pods"
+        Output: ["crashloop pods", "crashloopbackoff pods", "crashing containers"]
+    """
+    query_lower = query.lower()
+    variants = [query]  # Always include original
+
+    # Find matching keywords and generate variants
+    for canonical, synonyms in SYNONYM_MAP.items():
+        # Check if canonical term is in query
+        if canonical in query_lower:
+            # Generate variant for each synonym
+            for syn in synonyms:
+                variant = query_lower.replace(canonical, syn)
+                if variant != query_lower:
+                    variants.append(variant)
+
+        # Also check reverse: if synonym is in query, add canonical
+        for syn in synonyms:
+            if syn in query_lower:
+                variant = query_lower.replace(syn, canonical)
+                if variant != query_lower and variant not in variants:
+                    variants.append(variant)
+                # Add other synonyms too
+                for other_syn in synonyms:
+                    if other_syn != syn:
+                        variant2 = query_lower.replace(syn, other_syn)
+                        if variant2 != query_lower and variant2 not in variants:
+                            variants.append(variant2)
+
+    # Deduplicate and limit to top 5 most diverse variants
+    variants = list(dict.fromkeys(variants))  # Preserve order, remove duplicates
+    return variants[:5]
+
 def normalize_query(query: str) -> tuple[str, str | None]:
     """Minimal query normalization - let the LLM handle natural language variations.
 
