@@ -121,13 +121,21 @@ def format_command_history(history: list) -> str:
     recent_history = history[-5:] if len(history) > 5 else history
 
     lines = []
+    # Reverse to process most recent first
+    recent_history = history[-5:] if len(history) > 5 else history
+    total_items = len(recent_history)
+    
     for i, h in enumerate(recent_history, 1):
-        # Use smart truncation for kubectl output to keep error rows
+        # Adaptive truncation: 
+        # - Last 2 commands: High detail (3000 chars)
+        # - Older commands: Low detail (500 chars) to save tokens
+        is_recent = i >= total_items - 1
+        max_chars = 3000 if is_recent else 500
+        
         if h.get('error'):
             result = f"ERROR: {h['error']}"
         else:
-            # Smart truncate keeps headers + problem rows, omits healthy resources
-            result = smart_truncate_output(h['output'], max_chars=3000)
+            result = smart_truncate_output(h['output'], max_chars=max_chars)
 
         assessment = f"\nREFLECTION: {h['assessment']} - {h.get('reasoning', '')}" if h.get('assessment') else ""
         lines.append(f"[{i}] $ {h['command']}\n{result}{assessment}")
@@ -138,19 +146,79 @@ def format_command_history(history: list) -> str:
     return '\n\n'.join(lines)
 
 def format_conversation_context(history: list[dict]) -> str:
-    """Format previous conversation turns (User/Assistant) for context."""
+    """
+    Format previous conversation turns with smart truncation and summarization.
+    Preserves recent context while summarizing older turns to prevent context overflow.
+    """
     if not history:
         return "(No previous context)"
-    
-    lines = []
+
+    MAX_RECENT_TURNS = 6  # Keep last 3 exchanges (6 messages) verbatim
+    MAX_TOTAL_LENGTH = 3000  # Character limit for conversation context
+
+    # Filter valid messages
+    valid_messages = []
     for msg in history:
         role = msg.get('role', 'unknown').upper()
         content = msg.get('content', '').strip()
-        # Skip system signals or tool outputs if they leaked into conversation history
-        if role in ['USER', 'ASSISTANT', 'SUPERVISOR', 'SCOUT']:
-            lines.append(f"{role}: {content}")
-            
-    return '\n'.join(lines)
+        if role in ['USER', 'ASSISTANT', 'SUPERVISOR', 'SCOUT'] and content:
+            valid_messages.append({'role': role, 'content': content})
+
+    if not valid_messages:
+        return "(No previous context)"
+
+    # Split into recent and older messages
+    recent_msgs = valid_messages[-MAX_RECENT_TURNS:]
+    older_msgs = valid_messages[:-MAX_RECENT_TURNS] if len(valid_messages) > MAX_RECENT_TURNS else []
+
+    lines = []
+
+    # Summarize older messages if they exist
+    if older_msgs:
+        # Extract key findings and user corrections from older context
+        key_findings = []
+        user_corrections = []
+
+        for msg in older_msgs:
+            content = msg['content']
+            # Extract corrections (user messages that contradict or refine previous responses)
+            if msg['role'] == 'USER':
+                if any(keyword in content.lower() for keyword in ['actually', 'no', 'correction', 'wrong', 'not', 'instead', 'rather']):
+                    user_corrections.append(content[:200])
+            # Extract assistant conclusions
+            elif msg['role'] == 'ASSISTANT':
+                # Look for conclusion markers
+                if any(marker in content.lower() for marker in ['root cause:', 'conclusion:', 'found that', 'discovered', 'issue is']):
+                    # Extract the sentence with the conclusion
+                    for sentence in content.split('.'):
+                        if any(marker in sentence.lower() for marker in ['root cause', 'conclusion', 'found that', 'discovered', 'issue is']):
+                            key_findings.append(sentence.strip()[:200])
+                            break
+
+        # Build summary section
+        summary_parts = []
+        if key_findings:
+            summary_parts.append("Previous Findings: " + " | ".join(key_findings[:3]))
+        if user_corrections:
+            summary_parts.append("User Corrections: " + " | ".join(user_corrections[:2]))
+
+        if summary_parts:
+            lines.append(f"[EARLIER CONTEXT SUMMARY - {len(older_msgs)} messages]")
+            lines.extend(summary_parts)
+            lines.append("")
+
+    # Add recent messages verbatim
+    lines.append("[RECENT CONTEXT]")
+    for msg in recent_msgs:
+        lines.append(f"{msg['role']}: {msg['content']}")
+
+    # Truncate if still too long
+    result = '\n'.join(lines)
+    if len(result) > MAX_TOTAL_LENGTH:
+        result = result[-MAX_TOTAL_LENGTH:]
+        result = "...[truncated]\n" + result
+
+    return result
 
 def escape_braces(s: str) -> str:
     """Escape braces for formatted strings."""
@@ -336,7 +404,7 @@ def save_session_experience(state: dict):
     outcome = "UNKNOWN"
     if state.get('error'):
         outcome = "FAILURE"
-    elif state.get('confidence_score', 0) >= 0.8:
+    elif float(state.get('confidence_score') or 0.0) >= 0.8:
         outcome = "SUCCESS"
     
     # Only save definitive outcomes to avoid polluting DB with noise
@@ -364,24 +432,70 @@ def save_session_experience(state: dict):
         pass # Handle case where memory module not fully available yet
 
 def calculate_confidence_score(state: dict) -> float:
-    """Calculate confidence based on history and reflection."""
-    confidence = 1.0
-    
-    # Decrease confidence if there was an error
+    """
+    Calculate calibrated confidence based on evidence quality.
+
+    Factors:
+    - Number of evidence sources (commands executed)
+    - KB pattern matches
+    - Command success rate
+    - Reflection assessment
+    """
+    # Start with base confidence
+    confidence = 0.7  # Changed from 1.0 (was too optimistic)
+
+    # Critical failure cases
     if state.get('error'):
-        confidence = 0.0
-        return confidence
-        
-    last_cmd = state['command_history'][-1] if state.get('command_history') else None
+        return 0.0
+
+    command_history = state.get('command_history', [])
+
+    # Factor 1: Evidence quantity (multiple sources = higher confidence)
+    evidence_sources = len([cmd for cmd in command_history if cmd.get('output') and not cmd.get('error')])
+
+    if evidence_sources == 0:
+        return 0.1  # Almost no confidence with zero evidence
+
+    if evidence_sources == 1:
+        confidence -= 0.15  # Single source = lower confidence
+    elif evidence_sources >= 3:
+        confidence += 0.1  # Multiple sources = higher confidence
+
+    # Factor 2: Command success rate
+    total_commands = len(command_history)
+    if total_commands > 0:
+        failed_commands = len([cmd for cmd in command_history if cmd.get('error')])
+        success_rate = (total_commands - failed_commands) / total_commands
+
+        if success_rate < 0.5:
+            confidence -= 0.2  # Many failures = low confidence
+        elif success_rate >= 0.9:
+            confidence += 0.05  # High success rate = boost confidence
+
+    # Factor 3: KB pattern matches (if tracked in state)
+    kb_matches = len(state.get('kb_context', '').split('###')) - 1  # Count ### markers
+    if kb_matches >= 3:
+        confidence += 0.1  # Strong KB grounding
+    elif kb_matches == 0:
+        confidence -= 0.05  # No KB guidance
+
+    # Factor 4: Reflection assessment
+    last_cmd = command_history[-1] if command_history else None
     if last_cmd and last_cmd.get('error'):
-        confidence -= 0.3
-        
+        confidence -= 0.2  # Recent failure
+
     reasoning = (state.get('reflection_reasoning') or '').lower()
-    uncertain_words = ['uncertain', 'unsure', 'might', 'maybe', 'not sure', 'failed to verify']
-    
+    uncertain_words = ['uncertain', 'unsure', 'might', 'maybe', 'not sure', 'failed to verify', 'unclear']
+
     if any(w in reasoning for w in uncertain_words):
-        confidence -= 0.4
-        
+        confidence -= 0.25  # Explicit uncertainty
+
+    # Factor 5: Investigation depth (iterations)
+    iteration = state.get('iteration', 0)
+    if iteration > 5:
+        confidence -= 0.1  # Took many iterations = less certain path
+
+    # Clamp to valid range
     return max(0.0, min(1.0, confidence))
 
 def get_cached_result(state: dict, command: str) -> str | None:
@@ -619,6 +733,39 @@ def parse_kubectl_json_output(json_str: str) -> str:
                 return K8sPod.from_dict(data).summary()
             elif kind == 'Deployment':
                 return K8sDeployment.from_dict(data).summary()
+            elif 'CustomerCluster' in str(kind):
+                # Specialized summary for CustomerCluster CRD
+                status = data.get('status', {})
+                metadata = data.get('metadata', {})
+                name = metadata.get('name', 'unknown')
+                namespace = metadata.get('namespace', '')
+                ns_str = f" (namespace: {namespace})" if namespace else ""
+
+                phase = status.get('phase') or status.get('state') or 'Unknown'
+                ready = status.get('ready')
+                synced = status.get('synced')
+                conditions = status.get('conditions', [])
+                failing_conds = []
+                for cond in conditions:
+                    ctype = cond.get('type', 'Unknown')
+                    cstat = cond.get('status', 'Unknown')
+                    creason = cond.get('reason', '')
+                    if str(cstat).lower() not in ['true', 'ready', 'synced']:
+                        failing_conds.append(f"{ctype}={cstat}{(':'+creason) if creason else ''}")
+
+                lines = [
+                    f"Resource: CustomerCluster/{name}{ns_str}",
+                    f"Status/Phase: {phase}",
+                ]
+                if ready is not None:
+                    lines.append(f"Ready: {ready}")
+                if synced is not None:
+                    lines.append(f"Synced: {synced}")
+                if failing_conds:
+                    lines.append("Conditions indicating issues:")
+                    for fc in failing_conds[:5]:
+                        lines.append(f"  - {fc}")
+                return "\n".join(lines)
             else:
                 metadata = data.get('metadata', {})
                 name = metadata.get('name', 'unknown')

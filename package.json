@@ -24,9 +24,10 @@
   ],
   "scripts": {
     "dev": "vite --port 1422 --host 127.0.0.1",
-    "lint": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
     "build:python": "python3 scripts/build_sidecar.py",
-    "build": "npm run build:python && node scripts/ensure-embeddings.cjs && tsc && vite build",
+    "build:web": "node scripts/ensure-embeddings.cjs && vite build",
+    "build": "npm run build:python & npm run build:web & wait && SKIP_JENKINS=1 tauri build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",

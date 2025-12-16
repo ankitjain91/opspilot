@@ -2,6 +2,8 @@
 import asyncio
 import subprocess
 import re
+import time
+import json
 from ..state import AgentState
 from ..prompts.worker.main import WORKER_PROMPT
 from ..llm import call_llm
@@ -45,6 +47,8 @@ def normalize_command(cmd: str) -> str:
 async def worker_node(state: AgentState) -> dict:
     """Worker Node (executor model): Translates plan into kubectl command."""
     events = list(state.get('events', []))
+    start_ts = time.time()
+    # events.append(emit_event("progress", {"message": f"[TRACE] worker:start {start_ts:.3f}"}))
     plan = state.get('current_plan', 'Check failing pods and cluster events')
 
     last_cmd = state['command_history'][-1] if state['command_history'] else None
@@ -80,14 +84,85 @@ async def worker_node(state: AgentState) -> dict:
 
     try:
         executor_model = state.get('executor_model', 'k8s-cli')
-        response = await call_llm(prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.1, api_key=state.get('api_key'))
-        parsed = parse_worker_response(response)
+        
+        # Emit intent before generating command (Fix Dead Air)
+        try:
+             from ..server import broadcaster
+             await broadcaster.broadcast(emit_event("intent", {"type": "generating_command", "message": "Translating plan to executable commands..."}))
+        except Exception:
+             pass
+
+        # Prefer stricter few-shot system prompt for Qwen models
+        system_prefix = ""
+        try:
+            from ..prompts.qwen_fewshot import QWEN_TOOL_SYSTEM_PROMPT
+            if 'qwen' in (executor_model or '').lower():
+                system_prefix = QWEN_TOOL_SYSTEM_PROMPT.strip() + "\n\n"
+        except Exception:
+            pass
+        response = await call_llm(system_prefix + prompt, state['llm_endpoint'], executor_model, state.get('llm_provider', 'ollama'), temperature=0.1, api_key=state.get('api_key'))
+        try:
+            parsed = parse_worker_response(response)
+        except Exception as e_parse:
+            # Retry once with a smaller CLI executor if available
+            mini_model = None
+            if isinstance(executor_model, str) and 'k8s-cli' in executor_model:
+                mini_model = executor_model.replace('k8s-cli', 'k8s-cli-mini')
+            if mini_model and mini_model != executor_model:
+                events.append(emit_event("progress", {"message": f"⚡ Executor parse failed, retrying with {mini_model}"}))
+                response = await call_llm(system_prefix + prompt, state['llm_endpoint'], mini_model, state.get('llm_provider', 'ollama'), temperature=0.1, api_key=state.get('api_key'))
+                parsed = parse_worker_response(response)
+            else:
+                raise e_parse
         
         # New Structured Tool Logic
         command = ""
         tool_call = parsed.get("tool_call")
+        batch_calls = parsed.get("batch_tool_calls")
         thought = parsed.get("thought", "Executing tool")
-        context_override = None  # <-- MOVED HERE: Initialize at function scope
+        context_override = None
+
+        # PARALLEL EXECUTION LOGIC
+        if batch_calls:
+            try:
+                from ..tools.definitions import AgentToolWrapper, KubectlContext
+                from ..tools.safe_executor import SafeExecutor
+                
+                valid_commands = []
+                for tc in batch_calls:
+                    # Validate each tool
+                    wrapper = AgentToolWrapper(tool_call=tc)
+                    tool_obj = wrapper.tool_call
+                    
+                    # BLOCK WRITE OPERATIONS IN BATCH
+                    # We only allow discovery tools in batch for now to be safe
+                    if tool_obj.tool not in ['kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_events', 'kubectl_top', 'kubectl_api_resources']:
+                        print(f"[worker] ⚠️ Skipping unsafe batch tool: {tool_obj.tool}", flush=True)
+                        continue
+                        
+                    # Build command
+                    cmd = SafeExecutor.build_command(tool_obj, kube_context=state['kube_context'])
+                    if cmd:
+                        valid_commands.append(cmd)
+                
+                if valid_commands:
+                    print(f"[worker] 🚀 Prepared {len(valid_commands)} parallel commands", flush=True)
+                    events.append(emit_event("progress", {"message": f"🚀 Preparing {len(valid_commands)} parallel discovery commands..."}))
+                    
+                    return {
+                        **state,
+                        'next_action': 'execute_batch', # NEW STATE for batch execution
+                        'pending_batch_commands': valid_commands,
+                        'events': events,
+                        'pending_command': None
+                    }
+            except Exception as e:
+                print(f"[worker] ❌ Batch processing failed: {e}", flush=True)
+                # Fallback to single command flow if batch fails
+                pass
+
+        # DEDUPLICATION CHECK: Prevent executing same command multiple times
+        recent_command_strings = [normalize_command(h['command']) for h in state['command_history'][-5:]] if state['command_history'] else []
 
         if tool_call:
             try:
@@ -125,52 +200,91 @@ async def worker_node(state: AgentState) -> dict:
                 if isinstance(tool_obj, GitCommit):
                     print(f"[agent-sidecar] 🐙 Executing GitOps: {tool_obj.repo_url}", flush=True)
                     events.append(emit_event("progress", {"message": f"🐙 Creating Git Branch & Commit for {tool_obj.file_path}..."}))
-                    
+
                     import tempfile
                     import os
-                    import time
-                    
+                    from time import time as get_timestamp
+
                     # Generate branch name if missing
-                    branch = tool_obj.branch_name or f"agent/patch-{int(time.time())}"
-                    
-                    with tempfile.TemporaryDirectory() as tmp_dir:
-                        # 1. Clone
-                        # Use subprocess for safety and simplicity
-                        subprocess.run(["git", "clone", "--depth", "1", tool_obj.repo_url, tmp_dir], check=True, capture_output=True)
-                        
-                        # 2. Checkout Branch
-                        subprocess.run(["git", "checkout", "-b", branch], cwd=tmp_dir, check=True, capture_output=True)
-                        
-                        # 3. Write File
-                        full_path = os.path.join(tmp_dir, tool_obj.file_path)
-                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                        with open(full_path, 'w') as f:
-                            f.write(tool_obj.file_content)
-                            
-                        # 4. Git Add & Commit
-                        subprocess.run(["git", "add", "."], cwd=tmp_dir, check=True, capture_output=True)
-                        subprocess.run(["git", "commit", "-m", tool_obj.commit_message], cwd=tmp_dir, check=True, capture_output=True)
-                        
-                        # 5. Push
-                        # Note: This might fail without auth. We catch exceptions.
-                        subprocess.run(["git", "push", "origin", branch], cwd=tmp_dir, check=True, capture_output=True)
-                        
-                    # Return a virtual success command/result
-                    # This tricks the supervisor into thinking a command ran successfully
-                    result_msg = f"SUCCESS: Created branch '{branch}' and pushed commit to {tool_obj.repo_url}"
-                    print(f"[agent-sidecar] ✅ GitOps Complete: {result_msg}", flush=True)
-                    
-                    # Create a virtual history entry
-                    events.append(emit_event("command_output", {"command": f"git push origin {branch}", "output": result_msg}))
-                    return {
-                        **state,
-                        'next_action': 'reflect', # Reflect on the success
-                        'command_history': state['command_history'] + [
-                            {'command': f"git push origin {branch}", 'output': result_msg, 'error': None}
-                        ],
-                        'pending_command': None,
-                        'events': events,
-                    }
+                    branch = tool_obj.branch_name or f"agent/patch-{int(get_timestamp())}"
+
+                    # CRITICAL FIX: Add try/except for GitOps operations to prevent crashes
+                    try:
+                        with tempfile.TemporaryDirectory() as tmp_dir:
+                            # 1. Clone
+                            # Use subprocess for safety and simplicity
+                            subprocess.run(["git", "clone", "--depth", "1", tool_obj.repo_url, tmp_dir], check=True, capture_output=True, text=True)
+
+                            # 2. Checkout Branch
+                            subprocess.run(["git", "checkout", "-b", branch], cwd=tmp_dir, check=True, capture_output=True, text=True)
+
+                            # 3. Write File
+                            full_path = os.path.join(tmp_dir, tool_obj.file_path)
+                            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                            with open(full_path, 'w') as f:
+                                f.write(tool_obj.file_content)
+
+                            # 4. Git Add & Commit
+                            subprocess.run(["git", "add", "."], cwd=tmp_dir, check=True, capture_output=True, text=True)
+                            subprocess.run(["git", "commit", "-m", tool_obj.commit_message], cwd=tmp_dir, check=True, capture_output=True, text=True)
+
+                            # 5. Push
+                            # Note: This might fail without auth. We catch exceptions.
+                            subprocess.run(["git", "push", "origin", branch], cwd=tmp_dir, check=True, capture_output=True, text=True)
+
+                        # Return a virtual success command/result
+                        # This tricks the supervisor into thinking a command ran successfully
+                        result_msg = f"SUCCESS: Created branch '{branch}' and pushed commit to {tool_obj.repo_url}"
+                        print(f"[agent-sidecar] ✅ GitOps Complete: {result_msg}", flush=True)
+
+                        # Create a virtual history entry
+                        events.append(emit_event("command_output", {"command": f"git push origin {branch}", "output": result_msg}))
+                        return {
+                            **state,
+                            'next_action': 'reflect', # Reflect on the success
+                            'command_history': state['command_history'] + [
+                                {'command': f"git push origin {branch}", 'output': result_msg, 'error': None}
+                            ],
+                            'pending_command': None,
+                            'events': events # + [emit_event("progress", {"message": f"[TRACE] worker:end {time.time():.3f}"})],
+                        }
+
+                    except subprocess.CalledProcessError as e:
+                        # Git operation failed (auth error, network error, etc.)
+                        error_msg = f"GitOps failed: {e.stderr if e.stderr else str(e)}"
+                        print(f"[agent-sidecar] ❌ GitOps Error: {error_msg}", flush=True)
+
+                        events.append(emit_event("error", {"message": f"Git operation failed: {error_msg[:200]}"}))
+
+                        # Return error state instead of crashing
+                        return {
+                            **state,
+                            'next_action': 'reflect',
+                            'command_history': state['command_history'] + [
+                                {'command': f"git push origin {branch}", 'output': '', 'error': error_msg}
+                            ],
+                            'pending_command': None,
+                            'events': events,
+                            'error': error_msg
+                        }
+
+                    except Exception as e:
+                        # Unexpected error (filesystem, network, etc.)
+                        error_msg = f"Unexpected GitOps error: {str(e)}"
+                        print(f"[agent-sidecar] ❌ GitOps Unexpected Error: {error_msg}", flush=True)
+
+                        events.append(emit_event("error", {"message": f"Git operation failed unexpectedly"}))
+
+                        return {
+                            **state,
+                            'next_action': 'reflect',
+                            'command_history': state['command_history'] + [
+                                {'command': f"git commit (failed)", 'output': '', 'error': error_msg}
+                            ],
+                            'pending_command': None,
+                            'events': events,
+                            'error': error_msg
+                        }
 
                 # SPECIAL HANDLING: PredictScaling (Time Lord)
                 if isinstance(tool_obj, PredictScaling):
@@ -199,7 +313,7 @@ async def worker_node(state: AgentState) -> dict:
                             {'command': virtual_cmd, 'output': prediction, 'error': None}
                         ],
                         'pending_command': None,
-                        'events': events
+                        'events': events # + [emit_event("progress", {"message": f"[TRACE] worker:end {time.time():.3f}"})]
                     }
                 
             except Exception as e:
@@ -215,7 +329,135 @@ async def worker_node(state: AgentState) -> dict:
         if not command:
              raise ValueError("No command or tool call generated")
 
+        # CRITICAL FIX: Smart deduplication - allow retries if last attempt failed
+        # Only block if the SAME command succeeded recently (within last 3 commands)
+        normalized_cmd = normalize_command(command)
+
+        # SMART DEDUPLICATION: Check last 5 commands with context-aware logic
+        duplicate_info = None
+        if state['command_history']:
+            for idx, cmd_entry in enumerate(state['command_history'][-5:]):
+                past_cmd = normalize_command(cmd_entry.get('command', ''))
+                if past_cmd == normalized_cmd:
+                    past_error = cmd_entry.get('error')
+                    past_assessment = cmd_entry.get('assessment')
+                    past_output = cmd_entry.get('output', '')
+
+                    # Case 1: Command SOLVED the query - definitely block
+                    if past_assessment == 'SOLVED':
+                        duplicate_info = {
+                            'reason': 'already_solved',
+                            'message': f"This command already solved the query. Output: {past_output[:100]}...",
+                            'output': past_output
+                        }
+                        break
+
+                    # Case 2: Command validated but never executed (stuck in validation loop)
+                    # No assessment, no error, no output = execution broken
+                    elif not past_assessment and not past_error and not past_output:
+                        duplicate_info = {
+                            'reason': 'execution_stuck',
+                            'message': "Previous attempt validated but never executed. Graph routing may be broken. Try a different command approach."
+                        }
+                        break
+
+                    # Case 3: Command BLOCKED or validation FAILED - don't retry same thing
+                    elif past_assessment in ['BLOCKED', 'FAILED']:
+                        duplicate_info = {
+                            'reason': 'blocked_or_failed',
+                            'message': f"Command was blocked/failed: {past_error or 'validation failed'}. Try alternative approach."
+                        }
+                        break
+
+                    # Case 4: Command succeeded but reflection said RETRY - allow retry with modifications
+                    elif past_assessment == 'RETRY':
+                        # Check if query/context changed since last attempt
+                        current_query = state.get('query', '')
+                        # Allow retry if it's been flagged for retry by reflection
+                        print(f"[worker] ℹ️ Allowing retry of command (reflection requested RETRY)", flush=True)
+                        continue  # Don't block
+
+                    # Case 5: Command succeeded (CONTINUE) with valid output - block duplicate
+                    elif past_assessment == 'CONTINUE' and past_output:
+                        duplicate_info = {
+                            'reason': 'already_succeeded',
+                            'message': f"This command already executed successfully. Output: {past_output[:100]}...",
+                            'output': past_output
+                        }
+                        break
+
+                    # Case 6: No clear assessment but has output - likely succeeded, block
+                    elif not past_assessment and past_output and not past_error:
+                        duplicate_info = {
+                            'reason': 'likely_succeeded',
+                            'message': f"Command likely succeeded (has output, no error). Output: {past_output[:100]}...",
+                            'output': past_output
+                        }
+                        break
+
+                    # Edge case: Error occurred but no assessment - allow retry after short commands
+                    elif past_error and not past_assessment:
+                        # Count how many times this exact error occurred
+                        error_count = sum(1 for c in state['command_history'][-5:]
+                                        if normalize_command(c.get('command', '')) == normalized_cmd
+                                        and c.get('error'))
+
+                        if error_count >= 2:
+                            duplicate_info = {
+                                'reason': 'repeated_errors',
+                                'message': f"Command failed {error_count} times with errors. Try different approach."
+                            }
+                            break
+                        else:
+                            print(f"[worker] ℹ️ Allowing retry after single error: {past_error[:100]}", flush=True)
+                            continue  # Allow one retry
+
+        if duplicate_info:
+            reason = duplicate_info['reason']
+            message = duplicate_info['message']
+
+            print(f"[worker] 🚫 Smart deduplication blocked command", flush=True)
+            print(f"[worker]    Reason: {reason}", flush=True)
+            
+            # FIX: If command succeeded before, return cached output to satisfy agent and prevent loops
+            if reason in ['already_succeeded', 'already_solved', 'likely_succeeded'] and duplicate_info.get('output'):
+                 print(f"[worker]    🔄 Returning CACHED OUTPUT to prevent infinite loop.", flush=True)
+                 cached_out = duplicate_info['output']
+                 events.append(emit_event("command_output", {"command": command, "output": cached_out, "cached": True}))
+                 return {
+                     **state,
+                     'next_action': 'reflect',
+                     'command_history': state['command_history'] + [
+                         {'command': command, 'output': cached_out, 'error': None, 'cached': True}
+                     ],
+                     'events': events,
+                     'pending_command': None
+                 }
+
+            print(f"[worker]    Command: {command}", flush=True)
+
+            events.append(emit_event("progress", {
+                "message": f"⚠️ Duplicate detected: {message}"
+            }))
+
+            return {
+                **state,
+                'next_action': 'supervisor',
+                'error': f"Smart deduplication ({reason}): {message}",
+                'events': events,
+                'pending_command': None
+            }
+
+        # Store raw tool JSON for self-correction/verification path
+        if tool_call:
+            try:
+                events.append(emit_event("progress", {"message": "🛠️ Validating tool JSON..."}))
+            except Exception:
+                pass
+            state['pending_tool_json'] = json.dumps(tool_call)
+
         events.append(emit_event("reflection", {"assessment": "EXECUTING", "reasoning": f"🔧 Executor Plan: {thought}"}))
+        # events.append(emit_event("progress", {"message": f"[TRACE] worker:end {time.time():.3f}"}))
         
         # --- SAFETY CHECK: REMEDIATION VERBS ---
         # Prevent execution of dangerous commands without checking config/state
@@ -337,6 +579,13 @@ async def execute_node(state: AgentState) -> dict:
         if "kubectl get" in full_command and "|" not in full_command and "-o" not in full_command:
             full_command += " -o json"
             print(f"[agent-sidecar] ⚡ Upgraded command to JSON mode: {full_command}", flush=True)
+
+        # Emit executing intent (immediate UI feedback)
+        try:
+             from ..server import broadcaster
+             await broadcaster.broadcast(emit_event("intent", {"type": "executing", "message": f"Executing: {full_command}", "command": full_command}))
+        except Exception:
+             pass
 
         # Use asyncio subprocess for non-blocking execution (allows parallelization in future)
         proc = await asyncio.create_subprocess_shell(

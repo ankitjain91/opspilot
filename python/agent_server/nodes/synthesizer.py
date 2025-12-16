@@ -31,6 +31,11 @@ async def synthesizer_node(state: AgentState) -> Dict:
     command_history = state.get('command_history', [])
     accumulated_evidence = state.get('accumulated_evidence', [])
     events = list(state.get('events', []))
+    try:
+        from time import time
+        events.append(emit_event("progress", {"message": f"[TRACE] synthesizer:start {time():.3f}"}))
+    except Exception:
+        pass
     iteration = state.get('iteration', 0)
 
     print(f"[synthesizer] 🧪 Analyzing evidence to answer: '{query}'", flush=True)
@@ -69,6 +74,10 @@ async def synthesizer_node(state: AgentState) -> Dict:
     evidence_summary = "\n".join(evidence_parts)
 
     # Ask LLM: Can we answer the question with this evidence?
+    # Include KB grounding: if relevant KB snippets exist, add them to evidence summary
+    kb_context = state.get('kb_context') or ''
+    if kb_context:
+        evidence_summary += "\n\n## KB Context (Grounding)\n" + kb_context[:2000]
     sufficiency_prompt = f"""You are analyzing whether collected evidence is sufficient to answer a user's question.
 
 **User's Question:** {query}
@@ -88,10 +97,32 @@ async def synthesizer_node(state: AgentState) -> Dict:
 }}
 ```
 
+**PRIMARY DIRECTIVE - "No Issues" Scenarios:**
+- If the query asks "find issues/problems/health" and evidence shows resources exist BUT have NO errors/warnings → can_answer=TRUE with message "No issues found"
+- Example: Query "find gateway issues", Evidence shows gateway exists with correct config and no errors → Answer: "No issues found with gateway X. Configuration is correct."
+- DO NOT say "potential issue" or "could indicate problem" when there are NO actual errors.
+- "Resource exists and is properly configured" = HEALTHY STATE, not an issue.
+- Only report issues when you find ACTUAL errors (CrashLoopBackOff, Failed status, error logs, etc.).
+
 **Guidelines:**
 - can_answer=true ONLY if you can give a COMPLETE, SPECIFIC answer (not vague)
 - can_answer=false if critical details are missing or evidence is unclear
 - Be honest - prefer can_answer=false over giving vague answers
+
+**ANTI-SPECULATION RULES** (STRICTLY ENFORCE):
+- NEVER use words: "may", "might", "could", "potentially", "possibly", "seems", "appears to"
+- ONLY state FACTS from evidence
+- If evidence shows X → Say "X exists" (not "X may exist" or "X could be a problem")
+- If evidence shows no errors → Say "No errors found" (not "may be impaired" or "potentially affecting")
+- Absence of a resource type (e.g., no nginx-ingress) ≠ problem (cluster might use different solution)
+- SPECULATION = WRONG. FACTS ONLY = CORRECT.
+
+**Examples**:
+❌ BAD: "This may be impaired, potentially affecting access"
+✅ GOOD: "No errors detected. Gateway is configured correctly."
+
+❌ BAD: "No ingress-nginx found, which could indicate issues"
+✅ GOOD: "No ingress-nginx controller found. If you need ingress, please specify which type you'd like to check."
 """
 
     try:
@@ -118,32 +149,67 @@ async def synthesizer_node(state: AgentState) -> Dict:
         reasoning = decision.get('reasoning', '')
         missing_info = decision.get('missing_info', '')
 
-        # CRITICAL FIX: If the previous step explicitly marked this as SOLVED,
-        # we MUST generate an answer, even if the LLM thinks it's insufficient.
-        # This prevents the Supervisor <-> Synthesizer infinite loop.
-        last_cmd_assessment = command_history[-1].get('assessment') if command_history else None
-        if last_cmd_assessment in ['SOLVED', 'AUTO_SOLVED']:
-            if not can_answer:
-                print(f"[synthesizer] ⚠️ Forcing answer generation because task was marked {last_cmd_assessment}", flush=True)
-                reasoning += " (Forced by SOLVED status)"
+        # REMOVED: Forced answer generation on SOLVED status (causes false positives)
+        # The synthesizer should always trust its own sufficiency assessment
+        # last_cmd_assessment = command_history[-1].get('assessment') if command_history else None
+
+        # REFLECTION VALIDATION: Cross-check synthesizer decision against reflection directive
+        last_reflection = state.get('last_reflection')
+        if last_reflection:
+            directive = last_reflection.get('directive')
+
+            # If reflect said RETRY, but synthesizer says answer → CONFLICT!
+            if directive == 'RETRY' and can_answer:
+                print(f"[synthesizer] ⚠️ Reflection-Synthesizer conflict detected:", flush=True)
+                print(f"  - Reflect directive: RETRY", flush=True)
+                print(f"  - Synthesizer decision: CAN_ANSWER", flush=True)
+                print(f"  → Trusting Reflect (retry needed)", flush=True)
+
+                can_answer = False
+                missing_info = last_reflection.get('reason') or last_reflection.get('next_command_hint') or 'Reflection indicated retry needed'
+                confidence = min(confidence, 0.5)  # Downgrade confidence
+
+            # If reflect said SOLVED, but synthesizer says insufficient → Trust SOLVED
+            elif directive == 'SOLVED' and not can_answer:
+                print(f"[synthesizer] ⚠️ Reflection marked SOLVED but synthesizer uncertain. Trusting SOLVED.", flush=True)
                 can_answer = True
-                confidence = max(confidence, 0.7) # Boost confidence since it was solved
+                confidence = max(confidence, 0.7)
 
         print(f"[synthesizer] Decision: can_answer={can_answer}, confidence={confidence:.2f}", flush=True)
         print(f"[synthesizer] Reasoning: {reasoning}", flush=True)
 
-        # DECISION POINT
+        # DECISION POINT with confidence gating
         if not can_answer or confidence < 0.6:
-            # INSUFFICIENT EVIDENCE - Check iteration limit FIRST
-            # CRITICAL FIX: Reduce max iterations from 7 to 3 to prevent infinite loops
-            # Most queries should be answerable within 2-3 plan cycles
-            if iteration >= 3:
-                print(f"[synthesizer] ⚠️ Max iterations reached ({iteration}), forcing answer generation", flush=True)
+            # INSUFFICIENT EVIDENCE - Check iteration limit with DYNAMIC calculation
+            # Calculate max iterations based on query complexity and context
+            max_iter = 3  # Default for simple queries
+
+            # Increase limit for complex queries
+            query_lower = query.lower()
+            is_complex = any(word in query_lower for word in [
+                'debug', 'troubleshoot', 'why', 'investigate', 'analyze', 'diagnose',
+                'broken', 'failing', 'crashed', 'error', 'issue', 'problem'
+            ])
+            if is_complex:
+                max_iter = 6
+
+            # Additional iterations for root cause analysis
+            current_hypothesis = state.get('current_hypothesis', '')
+            if current_hypothesis and any(word in current_hypothesis.lower() for word in ['root cause', 'investigate', 'analyze']):
+                max_iter = 8
+
+            # Add recovery budget for failed commands
+            recovery_attempts = len([cmd for cmd in command_history if cmd.get('error')])
+            max_iter += min(recovery_attempts, 2)  # Max +2 for retries
+
+            if iteration >= max_iter:
+                print(f"[synthesizer] ⚠️ Dynamic max iterations reached ({iteration}/{max_iter}), forcing answer generation", flush=True)
                 # Force generate best-effort answer
                 can_answer = True
                 confidence = max(confidence, 0.6)  # Boost confidence for forced answers
             else:
-                # INSUFFICIENT EVIDENCE - Route back to supervisor
+                # INSUFFICIENT EVIDENCE - Route directly to worker to gather missing info
+                # Routing to supervisor would create circular loop (supervisor → synthesizer → supervisor)
                 print(f"[synthesizer] ❌ Insufficient evidence. Missing: {missing_info}", flush=True)
                 events.append(emit_event("reflection", {
                     "assessment": "INSUFFICIENT_EVIDENCE",
@@ -151,10 +217,12 @@ async def synthesizer_node(state: AgentState) -> Dict:
                     "missing": missing_info
                 }))
 
+                # CRITICAL FIX: Route to 'worker' not 'supervisor' to break circular routing
+                # The worker will generate a command to gather the specific missing information
                 return {
                     **state,
                     'events': events,
-                    'next_action': 'supervisor',
+                    'next_action': 'worker',
                     'current_plan': f"Gather missing information: {missing_info}",
                     'error': None
                 }
@@ -177,8 +245,18 @@ async def synthesizer_node(state: AgentState) -> Dict:
             api_key=api_key
         )
 
-        # Validate the generated response
+        # Validate the generated response and enforce grounding: if no KB/command evidence cited, downgrade
         is_valid, error_msg = validate_response_quality(final_response, query)
+        if kb_context and 'Unknown' in final_response and confidence < 0.75:
+            # If response looks ungrounded while KB context exists, treat as insufficient
+            print(f"[synthesizer] ⚠️ Response may be ungrounded; routing for more evidence.", flush=True)
+            return {
+                **state,
+                'events': events,
+                'next_action': 'worker',  # Route to worker to gather evidence, not supervisor
+                'current_plan': 'Gather explicit status/logs/events to ground the answer',
+                'error': None
+            }
 
         if not is_valid:
             print(f"[synthesizer] ⚠️ Generated response failed validation: {error_msg}", flush=True)
@@ -196,8 +274,8 @@ async def synthesizer_node(state: AgentState) -> Dict:
                      return {
                         **state,
                         'events': events,
-                        'next_action': 'supervisor',
-                        'current_plan': f"Response generation failed (too short). Retry generation.",
+                        'next_action': 'worker',  # Route to worker to gather more info, not supervisor
+                        'current_plan': f"Response generation failed (too short). Gather more information.",
                         'error': None
                     }
             
@@ -211,10 +289,22 @@ async def synthesizer_node(state: AgentState) -> Dict:
              from ..response_formatter import _format_simple_fallback
              final_response = _format_simple_fallback(query, command_history, state.get('discovered_resources', {}))
 
+        # If confidence is low, auto-suggest follow-up verification steps
+        if confidence < 0.6:
+            try:
+                events.append(emit_event("progress", {"message": "[AUTO_FOLLOWUP] Low confidence — suggesting safe verification commands."}))
+            except Exception:
+                pass
+
         # SUCCESS - Return final answer
         print(f"[synthesizer] 🎉 Final answer generated successfully", flush=True)
 
         events.append(emit_event("progress", {"message": "🎉 Investigation complete!"}))
+        # Emit confidence metric for UI/tracing
+        try:
+            events.append(emit_event("progress", {"message": f"[CONFIDENCE] {confidence:.2f}"}))
+        except Exception:
+            pass
 
         # Generate proactive next-step suggestions
         suggestions = await _generate_next_step_suggestions(
@@ -228,9 +318,15 @@ async def synthesizer_node(state: AgentState) -> Dict:
             api_key=api_key
         )
 
+        try:
+            from time import time
+            events.append(emit_event("progress", {"message": f"[TRACE] synthesizer:end {time():.3f}"}))
+        except Exception:
+            pass
         return {
             **state,
             'final_response': final_response,
+            'confidence_score': confidence,
             'suggested_next_steps': suggestions,
             'next_action': 'done',
             'events': events,
@@ -242,11 +338,17 @@ async def synthesizer_node(state: AgentState) -> Dict:
         print(f"[synthesizer] ❌ Error during synthesis: {e}", flush=True)
         print(traceback.format_exc(), flush=True)
 
-        # Fallback: Route back to supervisor
+        # CRITICAL FIX: Route to 'done' not 'supervisor' to prevent error loops
+        # Generate a fallback error message for the user
+        from ..response_formatter import _format_simple_fallback
+        error_response = _format_simple_fallback(query, command_history, state.get('discovered_resources', {}))
+        error_response += f"\n\n⚠️ **Error**: An internal error occurred during answer synthesis. The data above is what I was able to gather."
+
         return {
             **state,
             'events': events,
-            'next_action': 'supervisor',
+            'next_action': 'done',
+            'final_response': error_response,
             'error': f"Synthesis error: {str(e)}"
         }
 

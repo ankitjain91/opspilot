@@ -17,79 +17,135 @@ async def reflect_node(state: AgentState) -> dict:
     if last_output is None:
         last_output = '(no output)'
 
-    # CODE-LEVEL SAFETY CHECK: Detect "empty output = success" for find queries
-    # This prevents unnecessary LLM calls and guarantees correct behavior
-    query_lower = (state.get('query') or '').lower().strip()
-    is_find_query = any(kw in query_lower for kw in [
-        'find', 'show', 'any', 'which', 'list ', 'get ', 'crashloop', 'failing', 'broken', 'unhealthy'
-    ])
+    # AI-NATIVE APPROACH: Let LLM decide if empty output means success
+    # REMOVED hardcoded keyword matching - now fully LLM-driven
     is_empty_output = last_output.strip() in ['', '(no output)'] or (
         not last_cmd.get('error') and len(last_output.strip()) == 0
     )
 
-    if is_find_query and is_empty_output and not last_cmd.get('error'):
-        # Shortcut: Empty output for find query = no matching resources found
-        print(f"[agent-sidecar] ⚡ Safety check: Empty output for find query → AUTO-SOLVED", flush=True)
+    if is_empty_output and not last_cmd.get('error'):
+        # Ask LLM: Does empty output answer the user's question?
+        query = state.get('query', '')
+        command = last_cmd.get('command', '')
 
-        # Create reflection without final_response so synthesizer generates it
-        reflection = {
-            "directive": "SOLVED",
-            "found_solution": True,
-            "thought": f"No matching resources found for '{state['query']}'",
-            "verified_facts": [f"No failing/broken pods found in the cluster"],
-            "next_step_hint": "",
-            "reason": "Empty command output indicates no resources match the search criteria"
-        }
+        empty_output_prompt = f"""You are analyzing a Kubernetes investigation where a command returned empty output.
 
-        assessment = "SOLVED"
-        events.append(emit_event("reflection", {
-            "assessment": assessment,
-            "reasoning": reflection["thought"],
-            "found_solution": True,
-        }))
+**User Query:** {query}
 
-        updated_history = list(state['command_history'])
-        feedback = reflection["thought"]
-        updated_history[-1] = {
-            **updated_history[-1],
-            'assessment': "SOLVED",
-            'useful': True,
-            'reasoning': feedback,
-        }
+**Command Executed:** {command}
 
-        # Route to synthesizer for proper response generation
-        # Don't provide final_response here - let synthesizer create it
-        accumulated_evidence = state.get('accumulated_evidence', [])
+**Result:** Empty output (no results)
 
-        # Check if we're in plan execution mode
-        execution_plan = state.get('execution_plan')
-        if execution_plan:
-            # In plan mode: Store reflection and let plan_executor handle routing
-            return {
-                **state,
-                'next_action': 'execute_next_step',  # Return to plan executor
-                'command_history': updated_history,
-                'reflection_reasoning': reflection["thought"],
-                'accumulated_evidence': accumulated_evidence + [reflection["thought"]],
-                'last_reflection': reflection,  # Store structured reflection
-                'events': events,
-            }
-        else:
-            # Simple delegate mode: Route to synthesizer
-            return {
-                **state,
-                'next_action': 'synthesizer',  # Let synthesizer generate proper final response
-                'command_history': updated_history,
-                'reflection_reasoning': reflection["thought"],
-                'accumulated_evidence': accumulated_evidence + [reflection["thought"]],
-                'last_reflection': reflection,  # Store structured reflection
-                'events': events,
-            }
+**Task:** Determine if empty output ANSWERS the user's question.
+
+**Output Format (JSON):**
+```json
+{{
+    "empty_is_answer": true/false,
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation"
+}}
+```
+
+**Guidelines:**
+- empty_is_answer=true if empty output means "none found" and that ANSWERS the query
+  Examples: "find failing pods" + empty = NO failing pods (ANSWERS query)
+            "are there any errors" + empty = NO errors (ANSWERS query)
+            "list crashlooping pods" + empty = NO crashloops (ANSWERS query)
+            "check node health" + empty events = Node is HEALTHY (No bad events)
+- empty_is_answer=false if empty output means we need to investigate further
+  Examples: "why is pod X failing" + empty = need more investigation
+            "debug deployment Y" + empty = need different approach
+- Be conservative: if unsure, return false
+"""
+
+        try:
+            llm_response = await call_llm(
+                empty_output_prompt,
+                state['llm_endpoint'],
+                state['llm_model'],
+                state.get('llm_provider', 'ollama'),
+                temperature=0.2,
+                api_key=state.get('api_key')
+            )
+
+            import json
+            decision = json.loads(llm_response)
+
+            if decision.get('empty_is_answer') and decision.get('confidence', 0) >= 0.7:
+                # LLM confirmed: Empty output answers the question
+                print(f"[reflect] ⚡ LLM determined empty output answers query (confidence: {decision.get('confidence'):.2f})", flush=True)
+                print(f"[reflect] Reasoning: {decision.get('reasoning')}", flush=True)
+
+                # Create reflection without final_response so synthesizer generates it
+                reflection = {
+                    "directive": "SOLVED",
+                    "found_solution": True,
+                    "thought": decision.get('reasoning', f"No matching resources found for '{query}'"),
+                    "verified_facts": [f"Empty command output indicates no resources match the search criteria"],
+                    "next_step_hint": "",
+                    "reason": decision.get('reasoning', "Empty output answers the user's question")
+                }
+
+                assessment = "SOLVED"
+                events.append(emit_event("reflection", {
+                    "assessment": assessment,
+                    "reasoning": reflection["thought"],
+                    "found_solution": True,
+                }))
+
+                updated_history = list(state['command_history'])
+                feedback = reflection["thought"]
+                updated_history[-1] = {
+                    **updated_history[-1],
+                    'assessment': "SOLVED",
+                    'useful': True,
+                    'reasoning': feedback,
+                }
+
+                # Route to synthesizer for proper response generation
+                # Don't provide final_response here - let synthesizer create it
+                accumulated_evidence = state.get('accumulated_evidence', [])
+
+                # Check if we're in plan execution mode
+                execution_plan = state.get('execution_plan')
+                if execution_plan:
+                    # In plan mode: Store reflection and let plan_executor handle routing
+                    return {
+                        **state,
+                        'next_action': 'execute_next_step',  # Return to plan executor
+                        'command_history': updated_history,
+                        'reflection_reasoning': reflection["thought"],
+                        'accumulated_evidence': accumulated_evidence + [reflection["thought"]],
+                        'last_reflection': reflection,  # Store structured reflection
+                        'events': events,
+                    }
+                else:
+                    # Simple delegate mode: Route to synthesizer
+                    return {
+                        **state,
+                        'next_action': 'synthesizer',  # Let synthesizer generate proper final response
+                        'command_history': updated_history,
+                        'reflection_reasoning': reflection["thought"],
+                        'accumulated_evidence': accumulated_evidence + [reflection["thought"]],
+                        'last_reflection': reflection,  # Store structured reflection
+                        'events': events,
+                    }
+            else:
+                # LLM says empty output does NOT answer the question - continue investigation
+                print(f"[reflect] ℹ️ LLM determined empty output requires further investigation", flush=True)
+                # Fall through to normal reflection LLM below
+
+        except Exception as e:
+            # Error in LLM call - fall through to normal reflection
+            print(f"[reflect] ⚠️ Empty output LLM check failed: {e}. Proceeding with normal reflection.", flush=True)
 
     # Native AI Refactor: Removed regex-based "Phase 2" Semantic Checks.
     # The Reflection LLM (70B) is fully capable of reading "Connection Refused" 
     # or "Namespace Not Found" from the output and deciding the next step.
     # Hardcoded checks here were causing false positives/negatives.
+
+    from ..knowledge.errors import error_kb
 
     # Build discovered context for reflection
     discovered_context_str = build_discovered_context(state.get('discovered_resources'))
@@ -101,6 +157,31 @@ async def reflect_node(state: AgentState) -> dict:
     # Get current step description if in plan execution
     current_step = state.get('current_plan', 'N/A')
 
+    # REFINE Loop: Check for known error patterns
+    error_match = error_kb.detect_error_pattern(last_output)
+    error_guidance_section = ""
+    
+    if error_match:
+        print(f"[agent-sidecar] 🧠 Recognized Error Pattern: {error_match['name']}", flush=True)
+        error_guidance_section = f"""
+*** EXPERT ERROR ANALYSIS ***
+The system recognized a known error pattern: "{error_match['name']}"
+Diagnosis: {error_match['diagnosis']}
+Recommended Strategy:
+{error_match['strategy']}
+Hint: {error_match['hint']}
+
+DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hint, or 'CONTINUE' if you have successfully applied the fix.
+*** END EXPERT ANALYSIS ***
+"""
+        # Emit a UI hint event
+        events.append(emit_event("hint", {
+            "type": "error_pattern",
+            "name": error_match['name'],
+            "diagnosis": error_match['diagnosis'],
+            "strategy": error_match['strategy']
+        }))
+
     prompt = REFLECT_PROMPT.format(
         query=state['query'],
         last_command=last_cmd['command'],
@@ -108,7 +189,8 @@ async def reflect_node(state: AgentState) -> dict:
         hypothesis=state.get('current_hypothesis', 'None'),
         discovered_context=discovered_context_str,
         accumulated_evidence=evidence_str,
-        current_step=current_step
+        current_step=current_step,
+        error_guidance_section=error_guidance_section
     )
 
     try:
@@ -116,7 +198,7 @@ async def reflect_node(state: AgentState) -> dict:
         import asyncio
         response = await asyncio.wait_for(
             call_llm(prompt, state['llm_endpoint'], state['llm_model'], state.get('llm_provider', 'ollama'), temperature=0.2, api_key=state.get('api_key')),
-            timeout=30.0
+            timeout=60.0
         )
         reflection = parse_reflection(response)
 
