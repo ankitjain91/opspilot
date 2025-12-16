@@ -91,7 +91,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     **Step-by-step controller discovery (try ALL methods):**
 
     **Method 1: Label-based (most reliable)**
-    - Extract API group: `kubectl get <resource> <name> -n <ns> -o jsonpath='{.apiVersion}'`
+    - Extract API group: `kubectl get <resource> <name> -n <ns> -o jsonpath='{{.apiVersion}}'`
       Example: `compositions.apiextensions.crossplane.io/v1` → API group = `apiextensions.crossplane.io`
     - Find controller: `kubectl get pods -A -l 'app.kubernetes.io/name=<api-group-keyword>'`
       Example: `kubectl get pods -A -l 'app.kubernetes.io/name=crossplane'`
@@ -107,7 +107,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     - `kubectl get pods -n kube-system | grep <resource-type>` (for core resources)
 
     **Method 3: Owner Reference (if resource has one)**
-    - `kubectl get <resource> <name> -n <ns> -o jsonpath='{.metadata.ownerReferences}'`
+    - `kubectl get <resource> <name> -n <ns> -o jsonpath='{{.metadata.ownerReferences}}'`
     - Follow the chain up to find the controller
 
     **Method 4: Keyword search (last resort)**
