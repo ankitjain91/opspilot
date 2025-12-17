@@ -132,12 +132,17 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
     const fullObject = useMemo(() => {
         if (!resourceYaml) return null;
         try {
-            return yaml.load(resourceYaml) as any;
+            const obj = yaml.load(resourceYaml) as any;
+            // Guard: Ensure loaded object matches current resource request to prevent stale data
+            if (obj?.metadata?.name && obj.metadata.name !== resource.name) {
+                return null;
+            }
+            return obj;
         } catch (err) {
             console.error('Failed to parse resource details', err);
             return null;
         }
-    }, [resourceYaml]);
+    }, [resourceYaml, resource.name]);
 
     // Live Watch
     useSingleResourceWatch(
@@ -181,6 +186,9 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
 
     if (!resource) return null;
 
+    // State for minimization
+    const [isMinimized, setIsMinimized] = useState(false);
+
     const getStatusColor = (status?: string) => {
         switch (status) {
             case 'Running': return 'bg-emerald-500';
@@ -192,6 +200,47 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
     };
 
     const currentIndex = tabs.findIndex(t => t.id === activeTabId);
+
+    // Minimized "Dock" View
+    if (isMinimized) {
+        return (
+            <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 items-end">
+                <div className="bg-[#0f0f12] border border-white/10 rounded-lg shadow-2xl p-3 flex items-center gap-4 animate-in slide-in-from-bottom-5 fade-in duration-200">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(resource.status)} animate-pulse`} />
+                        <div className="flex flex-col">
+                            <span className="text-sm font-bold text-white">{resource.name}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">{resource.kind} • {resource.namespace}</span>
+                        </div>
+                    </div>
+
+                    <div className="h-6 w-px bg-white/10 mx-1" />
+
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setIsMinimized(false)}
+                            className="p-1.5 hover:bg-white/10 rounded text-cyan-400 hover:text-cyan-300 transition-colors"
+                            title="Restore"
+                        >
+                            <Maximize2 size={16} />
+                        </button>
+                        <button
+                            onClick={() => onTabClose(activeTabId)}
+                            className="p-1.5 hover:bg-red-500/10 rounded text-zinc-500 hover:text-red-400 transition-colors"
+                            title="Close"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+                {tabs.length > 1 && (
+                    <div className="bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-3 py-1 text-[10px] text-zinc-400">
+                        +{tabs.length - 1} other tabs
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <>
@@ -317,12 +366,22 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
 
                         <div className="w-px h-3 bg-white/10 mx-1" />
 
+                        {/* Minimize Button - NEW */}
+                        <button
+                            onClick={() => setIsMinimized(true)}
+                            className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded transition-colors"
+                            title="Minimize to Dock"
+                        >
+                            <Minimize2 size={14} />
+                        </button>
+
+                        {/* Maximize/Restore Button - Updated Logic */}
                         <button
                             onClick={() => setDrawerWidth(drawerWidth === 650 ? window.innerWidth - 100 : 650)}
                             className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded transition-colors"
-                            title={drawerWidth > 650 ? "Restore" : "Maximize"}
+                            title={drawerWidth > 650 ? "Restore Width" : "Maximize Width"}
                         >
-                            {drawerWidth > 650 ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                            <Maximize2 size={14} />
                         </button>
 
                         <button
