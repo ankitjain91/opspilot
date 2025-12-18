@@ -343,7 +343,7 @@ async def get_models(request: ModelsRequest):
     return {"models": models}
 
 class TestRequest(BaseModel):
-    provider: Literal["groq", "openai", "ollama"]
+    provider: Literal["groq", "openai", "ollama", "anthropic", "claude-code"]
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None

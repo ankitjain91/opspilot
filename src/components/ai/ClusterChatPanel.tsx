@@ -35,7 +35,6 @@ import { runAgentLoop, AgentStep, LLMOptions } from './agentOrchestrator';
 import { PlanProgressUI } from './PlanProgressUI';
 import { formatFailingPods } from './kubernetesFormatter';
 import { KBProgress } from './useSentinel';
-import { ClaudeCodePanel } from './ClaudeCodePanel';
 
 // ... (Known MCP Servers constant omitted for brevity, it is unchanged)
 const KNOWN_MCP_SERVERS = [
@@ -53,12 +52,7 @@ const KNOWN_MCP_SERVERS = [
     { name: 'shell', command: 'uvx', args: ['mcp-shell-server'], env: {}, autoConnect: false },
 ];
 
-// Claude Code stream event type
-interface ClaudeCodeStreamEvent {
-    stream_id: string;
-    event_type: 'start' | 'chunk' | 'done' | 'error' | 'progress';
-    content: string;
-}
+
 
 // Helper to group messages into interactions
 function groupMessages(history: any[]) {
@@ -520,49 +514,37 @@ export function ClusterChatPanel({
     const checkLLMStatus = async () => {
         setCheckingLLM(true);
         try {
-            if (llmConfig.provider === 'claude-code') {
-                const ccStatus = await invoke<{ available: boolean; version: string | null; error: string | null }>("check_claude_code_status");
-                setLlmStatus({
-                    connected: ccStatus.available,
-                    provider: 'claude-code',
-                    model: ccStatus.version || 'claude-code-cli',
-                    available_models: [],
-                    error: ccStatus.error,
-                });
-                setCheckingLLM(false);
-            } else {
-                let status = await invoke<LLMStatus>("check_llm_status", { config: llmConfig });
+            let status = await invoke<LLMStatus>("check_llm_status", { config: llmConfig });
 
-                // Check if connection is OK but model is missing
-                if (llmConfig.provider === 'ollama' && status.connected && status.error?.includes('not found')) {
-                    const isLocalhost = llmConfig.base_url.includes('localhost') || llmConfig.base_url.includes('127.0.0.1');
+            // Check if connection is OK but model is missing
+            if (llmConfig.provider === 'ollama' && status.connected && status.error?.includes('not found')) {
+                const isLocalhost = llmConfig.base_url.includes('localhost') || llmConfig.base_url.includes('127.0.0.1');
 
-                    // Prioritize verifying if any other models exist on the remote server
-                    if (!isLocalhost && status.available_models && status.available_models.length > 0) {
-                        // REMOTE: Auto-fallback to first available model
-                        // This prevents forcing a download on a remote server that might be read-only
-                        const fallbackModel = status.available_models[0];
-                        console.log(`[Auto - Heal] Remote server detected.Fallback to existing model: ${fallbackModel} `);
+                // Prioritize verifying if any other models exist on the remote server
+                if (!isLocalhost && status.available_models && status.available_models.length > 0) {
+                    // REMOTE: Auto-fallback to first available model
+                    // This prevents forcing a download on a remote server that might be read-only
+                    const fallbackModel = status.available_models[0];
+                    console.log(`[Auto - Heal] Remote server detected.Fallback to existing model: ${fallbackModel} `);
 
-                        // Update config to use the available model
-                        setLlmConfig(prev => ({ ...prev, model: fallbackModel }));
-                        // The effect will reload status automatically.
-                        // We return early to let the re-render handle the new status.
-                        return;
-                    } else if (isLocalhost) {
-                        // LOCAL: Request confirmation to download
-                        console.log('[Auto-Heal] Local model not found, requesting confirmation...');
-                        setShowDownloadConfirm(true);
-                        setCheckingLLM(false);
-                    } else {
-                        // Remote but NO models at all? Or remote but we can't switch? Show the error.
-                        setLlmStatus(status);
-                        setCheckingLLM(false);
-                    }
+                    // Update config to use the available model
+                    setLlmConfig(prev => ({ ...prev, model: fallbackModel }));
+                    // The effect will reload status automatically.
+                    // We return early to let the re-render handle the new status.
+                    return;
+                } else if (isLocalhost) {
+                    // LOCAL: Request confirmation to download
+                    console.log('[Auto-Heal] Local model not found, requesting confirmation...');
+                    setShowDownloadConfirm(true);
+                    setCheckingLLM(false);
                 } else {
+                    // Remote but NO models at all? Or remote but we can't switch? Show the error.
                     setLlmStatus(status);
                     setCheckingLLM(false);
                 }
+            } else {
+                setLlmStatus(status);
+                setCheckingLLM(false);
             }
         } catch (err) {
             setLlmStatus({
@@ -612,36 +594,21 @@ export function ClusterChatPanel({
         conversationHistory: Array<{ role: string; content: string }>,
         options?: LLMOptions
     ): Promise<string> => {
-        if (llmConfig.provider === 'claude-code') {
-            // Build conversation context for Claude Code
-            const historyStr = conversationHistory
-                .slice(-10) // Last 10 messages for context
-                .map(m => `${m.role.toUpperCase()}: ${m.content} `)
-                .join('\n\n');
+        // Merge options with config (options override config values)
+        const configWithOptions = options ? {
+            ...llmConfig,
+            temperature: options.temperature ?? llmConfig.temperature,
+            max_tokens: options.max_tokens ?? llmConfig.max_tokens,
+            model: options.model ?? llmConfig.model,
+        } : llmConfig;
 
-            const fullPrompt = historyStr ? `${historyStr} \n\nUSER: ${prompt} ` : prompt;
-
-            return await invoke<string>("call_claude_code", {
-                prompt: fullPrompt,
-                systemPrompt,
-            });
-        } else {
-            // Merge options with config (options override config values)
-            const configWithOptions = options ? {
-                ...llmConfig,
-                temperature: options.temperature ?? llmConfig.temperature,
-                max_tokens: options.max_tokens ?? llmConfig.max_tokens,
-                model: options.model ?? llmConfig.model,
-            } : llmConfig;
-
-            return await invoke<string>("call_llm", {
-                config: configWithOptions,
-                prompt,
-                systemPrompt,
-                conversationHistory,
-                thread_id: threadId, // Pass the persistent thread ID
-            });
-        }
+        return await invoke<string>("call_llm", {
+            config: configWithOptions,
+            prompt,
+            systemPrompt,
+            conversationHistory,
+            thread_id: threadId, // Pass the persistent thread ID
+        });
     };
 
 
@@ -712,11 +679,7 @@ export function ClusterChatPanel({
         setSuggestedActions([]);
 
         // Claude Code mode uses the local terminal instead
-        if (llmConfig.provider === 'claude-code') {
-            // Don't process messages here - user should use the terminal
-            setLlmLoading(false);
-            return;
-        }
+
 
         // ===== HIERARCHICAL SUPERVISOR-WORKER AGENT =====
         // Replaces the old single-loop logic with the Orchestrator
@@ -770,423 +733,365 @@ export function ClusterChatPanel({
                 });
             }
 
-            // ===== HIERARCHICAL SUPERVISOR-WORKER AGENT =====
-            // Replaces the old single-loop logic with the Orchestrator
-            // See: agentOrchestrator.ts for the Supervisor/Scout/Specialist logic
-            try {
-                setCurrentActivity("🚀 Initializing Supervisor Agent...");
-
-                // Initialize streaming progress UI
-                commandHistoryRef.current = [];
-                setStreamingPhase({
-                    phase: 'planning',
-                    message: 'Creating investigation plan...',
-                    commandHistory: []
-                });
-
-                // Create abort controller for this request
-                const controller = new AbortController();
-                abortControllerRef.current = controller;
-
-                // Convert RECENT chat history to agent context (only last 3 messages for follow-up context)
-                // Each new question starts mostly fresh - don't carry over old investigations
-                const contextHistory: AgentStep[] = chatHistory
-                    .filter(m => m.role === 'user' || m.role === 'assistant')
-                    .slice(-3) // Only last 3 messages for minimal context
-                    .map(m => ({
-                        role: m.role === 'user' ? 'USER' as const :
-                            m.role === 'tool' ? 'SCOUT' as const :
-                                'SUPERVISOR' as const, // Map general assistant to Supervisor for context
-                        content: m.content
-                    }));
-
-                // Inject Resource Context if available
-                if (resourceContext) {
-                    const resourceContextMsg = `CONTEXT LOCK: ACTIVE RESOURCE DEEP DIVE\n` +
-                        `You are currently analyzing a specific resource in the Deep Dive Drawer: \n` +
-                        `• Kind: ${resourceContext.kind} \n` +
-                        `• Name: ${resourceContext.name} \n` +
-                        `• Namespace: ${resourceContext.namespace} \n\n` +
-                        `CRITICAL INSTRUCTIONS: \n` +
-                        `1. ALL user queries imply THIS specific resource unless explicitly stated otherwise.\n` +
-                        `2. example: "why is it failing?" → check logs / events for ${resourceContext.name}.\n` +
-                        `3. example: "show logs" → fetch logs for ${resourceContext.name}.\n` +
-                        `4. DO NOT search for other pods or resources unless the user explicitly names them.\n` +
-                        `5. If the user asks a general question, answer it in the context of ${resourceContext.name}.\n` +
-                        `6. You are "immersed" in this resource.Do not broaden scope unnecessarily.`;
-
-                    // Prepend to context as a system-like USER instruction
-                    contextHistory.unshift({
-                        role: 'USER',
-                        content: resourceContextMsg
-                    });
-                }
 
 
 
-                const result = await runAgentLoop(
-                    // Current input
-                    message.trim(),
-                    // LLM Executor (Brain - Planner/Analyst)
-                    // Options are passed from agentOrchestrator with role-specific temp/max_tokens
-                    {
-                        callLLM: async (prompt: string, systemPrompt: string, options: any) => {
-                            return await invoke('call_llm', {
-                                model: options?.model || 'opspilot-brain',
+
+            const result = await runAgentLoop(
+                // Current input
+                message.trim(),
+                // LLM Executor (Brain - Planner/Analyst)
+                // Options are passed from agentOrchestrator with role-specific temp/max_tokens
+                {
+                    callLLM: async (prompt: string, systemPrompt: string, options: any) => {
+                        return await invoke('call_llm', {
+                            model: options?.model || 'opspilot-brain',
+                            prompt,
+                            systemPrompt,
+                            temperature: options?.temperature || 0.7,
+                            thread_id: threadId, // Pass the persistent thread ID
+                        });
+                    },
+                    callLLMStream: async (prompt: string, systemPrompt: string, options: any) => {
+                        return; // Stream not supported in this context yet
+                    }
+                },
+                // Fast Executor (Muscle - Executor)
+                // Uses executor_model if configured, otherwise falls back to main model
+                async (prompt: string, systemPrompt: string, options: any) => {
+                    if (llmConfig.executor_model) {
+                        // Use the dedicated executor model for fast CLI translation
+                        // Merge options with executor config
+                        const executorConfig = {
+                            ...llmConfig,
+                            model: llmConfig.executor_model,
+                            temperature: options?.temperature ?? llmConfig.temperature,
+                            max_tokens: options?.max_tokens ?? llmConfig.max_tokens,
+                        };
+                        try {
+                            return await invoke<string>("call_llm", {
+                                config: executorConfig,
                                 prompt,
                                 systemPrompt,
-                                temperature: options?.temperature || 0.7,
+                                conversationHistory: [],
                                 thread_id: threadId, // Pass the persistent thread ID
                             });
-                        },
-                        callLLMStream: async (prompt: string, systemPrompt: string, options: any) => {
-                            return; // Stream not supported in this context yet
+                        } catch (e) {
+                            console.warn("Executor model failed, using Brain model:", e);
+                            return await callLLM(prompt, systemPrompt, [], options);
                         }
-                    },
-                    // Fast Executor (Muscle - Executor)
-                    // Uses executor_model if configured, otherwise falls back to main model
-                    async (prompt: string, systemPrompt: string, options: any) => {
-                        if (llmConfig.executor_model) {
-                            // Use the dedicated executor model for fast CLI translation
-                            // Merge options with executor config
-                            const executorConfig = {
-                                ...llmConfig,
-                                model: llmConfig.executor_model,
-                                temperature: options?.temperature ?? llmConfig.temperature,
-                                max_tokens: options?.max_tokens ?? llmConfig.max_tokens,
-                            };
-                            try {
-                                return await invoke<string>("call_llm", {
-                                    config: executorConfig,
-                                    prompt,
-                                    systemPrompt,
-                                    conversationHistory: [],
-                                    thread_id: threadId, // Pass the persistent thread ID
-                                });
-                            } catch (e) {
-                                console.warn("Executor model failed, using Brain model:", e);
-                                return await callLLM(prompt, systemPrompt, [], options);
-                            }
-                        }
-                        // No executor_model configured - use the Brain model
-                        return await callLLM(prompt, systemPrompt, [], options);
-                    },
-                    // Progress callback
-                    (msg) => {
-                        setCurrentActivity(msg);
-                        // Capture backend suggestions emitted via orchestrator
-                        if (msg.startsWith('[SUGGESTIONS]')) {
-                            try {
-                                const jsonStr = msg.replace('[SUGGESTIONS] ', '').trim();
-                                const suggestions = JSON.parse(jsonStr);
-                                if (Array.isArray(suggestions)) {
-                                    setSuggestedActions(suggestions);
-                                }
-                            } catch (_) {
-                                // ignore parse errors
-                            }
-                        }
-                        // Update streaming phase based on progress message
-                        const lowerMsg = msg.toLowerCase();
-                        if (lowerMsg.includes('reasoning') || lowerMsg.includes('planning') || lowerMsg.includes('translating')) {
-                            setStreamingPhase(prev => prev ? { ...prev, phase: 'planning', message: msg } : null);
-                        } else if (lowerMsg.includes('analyzing') || lowerMsg.includes('reflecting') || lowerMsg.includes('investigating')) {
-                            setStreamingPhase(prev => prev ? { ...prev, phase: 'analyzing', message: msg } : null);
-                        } else if (lowerMsg.includes('executing') || lowerMsg.includes('running')) {
-                            setStreamingPhase(prev => prev ? { ...prev, phase: 'executing', message: msg } : null);
-                        }
-                    },
-                    // Streaming step callback
-                    (step) => {
-                        // Add intermediate steps to history so they appear in UI
-                        let content = step.content;
-                        // Map internal roles to user-friendly names
-                        let toolName = step.role === 'SCOUT' ? 'Terminal' : step.role;
-
-                        let command = undefined;
-
-                        // Try to interpret structured backend event payloads
+                    }
+                    // No executor_model configured - use the Brain model
+                    return await callLLM(prompt, systemPrompt, [], options);
+                },
+                // Progress callback
+                (msg) => {
+                    setCurrentActivity(msg);
+                    // Capture backend suggestions emitted via orchestrator
+                    if (msg.startsWith('[SUGGESTIONS]')) {
                         try {
-                            const maybe = JSON.parse(step.content);
-                            if (maybe && typeof maybe === 'object' && maybe.type) {
-                                switch (maybe.type) {
-                                    case 'phase': {
-                                        const name = maybe.phase || maybe.name || 'phase';
-                                        const timestamp = maybe.timestamp;
-                                        setPhaseTimeline(prev => [...prev, { name, timestamp }]);
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Phase: ${name}` }]);
-                                        return; // handled
+                            const jsonStr = msg.replace('[SUGGESTIONS] ', '').trim();
+                            const suggestions = JSON.parse(jsonStr);
+                            if (Array.isArray(suggestions)) {
+                                setSuggestedActions(suggestions);
+                            }
+                        } catch (_) {
+                            // ignore parse errors
+                        }
+                    }
+                    // Update streaming phase based on progress message
+                    const lowerMsg = msg.toLowerCase();
+                    if (lowerMsg.includes('reasoning') || lowerMsg.includes('planning') || lowerMsg.includes('translating')) {
+                        setStreamingPhase(prev => prev ? { ...prev, phase: 'planning', message: msg } : null);
+                    } else if (lowerMsg.includes('analyzing') || lowerMsg.includes('reflecting') || lowerMsg.includes('investigating')) {
+                        setStreamingPhase(prev => prev ? { ...prev, phase: 'analyzing', message: msg } : null);
+                    } else if (lowerMsg.includes('executing') || lowerMsg.includes('running')) {
+                        setStreamingPhase(prev => prev ? { ...prev, phase: 'executing', message: msg } : null);
+                    }
+                },
+                // Streaming step callback
+                (step) => {
+                    // Add intermediate steps to history so they appear in UI
+                    let content = step.content;
+                    // Map internal roles to user-friendly names
+                    let toolName = step.role === 'SCOUT' ? 'Terminal' : step.role;
+
+                    let command = undefined;
+
+                    // Try to interpret structured backend event payloads
+                    try {
+                        const maybe = JSON.parse(step.content);
+                        if (maybe && typeof maybe === 'object' && maybe.type) {
+                            switch (maybe.type) {
+                                case 'phase': {
+                                    const name = maybe.phase || maybe.name || 'phase';
+                                    const timestamp = maybe.timestamp;
+                                    setPhaseTimeline(prev => [...prev, { name, timestamp }]);
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Phase: ${name}` }]);
+                                    return; // handled
+                                }
+                                case 'hypotheses': {
+                                    const list = Array.isArray(maybe.items) ? maybe.items : (Array.isArray(maybe.hypotheses) ? maybe.hypotheses : []);
+                                    const normalized = list.map((h: any) => ({ title: h.title || h.name || String(h), confidence: h.confidence }));
+                                    setRankedHypotheses(normalized);
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Hypotheses updated (${normalized.length})` }]);
+                                    return;
+                                }
+                                case 'approval_needed': {
+                                    setApprovalContext({ command: maybe.command, reason: maybe.reason, risk: maybe.risk, impact: maybe.impact });
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Approval needed: ${maybe.reason || 'See details'}` }]);
+                                    return;
+                                }
+                                case 'coverage': {
+                                    const missing = Array.isArray(maybe.missing) ? maybe.missing : [];
+                                    setCoverageGaps(missing);
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Coverage gaps: ${missing.join(', ') || 'none'}` }]);
+                                    return;
+                                }
+                                case 'hint': {
+                                    const text = maybe.message || maybe.hint;
+                                    if (text) {
+                                        setAgentHints(prev => [...prev, text]);
+                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Hint: ${text}` }]);
                                     }
-                                    case 'hypotheses': {
-                                        const list = Array.isArray(maybe.items) ? maybe.items : (Array.isArray(maybe.hypotheses) ? maybe.hypotheses : []);
-                                        const normalized = list.map((h: any) => ({ title: h.title || h.name || String(h), confidence: h.confidence }));
-                                        setRankedHypotheses(normalized);
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Hypotheses updated (${normalized.length})` }]);
-                                        return;
+                                    return;
+                                }
+                                case 'verification': {
+                                    const met = !!maybe.met;
+                                    const reason = maybe.reason || '';
+                                    setGoalVerification({ met, reason });
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Goal status: ${met ? 'MET' : 'NOT MET'} — ${reason}` }]);
+                                    if (!met && autoExtendEnabled && !llmLoading) {
+                                        setTimeout(() => {
+                                            if (goalVerification && goalVerification.met) return;
+                                            sendMessage('[EXTEND] Extend investigation automatically: collect missing signals, diversify commands, use MCP tools if available, and re-evaluate hypotheses.');
+                                        }, 500);
                                     }
-                                    case 'approval_needed': {
-                                        setApprovalContext({ command: maybe.command, reason: maybe.reason, risk: maybe.risk, impact: maybe.impact });
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Approval needed: ${maybe.reason || 'See details'}` }]);
-                                        return;
-                                    }
-                                    case 'coverage': {
-                                        const missing = Array.isArray(maybe.missing) ? maybe.missing : [];
-                                        setCoverageGaps(missing);
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Coverage gaps: ${missing.join(', ') || 'none'}` }]);
-                                        return;
-                                    }
-                                    case 'hint': {
-                                        const text = maybe.message || maybe.hint;
-                                        if (text) {
-                                            setAgentHints(prev => [...prev, text]);
-                                            setChatHistory(prev => [...prev, { role: 'assistant', content: `Hint: ${text}` }]);
-                                        }
-                                        return;
-                                    }
-                                    case 'verification': {
-                                        const met = !!maybe.met;
-                                        const reason = maybe.reason || '';
-                                        setGoalVerification({ met, reason });
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Goal status: ${met ? 'MET' : 'NOT MET'} — ${reason}` }]);
-                                        if (!met && autoExtendEnabled && !llmLoading) {
-                                            setTimeout(() => {
-                                                if (goalVerification && goalVerification.met) return;
-                                                sendMessage('[EXTEND] Extend investigation automatically: collect missing signals, diversify commands, use MCP tools if available, and re-evaluate hypotheses.');
-                                            }, 500);
-                                        }
-                                        return;
-                                    }
-                                    case 'plan_bias': {
-                                        setExtendedMode({ preferred_checks: maybe.preferred_checks || [], prefer_mcp_tools: !!maybe.prefer_mcp_tools });
-                                        setChatHistory(prev => [...prev, { role: 'assistant', content: `Extended mode: prioritizing ${Array.isArray(maybe.preferred_checks) ? maybe.preferred_checks.join(', ') : 'broader coverage'}${maybe.prefer_mcp_tools ? ' + MCP tools' : ''}` }]);
-                                        return;
-                                    }
-                                    default: {
-                                        // fall through to normal handling
-                                    }
+                                    return;
+                                }
+                                case 'plan_bias': {
+                                    setExtendedMode({ preferred_checks: maybe.preferred_checks || [], prefer_mcp_tools: !!maybe.prefer_mcp_tools });
+                                    setChatHistory(prev => [...prev, { role: 'assistant', content: `Extended mode: prioritizing ${Array.isArray(maybe.preferred_checks) ? maybe.preferred_checks.join(', ') : 'broader coverage'}${maybe.prefer_mcp_tools ? ' + MCP tools' : ''}` }]);
+                                    return;
+                                }
+                                default: {
+                                    // fall through to normal handling
                                 }
                             }
-                        } catch { /* not JSON, continue */ }
+                        }
+                    } catch { /* not JSON, continue */ }
 
-                        // Parse Scout JSON for better display
-                        if (step.role === 'SCOUT') {
-                            try {
-                                const json = JSON.parse(step.content);
-                                command = json.command;
-                                // For Python commands, we don't need to prepend the command as PythonCodeBlock handles it
-                                if (command && command.startsWith('python:')) {
-                                    content = json.output;
-                                } else {
-                                    // ToolMessage component handles command display in header/body.
-                                    // Don't duplicate it in the content.
-                                    content = json.output;
+                    // Parse Scout JSON for better display
+                    if (step.role === 'SCOUT') {
+                        try {
+                            const json = JSON.parse(step.content);
+                            command = json.command;
+                            // For Python commands, we don't need to prepend the command as PythonCodeBlock handles it
+                            if (command && command.startsWith('python:')) {
+                                content = json.output;
+                            } else {
+                                // ToolMessage component handles command display in header/body.
+                                // Don't duplicate it in the content.
+                                content = json.output;
+                            }
+
+                            // Track command in streaming progress
+                            const existingIdx = commandHistoryRef.current.findIndex(c => c.command === json.command && c.status === 'running');
+
+                            if (existingIdx !== -1) {
+                                // Update existing running command
+                                if (json.output) {
+                                    commandHistoryRef.current[existingIdx] = {
+                                        ...commandHistoryRef.current[existingIdx],
+                                        status: 'success',
+                                        output: json.output,
+                                        summary: generateCommandSummary(json.command, json.output)
+                                    };
                                 }
+                            } else {
+                                // Add new command
+                                // If output is empty, it's a 'command_selected' event -> running
+                                // If output is present, it's a 'command_output' event -> success (or we missed the start event)
+                                const isRunning = !json.output && step.content.includes('"output":""');
 
-                                // Track command in streaming progress
-                                const existingIdx = commandHistoryRef.current.findIndex(c => c.command === json.command && c.status === 'running');
+                                // Check for exact duplicate (same command, same output, recently added) to prevent strict-mode double-renders
+                                const lastCmd = commandHistoryRef.current[commandHistoryRef.current.length - 1];
+                                const isDuplicate = lastCmd && lastCmd.command === json.command && lastCmd.output === json.output && (Date.now() - lastCmd.timestamp < 1000);
 
-                                if (existingIdx !== -1) {
-                                    // Update existing running command
-                                    if (json.output) {
-                                        commandHistoryRef.current[existingIdx] = {
-                                            ...commandHistoryRef.current[existingIdx],
-                                            status: 'success',
-                                            output: json.output,
-                                            summary: generateCommandSummary(json.command, json.output)
-                                        };
-                                    }
-                                } else {
-                                    // Add new command
-                                    // If output is empty, it's a 'command_selected' event -> running
-                                    // If output is present, it's a 'command_output' event -> success (or we missed the start event)
-                                    const isRunning = !json.output && step.content.includes('"output":""');
-
-                                    // Check for exact duplicate (same command, same output, recently added) to prevent strict-mode double-renders
-                                    const lastCmd = commandHistoryRef.current[commandHistoryRef.current.length - 1];
-                                    const isDuplicate = lastCmd && lastCmd.command === json.command && lastCmd.output === json.output && (Date.now() - lastCmd.timestamp < 1000);
-
-                                    if (!isDuplicate) {
-                                        const cmdExecution: CommandExecution = {
-                                            command: json.command,
-                                            status: isRunning ? 'running' : 'success',
-                                            output: json.output,
-                                            summary: isRunning ? 'Executing...' : generateCommandSummary(json.command, json.output),
-                                            timestamp: Date.now()
-                                        };
-                                        commandHistoryRef.current.push(cmdExecution);
-                                    }
+                                if (!isDuplicate) {
+                                    const cmdExecution: CommandExecution = {
+                                        command: json.command,
+                                        status: isRunning ? 'running' : 'success',
+                                        output: json.output,
+                                        summary: isRunning ? 'Executing...' : generateCommandSummary(json.command, json.output),
+                                        timestamp: Date.now()
+                                    };
+                                    commandHistoryRef.current.push(cmdExecution);
                                 }
+                            }
 
-                                setStreamingPhase(prev => prev ? {
-                                    ...prev,
-                                    phase: 'executing',
-                                    message: 'Running kubectl commands...',
-                                    currentStep: json.command,
-                                    commandHistory: [...commandHistoryRef.current]
-                                } : null);
-                            } catch (e) { /* keep raw content */ }
+                            setStreamingPhase(prev => prev ? {
+                                ...prev,
+                                phase: 'executing',
+                                message: 'Running kubectl commands...',
+                                currentStep: json.command,
+                                commandHistory: [...commandHistoryRef.current]
+                            } : null);
+                        } catch (e) { /* keep raw content */ }
+                    }
+
+                    // Filter UI visibility based on user preference:
+                    // 1. SUPERVISOR -> Show as "Thinking"
+                    // 2. SCOUT -> Show as Tool (Terminal)
+                    // 3. SPECIALIST -> Show as Tool (MCP)
+
+                    const uiRole = step.role === 'SUPERVISOR' ? 'assistant' : 'tool';
+
+                    let contentToShow = content;
+                    if (step.role === 'SUPERVISOR') {
+                        contentToShow = `🧠 Thinking: ${step.content}`;
+                    } else if (step.role === 'SPECIALIST') {
+                        // Ensure SPECIALIST content (MCP Tools) is shown
+                        // We can strip the "**Using Tool**:" prefix if we want cleaner UI, but it's fine for now
+                        contentToShow = step.content;
+                        toolName = 'External Tool';
+                    }
+
+                    // Add to UI immediately
+                    setChatHistory(prev => {
+                        const last = prev[prev.length - 1];
+
+                        // 1. Consolidate consecutive "Thinking" messages (SUPERVISOR)
+                        if (step.role === 'SUPERVISOR' && last && last.role === 'assistant' && (last.content.includes('🧠 Thinking') || last.content.includes('🧠 Supervisor'))) {
+                            return [
+                                ...prev.slice(0, -1),
+                                { ...last, content: last.content + "\n\n" + step.content }
+                            ];
                         }
 
-                        // Filter UI visibility based on user preference:
-                        // 1. SUPERVISOR -> Show as "Thinking"
-                        // 2. SCOUT -> Show as Tool (Terminal)
-                        // 3. SPECIALIST -> Show as Tool (MCP)
-
-                        const uiRole = step.role === 'SUPERVISOR' ? 'assistant' : 'tool';
-
-                        let contentToShow = content;
-                        if (step.role === 'SUPERVISOR') {
-                            contentToShow = `🧠 Thinking: ${step.content}`;
-                        } else if (step.role === 'SPECIALIST') {
-                            // Ensure SPECIALIST content (MCP Tools) is shown
-                            // We can strip the "**Using Tool**:" prefix if we want cleaner UI, but it's fine for now
-                            contentToShow = step.content;
-                            toolName = 'External Tool';
+                        // 2. Consolidate consecutive Command messages (SCOUT)
+                        // If we just added a "Running" command, and now we get the "Output/Success" for the same command, update it.
+                        if (step.role === 'SCOUT' && last && last.role === 'tool' && last.command === command) {
+                            return [
+                                ...prev.slice(0, -1),
+                                {
+                                    ...last,
+                                    content: contentToShow, // Update content with output
+                                    // command is same
+                                    toolName // Update toolname if changed
+                                }
+                            ];
                         }
 
-                        // Add to UI immediately
-                        setChatHistory(prev => {
-                            const last = prev[prev.length - 1];
+                        return [...prev, {
+                            role: uiRole,
+                            content: contentToShow,
+                            toolName,
+                            command
+                        }];
+                    });
+                },
+                // Pass conversation context (User + Assistant only, exclude tools/activity)
+                contextHistory,
+                // Pass abort signal for cancellation
+                controller.signal,
+                // Pass current Kubernetes context
+                currentContext,
+                // Pass LLM config for Python agent
+                {
+                    endpoint: llmConfig.base_url,
+                    provider: llmConfig.provider,
+                    model: llmConfig.model,
+                    executor_model: llmConfig.executor_model || undefined
+                },
+                // Pass available MCP tools for the agent to use
+                listRegisteredMcpTools(),
+                // Callbacks for plan updates
+                undefined, // onPlanCreated (handled by onPlanUpdate)
+                (plan, currentStep, totalSteps) => {
+                    // Plan Updated (Live State)
+                    setCurrentPlan(plan);
+                    setPlanTotalSteps(totalSteps);
+                    setInvestigationPlan(prev => {
+                        if (!prev) return null;
+                        return { ...prev, steps: plan };
+                    });
 
-                            // 1. Consolidate consecutive "Thinking" messages (SUPERVISOR)
-                            if (step.role === 'SUPERVISOR' && last && last.role === 'assistant' && (last.content.includes('🧠 Thinking') || last.content.includes('🧠 Supervisor'))) {
-                                return [
-                                    ...prev.slice(0, -1),
-                                    { ...last, content: last.content + "\n\n" + step.content }
-                                ];
-                            }
+                    // Update streaming phase with progress
+                    setStreamingPhase(prev => prev ? {
+                        ...prev,
+                        stepsCompleted: currentStep,
+                        totalSteps: totalSteps,
+                        commandHistory: commandHistoryRef.current
+                    } : null);
+                },
+                undefined, // onStepCompleted
+                undefined, // onStepFailed
+                () => {
+                    // Plan complete - clear after a delay
+                    setTimeout(() => {
+                        setCurrentPlan(null);
+                        setPlanTotalSteps(0);
+                    }, 3000);
+                },
+                { thread_id: threadId } // baseParams
+            );
 
-                            // 2. Consolidate consecutive Command messages (SCOUT)
-                            // If we just added a "Running" command, and now we get the "Output/Success" for the same command, update it.
-                            if (step.role === 'SCOUT' && last && last.role === 'tool' && last.command === command) {
-                                return [
-                                    ...prev.slice(0, -1),
-                                    {
-                                        ...last,
-                                        content: contentToShow, // Update content with output
-                                        // command is same
-                                        toolName // Update toolname if changed
-                                    }
-                                ];
-                            }
+            // Post-process final response to format kubectl output
+            let formattedResult = result;
 
-                            return [...prev, {
-                                role: uiRole,
-                                content: contentToShow,
-                                toolName,
-                                command
-                            }];
-                        });
-                    },
-                    // Pass conversation context (User + Assistant only, exclude tools/activity)
-                    contextHistory,
-                    // Pass abort signal for cancellation
-                    controller.signal,
-                    // Pass current Kubernetes context
-                    currentContext,
-                    // Pass LLM config for Python agent
-                    {
-                        endpoint: llmConfig.base_url,
-                        provider: llmConfig.provider,
-                        model: llmConfig.model,
-                        executor_model: llmConfig.executor_model || undefined
-                    },
-                    // Pass available MCP tools for the agent to use
-                    listRegisteredMcpTools(),
-                    // Callbacks for plan updates
-                    undefined, // onPlanCreated (handled by onPlanUpdate)
-                    (plan, currentStep, totalSteps) => {
-                        // Plan Updated (Live State)
-                        setCurrentPlan(plan);
-                        setPlanTotalSteps(totalSteps);
-                        setInvestigationPlan(prev => {
-                            if (!prev) return null;
-                            return { ...prev, steps: plan };
-                        });
-
-                        // Update streaming phase with progress
-                        setStreamingPhase(prev => prev ? {
-                            ...prev,
-                            stepsCompleted: currentStep,
-                            totalSteps: totalSteps,
-                            commandHistory: commandHistoryRef.current
-                        } : null);
-                    },
-                    undefined, // onStepCompleted
-                    undefined, // onStepFailed
-                    () => {
-                        // Plan complete - clear after a delay
-                        setTimeout(() => {
-                            setCurrentPlan(null);
-                            setPlanTotalSteps(0);
-                        }, 3000);
-                    },
-                    { thread_id: threadId } // baseParams
-                );
-
-                // Post-process final response to format kubectl output
-                let formattedResult = result;
-
-                // Detect if response contains raw kubectl pod list output
-                if (result.includes('NAMESPACE') && result.includes('READY') && result.includes('STATUS') && result.includes('RESTARTS')) {
-                    const formatted = formatFailingPods(result);
-                    formattedResult = formatted.markdown;
-                }
-
-                // Fallback if the agent returned an empty final response
-                if (!formattedResult || !String(formattedResult).trim()) {
-                    const stepsCount = Array.isArray(currentPlan) ? currentPlan.length : 0;
-                    const toolsUsed = (chatHistory.filter(m => m.role === 'tool').length);
-                    formattedResult = `Investigation completed, but no final answer was provided.\n\nSummary:\n- Steps executed: ${stepsCount > 0 ? stepsCount : 'n/a'}\n- Tools used: ${toolsUsed}\n\nIf you want me to continue, click Extend investigation or ask a specific follow-up (e.g., 'show warning events' or 'list failing pods').`;
-                }
-
-                // Set streaming phase to complete
-                setStreamingPhase({
-                    phase: 'complete',
-                    message: 'Investigation complete',
-                    commandHistory: commandHistoryRef.current
-                });
-
-                setChatHistory(prev => [...prev, { role: 'assistant', content: formattedResult }]);
-                setLlmLoading(false);
-            } catch (e: any) {
-                // Handle cancellation gracefully
-                if (e?.message === 'CANCELLED' || abortControllerRef.current?.signal.aborted) {
-                    console.log("Agent loop cancelled by user");
-                    setLlmLoading(false);
-                    return;
-                }
-                console.error("Agent Loop Failed:", e);
-                const errorMsg = String(e || '');
-
-                // Set streaming phase to error
-                setStreamingPhase({
-                    phase: 'error',
-                    message: errorMsg || 'An error occurred',
-                    commandHistory: commandHistoryRef.current
-                });
-
-                // Provider-specific error messages
-                if (llmConfig.provider === 'ollama' && (errorMsg.includes("not found") || errorMsg.includes("404"))) {
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Model Missing**: Model "${llmConfig.model}" is not installed. Run \`ollama pull ${llmConfig.model}\` or select an available model in Settings.` }]);
-                } else if (errorMsg.includes("404")) {
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **API Error (404)**: Endpoint not found. Check your base URL and model name in Settings. Current: ${llmConfig.base_url} / ${llmConfig.model}` }]);
-                } else if (errorMsg.includes("401") || errorMsg.includes("403") || errorMsg.includes("Unauthorized")) {
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Authentication Failed**: Check your API key in Settings.` }]);
-                } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout")) {
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach ${llmConfig.base_url}. Is the server running?` }]);
-                } else {
-                    setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Agent error: ${e}` }]);
-                }
-                setLlmLoading(false);
+            // Detect if response contains raw kubectl pod list output
+            if (result.includes('NAMESPACE') && result.includes('READY') && result.includes('STATUS') && result.includes('RESTARTS')) {
+                const formatted = formatFailingPods(result);
+                formattedResult = formatted.markdown;
             }
-        } catch (err: any) {
-            setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error: ${err}. Check your AI settings or provider connection.` }]);
+
+            // Fallback if the agent returned an empty final response
+            if (!formattedResult || !String(formattedResult).trim()) {
+                const stepsCount = Array.isArray(currentPlan) ? currentPlan.length : 0;
+                const toolsUsed = (chatHistory.filter(m => m.role === 'tool').length);
+                formattedResult = `Investigation completed, but no final answer was provided.\n\nSummary:\n- Steps executed: ${stepsCount > 0 ? stepsCount : 'n/a'}\n- Tools used: ${toolsUsed}\n\nIf you want me to continue, click Extend investigation or ask a specific follow-up (e.g., 'show warning events' or 'list failing pods').`;
+            }
+
+            // Set streaming phase to complete
             setStreamingPhase({
-                phase: 'error',
-                message: String(err) || 'An error occurred',
+                phase: 'complete',
+                message: 'Investigation complete',
                 commandHistory: commandHistoryRef.current
             });
+
+            setChatHistory(prev => [...prev, { role: 'assistant', content: formattedResult }]);
+            setLlmLoading(false);
+        } catch (e: any) {
+            // Handle cancellation gracefully
+            if (e?.message === 'CANCELLED' || abortControllerRef.current?.signal.aborted) {
+                console.log("Agent loop cancelled by user");
+                setLlmLoading(false);
+                return;
+            }
+            console.error("Agent Loop Failed:", e);
+            const errorMsg = String(e || '');
+
+            // Set streaming phase to error
+            setStreamingPhase({
+                phase: 'error',
+                message: errorMsg || 'An error occurred',
+                commandHistory: commandHistoryRef.current
+            });
+
+            // Provider-specific error messages
+            if (llmConfig.provider === 'ollama' && (errorMsg.includes("not found") || errorMsg.includes("404"))) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Model Missing**: Model "${llmConfig.model}" is not installed. Run \`ollama pull ${llmConfig.model}\` or select an available model in Settings.` }]);
+            } else if (errorMsg.includes("404")) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **API Error (404)**: Endpoint not found. Check your base URL and model name in Settings. Current: ${llmConfig.base_url} / ${llmConfig.model}` }]);
+            } else if (errorMsg.includes("401") || errorMsg.includes("403") || errorMsg.includes("Unauthorized")) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Authentication Failed**: Check your API key in Settings.` }]);
+            } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout")) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach ${llmConfig.base_url}. Is the server running?` }]);
+            } else {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Agent error: ${e}` }]);
+            }
+            setLlmLoading(false);
         } finally {
             setLlmLoading(false);
             setInvestigationProgress(null);
@@ -1485,13 +1390,10 @@ export function ClusterChatPanel({
             {/* Messages */}
             <div
                 ref={messagesContainerRef}
-                className={`relative flex-1 min-h-0 scroll-smooth ${llmConfig.provider === 'claude-code'
-                    ? 'overflow-hidden p-0'
-                    : 'overflow-y-auto p-4 space-y-4'
-                    }`}
+                className={`relative flex-1 min-h-0 scroll-smooth overflow-y-auto p-4 space-y-4`}
             >
-                {/* Loading state while checking LLM - not for claude-code mode */}
-                {llmConfig.provider !== 'claude-code' && checkingLLM && chatHistory.length === 0 && (
+                {/* Loading state while checking LLM */}
+                {checkingLLM && chatHistory.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-24 px-6">
                         <div className="relative mb-8">
                             <div className="absolute inset-0 bg-violet-500/30 blur-xl rounded-full animate-pulse" />
@@ -1509,9 +1411,9 @@ export function ClusterChatPanel({
                 )}
 
 
-                {/* Show setup prompt if LLM not connected OR if there is an error (like model missing) - not for claude-code */}
+                {/* Show setup prompt if LLM not connected OR if there is an error (like model missing) */}
                 {
-                    llmConfig.provider !== 'claude-code' && !checkingLLM && (!llmStatus?.connected || !!llmStatus?.error) && chatHistory.length === 0 && (
+                    !checkingLLM && (!llmStatus?.connected || !!llmStatus?.error) && chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 px-6 max-w-lg mx-auto w-full">
                             {llmConfig.provider === 'ollama' ? (
                                 <div className="w-full bg-zinc-900/50 rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
@@ -1550,9 +1452,9 @@ export function ClusterChatPanel({
                     )
                 }
 
-                {/* Normal chat welcome screen - only show when LLM is ready AND NO ERROR - not for claude-code */}
+                {/* Normal chat welcome screen - only show when LLM is ready AND NO ERROR */}
                 {
-                    llmConfig.provider !== 'claude-code' && !checkingLLM && llmStatus?.connected && !llmStatus?.error && chatHistory.length === 0 && (
+                    !checkingLLM && llmStatus?.connected && !llmStatus?.error && chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-10 px-6">
                             <div className="relative mb-6">
                                 <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-2xl blur-xl opacity-20 animate-pulse" />
@@ -1638,8 +1540,8 @@ export function ClusterChatPanel({
 
                     )}
 
-                {/* Plan Progress UI - Show when plan is active (not for claude-code) */}
-                {llmConfig.provider !== 'claude-code' && currentPlan && currentPlan.length > 0 && (
+                {/* Plan Progress UI - Show when plan is active */}
+                {currentPlan && currentPlan.length > 0 && (
                     <PlanProgressUI
                         plan={currentPlan}
                         totalSteps={planTotalSteps}
@@ -1647,17 +1549,8 @@ export function ClusterChatPanel({
                     />
                 )}
 
-                {/* Claude Code Mode - Integrated Claude Code Panel */}
-                {llmConfig.provider === 'claude-code' && (
-                    <ClaudeCodePanel
-                        currentContext={currentContext}
-                        embedded={true}
-                        className="h-full w-full"
-                    />
-                )}
-
                 {/* Standard Chat UI for non-Claude-Code providers */}
-                {llmConfig.provider !== 'claude-code' && (
+                {
                     /* Standard Chat History View */
                     groupedHistory.map((group, i) => {
                         if (group.type === 'raw') {
@@ -1761,7 +1654,7 @@ export function ClusterChatPanel({
                             </div>
                         );
                     })
-                )}
+                }
 
                 {/* Loading State with Cancel Button */}
                 {
@@ -1970,8 +1863,8 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* Suggested Actions Chips - Hide in Claude Code mode */}
-            {suggestedActions.length > 0 && !llmLoading && llmConfig.provider !== 'claude-code' && (
+            {/* Suggested Actions Chips */}
+            {suggestedActions.length > 0 && !llmLoading && (
                 <div className="px-4 pb-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {suggestedActions.map((action, i) => (
                         <button
@@ -1986,32 +1879,30 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* Input - Hidden when Claude Code mode is active (ClaudeCodePanel has its own input) */}
-            {llmConfig.provider !== 'claude-code' && (
-                <div className="relative z-20 p-4 bg-[#16161a] border-t border-white/5">
-                    <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/10 rounded-full shadow-lg shadow-black/20 backdrop-blur-md focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all duration-300">
-                        <input
-                            type="text"
-                            value={userInput}
-                            onChange={(e) => setUserInput(e.target.value)}
-                            disabled={llmLoading || !llmStatus?.connected || !!llmStatus?.error}
-                            placeholder={
-                                (!llmStatus?.connected || !!llmStatus?.error)
-                                    ? "Setup required to chat..."
-                                    : "Ask about your cluster..."
-                            }
-                            className="flex-1 px-4 py-2 bg-transparent border-none text-white text-sm placeholder-zinc-500 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600"
-                        />
-                        <button
-                            type="submit"
-                            disabled={llmLoading || !userInput.trim() || !llmStatus?.connected || !!llmStatus?.error}
-                            className="p-2.5 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
-                        >
-                            <Send size={16} className={llmLoading ? 'animate-pulse' : ''} />
-                        </button>
-                    </form>
-                </div>
-            )}
+            {/* Input */}
+            <div className="relative z-20 p-4 bg-[#16161a] border-t border-white/5">
+                <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/10 rounded-full shadow-lg shadow-black/20 backdrop-blur-md focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all duration-300">
+                    <input
+                        type="text"
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        disabled={llmLoading || !llmStatus?.connected || !!llmStatus?.error}
+                        placeholder={
+                            (!llmStatus?.connected || !!llmStatus?.error)
+                                ? "Setup required to chat..."
+                                : "Ask about your cluster..."
+                        }
+                        className="flex-1 px-4 py-2 bg-transparent border-none text-white text-sm placeholder-zinc-500 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600"
+                    />
+                    <button
+                        type="submit"
+                        disabled={llmLoading || !userInput.trim() || !llmStatus?.connected || !!llmStatus?.error}
+                        className="p-2.5 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
+                    >
+                        <Send size={16} className={llmLoading ? 'animate-pulse' : ''} />
+                    </button>
+                </form>
+            </div>
         </div>
     );
 

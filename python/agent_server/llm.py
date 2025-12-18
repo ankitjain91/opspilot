@@ -11,6 +11,7 @@ class SmartLLMClient:
     def __init__(self):
         self.openai_api_key = os.environ.get("OPENAI_API_KEY")
         self.groq_api_key = os.environ.get("GROQ_API_KEY")
+        self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
         
         # Track provider status to avoid retrying dead providers repeatedly in a loop
         # Track provider status to avoid retrying dead providers repeatedly in a loop
@@ -19,7 +20,8 @@ class SmartLLMClient:
         self.provider_health = {
             "ollama": True,
             "groq": True,
-            "openai": True
+            "openai": True,
+            "anthropic": True
         }
 
     async def call(self, prompt: str, endpoint: str, model: str, provider: str = "ollama", temperature: float = 0.3, force_json: bool = True, api_key: str | None = None) -> str:
@@ -55,6 +57,17 @@ class SmartLLMClient:
                      return result
                  else:
                      print(f"DEBUG: Skipping OpenAI - Key: {bool(effective_key)}, Health: {self.provider_health['openai']}", flush=True)
+                     print(f"DEBUG: Skipping OpenAI - Key: {bool(effective_key)}, Health: {self.provider_health['openai']}", flush=True)
+            
+            elif provider == "anthropic" or provider == "claude-code":
+                 effective_key = api_key or self.anthropic_api_key
+                 if effective_key and self.provider_health.get("anthropic", True):
+                     result = await self._call_anthropic(prompt, model, temperature, force_json, effective_key)
+                     self.provider_health["anthropic"] = True
+                     return result
+                 else:
+                     print(f"DEBUG: Skipping Anthropic - Key: {bool(effective_key)}, Health: {self.provider_health.get('anthropic')}", flush=True)
+
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
             print(f"⚠️ Primary provider ({provider}) failed: {e}. Switching to fallback...", flush=True)
             self.provider_health[provider] = False
@@ -189,7 +202,44 @@ class SmartLLMClient:
 
             result = response.json()
             return result['choices'][0]['message']['content']
+            result = response.json()
+            return result['choices'][0]['message']['content']
 
+    async def _call_anthropic(self, prompt: str, model: str, temperature: float, force_json: bool, api_key: str) -> str:
+        async with httpx.AsyncClient() as client:
+            url = "https://api.anthropic.com/v1/messages"
+            
+            # Extract system prompt if present in the prompt (hacky but works for now if we don't pass system explicitly)
+            # Ideally we should update call() to accept messages or system prompt.
+            # For now, we assume prompt is user message.
+            
+            payload = {
+                "model": model,
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+            }
+
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            }
+
+            if force_json:
+                 # Claude doesn't have a simple "json_object" flag like OpenAI yet that guarantees usage
+                 # But we can prompt it. The user prompt usually has "Respond in JSON" anyway.
+                 # We can add a prefill?
+                 pass 
+
+            print(f"DEBUG: Calling Anthropic: {url} | Model: {model}", flush=True)
+            response = await client.post(url, json=payload, headers=headers, timeout=60.0)
+
+            if response.status_code != 200:
+                raise Exception(f"Anthropic API Error ({response.status_code}): {response.text}")
+
+            result = response.json()
+            return result['content'][0]['text']
 
 
     async def list_models(self, provider: str, api_key: str | None = None, base_url: str | None = None) -> List[str]:
@@ -198,15 +248,18 @@ class SmartLLMClient:
         try:
             async with httpx.AsyncClient() as client:
                 if provider == "groq":
-                    key = api_key or self.groq_api_key
+                    key = (api_key or self.groq_api_key or "").strip()
                     if not key: return []
                     url = "https://api.groq.com/openai/v1/models"
+                    print(f"DEBUG: Fetching Groq models with key ending in ...{key[-4:] if len(key)>4 else '?'}")
                     resp = await client.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=10.0)
                     if resp.status_code == 200:
                         return sorted([m["id"] for m in resp.json().get("data", [])])
+                    else:
+                        print(f"WARN: Groq list_models failed: {resp.status_code} {resp.text}")
                 
                 elif provider == "openai":
-                    key = api_key or self.openai_api_key
+                    key = (api_key or self.openai_api_key or "").strip()
                     if not key: return []
                     url = "https://api.openai.com/v1/models"
                     resp = await client.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=10.0)
@@ -215,11 +268,13 @@ class SmartLLMClient:
                         return sorted([m["id"] for m in resp.json().get("data", []) if "gpt" in m["id"]])
 
                 elif provider == "anthropic":
-                     # Anthropic doesn't have a public models endpoint that lists them easily like OpenAI format
-                     # usually, but let's skip or hardcode popular ones if we want, or just return empty.
-                     # For now, return empty as they don't have a dynamic list endpoint in the same way.
-                     pass
+                     # Anthropic doesn't have a public dynamic list endpoint easily accessible.
+                     # Return popular models.
+                     return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
 
+                elif provider == "claude-code":
+                     # Claude Code wrapper uses the same underlying models
+                     return ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"]
                 elif provider == "ollama" or provider == "local":
                     # Ollama endpoint
                     endpoint = base_url or "http://localhost:11434"

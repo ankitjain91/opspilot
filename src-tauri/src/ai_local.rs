@@ -256,14 +256,7 @@ pub async fn check_llm_status(config: LLMConfig) -> Result<LLMStatus, String> {
     match config.provider {
         LLMProvider::Ollama => check_ollama_status_internal(&config).await,
         LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => check_openai_status_internal(&config).await,
-        LLMProvider::Anthropic => check_anthropic_status_internal(&config).await,
-        LLMProvider::ClaudeCode => Ok(LLMStatus {
-            connected: true,
-            provider: "Claude Code".to_string(),
-            model: "claude-code-cli".to_string(),
-            available_models: vec![],
-            error: None,
-        }),
+        LLMProvider::Anthropic | LLMProvider::ClaudeCode => check_anthropic_status_internal(&config).await,
     }
 }
 
@@ -376,11 +369,8 @@ pub async fn call_llm(
         LLMProvider::Ollama | LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => {
             call_openai_compatible(&config, prompt, systemPrompt, conversationHistory).await
         }
-        LLMProvider::Anthropic => {
+        LLMProvider::Anthropic | LLMProvider::ClaudeCode => {
             call_anthropic(&config, prompt, systemPrompt, conversationHistory).await
-        }
-        LLMProvider::ClaudeCode => {
-            Err("Claude Code not supported for direct LLM calls".to_string())
         }
     }
 }

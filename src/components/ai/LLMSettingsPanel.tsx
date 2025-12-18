@@ -31,11 +31,7 @@ interface KBEmbeddingsStatus {
     embedding_model_available?: boolean;
 }
 
-interface ClaudeCodeStatus {
-    available: boolean;
-    version: string | null;
-    error: string | null;
-}
+
 
 export function LLMSettingsPanel({
     config,
@@ -58,6 +54,9 @@ export function LLMSettingsPanel({
     const [checkingInference, setCheckingInference] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
 
+    // UI Helpers
+    const [copiedId, setCopiedId] = useState<string | null>(null);
+
     // Embedding State
     const [embeddingMode, setEmbeddingMode] = useState<'local' | 'custom'>(
         localConfig.embedding_endpoint ? 'custom' : 'local'
@@ -72,13 +71,6 @@ export function LLMSettingsPanel({
     const [reindexingKb, setReindexingKb] = useState(false);
     const [reindexingProgress, setReindexingProgress] = useState<number | null>(null);
     const [kbMessage, setKbMessage] = useState<string | null>(null);
-
-    // Claude Code State
-    const [claudeCodeStatus, setClaudeCodeStatus] = useState<ClaudeCodeStatus | null>(null);
-    const [checkingClaudeCode, setCheckingClaudeCode] = useState(false);
-
-    // UI Helpers
-    const [copiedId, setCopiedId] = useState<string | null>(null);
 
     // Initial Provider Logic
     const getInitialGroup = (p: LLMProvider): ProviderGroup => {
@@ -153,37 +145,12 @@ export function LLMSettingsPanel({
         setCheckingInference(true);
         setInferenceStatus(null);
 
-        // Special case: Claude Code
-        if (localConfig.provider === 'claude-code') {
-            setCheckingClaudeCode(true);
-            try {
-                const result = await invoke<ClaudeCodeStatus>("check_claude_code_status");
-                setClaudeCodeStatus(result);
-                setInferenceStatus({
-                    connected: result.available,
-                    provider: 'claude-code',
-                    model: result.version || 'cli',
-                    available_models: [],
-                    error: result.error
-                });
-            } catch (err) {
-                setInferenceStatus({
-                    connected: false,
-                    provider: 'claude-code',
-                    model: 'cli',
-                    available_models: [],
-                    error: String(err)
-                });
-            }
-            setCheckingClaudeCode(false);
-            setCheckingInference(false);
-            return;
-        }
+
 
         // Standard Providers
         try {
             // First try pure Python check if possible (faster for keys)
-            if (['openai', 'groq'].includes(localConfig.provider)) {
+            if (['openai', 'groq', 'anthropic', 'claude-code'].includes(localConfig.provider)) {
                 const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -211,7 +178,7 @@ export function LLMSettingsPanel({
 
             // Fallback to Rust/Tauri System check
             const result = await invoke<LLMStatus>("check_llm_status", { config: localConfig });
-            if (result.connected && ['openai', 'groq'].includes(localConfig.provider)) {
+            if (result.connected && ['openai', 'groq', 'anthropic', 'claude-code'].includes(localConfig.provider)) {
                 const models = await fetchInferenceModels();
                 if (models.length) result.available_models = models;
             }

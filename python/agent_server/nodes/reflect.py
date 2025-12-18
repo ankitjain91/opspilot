@@ -434,13 +434,4 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             },
             'events': events,
         }
-            'last_reflection': {
-                'directive': 'RETRY',
-                'thought': f"Reflection mechanism failed: {str(e)}. Retrying the step.",
-                'found_solution': False,
-                'verified_facts': [],
-                'next_step_hint': 'Retry due to internal error',
-                'reason': f"Internal Error: {str(e)}"
-            },
-            'events': events,
-        }
+
