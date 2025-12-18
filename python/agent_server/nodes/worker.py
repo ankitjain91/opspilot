@@ -12,11 +12,13 @@ from ..utils import (
     truncate_output, smart_truncate_output, emit_event,
     get_cached_result, cache_command_result, parse_kubectl_json_output
 )
+from ..tools.k8s_python import run_k8s_python
 from ..context_builder import (
     build_discovered_context,
     extract_resources_from_output,
     merge_discovered_resources
 )
+from ..extraction import extract_structured_data
 
 def normalize_command(cmd: str) -> str:
     """Normalize kubectl command for duplicate detection.
@@ -125,34 +127,77 @@ async def worker_node(state: AgentState) -> dict:
         # PARALLEL EXECUTION LOGIC
         if batch_calls:
             try:
-                from ..tools.definitions import AgentToolWrapper, KubectlContext
+                from ..tools.definitions import AgentToolWrapper, KubectlContext, RunK8sPython
                 from ..tools.safe_executor import SafeExecutor
                 
-                valid_commands = []
+                valid_shell_commands = []
+                executed_python_results = []
+                
                 for tc in batch_calls:
                     # Validate each tool
                     wrapper = AgentToolWrapper(tool_call=tc)
                     tool_obj = wrapper.tool_call
                     
-                    # BLOCK WRITE OPERATIONS IN BATCH
-                    # We only allow discovery tools in batch for now to be safe
-                    if tool_obj.tool not in ['kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_events', 'kubectl_top', 'kubectl_api_resources']:
+                    # 1. Handle Python Tools IMMEDIATELY (Sequence)
+                    # Python tools run in-process, so we execute them here instead of sending to shell batch node
+                    if isinstance(tool_obj, RunK8sPython):
+                        print(f"[worker] 🐍 Executing Batch Python: {tool_obj.code[:50]}...", flush=True)
+                        events.append(emit_event("progress", {"message": f"🐍 Executing Python Logic..."}))
+                        
+                        try:
+                            output = run_k8s_python(tool_obj.code, context_name=state.get('kube_context'))
+                            cmd_str = f"python: {tool_obj.code}"
+                            
+                            # Add to history/events immediately
+                            events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
+                            executed_python_results.append({
+                                'command': cmd_str, 
+                                'output': output, 
+                                'error': None if not output.startswith("Error") else output
+                            })
+                        except Exception as e:
+                             print(f"[worker] ❌ Python Batch Error: {e}", flush=True)
+                             executed_python_results.append({
+                                'command': f"python: {tool_obj.code}", 
+                                'output': "", 
+                                'error': str(e)
+                            })
+                        continue
+
+                    # 2. Handle Shell Tools (Wait for Batch Node)
+                    # Block write operations in batch
+                    # We only allow discovery/read-only tools in batch for safety
+                    # shell_command is allowed for efficient filtering with grep/awk/jq
+                    if tool_obj.tool not in ['kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_events', 'kubectl_top', 'kubectl_api_resources', 'shell_command']:
                         print(f"[worker] ⚠️ Skipping unsafe batch tool: {tool_obj.tool}", flush=True)
                         continue
                         
                     # Build command
                     cmd = SafeExecutor.build_command(tool_obj, kube_context=state['kube_context'])
                     if cmd:
-                        valid_commands.append(cmd)
+                        valid_shell_commands.append(cmd)
                 
-                if valid_commands:
-                    print(f"[worker] 🚀 Prepared {len(valid_commands)} parallel commands", flush=True)
-                    events.append(emit_event("progress", {"message": f"🚀 Preparing {len(valid_commands)} parallel discovery commands..."}))
+                # Determine Next Action based on what was executed/prepared
+                new_history = state['command_history'] + executed_python_results
+                
+                if valid_shell_commands:
+                    print(f"[worker] 🚀 Prepared {len(valid_shell_commands)} parallel commands", flush=True)
+                    events.append(emit_event("progress", {"message": f"🚀 Preparing {len(valid_shell_commands)} parallel discovery commands..."}))
                     
                     return {
                         **state,
                         'next_action': 'execute_batch', # NEW STATE for batch execution
-                        'pending_batch_commands': valid_commands,
+                        'pending_batch_commands': valid_shell_commands,
+                        'command_history': new_history,
+                        'events': events,
+                        'pending_command': None
+                    }
+                elif executed_python_results:
+                     # Only Python tools ran, go straight to reflect (skip execute_batch)
+                     return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': new_history,
                         'events': events,
                         'pending_command': None
                     }
@@ -166,7 +211,7 @@ async def worker_node(state: AgentState) -> dict:
 
         if tool_call:
             try:
-                from ..tools.definitions import AgentToolWrapper, KubectlContext, GitCommit, PredictScaling
+                from ..tools.definitions import AgentToolWrapper, KubectlContext, GitCommit, PredictScaling, RunK8sPython
                 from ..tools.safe_executor import SafeExecutor
                 
                 # Validation (Discriminated Union)
@@ -315,7 +360,70 @@ async def worker_node(state: AgentState) -> dict:
                         'pending_command': None,
                         'events': events # + [emit_event("progress", {"message": f"[TRACE] worker:end {time.time():.3f}"})]
                     }
+
+                # SPECIAL HANDLING: Filesystem Tools (Native Python Execution)
+                from ..tools.definitions import ListDir, ReadFile, GrepSearch, FindFile
+                from ..tools.fs_tools import WriteFile, write_file
                 
+                if isinstance(tool_obj, (ListDir, ReadFile, GrepSearch, FindFile, WriteFile)):
+                     from ..tools import fs_tools
+                     
+                     output = ""
+                     cmd_str = ""
+                     
+                     if isinstance(tool_obj, ListDir):
+                         output = fs_tools.list_dir(tool_obj.path, tool_obj.recursive)
+                         cmd_str = f"ls {'-R ' if tool_obj.recursive else ''}{tool_obj.path}"
+                     elif isinstance(tool_obj, ReadFile):
+                         output = fs_tools.read_file(tool_obj.path, tool_obj.max_lines, tool_obj.start_line)
+                         cmd_str = f"read {tool_obj.path}"
+                     elif isinstance(tool_obj, GrepSearch):
+                         output = fs_tools.grep_search(tool_obj.query, tool_obj.path, tool_obj.recursive, tool_obj.case_insensitive)
+                         cmd_str = f"grep '{tool_obj.query}' {tool_obj.path}"
+                     elif isinstance(tool_obj, FindFile):
+                         output = fs_tools.find_files(tool_obj.pattern, tool_obj.path)
+                         cmd_str = f"find {tool_obj.path} -name '{tool_obj.pattern}'"
+                     elif isinstance(tool_obj, WriteFile):
+                        output = write_file(tool_obj.path, tool_obj.content, tool_obj.overwrite)
+                        cmd_str = f"write {tool_obj.path}"
+
+                     print(f"[agent-sidecar] 📂 FS Tool Execution: {cmd_str}", flush=True)
+                     events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
+                     
+                     return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': state['command_history'] + [
+                            {'command': cmd_str, 'output': output, 'error': None if not output.startswith("Error:") else output}
+                        ],
+                        'pending_command': None,
+                        'events': events
+                    }
+
+
+                # SPECIAL HANDLING: Python Execution (The 10X Tool)
+                if isinstance(tool_obj, RunK8sPython):
+                    print(f"[agent-sidecar] 🐍 Executing 10X Python Code...", flush=True)
+                    events.append(emit_event("progress", {"message": f"🐍 Executing Python Logic on cluster..."}))
+                    
+                    # Execute
+                    output = run_k8s_python(tool_obj.code, context_name=state.get('kube_context'))
+                    
+                    cmd_str = f"python: {tool_obj.code}"
+                    print(f"[agent-sidecar] 🐍 Result: {output[:200]}...", flush=True)
+                    
+                    events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
+                     
+                    return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': state['command_history'] + [
+                            {'command': cmd_str, 'output': output, 'error': None if not output.startswith("Error initializing") else output}
+                        ],
+                        'pending_command': None,
+                        'events': events
+                    }
+
             except Exception as e:
                 print(f"Tool Execution Error: {e}", flush=True)
                 # Fallback to legacy string command if present (backwards compat)
@@ -461,8 +569,7 @@ async def worker_node(state: AgentState) -> dict:
         
         # --- SAFETY CHECK: REMEDIATION VERBS ---
         # Prevent execution of dangerous commands without checking config/state
-        from ..config import REMEDIATION_VERBS, DANGEROUS_VERBS
-        
+
         # Check against strict dangerous list (always block)
         if any(f"kubectl {verb}" in command or f" {verb} " in command for verb in DANGEROUS_VERBS):
              return {
@@ -569,16 +676,15 @@ async def execute_node(state: AgentState) -> dict:
 
     try:
         full_command = command
-        if state['kube_context']:
+        # Only add --context if not already present in command
+        if state['kube_context'] and '--context' not in command:
             full_command = command.replace('kubectl ', f"kubectl --context={state['kube_context']} ", 1)
 
         print(f"[agent-sidecar] 🚀 NOTE: Executing command with context: {full_command}", flush=True)
 
-        # STRUCTURED OBSERVATION: Force JSON for simple GET commands
-        # Logic: If it's a 'get' command, no pipes, no other output format -> append -o json
-        if "kubectl get" in full_command and "|" not in full_command and "-o" not in full_command:
-            full_command += " -o json"
-            print(f"[agent-sidecar] ⚡ Upgraded command to JSON mode: {full_command}", flush=True)
+        # REMOVED: Don't force -o json - prefer shell filtering with grep/awk/jq
+        # The prompts now instruct the LLM to use pipes for efficient filtering
+        # Only use -o json if explicitly requested by the LLM
 
         # Emit executing intent (immediate UI feedback)
         try:
@@ -652,6 +758,25 @@ async def execute_node(state: AgentState) -> dict:
         # Cache discovery command results for session continuity
         updated_state = cache_command_result(state, command, raw_output) if not error else state
         updated_state['discovered_resources'] = merged_resources
+
+        # STRUCTURED EXTRACTION: Extract debugging context from kubectl output
+        # Use executor_model for extraction (it's configured for fast local execution)
+        try:
+            current_debugging_context = state.get('debugging_context', {})
+            updated_debugging_context = await extract_structured_data(
+                command=command,
+                output=raw_output,
+                current_context=current_debugging_context,
+                llm_endpoint=state['llm_endpoint'],
+                llm_provider=state['llm_provider'],
+                llm_model=state.get('executor_model', state['llm_model']),  # Use executor model for speed
+                api_key=state.get('api_key')
+            )
+            updated_state['debugging_context'] = updated_debugging_context
+            print(f"[agent-sidecar] 🧠 Extracted context: {updated_debugging_context}", flush=True)
+        except Exception as e:
+            print(f"[agent-sidecar] ⚠️  Extraction failed: {e}", flush=True)
+            # Continue without extraction if it fails
 
         events = list(state.get('events', []))
         events.append(emit_event("command_output", {"command": command, "output": output, "error": error}))
@@ -757,6 +882,46 @@ async def execute_batch_node(state: AgentState) -> dict:
         if cmd not in cmd_to_results:
             cmd_to_results[cmd] = []
         cmd_to_results[cmd].append(result)
+
+    # Build final list in original order, consuming one result per command occurrence
+    all_results = []
+    cmd_usage_count = {}
+    for cmd in batch_commands:
+        if cmd in cmd_to_results:
+            idx = cmd_usage_count.get(cmd, 0)
+            if idx < len(cmd_to_results[cmd]):
+                all_results.append(cmd_to_results[cmd][idx])
+                cmd_usage_count[cmd] = idx + 1
+
+    # Cache successful results
+    updated_state = state
+    for result in execution_results:
+        if not result.get('error') and result.get('raw_output'):
+            updated_state = cache_command_result(updated_state, result['command'], result['raw_output'])
+
+    # Add all results to command history
+    new_history_entries = [
+        {'command': r['command'], 'output': r['output'], 'error': r.get('error'), 'cached': r.get('cached', False)}
+        for r in all_results
+    ]
+
+    events.append(emit_event("batch_complete", {
+        "total": len(batch_commands),
+        "cached": len(cached_results),
+        "executed": len(execution_results),
+        "successful": sum(1 for r in all_results if not r.get('error'))
+    }))
+
+    print(f"[agent-sidecar] ✅ Batch complete: {len(cached_results)} cached, {len(execution_results)} executed", flush=True)
+
+    return {
+        **updated_state,
+        'next_action': 'reflect',
+        'command_history': state['command_history'] + new_history_entries,
+        'batch_results': all_results,
+        'pending_batch_commands': None,
+        'events': events,
+    }
 
     # Build final list in original order, consuming one result per command occurrence
     all_results = []

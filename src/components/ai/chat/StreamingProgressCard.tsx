@@ -253,9 +253,16 @@ const CommandExecutionItem: React.FC<{ execution: CommandExecution }> = ({ execu
                         {showRawOutput ? 'Hide' : 'Show'} raw output
                     </button>
                     {showRawOutput && (
-                        <pre className="mt-1 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-32 custom-scrollbar">
-                            {execution.output}
-                        </pre>
+                        <div className="relative">
+                            <pre className="mt-1 p-2 bg-zinc-900 rounded text-[10px] text-zinc-400 overflow-x-auto max-h-32 custom-scrollbar border border-white/5">
+                                {execution.output}
+                            </pre>
+                            {execution.output.includes('omitted') && (
+                                <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-500/10 text-amber-400 text-[9px] rounded border border-amber-500/20">
+                                    Truncated
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
             )}

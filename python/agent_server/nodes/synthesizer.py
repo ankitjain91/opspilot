@@ -87,6 +87,60 @@ async def synthesizer_node(state: AgentState) -> Dict:
 
 **Task:** Determine if the evidence above is SUFFICIENT to answer the user's question directly.
 
+**MANDATORY SELF-CHECK (Complete this checklist BEFORE deciding):**
+┌─────────────────────────────────────────────────────────────┐
+│ AUTONOMY VERIFICATION CHECKLIST                             │
+├─────────────────────────────────────────────────────────────┤
+│ 1. ☐ Did the user ask for specific DATA or CONTENT?        │
+│      (e.g., "find X", "show me Y", "get data from Z")      │
+│                                                              │
+│ 2. ☐ Do I know the kubectl command to get that data?       │
+│                                                              │
+│ 3. ☐ Have I actually RUN that command and received output? │
+│                                                              │
+│ 4. ☐ Does the evidence contain the ACTUAL DATA requested?  │
+│                                                              │
+│ 5. ☐ Am I about to suggest a command instead of providing  │
+│      the answer? (If YES → STOP, set can_answer=FALSE)     │
+└─────────────────────────────────────────────────────────────┘
+
+**CRITICAL SELF-CRITIQUE:**
+- Read your drafted response carefully
+- Does it contain phrases like:
+  * "you can run..."
+  * "try running..."
+  * "use kubectl..."
+  * "execute this command..."
+- If ANY of these appear → DELETE that response immediately
+- Set can_answer=FALSE with missing_info explaining what command needs to be run
+- **The agent must be AUTONOMOUS** - no delegation to user!
+
+**EXAMPLES - RIGHT vs WRONG:**
+
+❌ WRONG Example 1:
+Query: "find insights section in configmap tetrisinputjson"
+Evidence: "found configmap in namespace taasvstst"
+Response: "The configmap is in namespace taasvstst. You can run: kubectl get configmap tetrisinputjson -n taasvstst -o yaml"
+WHY WRONG: Agent delegated to user instead of fetching data autonomously
+
+✅ CORRECT Example 1:
+Query: "find insights section in configmap tetrisinputjson"
+Evidence: "found configmap in namespace taasvstst" + "ran kubectl get -o yaml" + "insights: [actual data]"
+Response: "Found insights section in configmap: [actual data from yaml output]"
+WHY CORRECT: Agent fetched and extracted data autonomously
+
+❌ WRONG Example 2:
+Query: "why is customercluster failing"
+Evidence: "found customercluster in ASFailed state" + "checked events (none)"
+Response: "The resource is in ASFailed state. No events found. You may need to check controller logs."
+WHY WRONG: Gave up without checking controller logs, delegated investigation to user
+
+✅ CORRECT Example 2:
+Query: "why is customercluster failing"
+Evidence: "ASFailed state" + "no events" + "found controller" + "logs show: 403 Forbidden"
+Response: "Root cause: Azure RBAC authorization failed (403 Forbidden) in upbound-provider-azure controller logs."
+WHY CORRECT: Found root cause by checking controller logs autonomously
+
 **Output Format (JSON):**
 ```json
 {{
@@ -108,6 +162,32 @@ async def synthesizer_node(state: AgentState) -> Dict:
 - can_answer=true ONLY if you can give a COMPLETE, SPECIFIC answer (not vague)
 - can_answer=false if critical details are missing or evidence is unclear
 - Be honest - prefer can_answer=false over giving vague answers
+
+**AUTONOMY RULE (NEVER GIVE UP PREMATURELY):**
+- If the user asked for specific data/content (e.g., "show me X", "find Y", "get Z")
+- AND we know how to get it (we know the kubectl command to run)
+- BUT we haven't actually fetched it yet
+- → can_answer=FALSE with missing_info="Run kubectl command X to fetch the actual data"
+- **NEVER** answer with "You can run this command..." or "Use kubectl get..." - WE run it ourselves!
+- The agent must be AUTONOMOUS - if we know what command to run, we execute it and get the result
+
+**SPECIAL CASE - "List/Get/Find" Queries:**
+- If the query is "list X", "get X", "find X", "show me X" AND we have kubectl output showing X resources → can_answer=TRUE immediately
+- Example: Query "list customerclusters", Evidence shows kubectl output with customercluster resources → can_answer=TRUE (we have the list)
+- Don't overthink it - if we executed the list command and got results, that IS the answer
+- Empty results (no resources found) is ALSO a valid answer → can_answer=TRUE with "No X resources found"
+
+**CRITICAL - "Fetch Details" Queries (MUST CONTINUE INVESTIGATING):**
+- If query asks for details/contents/sections of a resource (e.g., "find insights section in configmap X", "show me data in secret Y")
+- AND evidence shows we found the resource location (namespace + name)
+- BUT evidence does NOT include the actual data/contents
+- → can_answer=FALSE, missing_info="Need to fetch full resource data with kubectl get <type> <name> -n <ns> -o yaml"
+- **NEVER say can_answer=TRUE** if you only know WHERE a resource is but haven't fetched WHAT it contains
+- Location ≠ Data. Finding the resource is only step 1. Fetching the data is step 2.
+
+**Examples:**
+✅ CORRECT: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" but no yaml/data → can_answer=FALSE, missing="Need kubectl get configmap X -n Y -o yaml"
+❌ WRONG: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" → can_answer=TRUE with "use this command..." → NO! Fetch it yourself!
 
 **ANTI-SPECULATION RULES** (STRICTLY ENFORCE):
 - NEVER use words: "may", "might", "could", "potentially", "possibly", "seems", "appears to"
@@ -153,80 +233,26 @@ async def synthesizer_node(state: AgentState) -> Dict:
         # The synthesizer should always trust its own sufficiency assessment
         # last_cmd_assessment = command_history[-1].get('assessment') if command_history else None
 
-        # REFLECTION VALIDATION: Cross-check synthesizer decision against reflection directive
+        # LLM-DRIVEN DECISION: Trust the synthesizer LLM's analysis completely
+        # No hardcoded overrides based on SOLVED/RETRY flags from previous queries
+        # The LLM has full context and makes the best decision
+
+        # Optional: Log if there's a conflict between reflection and synthesizer for debugging
         last_reflection = state.get('last_reflection')
         if last_reflection:
             directive = last_reflection.get('directive')
-
-            # If reflect said RETRY, but synthesizer says answer → CONFLICT!
-            if directive == 'RETRY' and can_answer:
-                print(f"[synthesizer] ⚠️ Reflection-Synthesizer conflict detected:", flush=True)
-                print(f"  - Reflect directive: RETRY", flush=True)
-                print(f"  - Synthesizer decision: CAN_ANSWER", flush=True)
-                print(f"  → Trusting Reflect (retry needed)", flush=True)
-
-                can_answer = False
-                missing_info = last_reflection.get('reason') or last_reflection.get('next_command_hint') or 'Reflection indicated retry needed'
-                confidence = min(confidence, 0.5)  # Downgrade confidence
-
-            # If reflect said SOLVED, but synthesizer says insufficient → Trust SOLVED
-            elif directive == 'SOLVED' and not can_answer:
-                print(f"[synthesizer] ⚠️ Reflection marked SOLVED but synthesizer uncertain. Trusting SOLVED.", flush=True)
-                can_answer = True
-                confidence = max(confidence, 0.7)
+            if (directive == 'SOLVED' and not can_answer) or (directive == 'RETRY' and can_answer):
+                print(f"[synthesizer] ℹ️ Note: Reflection directive='{directive}' but synthesizer decided can_answer={can_answer}", flush=True)
+                print(f"[synthesizer] Trusting synthesizer LLM analysis: {reasoning}", flush=True)
 
         print(f"[synthesizer] Decision: can_answer={can_answer}, confidence={confidence:.2f}", flush=True)
         print(f"[synthesizer] Reasoning: {reasoning}", flush=True)
 
-        # DECISION POINT with confidence gating
-        if not can_answer or confidence < 0.6:
-            # INSUFFICIENT EVIDENCE - Check iteration limit with DYNAMIC calculation
-            # Calculate max iterations based on query complexity and context
-            max_iter = 3  # Default for simple queries
+        # LLM-DRIVEN DECISION: Trust synthesizer's can_answer assessment completely
+        # No hardcoded iteration limits, complexity keywords, or confidence thresholds
+        # The LLM already analyzed evidence sufficiency - trust that decision
 
-            # Increase limit for complex queries
-            query_lower = query.lower()
-            is_complex = any(word in query_lower for word in [
-                'debug', 'troubleshoot', 'why', 'investigate', 'analyze', 'diagnose',
-                'broken', 'failing', 'crashed', 'error', 'issue', 'problem'
-            ])
-            if is_complex:
-                max_iter = 6
-
-            # Additional iterations for root cause analysis
-            current_hypothesis = state.get('current_hypothesis', '')
-            if current_hypothesis and any(word in current_hypothesis.lower() for word in ['root cause', 'investigate', 'analyze']):
-                max_iter = 8
-
-            # CRD troubleshooting needs extra persistence (controller discovery, log analysis)
-            discovered_resources = state.get('discovered_resources', {})
-            is_crd_query = any(
-                resource_type in ['compositions', 'claims', 'managed', 'xrd', 'compositeresourcedefinitions']
-                for resource_type in discovered_resources.keys()
-            ) or any(word in query_lower for word in [
-                # Crossplane/Upbound
-                'crossplane', 'composition', 'claim', 'managed resource', 'xrd', 'upbound',
-                'provider', 'providerconfig', 'configuration',
-                # Azure Service Operator
-                'azure', 'aso', 'resourcegroup', 'storageaccount', 'sqldatabase',
-                'cosmosdb', 'keyvault', 'virtualnetwork', 'azureserviceoperator',
-                # Other operators
-                'argocd', 'application', 'appproject', 'istio', 'virtualservice',
-                'cert-manager', 'certificate', 'issuer', 'clusterissuer'
-            ])
-            if is_crd_query:
-                max_iter = 10  # CRDs need controller discovery + log analysis
-
-            # Add recovery budget for failed commands
-            recovery_attempts = len([cmd for cmd in command_history if cmd.get('error')])
-            max_iter += min(recovery_attempts, 2)  # Max +2 for retries
-
-            if iteration >= max_iter:
-                print(f"[synthesizer] ⚠️ Dynamic max iterations reached ({iteration}/{max_iter}), forcing answer generation", flush=True)
-                # Force generate best-effort answer
-                can_answer = True
-                confidence = max(confidence, 0.6)  # Boost confidence for forced answers
-            else:
+        if not can_answer:
                 # INSUFFICIENT EVIDENCE - Route directly to worker to gather missing info
                 # Routing to supervisor would create circular loop (supervisor → synthesizer → supervisor)
                 print(f"[synthesizer] ❌ Insufficient evidence. Missing: {missing_info}", flush=True)
@@ -266,16 +292,11 @@ async def synthesizer_node(state: AgentState) -> Dict:
 
         # Validate the generated response and enforce grounding: if no KB/command evidence cited, downgrade
         is_valid, error_msg = validate_response_quality(final_response, query)
-        if kb_context and 'Unknown' in final_response and confidence < 0.75:
-            # If response looks ungrounded while KB context exists, treat as insufficient
-            print(f"[synthesizer] ⚠️ Response may be ungrounded; routing for more evidence.", flush=True)
-            return {
-                **state,
-                'events': events,
-                'next_action': 'worker',  # Route to worker to gather evidence, not supervisor
-                'current_plan': 'Gather explicit status/logs/events to ground the answer',
-                'error': None
-            }
+        # LLM-DRIVEN: Keep KB grounding check but without hardcoded confidence threshold
+        # This is a safety feature for quality, not a decision gate
+        if kb_context and 'Unknown' in final_response:
+            # If response looks ungrounded while KB context exists, log warning but trust LLM
+            print(f"[synthesizer] ℹ️ Response contains 'Unknown' despite KB context (confidence: {confidence:.2f})", flush=True)
 
         if not is_valid:
             print(f"[synthesizer] ⚠️ Generated response failed validation: {error_msg}", flush=True)
@@ -308,8 +329,10 @@ async def synthesizer_node(state: AgentState) -> Dict:
              from ..response_formatter import _format_simple_fallback
              final_response = _format_simple_fallback(query, command_history, state.get('discovered_resources', {}))
 
-        # If confidence is low, auto-suggest follow-up verification steps
-        if confidence < 0.6:
+        # LLM-DRIVEN: Remove hardcoded confidence threshold for follow-up suggestions
+        # The synthesizer LLM already decided the answer is sufficient - trust that decision
+        # If follow-ups are needed, the LLM can include them in the response
+        if False:  # Disabled - LLM handles follow-up suggestions in response
             try:
                 events.append(emit_event("progress", {"message": "[AUTO_FOLLOWUP] Low confidence — suggesting safe verification commands."}))
             except Exception:
@@ -347,7 +370,7 @@ async def synthesizer_node(state: AgentState) -> Dict:
             'final_response': final_response,
             'confidence_score': confidence,
             'suggested_next_steps': suggestions,
-            'next_action': 'done',
+            'next_action': 'questioner',  # Route to questioner for quality validation
             'events': events,
             'error': None
         }

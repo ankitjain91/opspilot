@@ -42,9 +42,9 @@ Adversarial Review Examples:
 - "kubectl apply -f manifest.yaml" → APPROVE IF includes verification step afterward
 
 Respond ONLY with this JSON format:
-{{
+{{{{
   "approved": boolean,
   "critique": "string reasoning (required if false, optional if true)",
   "improved_plan": ["step 1", "step 2"] (optional suggestion if rejected)
-}}
+}}}}
 """

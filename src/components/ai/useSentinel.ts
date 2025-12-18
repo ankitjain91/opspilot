@@ -1,6 +1,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useToast } from '../ui/Toast';
+import { useNotifications } from '../notifications/NotificationContext';
 
 export interface KBProgress {
     current: number;
@@ -11,9 +12,15 @@ export interface KBProgress {
 
 export function useSentinel(onInvestigate?: (prompt: string) => void) {
     const { showToast } = useToast();
+    const { addNotification } = useNotifications();
     const [kbProgress, setKBProgress] = useState<KBProgress | null>(null);
-    const progressThrottleRef = useRef<NodeJS.Timeout | null>(null);
+    const progressThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastProgressRef = useRef<KBProgress | null>(null);
+    const onInvestigateRef = useRef(onInvestigate);
+
+    useEffect(() => {
+        onInvestigateRef.current = onInvestigate;
+    }, [onInvestigate]);
 
     useEffect(() => {
         // Connect to the global events stream
@@ -24,28 +31,30 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
             try {
                 const data = JSON.parse(event.data);
                 if (data.type === 'alert') {
-                    // Display the proactive alert with context injection
-                    showToast(
+                    // Optional: Add sound or desktop notification here
+                    console.log("🛡️ Sentinel Alert:", data);
+
+                    // Add to persistent notification history
+                    addNotification(
                         data.message,
-                        data.severity === 'high' ? 'error' : 'info',
-                        5000,
+                        data.severity === 'high' ? 'error' : 'warning',
+                        data.resource,
                         {
                             label: "Investigate",
+                            type: 'investigate',
                             onClick: () => {
-                                if (onInvestigate) {
+                                if (onInvestigateRef.current) {
                                     // Construct the proactive prompt
-                                    // We use the raw data to give the agent strict context
                                     const prompt = `Sentinel Alert: ${data.message}. RESOURCE: ${data.resource || 'unknown'}. Please analyze the root cause immediately.`;
-                                    onInvestigate(prompt);
+                                    onInvestigateRef.current(prompt);
                                 } else {
                                     console.warn("Sentinel: No investigation handler connected");
                                 }
                             }
-                        }
+                        },
+                        JSON.stringify(data, null, 2), // Pass full details
+                        data.cluster // Pass cluster context
                     );
-
-                    // Optional: Add sound or desktop notification here
-                    console.log("🛡️ Sentinel Alert:", data);
                 } else if (data.type === 'kb_progress') {
                     // CRD loading progress - throttle updates to prevent flicker
                     const newProgress = {
@@ -97,7 +106,7 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                 clearTimeout(progressThrottleRef.current);
             }
         };
-    }, [showToast, onInvestigate]);
+    }, [showToast, addNotification]); // Removed onInvestigate from dependency
 
     return { kbProgress };
 }

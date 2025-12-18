@@ -148,7 +148,7 @@ export function TerminalTab({ namespace, name, podSpec }: TerminalTabProps) {
 
         // Handle Input - send immediately for responsiveness
         const inputDisposable = term.onData(data => {
-            invoke("send_exec_input", { sessionId, data }).catch(() => { });
+            invoke("send_exec_input", { session_id: sessionId, data }).catch(() => { });
         });
 
         // Handle Resize with debounce
@@ -166,7 +166,7 @@ export function TerminalTab({ namespace, name, podSpec }: TerminalTabProps) {
         window.addEventListener("resize", handleResize);
 
         try {
-            await invoke("start_exec", { namespace, name, container: selectedContainer, sessionId });
+            await invoke("start_exec", { namespace, name, container: selectedContainer, session_id: sessionId });
             term.writeln(`\x1b[32mConnected to ${name}/${selectedContainer}\x1b[0m\r\n`);
             // Fit terminal after connection established with slight delay for DOM to settle
             setTimeout(() => {

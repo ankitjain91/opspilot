@@ -1,0 +1,4500 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "aso2",
+                    "meta.helm.sh/release-namespace": "aso-system"
+                },
+                "creationTimestamp": "2025-11-17T23:19:13Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "azure-service-operator",
+                    "app.kubernetes.io/version": "v2.9.0",
+                    "control-plane": "controller-manager"
+                },
+                "name": "azureserviceoperator-controller-manager-metrics-service",
+                "namespace": "aso-system",
+                "resourceVersion": "25570",
+                "uid": "f561aed9-ff34-4e57-9c58-2f3b6fa33113"
+            },
+            "spec": {
+                "clusterIP": "10.0.48.92",
+                "clusterIPs": [
+                    "10.0.48.92"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics",
+                        "port": 8443,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "aso2",
+                    "meta.helm.sh/release-namespace": "aso-system"
+                },
+                "creationTimestamp": "2025-11-17T23:19:13Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "azure-service-operator",
+                    "app.kubernetes.io/version": "v2.9.0"
+                },
+                "name": "azureserviceoperator-webhook-service",
+                "namespace": "aso-system",
+                "resourceVersion": "25569",
+                "uid": "56840569-96ea-49ae-8bb8-50eb4190c957"
+            },
+            "spec": {
+                "clusterIP": "10.0.49.109",
+                "clusterIPs": [
+                    "10.0.49.109"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "prometheus.io/port": "9094",
+                    "prometheus.io/scrape": "true"
+                },
+                "creationTimestamp": "2025-11-17T22:23:21Z",
+                "labels": {
+                    "k8s-app": "calico-kube-controllers"
+                },
+                "name": "calico-kube-controllers-metrics",
+                "namespace": "calico-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.tigera.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Installation",
+                        "name": "default",
+                        "uid": "d9ddd0e4-8545-41fa-91d3-772e35e4b978"
+                    }
+                ],
+                "resourceVersion": "2373",
+                "uid": "e1352d3a-fb0e-4774-9de0-9a988099560c"
+            },
+            "spec": {
+                "clusterIP": "None",
+                "clusterIPs": [
+                    "None"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics-port",
+                        "port": 9094,
+                        "protocol": "TCP",
+                        "targetPort": 9094
+                    }
+                ],
+                "selector": {
+                    "k8s-app": "calico-kube-controllers"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:22:18Z",
+                "labels": {
+                    "k8s-app": "calico-typha"
+                },
+                "name": "calico-typha",
+                "namespace": "calico-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.tigera.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Installation",
+                        "name": "default",
+                        "uid": "d9ddd0e4-8545-41fa-91d3-772e35e4b978"
+                    }
+                ],
+                "resourceVersion": "1648",
+                "uid": "ac462dfa-150c-4b9c-8f7a-32f288068c9c"
+            },
+            "spec": {
+                "clusterIP": "10.0.181.151",
+                "clusterIPs": [
+                    "10.0.181.151"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "calico-typha",
+                        "port": 5473,
+                        "protocol": "TCP",
+                        "targetPort": "calico-typha"
+                    }
+                ],
+                "selector": {
+                    "k8s-app": "calico-typha"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T23:27:54Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "bootstrap-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": ""
+                },
+                "name": "capi-kubeadm-bootstrap-webhook-service",
+                "namespace": "capi-kubeadm-bootstrap-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.cluster.x-k8s.io/v1alpha2",
+                        "kind": "BootstrapProvider",
+                        "name": "kubeadm",
+                        "uid": "94654e4e-0d81-4611-b13c-33a71b0fb51b"
+                    }
+                ],
+                "resourceVersion": "17725243",
+                "uid": "b5601a0e-de5e-4026-9943-01085e23bb07"
+            },
+            "spec": {
+                "clusterIP": "10.0.226.231",
+                "clusterIPs": [
+                    "10.0.226.231"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "bootstrap-kubeadm"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T23:27:56Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "control-plane-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": ""
+                },
+                "name": "capi-kubeadm-control-plane-webhook-service",
+                "namespace": "capi-kubeadm-control-plane-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.cluster.x-k8s.io/v1alpha2",
+                        "kind": "ControlPlaneProvider",
+                        "name": "kubeadm",
+                        "uid": "5a1b3423-3407-41d5-9587-4484f750ebd1"
+                    }
+                ],
+                "resourceVersion": "17725299",
+                "uid": "2d5f3637-9125-4b1a-a5d8-ca0eb812fd9f"
+            },
+            "spec": {
+                "clusterIP": "10.0.45.196",
+                "clusterIPs": [
+                    "10.0.45.196"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "control-plane-kubeadm"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "capiop",
+                    "meta.helm.sh/release-namespace": "capi-operator"
+                },
+                "creationTimestamp": "2025-11-17T23:19:17Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "clusterctl.cluster.x-k8s.io/core": "capi-operator"
+                },
+                "name": "capi-operator-webhook-service",
+                "namespace": "capi-operator",
+                "resourceVersion": "25778",
+                "uid": "ab438ba6-7b2b-4780-84c7-f3992532cf18"
+            },
+            "spec": {
+                "clusterIP": "10.0.85.153",
+                "clusterIPs": [
+                    "10.0.85.153"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "clusterctl.cluster.x-k8s.io/core": "capi-operator",
+                    "control-plane": "controller-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T23:27:41Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "cluster-api",
+                    "clusterctl.cluster.x-k8s.io": ""
+                },
+                "name": "capi-webhook-service",
+                "namespace": "capi-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.cluster.x-k8s.io/v1alpha2",
+                        "kind": "CoreProvider",
+                        "name": "cluster-api",
+                        "uid": "bc86956d-ee11-43ab-ad7a-942dd2791df4"
+                    }
+                ],
+                "resourceVersion": "17724950",
+                "uid": "bef1be05-d803-494d-b5b0-72a04fc5160c"
+            },
+            "spec": {
+                "clusterIP": "10.0.219.194",
+                "clusterIPs": [
+                    "10.0.219.194"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "cluster-api"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "cert-manager",
+                    "meta.helm.sh/release-namespace": "cert-manager"
+                },
+                "creationTimestamp": "2025-11-17T23:16:39Z",
+                "labels": {
+                    "app": "cert-manager",
+                    "app.kubernetes.io/component": "controller",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "cert-manager",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "helm.sh/chart": "cert-manager-v1.18.2"
+                },
+                "name": "cert-manager",
+                "namespace": "cert-manager",
+                "resourceVersion": "24091",
+                "uid": "b3be5160-bb92-41b4-9f80-d4d834f1ddd7"
+            },
+            "spec": {
+                "clusterIP": "10.0.31.82",
+                "clusterIPs": [
+                    "10.0.31.82"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "tcp-prometheus-servicemonitor",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": "http-metrics"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "controller",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cert-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "cert-manager",
+                    "meta.helm.sh/release-namespace": "cert-manager"
+                },
+                "creationTimestamp": "2025-11-17T23:16:39Z",
+                "labels": {
+                    "app": "cainjector",
+                    "app.kubernetes.io/component": "cainjector",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "cainjector",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "helm.sh/chart": "cert-manager-v1.18.2"
+                },
+                "name": "cert-manager-cainjector",
+                "namespace": "cert-manager",
+                "resourceVersion": "24085",
+                "uid": "32feda55-df45-4882-99ae-a0b3739a228c"
+            },
+            "spec": {
+                "clusterIP": "10.0.28.73",
+                "clusterIPs": [
+                    "10.0.28.73"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "http-metrics",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": 9402
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "cainjector",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cainjector"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "cert-manager",
+                    "meta.helm.sh/release-namespace": "cert-manager"
+                },
+                "creationTimestamp": "2025-11-17T23:16:39Z",
+                "labels": {
+                    "app": "webhook",
+                    "app.kubernetes.io/component": "webhook",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "webhook",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "helm.sh/chart": "cert-manager-v1.18.2"
+                },
+                "name": "cert-manager-webhook",
+                "namespace": "cert-manager",
+                "resourceVersion": "24098",
+                "uid": "7ab4d1f1-f84c-428c-8a64-ff61ee22940e"
+            },
+            "spec": {
+                "clusterIP": "10.0.180.121",
+                "clusterIPs": [
+                    "10.0.180.121"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    },
+                    {
+                        "name": "metrics",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": "http-metrics"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "webhook",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "webhook"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:19:35Z",
+                "labels": {
+                    "component": "apiserver",
+                    "provider": "kubernetes"
+                },
+                "name": "kubernetes",
+                "namespace": "default",
+                "resourceVersion": "267",
+                "uid": "77d6e326-24ab-406a-9e57-c1ed208a6a02"
+            },
+            "spec": {
+                "clusterIP": "10.0.0.1",
+                "clusterIPs": [
+                    "10.0.0.1"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 443
+                    }
+                ],
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "istio-ingressgateway",
+                    "meta.helm.sh/release-namespace": "istio-system",
+                    "service.beta.kubernetes.io/azure-load-balancer-ipv4": "20.75.191.199"
+                },
+                "creationTimestamp": "2025-11-17T23:20:43Z",
+                "finalizers": [
+                    "service.kubernetes.io/load-balancer-cleanup"
+                ],
+                "labels": {
+                    "app": "istio-ingressgateway",
+                    "app.kubernetes.io/instance": "istio-ingressgateway",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "istio-ingressgateway",
+                    "app.kubernetes.io/part-of": "istio",
+                    "app.kubernetes.io/version": "1.27.1",
+                    "helm.sh/chart": "gateway-1.27.1",
+                    "istio": "ingressgateway",
+                    "istio.io/dataplane-mode": "none"
+                },
+                "name": "istio-ingressgateway",
+                "namespace": "istio-system",
+                "resourceVersion": "27768",
+                "uid": "1866a555-2c58-458c-8b00-2993ffd51449"
+            },
+            "spec": {
+                "allocateLoadBalancerNodePorts": true,
+                "clusterIP": "10.0.97.196",
+                "clusterIPs": [
+                    "10.0.97.196"
+                ],
+                "externalTrafficPolicy": "Local",
+                "healthCheckNodePort": 30990,
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "status-port",
+                        "nodePort": 30375,
+                        "port": 15021,
+                        "protocol": "TCP",
+                        "targetPort": 15021
+                    },
+                    {
+                        "name": "http2",
+                        "nodePort": 32080,
+                        "port": 80,
+                        "protocol": "TCP",
+                        "targetPort": 80
+                    },
+                    {
+                        "name": "https",
+                        "nodePort": 31241,
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 443
+                    }
+                ],
+                "selector": {
+                    "app": "istio-ingressgateway",
+                    "istio": "ingressgateway"
+                },
+                "sessionAffinity": "None",
+                "type": "LoadBalancer"
+            },
+            "status": {
+                "loadBalancer": {
+                    "ingress": [
+                        {
+                            "ip": "20.75.191.199",
+                            "ipMode": "VIP"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "istiod",
+                    "meta.helm.sh/release-namespace": "istio-system"
+                },
+                "creationTimestamp": "2025-11-17T23:19:14Z",
+                "labels": {
+                    "app": "istiod",
+                    "app.kubernetes.io/instance": "istiod",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "istiod",
+                    "app.kubernetes.io/part-of": "istio",
+                    "app.kubernetes.io/version": "1.27.1",
+                    "helm.sh/chart": "istiod-1.27.1",
+                    "install.operator.istio.io/owning-resource": "unknown",
+                    "istio": "pilot",
+                    "istio.io/rev": "default",
+                    "operator.istio.io/component": "Pilot",
+                    "release": "istiod"
+                },
+                "name": "istiod",
+                "namespace": "istio-system",
+                "resourceVersion": "25633",
+                "uid": "141058c2-f50d-40d4-80eb-731e804f8bdc"
+            },
+            "spec": {
+                "clusterIP": "10.0.64.127",
+                "clusterIPs": [
+                    "10.0.64.127"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "grpc-xds",
+                        "port": 15010,
+                        "protocol": "TCP",
+                        "targetPort": 15010
+                    },
+                    {
+                        "name": "https-dns",
+                        "port": 15012,
+                        "protocol": "TCP",
+                        "targetPort": 15012
+                    },
+                    {
+                        "name": "https-webhook",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 15017
+                    },
+                    {
+                        "name": "http-monitoring",
+                        "port": 15014,
+                        "protocol": "TCP",
+                        "targetPort": 15014
+                    }
+                ],
+                "selector": {
+                    "app": "istiod",
+                    "istio": "pilot"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "aks-managed-azure-monitor-metrics",
+                    "meta.helm.sh/release-namespace": "kube-system",
+                    "prometheus.io/scrape": "true"
+                },
+                "creationTimestamp": "2025-11-17T22:22:18Z",
+                "labels": {
+                    "app.kubernetes.io/component": "ama-metrics",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "ama-metrics-ksm",
+                    "app.kubernetes.io/part-of": "ama-metrics-ksm",
+                    "app.kubernetes.io/version": "2.17.0",
+                    "helm.sh/chart": "azure-monitor-metrics-addon-0.1.0",
+                    "helm.toolkit.fluxcd.io/name": "azure-monitor-metrics-adapter-helmrelease",
+                    "helm.toolkit.fluxcd.io/namespace": "691b9f2038f65600013d1f8b"
+                },
+                "name": "ama-metrics-ksm",
+                "namespace": "kube-system",
+                "resourceVersion": "1710",
+                "uid": "c3178556-ca51-4d25-97b3-a32da29090c8"
+            },
+            "spec": {
+                "clusterIP": "10.0.85.192",
+                "clusterIPs": [
+                    "10.0.85.192"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "http",
+                        "port": 8080,
+                        "protocol": "TCP",
+                        "targetPort": 8080
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/name": "ama-metrics-ksm"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "aks-managed-azure-monitor-metrics",
+                    "meta.helm.sh/release-namespace": "kube-system"
+                },
+                "creationTimestamp": "2025-11-17T22:22:18Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "component": "ama-metrics-operator-targets",
+                    "helm.toolkit.fluxcd.io/name": "azure-monitor-metrics-adapter-helmrelease",
+                    "helm.toolkit.fluxcd.io/namespace": "691b9f2038f65600013d1f8b",
+                    "kubernetes.azure.com/managedby": "aks"
+                },
+                "name": "ama-metrics-operator-targets",
+                "namespace": "kube-system",
+                "resourceVersion": "1714",
+                "uid": "ab6dbdf0-fd32-4efe-a4dd-7b85b9d33908"
+            },
+            "spec": {
+                "clusterIP": "10.0.116.201",
+                "clusterIPs": [
+                    "10.0.116.201"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "targetallocation",
+                        "port": 80,
+                        "protocol": "TCP",
+                        "targetPort": 8080
+                    },
+                    {
+                        "name": "targetallocation-https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "selector": {
+                    "rsName": "ama-metrics-operator-targets"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "aks-managed-workload-identity",
+                    "meta.helm.sh/release-namespace": "kube-system"
+                },
+                "creationTimestamp": "2025-11-17T22:19:41Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "azure-workload-identity.io/system": "true",
+                    "helm.toolkit.fluxcd.io/name": "workload-identity-adapter-helmrelease",
+                    "helm.toolkit.fluxcd.io/namespace": "691b9f2038f65600013d1f8b",
+                    "kubernetes.azure.com/managedby": "aks"
+                },
+                "name": "azure-wi-webhook-webhook-service",
+                "namespace": "kube-system",
+                "resourceVersion": "379",
+                "uid": "fcd359b7-650c-4269-9019-b2d71759327c"
+            },
+            "spec": {
+                "clusterIP": "10.0.180.90",
+                "clusterIPs": [
+                    "10.0.180.90"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "azure-workload-identity.io/system": "true",
+                    "kubernetes.azure.com/managedby": "aks"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{},\"labels\":{\"addonmanager.kubernetes.io/mode\":\"Reconcile\",\"k8s-app\":\"kube-dns\",\"kubernetes.io/cluster-service\":\"true\",\"kubernetes.io/name\":\"CoreDNS\"},\"name\":\"kube-dns\",\"namespace\":\"kube-system\"},\"spec\":{\"clusterIP\":\"10.0.0.10\",\"ports\":[{\"name\":\"dns\",\"port\":53,\"protocol\":\"UDP\"},{\"name\":\"dns-tcp\",\"port\":53,\"protocol\":\"TCP\"}],\"selector\":{\"k8s-app\":\"kube-dns\"}}}\n"
+                },
+                "creationTimestamp": "2025-11-17T22:20:07Z",
+                "labels": {
+                    "addonmanager.kubernetes.io/mode": "Reconcile",
+                    "k8s-app": "kube-dns",
+                    "kubernetes.io/cluster-service": "true",
+                    "kubernetes.io/name": "CoreDNS"
+                },
+                "name": "kube-dns",
+                "namespace": "kube-system",
+                "resourceVersion": "670",
+                "uid": "5cc893a2-8b4d-477b-8a6a-289ba59ccdcf"
+            },
+            "spec": {
+                "clusterIP": "10.0.0.10",
+                "clusterIPs": [
+                    "10.0.0.10"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "dns",
+                        "port": 53,
+                        "protocol": "UDP",
+                        "targetPort": 53
+                    },
+                    {
+                        "name": "dns-tcp",
+                        "port": 53,
+                        "protocol": "TCP",
+                        "targetPort": 53
+                    }
+                ],
+                "selector": {
+                    "k8s-app": "kube-dns"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{},\"labels\":{\"addonmanager.kubernetes.io/mode\":\"Reconcile\",\"kubernetes.io/cluster-service\":\"true\",\"kubernetes.io/name\":\"Metrics-server\"},\"name\":\"metrics-server\",\"namespace\":\"kube-system\"},\"spec\":{\"ports\":[{\"port\":443,\"protocol\":\"TCP\",\"targetPort\":\"ms-https\"}],\"selector\":{\"k8s-app\":\"metrics-server\"}}}\n"
+                },
+                "creationTimestamp": "2025-11-17T22:20:08Z",
+                "labels": {
+                    "addonmanager.kubernetes.io/mode": "Reconcile",
+                    "kubernetes.io/cluster-service": "true",
+                    "kubernetes.io/name": "Metrics-server"
+                },
+                "name": "metrics-server",
+                "namespace": "kube-system",
+                "resourceVersion": "740",
+                "uid": "31c1314d-f274-44f3-ab7b-96b1b1329460"
+            },
+            "spec": {
+                "clusterIP": "10.0.196.73",
+                "clusterIPs": [
+                    "10.0.196.73"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "ms-https"
+                    }
+                ],
+                "selector": {
+                    "k8s-app": "metrics-server"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:19:36Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Eno"
+                },
+                "name": "network-observability",
+                "namespace": "kube-system",
+                "resourceVersion": "300",
+                "uid": "89ba42e8-c634-4b87-b908-0f33df90d244"
+            },
+            "spec": {
+                "clusterIP": "10.0.192.158",
+                "clusterIPs": [
+                    "10.0.192.158"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "retina",
+                        "port": 10093,
+                        "protocol": "TCP",
+                        "targetPort": 10093
+                    }
+                ],
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "background-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-background-controller-metrics",
+                "namespace": "kyverno",
+                "resourceVersion": "23951",
+                "uid": "aca22fd4-8ae2-40cb-8e5d-81e36fc2a10a"
+            },
+            "spec": {
+                "clusterIP": "10.0.148.39",
+                "clusterIPs": [
+                    "10.0.148.39"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics-port",
+                        "port": 8000,
+                        "protocol": "TCP",
+                        "targetPort": 8000
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "background-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "cleanup-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-cleanup-controller",
+                "namespace": "kyverno",
+                "resourceVersion": "23936",
+                "uid": "71ccd72f-8266-45b4-a42b-caeda68905e1"
+            },
+            "spec": {
+                "clusterIP": "10.0.115.248",
+                "clusterIPs": [
+                    "10.0.115.248"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "appProtocol": "https",
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "cleanup-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "cleanup-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-cleanup-controller-metrics",
+                "namespace": "kyverno",
+                "resourceVersion": "23933",
+                "uid": "fdeceaef-8714-4163-abd0-2665a46fc692"
+            },
+            "spec": {
+                "clusterIP": "10.0.108.36",
+                "clusterIPs": [
+                    "10.0.108.36"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics-port",
+                        "port": 8000,
+                        "protocol": "TCP",
+                        "targetPort": 8000
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "cleanup-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "reports-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-reports-controller-metrics",
+                "namespace": "kyverno",
+                "resourceVersion": "23949",
+                "uid": "f85fe54c-165b-4b6f-a3f4-ec72141d390b"
+            },
+            "spec": {
+                "clusterIP": "10.0.74.220",
+                "clusterIPs": [
+                    "10.0.74.220"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics-port",
+                        "port": 8000,
+                        "protocol": "TCP",
+                        "targetPort": 8000
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "reports-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "admission-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-svc",
+                "namespace": "kyverno",
+                "resourceVersion": "23927",
+                "uid": "459e42fb-cb08-40ff-8a9a-ff8a6652b98d"
+            },
+            "spec": {
+                "clusterIP": "10.0.63.125",
+                "clusterIPs": [
+                    "10.0.63.125"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "appProtocol": "https",
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "admission-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "kyverno",
+                    "meta.helm.sh/release-namespace": "kyverno"
+                },
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "app.kubernetes.io/component": "admission-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/part-of": "kyverno",
+                    "app.kubernetes.io/version": "3.5.1",
+                    "helm.sh/chart": "kyverno-3.5.1"
+                },
+                "name": "kyverno-svc-metrics",
+                "namespace": "kyverno",
+                "resourceVersion": "23932",
+                "uid": "0bfd68e4-d129-40dd-a481-5850bd35e5c5"
+            },
+            "spec": {
+                "clusterIP": "10.0.24.232",
+                "clusterIPs": [
+                    "10.0.24.232"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics-port",
+                        "port": 8000,
+                        "protocol": "TCP",
+                        "targetPort": 8000
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "admission-controller",
+                    "app.kubernetes.io/instance": "kyverno",
+                    "app.kubernetes.io/part-of": "kyverno"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:19:30Z",
+                "labels": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/name": "collector-collector",
+                    "app.kubernetes.io/part-of": "opentelemetry",
+                    "app.kubernetes.io/version": "latest",
+                    "operator.opentelemetry.io/collector-service-type": "base"
+                },
+                "name": "collector-collector",
+                "namespace": "opentelemetry",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "opentelemetry.io/v1beta1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "OpenTelemetryCollector",
+                        "name": "collector",
+                        "uid": "6e8910cf-6f4f-43cf-91db-ce0b18851a49"
+                    }
+                ],
+                "resourceVersion": "26254",
+                "uid": "8f8474ae-7c64-4395-bcd7-32675b927091"
+            },
+            "spec": {
+                "clusterIP": "10.0.78.221",
+                "clusterIPs": [
+                    "10.0.78.221"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "appProtocol": "grpc",
+                        "name": "otlp-grpc",
+                        "port": 4317,
+                        "protocol": "TCP",
+                        "targetPort": 4317
+                    },
+                    {
+                        "appProtocol": "http",
+                        "name": "otlp-http",
+                        "port": 4318,
+                        "protocol": "TCP",
+                        "targetPort": 4318
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/part-of": "opentelemetry"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "service.beta.openshift.io/serving-cert-secret-name": "collector-collector-headless-tls"
+                },
+                "creationTimestamp": "2025-11-17T23:19:30Z",
+                "labels": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/name": "collector-collector",
+                    "app.kubernetes.io/part-of": "opentelemetry",
+                    "app.kubernetes.io/version": "latest",
+                    "operator.opentelemetry.io/collector-headless-service": "Exists",
+                    "operator.opentelemetry.io/collector-service-type": "headless"
+                },
+                "name": "collector-collector-headless",
+                "namespace": "opentelemetry",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "opentelemetry.io/v1beta1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "OpenTelemetryCollector",
+                        "name": "collector",
+                        "uid": "6e8910cf-6f4f-43cf-91db-ce0b18851a49"
+                    }
+                ],
+                "resourceVersion": "26258",
+                "uid": "950faf88-2469-4cfd-b63f-06cbbd3c0db4"
+            },
+            "spec": {
+                "clusterIP": "None",
+                "clusterIPs": [
+                    "None"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "appProtocol": "grpc",
+                        "name": "otlp-grpc",
+                        "port": 4317,
+                        "protocol": "TCP",
+                        "targetPort": 4317
+                    },
+                    {
+                        "appProtocol": "http",
+                        "name": "otlp-http",
+                        "port": 4318,
+                        "protocol": "TCP",
+                        "targetPort": 4318
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/part-of": "opentelemetry"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:19:30Z",
+                "labels": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/name": "collector-collector-monitoring",
+                    "app.kubernetes.io/part-of": "opentelemetry",
+                    "app.kubernetes.io/version": "latest",
+                    "operator.opentelemetry.io/collector-monitoring-service": "Exists",
+                    "operator.opentelemetry.io/collector-service-type": "monitoring"
+                },
+                "name": "collector-collector-monitoring",
+                "namespace": "opentelemetry",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "opentelemetry.io/v1beta1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "OpenTelemetryCollector",
+                        "name": "collector",
+                        "uid": "6e8910cf-6f4f-43cf-91db-ce0b18851a49"
+                    }
+                ],
+                "resourceVersion": "26269",
+                "uid": "556ff9c8-080f-4b88-be8a-fd11c547f4d7"
+            },
+            "spec": {
+                "clusterIP": "10.0.181.122",
+                "clusterIPs": [
+                    "10.0.181.122"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "monitoring",
+                        "port": 8888,
+                        "protocol": "TCP",
+                        "targetPort": 8888
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "opentelemetry-collector",
+                    "app.kubernetes.io/instance": "opentelemetry.collector",
+                    "app.kubernetes.io/managed-by": "opentelemetry-operator",
+                    "app.kubernetes.io/part-of": "opentelemetry"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "opentelemetry-operator",
+                    "meta.helm.sh/release-namespace": "opentelemetry"
+                },
+                "creationTimestamp": "2025-11-17T23:19:16Z",
+                "labels": {
+                    "app.kubernetes.io/component": "controller-manager",
+                    "app.kubernetes.io/instance": "opentelemetry-operator",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "opentelemetry-operator",
+                    "app.kubernetes.io/version": "0.108.0",
+                    "helm.sh/chart": "opentelemetry-operator-0.69.0"
+                },
+                "name": "opentelemetry-operator",
+                "namespace": "opentelemetry",
+                "resourceVersion": "25711",
+                "uid": "34f4f7bd-708b-4fbe-abe3-25be20db8c3a"
+            },
+            "spec": {
+                "clusterIP": "10.0.227.71",
+                "clusterIPs": [
+                    "10.0.227.71"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 8443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    },
+                    {
+                        "name": "metrics",
+                        "port": 8080,
+                        "protocol": "TCP",
+                        "targetPort": "metrics"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "controller-manager",
+                    "app.kubernetes.io/name": "opentelemetry-operator"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "opentelemetry-operator",
+                    "meta.helm.sh/release-namespace": "opentelemetry"
+                },
+                "creationTimestamp": "2025-11-17T23:19:16Z",
+                "labels": {
+                    "app.kubernetes.io/component": "controller-manager",
+                    "app.kubernetes.io/instance": "opentelemetry-operator",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "opentelemetry-operator",
+                    "app.kubernetes.io/version": "0.108.0",
+                    "helm.sh/chart": "opentelemetry-operator-0.69.0"
+                },
+                "name": "opentelemetry-operator-webhook",
+                "namespace": "opentelemetry",
+                "resourceVersion": "25705",
+                "uid": "6515b1ff-c9c2-49b0-9608-caec7d3f59cb"
+            },
+            "spec": {
+                "clusterIP": "10.0.195.109",
+                "clusterIPs": [
+                    "10.0.195.109"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "controller-manager",
+                    "app.kubernetes.io/name": "opentelemetry-operator"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/component\":\"kube-rbac-proxy\",\"app.kubernetes.io/created-by\":\"operator\",\"app.kubernetes.io/instance\":\"controller-manager-metrics-service\",\"app.kubernetes.io/managed-by\":\"kustomize\",\"app.kubernetes.io/name\":\"service\",\"app.kubernetes.io/part-of\":\"operator\",\"control-plane\":\"controller-manager\"},\"name\":\"as-operator-controller-manager-metrics-service\",\"namespace\":\"as-air-cluster-system\"},\"spec\":{\"ports\":[{\"name\":\"https\",\"port\":8443,\"protocol\":\"TCP\",\"targetPort\":\"https\"}],\"selector\":{\"control-plane\":\"controller-manager\"}}}\n",
+                    "vcluster.loft.sh/managed-annotations": "kubectl.kubernetes.io/last-applied-configuration",
+                    "vcluster.loft.sh/object-host-name": "as-operator-controller-manager-metrics-service-x-as--d97488934d",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "as-operator-controller-manager-metrics-service",
+                    "vcluster.loft.sh/object-namespace": "as-air-cluster-system",
+                    "vcluster.loft.sh/object-uid": "b1e585e4-ad16-461b-b756-a99712cc167c"
+                },
+                "creationTimestamp": "2025-12-04T17:47:29Z",
+                "labels": {
+                    "app.kubernetes.io/component": "kube-rbac-proxy",
+                    "app.kubernetes.io/created-by": "operator",
+                    "app.kubernetes.io/instance": "controller-manager-metrics-service",
+                    "app.kubernetes.io/managed-by": "kustomize",
+                    "app.kubernetes.io/name": "service",
+                    "app.kubernetes.io/part-of": "operator",
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "as-air-cluster-system"
+                },
+                "name": "as-operator-controller-manager-metrics-service-x-as--d97488934d",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17471875",
+                "uid": "5d054cf2-f919-4c28-b395-a9a8736a86b7"
+            },
+            "spec": {
+                "clusterIP": "10.0.136.170",
+                "clusterIPs": [
+                    "10.0.136.170"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 8443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "as-air-cluster-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/managed-by\":\"kustomize\",\"app.kubernetes.io/name\":\"project\"},\"name\":\"as-operator-webhook-service\",\"namespace\":\"as-air-cluster-system\"},\"spec\":{\"ports\":[{\"port\":443,\"protocol\":\"TCP\",\"targetPort\":9443}],\"selector\":{\"control-plane\":\"controller-manager\"}}}\n",
+                    "vcluster.loft.sh/managed-annotations": "kubectl.kubernetes.io/last-applied-configuration",
+                    "vcluster.loft.sh/object-host-name": "as-operator-webhook-service-x-as-air-cluster-system--980732816e",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "as-operator-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "as-air-cluster-system",
+                    "vcluster.loft.sh/object-uid": "c0320032-d75f-48fd-b1af-0f1f66d49c1c"
+                },
+                "creationTimestamp": "2025-12-04T17:47:29Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "kustomize",
+                    "app.kubernetes.io/name": "project",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "as-air-cluster-system"
+                },
+                "name": "as-operator-webhook-service-x-as-air-cluster-system--980732816e",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17471877",
+                "uid": "8f5ecce8-7989-4d10-a57e-a0b453addffa"
+            },
+            "spec": {
+                "clusterIP": "10.0.38.147",
+                "clusterIPs": [
+                    "10.0.38.147"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "as-air-cluster-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "azureserviceoperator-controller-manager-metrics-serv-1cfb8b05e5",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "azureserviceoperator-controller-manager-metrics-service",
+                    "vcluster.loft.sh/object-namespace": "capz-system",
+                    "vcluster.loft.sh/object-uid": "bbe95457-14f7-44c3-8d7a-7a1b5e7d0f80"
+                },
+                "creationTimestamp": "2025-12-04T17:40:54Z",
+                "labels": {
+                    "app.kubernetes.io/name": "azure-service-operator",
+                    "app.kubernetes.io/version": "v2.11.0",
+                    "cluster.x-k8s.io/provider": "infrastructure-azure",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "name": "azureserviceoperator-controller-manager-metrics-serv-1cfb8b05e5",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466092",
+                "uid": "a2d50dd1-d1bf-4c4a-8008-1643bffecd4c"
+            },
+            "spec": {
+                "clusterIP": "10.0.145.162",
+                "clusterIPs": [
+                    "10.0.145.162"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "metrics",
+                        "port": 8443,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "azureserviceoperator-webhook-service-x-capz-system-x-62cbe75908",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "azureserviceoperator-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "capz-system",
+                    "vcluster.loft.sh/object-uid": "4fd978eb-d24b-4acd-a897-262b0b6d68ba"
+                },
+                "creationTimestamp": "2025-12-04T17:40:54Z",
+                "labels": {
+                    "app.kubernetes.io/name": "azure-service-operator",
+                    "app.kubernetes.io/version": "v2.11.0",
+                    "cluster.x-k8s.io/provider": "infrastructure-azure",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "name": "azureserviceoperator-webhook-service-x-capz-system-x-62cbe75908",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466101",
+                "uid": "13704326-a1d4-4379-9d50-18c4629adb03"
+            },
+            "spec": {
+                "clusterIP": "10.0.164.175",
+                "clusterIPs": [
+                    "10.0.164.175"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "capi-kubeadm-bootstrap-webhook-service-x-capi-kubead-5dba314db0",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "capi-kubeadm-bootstrap-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "capi-kubeadm-bootstrap-system",
+                    "vcluster.loft.sh/object-uid": "f8ffda3b-3a52-462e-b735-89881e13ecb8"
+                },
+                "creationTimestamp": "2025-12-04T17:40:43Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "bootstrap-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-kubeadm-bootstrap-system"
+                },
+                "name": "capi-kubeadm-bootstrap-webhook-service-x-capi-kubead-5dba314db0",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465925",
+                "uid": "1055aa60-e4db-483c-bc7b-3d81a30cc869"
+            },
+            "spec": {
+                "clusterIP": "10.0.44.86",
+                "clusterIPs": [
+                    "10.0.44.86"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "bootstrap-kubeadm",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-kubeadm-bootstrap-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "capi-kubeadm-control-plane-webhook-service-x-capi-ku-9b1d547df3",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "capi-kubeadm-control-plane-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "capi-kubeadm-control-plane-system",
+                    "vcluster.loft.sh/object-uid": "284f10ec-b1e9-407e-b18b-460c352d4a02"
+                },
+                "creationTimestamp": "2025-12-04T17:40:45Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "control-plane-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-kubeadm-control-plane-system"
+                },
+                "name": "capi-kubeadm-control-plane-webhook-service-x-capi-ku-9b1d547df3",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465966",
+                "uid": "9cb53386-a111-4aad-a408-d0856c93d0e0"
+            },
+            "spec": {
+                "clusterIP": "10.0.84.201",
+                "clusterIPs": [
+                    "10.0.84.201"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "control-plane-kubeadm",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-kubeadm-control-plane-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "capi-webhook-service-x-capi-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "capi-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "capi-system",
+                    "vcluster.loft.sh/object-uid": "2d867f06-5d65-4a8f-b624-5be1df090747"
+                },
+                "creationTimestamp": "2025-12-04T17:40:42Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "cluster-api",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-system"
+                },
+                "name": "capi-webhook-service-x-capi-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465894",
+                "uid": "1e8bd672-437c-49c9-a1f3-a5b452505088"
+            },
+            "spec": {
+                "clusterIP": "10.0.99.32",
+                "clusterIPs": [
+                    "10.0.99.32"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "cluster-api",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capi-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "capz-webhook-service-x-capz-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "capz-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "capz-system",
+                    "vcluster.loft.sh/object-uid": "e0a16141-839f-42ea-be59-e89106e26886"
+                },
+                "creationTimestamp": "2025-12-04T17:40:54Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "infrastructure-azure",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "name": "capz-webhook-service-x-capz-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466107",
+                "uid": "ce73dd73-943b-4d89-b73d-a4d58e9ce04a"
+            },
+            "spec": {
+                "clusterIP": "10.0.23.162",
+                "clusterIPs": [
+                    "10.0.23.162"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook-server"
+                    }
+                ],
+                "selector": {
+                    "cluster.x-k8s.io/provider": "infrastructure-azure",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "capz-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "cert-manager.clusterctl.cluster.x-k8s.io/version": "v1.18.2",
+                    "vcluster.loft.sh/managed-annotations": "cert-manager.clusterctl.cluster.x-k8s.io/version",
+                    "vcluster.loft.sh/object-host-name": "cert-manager-cainjector-x-cert-manager-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "cert-manager-cainjector",
+                    "vcluster.loft.sh/object-namespace": "cert-manager",
+                    "vcluster.loft.sh/object-uid": "859e1908-03c3-4c2c-98e7-48a4296a7224"
+                },
+                "creationTimestamp": "2025-12-04T17:40:28Z",
+                "labels": {
+                    "app": "cainjector",
+                    "app.kubernetes.io/component": "cainjector",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cainjector",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "cert-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "name": "cert-manager-cainjector-x-cert-manager-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465668",
+                "uid": "118f4f39-193a-4384-bc9a-a41e14aae888"
+            },
+            "spec": {
+                "clusterIP": "10.0.144.157",
+                "clusterIPs": [
+                    "10.0.144.157"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "http-metrics",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": 9402
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "cainjector",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cainjector",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "cert-manager.clusterctl.cluster.x-k8s.io/version": "v1.18.2",
+                    "vcluster.loft.sh/managed-annotations": "cert-manager.clusterctl.cluster.x-k8s.io/version",
+                    "vcluster.loft.sh/object-host-name": "cert-manager-webhook-x-cert-manager-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "cert-manager-webhook",
+                    "vcluster.loft.sh/object-namespace": "cert-manager",
+                    "vcluster.loft.sh/object-uid": "12823c9c-3371-4d35-8b1b-d381c0477900"
+                },
+                "creationTimestamp": "2025-12-04T17:40:28Z",
+                "labels": {
+                    "app": "webhook",
+                    "app.kubernetes.io/component": "webhook",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "webhook",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "cert-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "name": "cert-manager-webhook-x-cert-manager-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465682",
+                "uid": "8418bdaf-9650-478e-8190-210981b2d6d3"
+            },
+            "spec": {
+                "clusterIP": "10.0.108.104",
+                "clusterIPs": [
+                    "10.0.108.104"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    },
+                    {
+                        "name": "metrics",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": "http-metrics"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "webhook",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "webhook",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "cert-manager.clusterctl.cluster.x-k8s.io/version": "v1.18.2",
+                    "vcluster.loft.sh/managed-annotations": "cert-manager.clusterctl.cluster.x-k8s.io/version",
+                    "vcluster.loft.sh/object-host-name": "cert-manager-x-cert-manager-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "cert-manager",
+                    "vcluster.loft.sh/object-namespace": "cert-manager",
+                    "vcluster.loft.sh/object-uid": "373e8c75-bfb3-4884-8847-30855202e136"
+                },
+                "creationTimestamp": "2025-12-04T17:40:28Z",
+                "labels": {
+                    "app": "cert-manager",
+                    "app.kubernetes.io/component": "controller",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cert-manager",
+                    "app.kubernetes.io/version": "v1.18.2",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "cert-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "name": "cert-manager-x-cert-manager-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465676",
+                "uid": "f89ae020-e659-419f-bf52-0731f1cf18b6"
+            },
+            "spec": {
+                "clusterIP": "10.0.79.46",
+                "clusterIPs": [
+                    "10.0.79.46"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "tcp-prometheus-servicemonitor",
+                        "port": 9402,
+                        "protocol": "TCP",
+                        "targetPort": "http-metrics"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/component": "controller",
+                    "app.kubernetes.io/instance": "cert-manager",
+                    "app.kubernetes.io/name": "cert-manager",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "cert-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "crossplane-provider-castai-x-upbound-system-x-manage-43b1cbbb21",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "crossplane-provider-castai",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "1a22ab29-9ec0-4978-bd5b-767123c43c2f"
+                },
+                "creationTimestamp": "2025-12-04T17:42:43Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "crossplane-provider-castai-x-upbound-system-x-manage-43b1cbbb21",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467812",
+                "uid": "ba07cb6e-8719-40a8-b0a6-848a36f269b1"
+            },
+            "spec": {
+                "clusterIP": "10.0.247.116",
+                "clusterIPs": [
+                    "10.0.247.116"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "crossplane-provider-castai",
+                    "pkg.crossplane.io/revision": "crossplane-provider-castai-5ba55744eb83",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "universal-crossplane",
+                    "meta.helm.sh/release-namespace": "upbound-system",
+                    "vcluster.loft.sh/managed-annotations": "meta.helm.sh/release-name\nmeta.helm.sh/release-namespace",
+                    "vcluster.loft.sh/object-host-name": "crossplane-webhooks-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "crossplane-webhooks",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "79017317-24c9-47db-8ea3-18708547c2bd"
+                },
+                "creationTimestamp": "2025-12-04T17:41:09Z",
+                "labels": {
+                    "app": "crossplane",
+                    "app.kubernetes.io/component": "cloud-infrastructure-controller",
+                    "app.kubernetes.io/instance": "universal-crossplane",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "crossplane",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "app.kubernetes.io/version": "1.20.1-up.1",
+                    "helm.sh/chart": "universal-crossplane-1.20.1-up.1",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "crossplane-webhooks-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466318",
+                "uid": "342c875b-6195-4aa8-982d-bfcb6a22fd3c"
+            },
+            "spec": {
+                "clusterIP": "10.0.130.94",
+                "clusterIPs": [
+                    "10.0.130.94"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "app": "crossplane",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Service\",\"metadata\":{\"annotations\":{\"prometheus.io/port\":\"9153\",\"prometheus.io/scrape\":\"true\"},\"labels\":{\"k8s-app\":\"vcluster-kube-dns\",\"kubernetes.io/cluster-service\":\"true\",\"kubernetes.io/name\":\"CoreDNS\"},\"name\":\"kube-dns\",\"namespace\":\"kube-system\"},\"spec\":{\"ports\":[{\"name\":\"dns\",\"port\":53,\"protocol\":\"UDP\",\"targetPort\":1053},{\"name\":\"dns-tcp\",\"port\":53,\"protocol\":\"TCP\",\"targetPort\":1053},{\"name\":\"metrics\",\"port\":9153,\"protocol\":\"TCP\"}],\"selector\":{\"k8s-app\":\"vcluster-kube-dns\"},\"type\":\"ClusterIP\"}}\n",
+                    "prometheus.io/port": "9153",
+                    "prometheus.io/scrape": "true",
+                    "vcluster.loft.sh/managed-annotations": "kubectl.kubernetes.io/last-applied-configuration\nprometheus.io/port\nprometheus.io/scrape",
+                    "vcluster.loft.sh/object-host-name": "kube-dns-x-kube-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "kube-dns",
+                    "vcluster.loft.sh/object-namespace": "kube-system",
+                    "vcluster.loft.sh/object-uid": "e8567573-6d1b-4ad9-8ca2-1f4f318d6ce7"
+                },
+                "creationTimestamp": "2025-12-04T17:39:51Z",
+                "labels": {
+                    "k8s-app": "vcluster-kube-dns",
+                    "kubernetes.io/cluster-service": "true",
+                    "kubernetes.io/name": "CoreDNS",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "kube-system"
+                },
+                "name": "kube-dns-x-kube-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17465167",
+                "uid": "77c8ded1-4433-4c6d-80aa-215f8d9953c1"
+            },
+            "spec": {
+                "clusterIP": "10.0.193.122",
+                "clusterIPs": [
+                    "10.0.193.122"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "dns",
+                        "port": 53,
+                        "protocol": "UDP",
+                        "targetPort": 1053
+                    },
+                    {
+                        "name": "dns-tcp",
+                        "port": 53,
+                        "protocol": "TCP",
+                        "targetPort": 1053
+                    },
+                    {
+                        "name": "metrics",
+                        "port": 9153,
+                        "protocol": "TCP",
+                        "targetPort": 9153
+                    }
+                ],
+                "selector": {
+                    "k8s-app": "vcluster-kube-dns",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "kube-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "management-cluster",
+                    "meta.helm.sh/release-namespace": "taasvstst",
+                    "vcluster.loft.sh/service-cidr": "10.0.0.0/16"
+                },
+                "creationTimestamp": "2025-12-04T17:39:08Z",
+                "labels": {
+                    "app": "vcluster",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "chart": "vcluster-0.29.1",
+                    "heritage": "Helm",
+                    "release": "management-cluster",
+                    "vcluster.loft.sh/service": "true"
+                },
+                "name": "management-cluster",
+                "namespace": "taasvstst",
+                "resourceVersion": "17464983",
+                "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+            },
+            "spec": {
+                "clusterIP": "10.0.71.135",
+                "clusterIPs": [
+                    "10.0.71.135"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    },
+                    {
+                        "name": "kubelet",
+                        "port": 10250,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "selector": {
+                    "app": "vcluster",
+                    "release": "management-cluster"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "management-cluster",
+                    "meta.helm.sh/release-namespace": "taasvstst"
+                },
+                "creationTimestamp": "2025-12-04T17:39:08Z",
+                "labels": {
+                    "app": "vcluster",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "chart": "vcluster-0.29.1",
+                    "heritage": "Helm",
+                    "release": "management-cluster"
+                },
+                "name": "management-cluster-headless",
+                "namespace": "taasvstst",
+                "resourceVersion": "17464568",
+                "uid": "550ebcf2-760b-43cf-bc66-1288cf9de0ae"
+            },
+            "spec": {
+                "clusterIP": "None",
+                "clusterIPs": [
+                    "None"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "publishNotReadyAddresses": true,
+                "selector": {
+                    "app": "vcluster",
+                    "release": "management-cluster"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:41:10Z",
+                "labels": {
+                    "vcluster.loft.sh/belongs-to": "management-cluster",
+                    "vcluster.loft.sh/node": "aks-default-49089664-vmss000002"
+                },
+                "name": "management-cluster-node-aks-default-49089664-vmss000002",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466345",
+                "uid": "cacffd84-c57a-4b3c-9299-96a06ac58ba6"
+            },
+            "spec": {
+                "clusterIP": "10.0.46.56",
+                "clusterIPs": [
+                    "10.0.46.56"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "kubelet",
+                        "port": 10250,
+                        "protocol": "TCP",
+                        "targetPort": 8443
+                    }
+                ],
+                "selector": {
+                    "app": "vcluster",
+                    "release": "management-cluster"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-authorization-x-upbound-system-x-mana-f3f99baf2e",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-authorization",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "3b2a5f62-73d2-4e49-92d4-a9ea1bce1737"
+                },
+                "creationTimestamp": "2025-12-04T17:41:27Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-authorization-x-upbound-system-x-mana-f3f99baf2e",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466611",
+                "uid": "66a80d5f-90ec-45a7-9a84-70dac047a1bb"
+            },
+            "spec": {
+                "clusterIP": "10.0.53.240",
+                "clusterIPs": [
+                    "10.0.53.240"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-authorization",
+                    "pkg.crossplane.io/revision": "provider-azure-authorization-b61976532d69",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-cache-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-cache",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "4a6cd5b0-da29-4c60-a911-6dd61fb9296c"
+                },
+                "creationTimestamp": "2025-12-04T17:42:16Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-cache-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467433",
+                "uid": "1f19b4bc-f0a2-4c0f-bb19-87c9374466df"
+            },
+            "spec": {
+                "clusterIP": "10.0.28.75",
+                "clusterIPs": [
+                    "10.0.28.75"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-cache",
+                    "pkg.crossplane.io/revision": "provider-azure-cache-c029ca04758a",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-compute-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-compute",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "72048605-2280-4bb5-9199-ac8fd43c07a5"
+                },
+                "creationTimestamp": "2025-12-04T17:42:34Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-compute-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467705",
+                "uid": "64c6198d-7815-4f5d-a3dd-1ea6267f54ed"
+            },
+            "spec": {
+                "clusterIP": "10.0.235.244",
+                "clusterIPs": [
+                    "10.0.235.244"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-compute",
+                    "pkg.crossplane.io/revision": "provider-azure-compute-c95b33b7a970",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-containerregistry-x-upbound-system-x--8b68f6e291",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-containerregistry",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "43d132f3-308f-455f-ac25-63601a514806"
+                },
+                "creationTimestamp": "2025-12-04T17:42:13Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-containerregistry-x-upbound-system-x--8b68f6e291",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467380",
+                "uid": "ec22567c-0880-4785-9c10-71b20e07557e"
+            },
+            "spec": {
+                "clusterIP": "10.0.157.215",
+                "clusterIPs": [
+                    "10.0.157.215"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-containerregistry",
+                    "pkg.crossplane.io/revision": "provider-azure-containerregistry-af47d4ee31fa",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-containerservice-x-upbound-system-x-m-8e6906a00c",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-containerservice",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "d89f7295-4c43-461f-a07b-ddb4025cf327"
+                },
+                "creationTimestamp": "2025-12-04T17:42:10Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-containerservice-x-upbound-system-x-m-8e6906a00c",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467322",
+                "uid": "855cdc33-a065-4fbd-b2fb-dca9bb907756"
+            },
+            "spec": {
+                "clusterIP": "10.0.71.150",
+                "clusterIPs": [
+                    "10.0.71.150"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-containerservice",
+                    "pkg.crossplane.io/revision": "provider-azure-containerservice-59a053abd5d5",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-cosmosdb-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-cosmosdb",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "623491ec-aa62-49fa-8168-eea7a208f5f8"
+                },
+                "creationTimestamp": "2025-12-04T17:42:03Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-cosmosdb-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467226",
+                "uid": "79bd88f5-e913-4697-917a-eb05a432b76f"
+            },
+            "spec": {
+                "clusterIP": "10.0.192.90",
+                "clusterIPs": [
+                    "10.0.192.90"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-cosmosdb",
+                    "pkg.crossplane.io/revision": "provider-azure-cosmosdb-fecd06fd9239",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-datafactory-x-upbound-system-x-manage-d898e81d86",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-datafactory",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "165c3827-6ac0-4fe2-ba25-035612d9e11e"
+                },
+                "creationTimestamp": "2025-12-04T17:43:58Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-datafactory-x-upbound-system-x-manage-d898e81d86",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17468812",
+                "uid": "5061d9cc-3660-4efa-9bf7-186799236256"
+            },
+            "spec": {
+                "clusterIP": "10.0.23.184",
+                "clusterIPs": [
+                    "10.0.23.184"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-datafactory",
+                    "pkg.crossplane.io/revision": "provider-azure-datafactory-f820485e9e8a",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-dataprotection-x-upbound-system-x-man-07c89b02fd",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-dataprotection",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "d90db372-223f-47c6-bec8-3278efd04fd8"
+                },
+                "creationTimestamp": "2025-12-04T17:41:45Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-dataprotection-x-upbound-system-x-man-07c89b02fd",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466917",
+                "uid": "a29115ad-aba7-4d11-820c-9a65dd83c8e0"
+            },
+            "spec": {
+                "clusterIP": "10.0.7.3",
+                "clusterIPs": [
+                    "10.0.7.3"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-dataprotection",
+                    "pkg.crossplane.io/revision": "provider-azure-dataprotection-ada6e81fbf6c",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-dbformysql-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-dbformysql",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "f760c188-c3f1-4779-90cd-9506df44ff01"
+                },
+                "creationTimestamp": "2025-12-04T17:41:36Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-dbformysql-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466735",
+                "uid": "0f4510cd-2df1-4b1b-84cd-b41ad1b85c5f"
+            },
+            "spec": {
+                "clusterIP": "10.0.229.186",
+                "clusterIPs": [
+                    "10.0.229.186"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-dbformysql",
+                    "pkg.crossplane.io/revision": "provider-azure-dbformysql-eda7983f8ba6",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-dbforpostgresql-x-upbound-system-x-ma-8c44f51174",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-dbforpostgresql",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "3db13d6e-7a54-43a0-b5e9-c101718da3c7"
+                },
+                "creationTimestamp": "2025-12-04T17:41:52Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-dbforpostgresql-x-upbound-system-x-ma-8c44f51174",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467027",
+                "uid": "5bd2cad4-2025-4a0d-891a-6d52d84402d2"
+            },
+            "spec": {
+                "clusterIP": "10.0.16.35",
+                "clusterIPs": [
+                    "10.0.16.35"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-dbforpostgresql",
+                    "pkg.crossplane.io/revision": "provider-azure-dbforpostgresql-dae4a474d31d",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-eventhub-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-eventhub",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "cb550e6d-f204-42ce-bbf6-573bc98b4389"
+                },
+                "creationTimestamp": "2025-12-04T17:42:46Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-eventhub-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467861",
+                "uid": "7e503990-e68d-4c9a-936c-52b69a60b42c"
+            },
+            "spec": {
+                "clusterIP": "10.0.9.55",
+                "clusterIPs": [
+                    "10.0.9.55"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-eventhub",
+                    "pkg.crossplane.io/revision": "provider-azure-eventhub-6cedf8f375ed",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-insights-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-insights",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "47cacc55-cfb9-4a56-a84f-94fede9481de"
+                },
+                "creationTimestamp": "2025-12-04T17:43:11Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-insights-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17468197",
+                "uid": "d2f57ef6-e08d-4634-9470-218d48f3dfac"
+            },
+            "spec": {
+                "clusterIP": "10.0.122.166",
+                "clusterIPs": [
+                    "10.0.122.166"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-insights",
+                    "pkg.crossplane.io/revision": "provider-azure-insights-ce331f469bd0",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-keyvault-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-keyvault",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "21fa52f8-09d5-46ec-a20e-315bbda8a4dd"
+                },
+                "creationTimestamp": "2025-12-04T17:41:40Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-keyvault-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466832",
+                "uid": "9f94c6cc-6a03-4034-9aed-a687273b34f8"
+            },
+            "spec": {
+                "clusterIP": "10.0.210.38",
+                "clusterIPs": [
+                    "10.0.210.38"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-keyvault",
+                    "pkg.crossplane.io/revision": "provider-azure-keyvault-5f9b09f55155",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-managedidentity-x-upbound-system-x-ma-a6c3d91ba8",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-managedidentity",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "eedc7d48-e5da-48b5-a170-db7b9f46c98e"
+                },
+                "creationTimestamp": "2025-12-04T17:41:38Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-managedidentity-x-upbound-system-x-ma-a6c3d91ba8",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466796",
+                "uid": "c9c44102-fc1b-43a2-b031-2f859823b22f"
+            },
+            "spec": {
+                "clusterIP": "10.0.68.229",
+                "clusterIPs": [
+                    "10.0.68.229"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-managedidentity",
+                    "pkg.crossplane.io/revision": "provider-azure-managedidentity-b1e58792940b",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-network-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-network",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "8285ed5e-6e42-45e9-893a-f86df598468c"
+                },
+                "creationTimestamp": "2025-12-04T17:43:44Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-network-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17468647",
+                "uid": "68473902-6e2f-48f4-b6cb-eb106096a46b"
+            },
+            "spec": {
+                "clusterIP": "10.0.82.209",
+                "clusterIPs": [
+                    "10.0.82.209"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-network",
+                    "pkg.crossplane.io/revision": "provider-azure-network-de7f4e074fcb",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-operationalinsights-x-upbound-system--bdc6220943",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-operationalinsights",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "4d7bc9ab-4ff0-4e89-b843-4fe626d2f3a1"
+                },
+                "creationTimestamp": "2025-12-04T17:43:15Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-operationalinsights-x-upbound-system--bdc6220943",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17468255",
+                "uid": "1126bfef-4c4b-4838-aec6-d458c0df9f93"
+            },
+            "spec": {
+                "clusterIP": "10.0.81.205",
+                "clusterIPs": [
+                    "10.0.81.205"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-operationalinsights",
+                    "pkg.crossplane.io/revision": "provider-azure-operationalinsights-827749a09332",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-resources-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-resources",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "ac59846d-4161-41f8-a3db-69f1adf49810"
+                },
+                "creationTimestamp": "2025-12-04T17:41:42Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-resources-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466862",
+                "uid": "86628dd8-41cb-4402-a361-92d987134983"
+            },
+            "spec": {
+                "clusterIP": "10.0.22.4",
+                "clusterIPs": [
+                    "10.0.22.4"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-resources",
+                    "pkg.crossplane.io/revision": "provider-azure-resources-f5f04e07c068",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-search-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-search",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "c4bf56ef-60df-46a3-9b53-9f4c9ffc81cd"
+                },
+                "creationTimestamp": "2025-12-04T17:41:46Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-search-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466932",
+                "uid": "65ffac82-0054-4570-8fdf-714dea596e33"
+            },
+            "spec": {
+                "clusterIP": "10.0.177.121",
+                "clusterIPs": [
+                    "10.0.177.121"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-search",
+                    "pkg.crossplane.io/revision": "provider-azure-search-b1e4b32d944e",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-signalrservice-x-upbound-system-x-man-a522900856",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-signalrservice",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "6e170bb9-bfb7-413a-88e1-0c7d5e39dbf9"
+                },
+                "creationTimestamp": "2025-12-04T17:43:18Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-signalrservice-x-upbound-system-x-man-a522900856",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17468300",
+                "uid": "1e30e1ba-ac8b-4420-a12d-4659da81f806"
+            },
+            "spec": {
+                "clusterIP": "10.0.213.80",
+                "clusterIPs": [
+                    "10.0.213.80"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-signalrservice",
+                    "pkg.crossplane.io/revision": "provider-azure-signalrservice-08d277383d3f",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-sql-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-sql",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "849899f8-4e8a-4cbb-bcff-f884b5981419"
+                },
+                "creationTimestamp": "2025-12-04T17:42:56Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-sql-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17467990",
+                "uid": "a41c1f29-9fb4-412a-b554-aff8275dedb0"
+            },
+            "spec": {
+                "clusterIP": "10.0.13.86",
+                "clusterIPs": [
+                    "10.0.13.86"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-sql",
+                    "pkg.crossplane.io/revision": "provider-azure-sql-8b884646b494",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-storage-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-storage",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "6230eb0d-e7fd-4f73-bdd2-c6faf932fac1"
+                },
+                "creationTimestamp": "2025-12-04T17:41:38Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-storage-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466774",
+                "uid": "939663e1-24d4-4850-a0eb-984c6f642b12"
+            },
+            "spec": {
+                "clusterIP": "10.0.58.200",
+                "clusterIPs": [
+                    "10.0.58.200"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-storage",
+                    "pkg.crossplane.io/revision": "provider-azure-storage-688414b5d843",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-azure-web-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-azure-web",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "3e8032c6-a765-408c-bb83-fea24164d0c6"
+                },
+                "creationTimestamp": "2025-12-04T17:41:35Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-azure-web-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466722",
+                "uid": "400bbeb0-ad57-4e36-8a04-f38b3fdaebd7"
+            },
+            "spec": {
+                "clusterIP": "10.0.242.245",
+                "clusterIPs": [
+                    "10.0.242.245"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-azure-web",
+                    "pkg.crossplane.io/revision": "provider-azure-web-8b6e4ec34df8",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-family-azure-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-family-azure",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "9d58d362-126a-4c8f-944e-a1d69c7d5b30"
+                },
+                "creationTimestamp": "2025-12-04T17:41:38Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-family-azure-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466783",
+                "uid": "c0eae5db-97fc-424e-b6e8-16c1dd13ebb8"
+            },
+            "spec": {
+                "clusterIP": "10.0.211.166",
+                "clusterIPs": [
+                    "10.0.211.166"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-family-azure",
+                    "pkg.crossplane.io/revision": "provider-family-azure-2ae825643602",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-helm-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-helm",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "2194f528-ba29-48d7-836d-caae136f38d2"
+                },
+                "creationTimestamp": "2025-12-04T17:41:39Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-helm-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466806",
+                "uid": "0d7ee9d1-114f-4f5d-ad38-a2bc81e6aebe"
+            },
+            "spec": {
+                "clusterIP": "10.0.83.162",
+                "clusterIPs": [
+                    "10.0.83.162"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-helm",
+                    "pkg.crossplane.io/revision": "provider-helm-802eca6e59c4",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "vcluster.loft.sh/object-host-name": "provider-terraform-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "provider-terraform",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "482b472f-b475-44e4-bea0-c8cbff9086ee"
+                },
+                "creationTimestamp": "2025-12-04T17:41:46Z",
+                "labels": {
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "provider-terraform-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466947",
+                "uid": "78104ec6-879d-4fa5-a530-61470a9e8ff3"
+            },
+            "spec": {
+                "clusterIP": "10.0.234.144",
+                "clusterIPs": [
+                    "10.0.234.144"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "webhook",
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "pkg.crossplane.io/provider": "provider-terraform",
+                    "pkg.crossplane.io/revision": "provider-terraform-6b7837f3b5b8",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "uipathctl-operator",
+                    "meta.helm.sh/release-namespace": "default",
+                    "vcluster.loft.sh/managed-annotations": "meta.helm.sh/release-name\nmeta.helm.sh/release-namespace",
+                    "vcluster.loft.sh/object-host-name": "uipathctl-webhook-service-x-default-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "uipathctl-webhook-service",
+                    "vcluster.loft.sh/object-namespace": "default",
+                    "vcluster.loft.sh/object-uid": "c512d840-8c6f-49fd-a50a-c1022316fcb0"
+                },
+                "creationTimestamp": "2025-12-04T17:52:31Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "default"
+                },
+                "name": "uipathctl-webhook-service-x-default-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17476781",
+                "uid": "8072c3bd-c2c6-4e4a-90de-f1abb729c049"
+            },
+            "spec": {
+                "clusterIP": "10.0.178.147",
+                "clusterIPs": [
+                    "10.0.178.147"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 443,
+                        "protocol": "TCP",
+                        "targetPort": "webhook"
+                    }
+                ],
+                "selector": {
+                    "app": "uipathctl-operator",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "default"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "scaleunit",
+                    "meta.helm.sh/release-namespace": "tetris"
+                },
+                "creationTimestamp": "2025-11-17T23:20:57Z",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "skaffold.dev/run-id": "abffb848-3b23-4f8c-adf7-d84aa12f7191"
+                },
+                "name": "frontend-csharp",
+                "namespace": "tetris",
+                "resourceVersion": "17724987",
+                "uid": "aee7acba-a29e-466b-a8c0-525c7729eb0d"
+            },
+            "spec": {
+                "clusterIP": "10.0.210.97",
+                "clusterIPs": [
+                    "10.0.210.97"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "grpc",
+                        "port": 80,
+                        "protocol": "TCP",
+                        "targetPort": "grpc"
+                    }
+                ],
+                "selector": {
+                    "app.kubernetes.io/name": "frontend-csharp"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T23:27:45Z",
+                "labels": {
+                    "cluster.x-k8s.io/provider": "infrastructure-vcluster",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "control-plane": "controller-manager"
+                },
+                "name": "cluster-api-provider-vcluster-metrics-service",
+                "namespace": "vcluster-infrastructure-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.cluster.x-k8s.io/v1alpha2",
+                        "kind": "InfrastructureProvider",
+                        "name": "vcluster",
+                        "uid": "41b3a8ea-ee8d-4450-b8f3-016a449d00f8"
+                    }
+                ],
+                "resourceVersion": "17724965",
+                "uid": "7a0a0eef-4afb-4f36-8c3f-6b0e2ff13848"
+            },
+            "spec": {
+                "clusterIP": "10.0.17.166",
+                "clusterIPs": [
+                    "10.0.17.166"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "name": "https",
+                        "port": 8443,
+                        "protocol": "TCP",
+                        "targetPort": "https"
+                    }
+                ],
+                "selector": {
+                    "control-plane": "controller-manager"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

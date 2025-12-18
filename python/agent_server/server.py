@@ -63,7 +63,7 @@ def get_session_state(thread_id: str) -> dict | None:
     # Check if session has expired
     age_minutes = (time.time() - last_updated) / 60
     if age_minutes > SESSION_MAX_AGE_MINUTES:
-        print(f"[Session] Thread {thread_id} expired ({age_minutes:.1f} min old). Starting fresh.", flush=True)
+        # Session expired, starting fresh
         del session_store[thread_id]
         return None
 
@@ -72,13 +72,16 @@ def get_session_state(thread_id: str) -> dict | None:
     if len(command_history) > SESSION_MAX_HISTORY:
         # Keep only the most recent entries
         command_history = command_history[-SESSION_MAX_HISTORY:]
-        print(f"[Session] Applied recency window: kept last {SESSION_MAX_HISTORY} commands", flush=True)
+        # Applied recency window to command history
 
+    # LLM-DRIVEN FIX: accumulated_evidence is query-specific
+    # Return it but let the caller decide whether to use it based on query matching
     return {
         'command_history': command_history,
         'conversation_history': session.get('conversation_history', []),
         'discovered_resources': session.get('discovered_resources'),
-        'accumulated_evidence': session.get('accumulated_evidence'),
+        'accumulated_evidence': session.get('accumulated_evidence', []),
+        'last_query': session.get('last_query', ''),
         'conversation_turns': session.get('conversation_turns', 0)
     }
 
@@ -97,17 +100,19 @@ def update_session_state(thread_id: str, state: dict):
     if turns >= SESSION_MAX_TURNS:
         print(f"[Session] ⚠️ Thread {thread_id} has {turns} turns. Consider resetting for optimal performance.", flush=True)
 
+    # LLM-DRIVEN FIX: Persist accumulated_evidence for query retries
+    # It will be cleared when a new different query starts
     session_store[thread_id] = {
         'command_history': state.get('command_history', []),
         'conversation_history': state.get('conversation_history', []),
         'discovered_resources': state.get('discovered_resources'),
-        'accumulated_evidence': state.get('accumulated_evidence'),
+        'accumulated_evidence': state.get('accumulated_evidence', []),
         'last_query': state.get('query', ''),
         'last_updated': time.time(),
         'conversation_turns': turns
     }
 
-    print(f"[Session] Updated thread {thread_id} (turn {turns}, {len(state.get('command_history', []))} commands)", flush=True)
+    # Session updated silently (verbose logging disabled)
 
 def clear_session(thread_id: str):
     """Clear session state for a thread_id."""
@@ -118,7 +123,7 @@ def clear_session(thread_id: str):
 # --- Helpers for phase tracking, hypothesis visibility, coverage checks ---
 def compute_coverage_snapshot(state: dict) -> dict:
     """Assess whether key signals were collected during investigation."""
-    hist = state.get('command_history') or []
+    hist = [h for h in (state.get('command_history') or []) if h]
     outputs = "\n".join([(h.get('command','') + "\n" + (h.get('output','') or '')) for h in hist])
     def seen(substr: str) -> bool:
         return substr in outputs
@@ -148,7 +153,8 @@ def verify_goal_completion(query: str, command_history: list[dict], final_answer
     reason = ""
 
     # 1) Command history hints
-    for h in command_history or []:
+    hist = [h for h in (command_history or []) if h]
+    for h in hist:
         if str(h.get('assessment','')).upper() in ['SOLVED','RESOLVED','CONFIRMED']:
             met = True
             reason = "Investigation step marked as SOLVED/RESOLVED."
@@ -278,11 +284,11 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     print("K8s Agent Server starting...")
 
-    # Initialize Sentinel with broadcaster
+    # Initialize Sentinel with broadcaster (DISABLED for testing - Azure auth expired)
     global global_sentinel
-    global_sentinel = SentinelLoop(kube_context=None, broadcaster=broadcaster)
+    global_sentinel = None  # SentinelLoop(kube_context=None, broadcaster=broadcaster)
 
-    sentinel_task = asyncio.create_task(global_sentinel.start())
+    sentinel_task = None  # asyncio.create_task(global_sentinel.start())
 
     # TODO: Background task for multi-context CRD pre-warming
     # Currently disabled - CRD loading is instant without kubectl explain
@@ -294,11 +300,12 @@ async def lifespan(app: FastAPI):
     print("K8s Agent Server shutting down...")
     if global_sentinel:
         await global_sentinel.stop()
-    sentinel_task.cancel()
-    try:
-        await sentinel_task
-    except asyncio.CancelledError:
-        pass
+    if sentinel_task:
+        sentinel_task.cancel()
+        try:
+            await sentinel_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title="K8s Troubleshooting Agent",
@@ -408,6 +415,10 @@ class AgentRequest(BaseModel):
     conversation_history: list[dict] = []  # Multi-turn context
     approved_command: bool = False
     mcp_tools: list[dict] = []
+    # Human-in-the-loop controls
+    user_hint: str | None = None  # User guidance for next step
+    skip_current_step: bool = False  # Skip current plan step
+    pause_after_step: bool = False  # Pause for approval after each step
     tool_output: dict | None = None  
 
 @app.get("/health")
@@ -604,16 +615,68 @@ async def analyze(request: AgentRequest):
         # Load session state for conversation continuity
         session_state = get_session_state(request.thread_id)
         if session_state:
-            print(f"[Session] Loaded existing session (turn {session_state['conversation_turns']}, {len(session_state['command_history'])} commands)", flush=True)
+            # Loaded existing session
+            pass
         else:
-            print(f"[Session] Starting new session for thread {request.thread_id}", flush=True)
+            # Starting new session
+            pass
+
+        # QUERY REWRITING: Transform vague queries into actionable tasks
+        from .query_rewriter import rewrite_query
+        original_query = request.query
+        print(f"[Query Rewriter] Original query: {original_query}", flush=True)
+
+        try:
+            rewritten = await rewrite_query(
+                user_query=original_query,
+                context=request.kube_context,
+                llm_endpoint=request.llm_endpoint,
+                llm_model=request.llm_model,
+                llm_provider=request.llm_provider,
+                api_key=request.api_key
+            )
+
+            if rewritten.confidence > 0.5:
+                print(f"[Query Rewriter] ✅ Rewrote query (confidence: {rewritten.confidence})", flush=True)
+                print(f"[Query Rewriter] Detected resources: {rewritten.detected_resources}", flush=True)
+                print(f"[Query Rewriter] New query: {rewritten.rewritten_query}", flush=True)
+                final_query = rewritten.rewritten_query
+            else:
+                print(f"[Query Rewriter] ⚠️ Low confidence ({rewritten.confidence}), using original query", flush=True)
+                final_query = original_query
+
+        except Exception as e:
+            print(f"[Query Rewriter] ❌ Failed: {e}, using original query", flush=True)
+            final_query = original_query
+
+        # LLM-DRIVEN FIX: Clear accumulated_evidence if this is a NEW query (not retry of same query)
+        # This prevents stale answers from previous queries contaminating new investigations
+        is_new_query = (
+            not session_state or
+            session_state.get('last_query', '') != final_query
+        )
+
+        # Clear routing history for new queries to prevent false loop detection
+        from .routing import clear_routing_history
+        if is_new_query:
+            clear_routing_history(request.thread_id)
+            print(f"[Session] New query detected - clearing accumulated_evidence and routing history", flush=True)
+
+        # Save detected resources from query rewriter (convert list to dict format)
+        detected_crd_resources = None
+        if 'rewritten' in locals() and rewritten and hasattr(rewritten, 'detected_resources') and rewritten.detected_resources:
+            # Query rewriter returns a list, but discovered_resources expects dict[str, list[str]]
+            # Store CRDs under a generic 'crds' key for SmartExecutor to access
+            detected_crd_resources = {'crds': rewritten.detected_resources}
 
         initial_state: AgentState = {
-            "query": request.query,
+            "query": final_query,
             "kube_context": request.kube_context,
             # Merge session history with any history passed in request (frontend might pass context)
             "command_history": session_state['command_history'] if session_state else (request.history or []),
             "conversation_history": (session_state.get('conversation_history') if session_state else []) or (request.conversation_history or []),
+            # Clear accumulated_evidence for new queries, keep for retries
+            "accumulated_evidence": [] if is_new_query else (session_state.get('accumulated_evidence', []) if session_state else []),
             "iteration": 0,
             "next_action": 'supervisor',
             "pending_command": None,
@@ -639,8 +702,8 @@ async def analyze(request: AgentRequest):
             "pending_tool_call": None,
             "execution_plan": None,  # ReAct plan tracking
             "current_step": None,  # Current step number in plan
-            # Load from session for continuity
-            "discovered_resources": session_state['discovered_resources'] if session_state else None,
+            # Load from session for continuity, or use query rewriter's detected resources
+            "discovered_resources": detected_crd_resources or (session_state['discovered_resources'] if session_state else None),
             "accumulated_evidence": session_state['accumulated_evidence'] if session_state else None,
             "pending_batch_commands": None,
             "batch_results": None,
@@ -649,6 +712,10 @@ async def analyze(request: AgentRequest):
             "extend": extend_mode,
             # Planner preferences used by downstream graph components
             "prefer_mcp_tools": extend_mode,
+            # Human-in-the-loop controls
+            "user_hint": request.user_hint,
+            "skip_current_step": request.skip_current_step,
+            "pause_after_step": request.pause_after_step,
         }
         
         # Keys that should be persisted across turns and NOT overwritten with None
@@ -797,13 +864,10 @@ async def analyze(request: AgentRequest):
                                     # Simplistic merge for flat fields
                                     initial_state.update(node_update)
 
-                                    # DEBUG: Log node completion
-                                    print(f"🔍 NODE COMPLETE: {event['name']}, next_action={node_update.get('next_action')}, has_final_response={bool(node_update.get('final_response'))}", flush=True)
-
                                     # Capture final response if generated by any node
                                     if node_update.get('final_response'):
                                         final_answer = node_update.get('final_response')
-                                        print(f"✅ FINAL RESPONSE CAPTURED from {event['name']}: {final_answer[:100]}...", flush=True)
+                                        print(f"✅ FINAL RESPONSE from {event['name']}", flush=True)
                                         # If a final answer is found, we can break out of the inner astream_events loop
                                         # and the outer retry loop will also break.
                                         break # Break from inner async for loop
@@ -823,7 +887,6 @@ async def analyze(request: AgentRequest):
                                     if node_update.get('events'):
                                         events_list = node_update.get('events', [])
                                         if len(events_list) > emitted_events_count:
-                                            print(f"DEBUG: Emitting {len(events_list) - emitted_events_count} new events", flush=True)
                                             for new_evt in events_list[emitted_events_count:]:
                                                 yield f"data: {json.dumps(new_evt)}\n\n"
                                                 last_heartbeat = time.time()
@@ -951,7 +1014,8 @@ async def analyze(request: AgentRequest):
 
                 # Adaptive iteration hint: recommend extension if warnings found
                 try:
-                    had_warnings = any('Warning' in (h.get('output','')) for h in (initial_state.get('command_history') or []))
+                    hist = [h for h in (initial_state.get('command_history') or []) if h]
+                    had_warnings = any('Warning' in (h.get('output','')) for h in hist)
                     if had_warnings and missing:
                         yield f"data: {json.dumps(emit_event('hint', {'action': 'extend', 'reason': 'Warnings detected with incomplete coverage'}))}\n\n"
                 except Exception:
@@ -998,7 +1062,7 @@ async def analyze(request: AgentRequest):
                 # Get suggested next steps from state (if generated by synthesizer)
                 suggested_next_steps = initial_state.get('suggested_next_steps', [])
 
-                print(f"📤 EMITTING 'done' EVENT with final_response: {bool(final_answer)} (length={len(final_answer) if final_answer else 0})", flush=True)
+                # Agent completed successfully
                 if final_answer:
                     print(f"   Preview: {final_answer[:150]}...", flush=True)
                 if suggested_next_steps:

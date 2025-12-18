@@ -30,8 +30,8 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
 
 **5. JSON OUTPUT & JQ FILTERING**:
     - `kubectl get pods -o json | jq '.items[] | select(.status.phase != "Running")'` → non-running pods
-    - `kubectl get pods -o jsonpath='{{.items[*].metadata.name}}'` → just pod names
-    - `kubectl get pod <pod> -o jsonpath='{{.status.conditions}}'` → just conditions
+    - `kubectl get pods -o jsonpath='{{{{.items[*].metadata.name}}}}'` → just pod names
+    - `kubectl get pod <pod> -o jsonpath='{{{{.status.conditions}}}}'` → just conditions
     - Use `-o json | jq` for complex filtering!
 
 **6. AWK & GREP COMBOS** (powerful filtering):
@@ -91,7 +91,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     **Step-by-step controller discovery (try ALL methods):**
 
     **Method 1: Label-based (most reliable)**
-    - Extract API group: `kubectl get <resource> <name> -n <ns> -o jsonpath='{{.apiVersion}}'`
+    - Extract API group: `kubectl get <resource> <name> -n <ns> -o jsonpath='{{{{.apiVersion}}}}'`
       Example: `compositions.apiextensions.crossplane.io/v1` → API group = `apiextensions.crossplane.io`
     - Find controller: `kubectl get pods -A -l 'app.kubernetes.io/name=<api-group-keyword>'`
       Example: `kubectl get pods -A -l 'app.kubernetes.io/name=crossplane'`
@@ -107,7 +107,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     - `kubectl get pods -n kube-system | grep <resource-type>` (for core resources)
 
     **Method 3: Owner Reference (if resource has one)**
-    - `kubectl get <resource> <name> -n <ns> -o jsonpath='{{.metadata.ownerReferences}}'`
+    - `kubectl get <resource> <name> -n <ns> -o jsonpath='{{{{.metadata.ownerReferences}}}}'`
     - Follow the chain up to find the controller
 
     **Method 4: Keyword search (last resort)**
@@ -115,7 +115,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     - Example: `kubectl get pods -A | grep -i crossplane`
 
     **After finding controller - CLIMB THE CHAIN (don't stop!):**
-    1. Check controller logs: `kubectl logs <controller-pod> -n <controller-ns> --tail=500 | grep -i "error\|fail\|<resource-name>"`
+    1. Check controller logs: `kubectl logs <controller-pod> -n <controller-ns> --tail=500 | grep -iE "error|fail|<resource-name>"`
     2. Search for YOUR resource name in logs: `kubectl logs <controller-pod> -n <controller-ns> --tail=2000 | grep -i "<your-resource-name>"`
     3. Check controller events: `kubectl get events -n <controller-ns> --field-selector involvedObject.name=<controller-pod>`
     4. Check controller's status: `kubectl describe pod <controller-pod> -n <controller-ns>`

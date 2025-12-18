@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
+import { NotificationProvider } from "./components/notifications/NotificationContext";
 
 import { Dashboard } from './components/dashboard/Dashboard';
 import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
@@ -67,16 +68,27 @@ function AppContent() {
   const [isClusterChatMinimized, setIsClusterChatMinimized] = useState(false);
 
   // Handler for proactive investigations
+  // Handler for proactive investigations
   const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
 
-  const handleAutoInvestigate = (prompt: string) => {
+  const handleAutoInvestigate = React.useCallback((prompt: string) => {
     setInitialPrompt(prompt);
     setShowClusterChat(true);
     setIsClusterChatMinimized(false);
-  };
+  }, []);
 
   // Start Sentinel listener with auto-investigate handler
   const { kbProgress } = useSentinel(handleAutoInvestigate);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail && e.detail.prompt) {
+        handleAutoInvestigate(e.detail.prompt);
+      }
+    };
+    window.addEventListener('opspilot:investigate', handler);
+    return () => window.removeEventListener('opspilot:investigate', handler);
+  }, []);
 
   const prevContextRef = useRef<string | null>(null);
 
@@ -171,31 +183,87 @@ function AppContent() {
       errorMessage.toLowerCase().includes("forbidden") ||
       errorMessage.toLowerCase().includes("certificate");
 
+    // Parse structured errors: TYPE|CONTEXT|MESSAGE|COMMAND
+    const parts = errorMessage.split('|');
+    const isStructuredError = parts.length >= 3;
+    const errorType = isStructuredError ? parts[0] : (isConnectionError ? "CONNECTION_ERROR" : isAuthError ? "AUTH_ERROR" : "UNKNOWN_ERROR");
+    const errorContextName = isStructuredError ? parts[1] : globalCurrentContext;
+    const cleanErrorMessage = isStructuredError ? parts[2] : errorMessage;
+    const remediationCmd = isStructuredError && parts.length > 3 ? parts[3] : null;
+
+    // Special handling for Azure Device Code
+    const isDeviceCode = errorType === "AZURE_DEVICE_CODE";
+    let deviceCodeUrl = "https://microsoft.com/devicelogin";
+    let deviceCode = "";
+
+    if (isDeviceCode) {
+      // Extract code from message: "... enter the code ABC12345"
+      const codeMatch = cleanErrorMessage.match(/code ([A-Z0-9]+)/);
+      if (codeMatch) deviceCode = codeMatch[1];
+
+      const urlMatch = cleanErrorMessage.match(/https:\/\/[^\s]+/);
+      if (urlMatch) deviceCodeUrl = urlMatch[0];
+    }
+
     return (
       <div className="h-screen bg-gradient-to-br from-zinc-900 to-zinc-950 flex flex-col items-center justify-center p-8">
-        <div className="max-w-lg w-full">
+        <div className="max-w-xl w-full">
           <div className="bg-gradient-to-br from-red-500/10 to-orange-500/5 rounded-2xl border border-red-500/20 p-8 backdrop-blur-xl shadow-2xl">
             <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-red-500/20 to-orange-500/20 flex items-center justify-center border border-red-500/30">
               <AlertCircle size={32} className="text-red-400" />
             </div>
 
             <h1 className="text-2xl font-bold text-white text-center mb-2">
-              {isConnectionError ? "Cluster Unreachable" : isAuthError ? "Authentication Failed" : "Connection Error"}
+              {(isDeviceCode || errorType === "AZURE_LOGIN_REQUIRED") ? "Authentication Required" : (errorType === "CONNECTION_ERROR" ? "Cluster Unreachable" : "Connection Failed")}
             </h1>
 
             <p className="text-zinc-400 text-center text-sm mb-6">
-              {isConnectionError
-                ? "Unable to connect to the Kubernetes API server"
-                : isAuthError
-                  ? "Your credentials may have expired or are invalid"
-                  : "Failed to load cluster details"}
+              {isDeviceCode
+                ? "Microsoft requires you to sign in to access this cluster."
+                : errorType === "AZURE_LOGIN_REQUIRED"
+                  ? "Azure authentication is required to access this cluster."
+                  : cleanErrorMessage}
             </p>
 
-            <div className="bg-black/30 rounded-lg p-4 mb-6 border border-white/5">
-              <p className="text-xs font-mono text-red-300 break-all">{errorMessage}</p>
-            </div>
+            {/* Structured Error Display */}
+            {isDeviceCode ? (
+              <div className="bg-blue-500/10 rounded-lg p-6 mb-6 border border-blue-500/20 flex flex-col gap-4">
+                <div className="text-center">
+                  <p className="text-blue-200 text-sm mb-2">1. Click to open login page:</p>
+                  <a
+                    href={deviceCodeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded font-medium inline-block transition-colors"
+                  >
+                    Open Microsoft Login
+                  </a>
+                </div>
+                <div className="h-px bg-blue-500/20 w-full" />
+                <div className="text-center">
+                  <p className="text-blue-200 text-sm mb-2">2. Enter this code:</p>
+                  <div className="bg-black/40 border border-blue-500/30 rounded px-4 py-3 font-mono text-xl text-white tracking-widest inline-block select-all">
+                    {deviceCode}
+                  </div>
+                  <p className="text-xs text-blue-400 mt-2">The code will expire in 15 minutes.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-black/30 rounded-lg p-4 mb-6 border border-white/5">
+                <p className="text-xs font-mono text-red-300 break-all">{cleanErrorMessage}</p>
+                {remediationCmd && (
+                  <div className="mt-2 pt-2 border-t border-white/10">
+                    <p className="text-xs text-zinc-500 mb-1">Suggested command:</p>
+                    <code className="block bg-black/50 p-2 rounded text-xs text-yellow-500 font-mono select-all">
+                      {remediationCmd}
+                    </code>
+                  </div>
+                )}
+              </div>
+            )}
 
-            {isConnectionError && (
+            {/* Troubleshooting Fallback */}
+            {!isStructuredError && isConnectionError && (
               <div className="bg-blue-500/10 rounded-lg p-4 mb-6 border border-blue-500/20">
                 <p className="text-xs text-blue-300 font-medium mb-2">Troubleshooting tips:</p>
                 <ul className="text-xs text-blue-200/70 space-y-1 list-disc list-inside">
@@ -203,18 +271,6 @@ function AppContent() {
                   <li>Verify VPN connection if required</li>
                   <li>Check network/firewall settings</li>
                   <li>Try: <code className="bg-black/30 px-1 rounded">kubectl cluster-info</code></li>
-                </ul>
-              </div>
-            )}
-
-            {isAuthError && (
-              <div className="bg-yellow-500/10 rounded-lg p-4 mb-6 border border-yellow-500/20">
-                <p className="text-xs text-yellow-300 font-medium mb-2">Authentication tips:</p>
-                <ul className="text-xs text-yellow-200/70 space-y-1 list-disc list-inside">
-                  <li>Re-authenticate with your cloud provider</li>
-                  <li>For AKS: <code className="bg-black/30 px-1 rounded">az aks get-credentials</code></li>
-                  <li>For EKS: <code className="bg-black/30 px-1 rounded">aws eks update-kubeconfig</code></li>
-                  <li>For GKE: <code className="bg-black/30 px-1 rounded">gcloud container clusters get-credentials</code></li>
                 </ul>
               </div>
             )}
@@ -273,17 +329,24 @@ function AppContent() {
       <Dashboard
         isConnected={isConnected}
         setIsConnected={setIsConnected}
+        onOpenAzure={() => {
+          // Must disconnect to show the Azure Page (which lives in the !isConnected view)
+          setIsConnected(false);
+          setShowAzure(true);
+        }}
         onDisconnect={async () => {
-          // Clear ALL cached data to prevent stale data
+          // Reset UI flags first for immediate feedback
+          setShowAzure(false);
+          setIsConnected(false);
+
+          // Clear caches in background
           qc.removeQueries();
-          // Also clear backend caches
           try {
             await invoke("clear_all_caches");
           } catch (e) {
             console.warn("Failed to clear backend caches:", e);
           }
           showToast('Disconnected from cluster', 'info');
-          setIsConnected(false);
         }}
       />
       <PortForwardList currentContext={globalCurrentContext} />
@@ -360,9 +423,11 @@ export default function App() {
         client={queryClient}
         persistOptions={{ persister }}
       >
-        <ToastProvider>
-          <AppContent />
-        </ToastProvider>
+        <NotificationProvider>
+          <ToastProvider>
+            <AppContent />
+          </ToastProvider>
+        </NotificationProvider>
         <Updater />
       </PersistQueryClientProvider>
     </ErrorBoundary>

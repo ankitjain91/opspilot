@@ -227,7 +227,10 @@ async function runPythonAgent(
                                 case 'command_selected':
                                     onStep?.({
                                         role: 'SCOUT',
-                                        content: `Executing: \`${eventData.command}\``
+                                        content: JSON.stringify({
+                                            command: eventData.command,
+                                            output: "" // Empty output signals "executing" state to the UI
+                                        })
                                     });
                                     break;
                                 case 'command_output':
@@ -235,8 +238,8 @@ async function runPythonAgent(
                                     const rawOutput = eventData.error ? `Error: ${eventData.error}\nOutput: ${eventData.output}` : eventData.output;
                                     let formattedOutput = rawOutput;
 
-                                    // Try to format kubectl output
-                                    if (eventData.command && eventData.command.includes('kubectl') && !eventData.error) {
+                                    // Try to format kubectl output (but skip if it's a Python command)
+                                    if (eventData.command && eventData.command.includes('kubectl') && !eventData.command.startsWith('python:') && !eventData.error) {
                                         const formatted = formatKubectlOutput(eventData.command, eventData.output);
                                         formattedOutput = formatted.markdown;
                                     }

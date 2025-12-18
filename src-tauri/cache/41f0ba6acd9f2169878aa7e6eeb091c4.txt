@@ -1,0 +1,4 @@
+upbound-system                      crossplane-provider-castai-5ba55744eb83-d4bb64cc9-xzx2x           1/1     Running   0               12d
+upbound-system                      crossplane-844b54fc95-nsmfc                                       1/1     Running   9 (5d3h ago)    12d
+upbound-system                      crossplane-844b54fc95-b4bjd                                       1/1     Running   0               5d3h
+upbound-system                      crossplane-rbac-manager-6d585894bd-b2zm5                          1/1     Running   1 (4d19h ago)   5d3h

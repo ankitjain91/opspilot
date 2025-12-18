@@ -29,15 +29,8 @@ pub async fn create_client(state: State<'_, AppState>) -> Result<Client, String>
         (path_val.flatten(), context_val.flatten())
     };
 
-    if let Some(ctx) = &context {
-        println!("DEBUG: create_client using context: {}", ctx);
-    } else {
-        println!("DEBUG: create_client using default context");
-    }
-
     // Check cache
     let cache_key = format!("{}:{}", path.as_deref().unwrap_or("default"), context.as_deref().unwrap_or("default"));
-    println!("DEBUG: create_client cache key: {}", cache_key);
 
     // Check if we have a cached client (2 minute TTL)
     {

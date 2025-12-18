@@ -1,0 +1,77 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "infrastructure.cluster.x-k8s.io/v1alpha1",
+            "kind": "VCluster",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:39:04Z",
+                "finalizers": [
+                    "vcluster.loft.sh/cleanup"
+                ],
+                "generation": 10,
+                "labels": {
+                    "cluster.x-k8s.io/cluster-name": "management-cluster"
+                },
+                "name": "management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "cluster.x-k8s.io/v1beta1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Cluster",
+                        "name": "management-cluster",
+                        "uid": "74143fa0-be5f-46c6-a3ee-accd1c0b39c5"
+                    }
+                ],
+                "resourceVersion": "25393524",
+                "uid": "5bc5ca98-f660-42c9-b9ad-8e306bc19531"
+            },
+            "spec": {
+                "controlPlaneEndpoint": {
+                    "host": "management-cluster.taasvstst.svc",
+                    "port": 443
+                },
+                "helmRelease": {
+                    "chart": {
+                        "version": "0.29.1"
+                    },
+                    "values": "\ncontrolPlane:\n  distro:\n    k3s:\n      enabled: true\n      image:\n        registry: dedicatedacrdev.azurecr.io\n        repository: rancher/k3s\n        tag: \"v1.29.0-k3s1\"\n  statefulSet:\n    image:\n      registry: dedicatedacrdev.azurecr.io\n      repository: ghcr.io/loft-sh/vcluster\n      tag: \"0.29.1\"\n    resources:\n      limits:\n        cpu: 4\n        memory: 6Gi\n      requests:\n        cpu: 250m\n        memory: 5Gi\n    annotations:\n      fluentbit.io/exclude: \"true\"\n    pods:\n      annotations:\n        fluentbit.io/exclude: \"true\"\n  proxy:\n    extraSANs:\n    - management-cluster.taasvstst.svc\nnetworking:\n  serviceCIDR: 10.0.0.0/16\nsync:\n  toHost:\n    pods:\n      enabled: true\n"
+                }
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2025-12-04T17:39:59Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-04T17:39:59Z",
+                        "status": "True",
+                        "type": "ControlPlaneInitialized"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-04T17:39:08Z",
+                        "status": "True",
+                        "type": "HelmChartDeployed"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-04T17:39:59Z",
+                        "status": "True",
+                        "type": "KubeconfigReady"
+                    }
+                ],
+                "initialized": true,
+                "observedGeneration": 10,
+                "phase": "Deployed",
+                "ready": true
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

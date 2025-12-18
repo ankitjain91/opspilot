@@ -260,32 +260,78 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
         name = crd.split('.')[0]
         group = '.'.join(crd.split('.')[1:])
 
+        # Build comprehensive symptoms including provider/category detection
+        symptoms = [
+            f"list {name}",
+            f"get {name}",
+            f"find {name}",
+            f"show {name}",
+            f"status of {name}",
+            f"debug {name}",
+            f"investigate {name}",
+            f"controller for {name}",
+            f"operator for {name}",
+            f"reconcile {name}",
+            f"who manages {name}",
+            f"what controls {name}",
+            f"{name} controller",
+            f"{name} operator"
+        ]
+
+        # Detect provider and add collective symptoms
+        is_crossplane = any(kw in group for kw in ['upbound.io', 'crossplane.io', 'azure.upbound.io', 'aws.upbound.io', 'gcp.upbound.io'])
+        is_azure = 'azure' in group.lower() or 'azure' in name.lower()
+        is_aws = 'aws' in group.lower() or 'aws' in name.lower()
+        is_gcp = 'gcp' in group.lower() or 'gcp' in name.lower()
+
+        if is_crossplane:
+            symptoms.extend([
+                f"crossplane {name}",
+                f"crossplane resources",
+                f"managed resources",
+                f"infrastructure resources",
+                f"find crossplane resources",
+                f"list crossplane resources"
+            ])
+
+        if is_azure:
+            symptoms.extend([
+                f"azure {name}",
+                f"azure resources",
+                f"managed azure resources",
+                f"find azure resources",
+                f"list azure resources",
+                f"azure infrastructure"
+            ])
+
+        if is_aws:
+            symptoms.extend([
+                f"aws {name}",
+                f"aws resources",
+                f"managed aws resources",
+                f"find aws resources"
+            ])
+
+        if is_gcp:
+            symptoms.extend([
+                f"gcp {name}",
+                f"gcp resources",
+                f"managed gcp resources",
+                f"find gcp resources"
+            ])
+
         entry = {
             "id": f"live-crd-{name}",
             "category": "LiveResource",
-            "symptoms": [
-                f"list {name}",
-                f"get {name}",
-                f"find {name}",
-                f"show {name}",
-                f"status of {name}",
-                f"debug {name}",
-                f"investigate {name}",
-                f"controller for {name}",
-                f"operator for {name}",
-                f"reconcile {name}",
-                f"who manages {name}",
-                f"what controls {name}",
-                f"{name} controller",
-                f"{name} operator"
-            ],
-            "root_cause": f"✅ KUBERNETES CUSTOM RESOURCE: '{name}' (API: {crd})\n\nThis is a standard Kubernetes resource that works with ALL kubectl commands:\n- kubectl get {name} -A (list all)\n- kubectl get {name} <name> -n <namespace> (get specific)\n- kubectl get {name} <name> -n <namespace> -o yaml (full details)\n- kubectl describe {name} <name> -n <namespace> (detailed status)\n- kubectl explain {name} (see schema)\n\n**FINDING THE CONTROLLER/OPERATOR**:\nCustom Resources are managed by controllers/operators. To find the controller:\n1. Check pods with labels: kubectl get pods -A -l 'app.kubernetes.io/name' -o wide | grep -i {name}\n2. Search by API group: kubectl get pods -A -o yaml | grep -i {group}\n3. Look for operator pods: kubectl get pods -A | grep -i '{name.split('s')[0]}' (remove plural 's')\n4. Common patterns: {name}-controller, {name}-operator, {group.split('.')[0]}-operator",
+            "symptoms": symptoms,
+            "root_cause": f"✅ KUBERNETES CUSTOM RESOURCE: '{name}' (API: {crd})\n\nThis is a standard Kubernetes resource that works with ALL kubectl commands:\n- kubectl get {name} -A (list all)\n- kubectl get {name} <name> -n <namespace> (get specific)\n- kubectl get {name} <name> -n <namespace> -o yaml (full details)\n- kubectl describe {name} <name> -n <namespace> (detailed status)\n- kubectl explain {name} (see schema)\n\n**FINDING THE CONTROLLER/OPERATOR**:\nCustom Resources are managed by controllers/operators. To find the controller:\n1. Check pods with labels: kubectl get pods -A -l 'app.kubernetes.io/name' -o wide | grep -i {name}\n2. Search by API group: kubectl get pods -A -o yaml | grep -i {group}\n3. Look for operator pods: kubectl get pods -A | grep -i '{name.rstrip('s')}'\n4. Common patterns: {name}-controller, {name}-operator, {group.split('.')[0]}-operator\n\n**BULK DISCOVERY** (when asked for 'all azure resources', 'all crossplane resources', etc.):\n- Use kubectl api-resources | grep -i azure to find ALL Azure resource types\n- Then iterate: for TYPE in $(kubectl api-resources | grep azure | awk '{{print $1}}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done",
             "investigation": [
                 f"kubectl get {name} -A -o wide",
                 f"kubectl get {name} -A -o json | jq '.items[] | {{name: .metadata.name, namespace: .metadata.namespace, status: .status}}'",
                 f"kubectl describe {name} -A",
                 f"kubectl get pods -A | grep -i '{name.rstrip('s')}'  # Find controller pod",
-                f"kubectl get pods -A -o yaml | grep -i '{group}'  # Search by API group"
+                f"kubectl get pods -A -o yaml | grep -i '{group}'  # Search by API group",
+                f"kubectl api-resources | grep -i {group.split('.')[0] if '.' in group else name}  # Find related resources"
             ],
             "fixes": [
                 f"kubectl edit {name} <name> -n <namespace>",
@@ -364,6 +410,62 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         # Fast basic ingestion (no kubectl explain - instant startup)
         # Parallel kubectl explain execution with caching
         live_entries = await _ingest_crds_parallel(crd_list, context=kube_context, progress_callback=progress_callback)
+
+        # Add meta-entries for bulk discovery patterns
+        azure_crds = [c for c in crd_list if 'azure' in c.lower()]
+        aws_crds = [c for c in crd_list if 'aws' in c.lower()]
+        gcp_crds = [c for c in crd_list if 'gcp' in c.lower()]
+        crossplane_crds = [c for c in crd_list if any(kw in c for kw in ['upbound.io', 'crossplane.io'])]
+
+        if azure_crds:
+            azure_types_list = ', '.join([c.split('.')[0] for c in azure_crds[:15]])
+            if len(azure_crds) > 15:
+                azure_types_list += '...'
+
+            method2_queries = '\n'.join([f'kubectl get {c.split(".")[0]} -A' for c in azure_crds[:10]])
+
+            live_entries.append({
+                "id": "meta-azure-bulk-discovery",
+                "category": "BulkDiscovery",
+                "symptoms": [
+                    "find all azure resources",
+                    "list all azure resources",
+                    "show azure resources",
+                    "managed azure resources",
+                    "crossplane azure resources",
+                    "all azure managed resources",
+                    "what azure resources exist"
+                ],
+                "root_cause": f"✅ BULK AZURE RESOURCE DISCOVERY\n\nFound {len(azure_crds)} Azure CRD types in cluster. To list ALL Azure managed resources:\n\n**METHOD 1: Shell loop (recommended)**\n```bash\nfor TYPE in $(kubectl api-resources | grep -i azure | awk '{{print $1}}'); do\n  echo \"=== $TYPE ===\"\n  kubectl get $TYPE -A 2>/dev/null | grep -v '^No resources'\ndone\n```\n\n**METHOD 2: Individual queries**\n{method2_queries}\n\nAvailable Azure types: {azure_types_list}",
+                "investigation": [
+                    "kubectl api-resources | grep -i azure",
+                    "for TYPE in $(kubectl api-resources | grep -i azure | awk '{print $1}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done"
+                ],
+                "fixes": [],
+                "description": f"Bulk discovery pattern for {len(azure_crds)} Azure managed resources"
+            })
+
+        if crossplane_crds:
+            live_entries.append({
+                "id": "meta-crossplane-bulk-discovery",
+                "category": "BulkDiscovery",
+                "symptoms": [
+                    "find all crossplane resources",
+                    "list all crossplane resources",
+                    "show crossplane resources",
+                    "managed crossplane resources",
+                    "all crossplane managed resources",
+                    "what crossplane resources exist"
+                ],
+                "root_cause": f"✅ BULK CROSSPLANE RESOURCE DISCOVERY\n\nFound {len(crossplane_crds)} Crossplane CRD types. Use kubectl get managed -A OR iterate through specific types.",
+                "investigation": [
+                    "kubectl get managed -A",
+                    "kubectl get composite -A",
+                    "kubectl get claim -A"
+                ],
+                "fixes": [],
+                "description": f"Bulk discovery pattern for {len(crossplane_crds)} Crossplane managed resources"
+            })
 
         # --- CROSSPLANE INTEGRATION ---
         print("[KB] 🧠 Ingesting Crossplane Infrastructure Definitions (XRDs)...", flush=True)
@@ -520,28 +622,38 @@ async def get_relevant_kb_snippets(
 
     # Build/refresh BM25 index lazily for keyword-based scoring
     # We use a light tokenizer (split on non-word) to capture K8s jargon, error codes, names
+    # Build/refresh BM25 index lazily for keyword-based scoring
+    # We use a light tokenizer (split on non-word) to capture K8s jargon, error codes, names
     global _bm25_index, _bm25_corpus_tokens, _bm25_entries
-    try:
-        from rank_bm25 import BM25Okapi
+    
+    # Simple Pure-Python Token Overlap Score (Replaces heavy rank_bm25+numpy)
+    if _bm25_corpus_tokens is None or _bm25_entries is None or len(_bm25_entries) != len(entries):
+        _bm25_entries = entries
+        _bm25_corpus_tokens = []
         import re
+        for e in entries:
+            text = entry_to_searchable_text(e)
+            tokens = set(t.lower() for t in re.split(r"[^A-Za-z0-9_.-]+", text) if t)
+            _bm25_corpus_tokens.append(tokens)
 
-        if _bm25_index is None or _bm25_entries is None or len(_bm25_entries) != len(entries):
-            _bm25_entries = entries
-            _bm25_corpus_tokens = []
-            for e in entries:
-                text = entry_to_searchable_text(e)
-                tokens = [t.lower() for t in re.split(r"[^A-Za-z0-9_.-]+", text) if t]
-                _bm25_corpus_tokens.append(tokens)
-            _bm25_index = BM25Okapi(_bm25_corpus_tokens)
-        # Tokenize query
-        import re as _re
-        query_tokens = [t.lower() for t in _re.split(r"[^A-Za-z0-9_.-]+", query) if t]
-        # BM25 returns a numpy array; convert to a plain list to avoid truth-value ambiguity
-        bm25_scores = list(_bm25_index.get_scores(query_tokens))
-    except Exception as _bm_err:
-        bm25_scores = [0.0] * len(entries)
-        # Log but continue with semantic-only if BM25 not available
-        print(f"[KB] BM25 unavailable, proceeding with embeddings only: {_bm_err}", flush=True)
+    # Tokenize query
+    import re as _re
+    query_tokens = set(t.lower() for t in _re.split(r"[^A-Za-z0-9_.-]+", query) if t)
+    
+    # Calculate simple Jaccard-like overlap and scale to emulate BM25
+    bm25_scores = []
+    for doc_tokens in _bm25_corpus_tokens:
+        if not doc_tokens or not query_tokens:
+            bm25_scores.append(0.0)
+            continue
+        # Intersection count
+        overlap = len(doc_tokens.intersection(query_tokens))
+        # Simple score: overlap count + bonus for exact subset
+        score = float(overlap)
+        if overlap > 0:
+             # Boost closer matches
+             score += 0.5 * (overlap / len(query_tokens))
+        bm25_scores.append(score)
 
     results: List[Tuple[float, Dict]] = []
 

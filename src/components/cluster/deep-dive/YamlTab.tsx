@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { Save, Search, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
+import { useToast } from '../../ui/Toast';
 import { K8sObject } from '../../../types/k8s';
 
 // Pre-initialize Monaco loader on module load
@@ -97,6 +98,7 @@ function ErrorBoundaryEditor({
 }
 
 export function YamlTab({ resource, currentContext }: { resource: K8sObject, currentContext?: string }) {
+    const { showToast } = useToast();
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -202,9 +204,11 @@ export function YamlTab({ resource, currentContext }: { resource: K8sObject, cur
 
             // Show success feedback
             setSaveSuccess(true);
+            showToast(`Resource ${resource.name} updated successfully`, "success");
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err: any) {
             setError(err.toString());
+            showToast(`Failed to update resource: ${err}`, "error");
         } finally {
             setIsSaving(false);
         }
@@ -237,11 +241,10 @@ export function YamlTab({ resource, currentContext }: { resource: K8sObject, cur
                     <button
                         onClick={handleSave}
                         disabled={isSaving || saveSuccess}
-                        className={`px-3 py-1 text-xs rounded transition-colors disabled:opacity-50 flex items-center gap-2 ${
-                            saveSuccess
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-[#007acc] hover:bg-[#0062a3] text-white'
-                        }`}
+                        className={`px-3 py-1 text-xs rounded transition-colors disabled:opacity-50 flex items-center gap-2 ${saveSuccess
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-[#007acc] hover:bg-[#0062a3] text-white'
+                            }`}
                     >
                         {isSaving ? (
                             <Loader2 className="animate-spin" size={12} />

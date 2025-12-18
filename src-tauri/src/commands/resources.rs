@@ -209,6 +209,7 @@ pub async fn start_log_stream(
     name: String,
     container: Option<String>,
     session_id: String,
+    tail_lines: Option<i64>,
 ) -> Result<(), String> {
     {
         let mut streams = state.log_streams.lock().unwrap();
@@ -222,7 +223,7 @@ pub async fn start_log_stream(
 
     let lp = LogParams {
         container,
-        tail_lines: Some(500),
+        tail_lines: Some(tail_lines.unwrap_or(500)),
         follow: true,
         ..LogParams::default()
     };
@@ -428,6 +429,7 @@ pub async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: Str
         ("".to_string(), api_version)
     };
 
+
     let gvk = GroupVersionKind::gvk(&group, &version, &kind);
     let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
     let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("Resource not found")?;
@@ -445,4 +447,208 @@ pub async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: Str
     let summary = to_summary(patched, &kind, &group, &version, false);
 
     Ok(summary)
+}
+
+#[tauri::command]
+pub async fn patch_resource(
+    state: State<'_, AppState>,
+    namespace: Option<String>,
+    kind: String,
+    name: String,
+    api_version: String,
+    patch_data: serde_json::Value,
+) -> Result<String, String> {
+    let client = create_client(state).await?;
+
+    let (group, version) = if api_version.contains('/') {
+        let parts: Vec<&str> = api_version.split('/').collect();
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        ("".to_string(), api_version)
+    };
+
+    let gvk = GroupVersionKind::gvk(&group, &version, &kind);
+    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
+    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("Resource not found")?;
+
+    let api: Api<DynamicObject> = if let Some(ns) = namespace {
+        Api::namespaced_with(client, &ns, &ar)
+    } else {
+        Api::all_with(client, &ar)
+    };
+
+    let pp = PatchParams::apply("opspilot");
+    let patch = Patch::Merge(&patch_data);
+
+    api.patch(&name, &pp, &patch)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Resource patched successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn scale_resource(
+    state: State<'_, AppState>,
+    namespace: String,
+    kind: String,
+    name: String,
+    replicas: i32,
+) -> Result<String, String> {
+    let client = create_client(state).await?;
+
+    // Scale is only supported for certain resource types
+    let (group, version) = match kind.as_str() {
+        "Deployment" | "StatefulSet" | "ReplicaSet" => ("apps", "v1"),
+        _ => return Err(format!("Scale not supported for kind {}", kind)),
+    };
+
+    let gvk = GroupVersionKind::gvk(group, version, &kind);
+    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
+    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("Resource not found")?;
+
+    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
+
+    let patch_json = serde_json::json!({
+        "spec": {
+            "replicas": replicas
+        }
+    });
+
+    let pp = PatchParams::apply("opspilot");
+    let patch = Patch::Merge(&patch_json);
+
+    api.patch(&name, &pp, &patch)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("Scaled to {} replicas", replicas))
+}
+
+#[tauri::command]
+pub async fn restart_resource(
+    state: State<'_, AppState>,
+    namespace: String,
+    kind: String,
+    name: String,
+) -> Result<String, String> {
+     // Restart is just a patch annotation
+    let client = create_client(state).await?;
+    
+    // We assume standard resources for now, but ideally we'd look up API version
+    // For simplicity, handle Deployment/DaemonSet/StatefulSet
+    let (group, version) = match kind.as_str() {
+        "Deployment" | "StatefulSet" | "DaemonSet" => ("apps", "v1"),
+        _ => return Err(format!("Restart not supported for kind {}", kind)),
+    };
+
+    let gvk = GroupVersionKind::gvk(group, version, &kind);
+    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
+    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("Resource not found")?;
+
+    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let patch_json = serde_json::json!({
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "kubectl.kubernetes.io/restartedAt": now
+                    }
+                }
+            }
+        }
+    });
+
+    let pp = PatchParams::apply("opspilot");
+    let patch = Patch::Merge(&patch_json);
+
+    api.patch(&name, &pp, &patch)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Restart initiated".to_string())
+}
+
+#[tauri::command]
+pub async fn get_resource_metrics(state: State<'_, AppState>, kind: Option<String>, namespace: Option<String>) -> Result<Vec<crate::models::ResourceMetrics>, String> {
+    let client = create_client(state).await?;
+    let k = kind.unwrap_or_else(|| "Pod".to_string());
+    
+    // Determine metrics kind based on resource type
+    // If it's a Node, we want NodeMetrics. If it's a Pod, we want PodMetrics.
+    let (api_kind, api_plural) = if k.eq_ignore_ascii_case("Node") {
+        ("NodeMetrics", "nodes")
+    } else {
+        ("PodMetrics", "pods")
+    };
+
+    let api_resource = kube::discovery::ApiResource {
+        group: "metrics.k8s.io".to_string(),
+        version: "v1beta1".to_string(),
+        api_version: "metrics.k8s.io/v1beta1".to_string(),
+        kind: api_kind.to_string(),
+        plural: api_plural.to_string(),
+    };
+
+    let api: Api<DynamicObject> = if let Some(ns) = namespace {
+        Api::namespaced_with(client, &ns, &api_resource)
+    } else {
+        Api::all_with(client, &api_resource)
+    };
+
+    let list = api.list(&ListParams::default()).await.map_err(|e| e.to_string())?;
+
+    let metrics = list.items.into_iter().filter_map(|item| {
+        let name = item.metadata.name?;
+        let ns = item.metadata.namespace.unwrap_or_default();
+        let timestamp = item.metadata.creation_timestamp.map(|t| t.0.timestamp()).unwrap_or(0);
+        
+        let (cpu, memory, cpu_nano, mem_bytes) = if k.eq_ignore_ascii_case("Node") {
+            let usage = item.data.get("usage")?;
+            let cpu_str = usage.get("cpu").and_then(|v| v.as_str())?;
+            let mem_str = usage.get("memory").and_then(|v| v.as_str())?;
+            let cpu_n = crate::utils::parse_cpu_to_milli(cpu_str) * 1_000_000; // milli to nano
+            let mem_b = crate::utils::parse_memory_to_bytes(mem_str);
+            (cpu_str.to_string(), mem_str.to_string(), cpu_n, mem_b)
+        } else {
+            // Pod metrics are aggregated across containers
+            let containers = item.data.get("containers")?.as_array()?;
+            let mut total_cpu_nano: u64 = 0;
+            let mut total_mem_bytes: u64 = 0;
+            
+            for c in containers {
+                let usage = c.get("usage")?;
+                if let Some(cpu) = usage.get("cpu").and_then(|v| v.as_str()) {
+                    total_cpu_nano += crate::utils::parse_cpu_to_milli(cpu) * 1_000_000; 
+                }
+                if let Some(mem) = usage.get("memory").and_then(|v| v.as_str()) {
+                    total_mem_bytes += crate::utils::parse_memory_to_bytes(mem);
+                }
+            }
+            
+            // Re-format to string roughly
+            // This is a rough approximation for display.
+            let cpu_fmt = format!("{}m", total_cpu_nano / 1_000_000);
+            let mem_fmt = format!("{}Mi", total_mem_bytes / 1024 / 1024);
+            (cpu_fmt, mem_fmt, total_cpu_nano, total_mem_bytes)
+        };
+
+        Some(crate::models::ResourceMetrics {
+            name,
+            namespace: ns,
+            cpu,
+            memory,
+            cpu_nano,
+            memory_bytes: mem_bytes,
+            cpu_limit_nano: None, // Hard to get without cross-referencing Pod specs
+            memory_limit_bytes: None,
+            cpu_percent: None,
+            memory_percent: None,
+            timestamp,
+        })
+    }).collect();
+
+    Ok(metrics)
 }

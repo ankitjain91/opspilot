@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
     Cloud,
     Server,
@@ -26,15 +27,50 @@ export function AzurePage({ onConnect }: AzurePageProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [expandedSubs, setExpandedSubs] = useState<Record<string, boolean>>({});
 
-    const { data: subscriptions, isLoading, error, refetch, isRefetching } = useQuery({
+    const [realtimeSubscriptions, setRealtimeSubscriptions] = useState<AzureSubscription[]>([]);
+    const [statusMessage, setStatusMessage] = useState("Fetching Azure Data...");
+
+    // Real-time Event Listener
+    useEffect(() => {
+        let unlistenUpdate: () => void;
+        let unlistenStatus: () => void;
+
+        const setupListener = async () => {
+            unlistenUpdate = await listen<AzureSubscription>("azure:subscription_update", (event) => {
+                setRealtimeSubscriptions(prev => {
+                    // Avoid duplicates if re-mounting or re-fetching
+                    const exists = prev.find(s => s.id === event.payload.id);
+                    if (exists) return prev.map(s => s.id === event.payload.id ? event.payload : s);
+                    return [...prev, event.payload];
+                });
+            });
+
+            unlistenStatus = await listen<string>("azure:status", (event) => {
+                setStatusMessage(event.payload);
+            });
+        };
+        setupListener();
+        return () => {
+            if (unlistenUpdate) unlistenUpdate();
+            if (unlistenStatus) unlistenStatus();
+        };
+    }, []);
+
+    const { data: queryData, isLoading, error, refetch, isRefetching } = useQuery({
         queryKey: ["azure_data"],
-        queryFn: async () => await invoke<AzureSubscription[]>("refresh_azure_data"),
+        queryFn: async () => {
+            setRealtimeSubscriptions([]); // Clear previous results on new fetch
+            return await invoke<AzureSubscription[]>("refresh_azure_data");
+        },
         staleTime: Infinity,
         gcTime: Infinity,
         refetchOnMount: false,
         refetchOnWindowFocus: false,
         retry: false,
     });
+
+    // Merge data: If loading or refetching, use realtime data. Else use query data.
+    const subscriptions = (isLoading || isRefetching) ? realtimeSubscriptions : queryData;
 
     const connectMutation = useMutation({
         mutationFn: async ({ subId, cluster }: { subId: string, cluster: AksCluster }) => {
@@ -90,10 +126,12 @@ export function AzurePage({ onConnect }: AzurePageProps) {
     const runningClusters = subscriptions?.reduce((acc, sub) =>
         acc + sub.clusters.filter(c => c.powerState.code === 'Running').length, 0) || 0;
 
-    if (isLoading) return <LoadingScreen message="Fetching Azure Data (this may take a moment)..." />;
+    // Show loading screen only if we're loading AND have no data yet
+    if (isLoading && realtimeSubscriptions.length === 0) return <LoadingScreen message={statusMessage} />;
 
     if (error) {
-        const isLoginError = error.message.toLowerCase().includes("login");
+        const errorMessage = (error as any).message || String(error);
+        const isLoginError = errorMessage.toLowerCase().includes("login");
 
         return (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-zinc-900 to-zinc-950">
@@ -169,7 +207,7 @@ export function AzurePage({ onConnect }: AzurePageProps) {
                                 className="p-2.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-xl transition-all disabled:opacity-50 border border-transparent hover:border-white/10"
                                 title="Refresh Azure Data"
                             >
-                                <RefreshCw size={18} className={isRefetching ? "animate-spin" : ""} />
+                                <RefreshCw size={18} className={(isRefetching || isLoading) ? "animate-spin" : ""} />
                             </button>
                         </div>
                     </div>

@@ -1,0 +1,16 @@
+LAST SEEN   TYPE      REASON      OBJECT                            MESSAGE
+26m         Normal    Started     pod/ama-metrics-989956579-qw64x   Started container prometheus-collector
+25m         Normal    Started     pod/ama-metrics-989956579-wtxfm   Started container prometheus-collector
+24m         Normal    Started     pod/ama-metrics-node-rz7mm        Started container prometheus-collector
+9m15s       Warning   Unhealthy   pod/ama-metrics-989956579-qw64x   Liveness probe failed: HTTP probe failed with statuscode: 503
+9m15s       Normal    Killing     pod/ama-metrics-989956579-qw64x   Container prometheus-collector failed liveness probe, will be restarted
+9m14s       Normal    Created     pod/ama-metrics-989956579-qw64x   Created container: prometheus-collector
+9m14s       Normal    Pulled      pod/ama-metrics-989956579-qw64x   Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine
+8m23s       Normal    Created     pod/ama-metrics-989956579-wtxfm   Created container: prometheus-collector
+8m23s       Warning   Unhealthy   pod/ama-metrics-989956579-wtxfm   Liveness probe failed: HTTP probe failed with statuscode: 503
+8m23s       Normal    Killing     pod/ama-metrics-989956579-wtxfm   Container prometheus-collector failed liveness probe, will be restarted
+8m23s       Normal    Pulled      pod/ama-metrics-989956579-wtxfm   Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine
+7m11s       Warning   Unhealthy   pod/ama-metrics-node-rz7mm        Liveness probe failed: HTTP probe failed with statuscode: 503
+7m11s       Normal    Killing     pod/ama-metrics-node-rz7mm        Container prometheus-collector failed liveness probe, will be restarted
+7m10s       Normal    Created     pod/ama-metrics-node-rz7mm        Created container: prometheus-collector
+7m10s       Normal    Pulled      pod/ama-metrics-node-rz7mm        Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine

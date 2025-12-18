@@ -1,0 +1,4 @@
+LAST SEEN   TYPE      REASON      OBJECT                            MESSAGE
+8m56s       Warning   Unhealthy   pod/ama-metrics-989956579-qw64x   Liveness probe failed: HTTP probe failed with statuscode: 503
+8m4s        Warning   Unhealthy   pod/ama-metrics-989956579-wtxfm   Liveness probe failed: HTTP probe failed with statuscode: 503
+6m52s       Warning   Unhealthy   pod/ama-metrics-node-rz7mm        Liveness probe failed: HTTP probe failed with statuscode: 503

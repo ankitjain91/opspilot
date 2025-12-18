@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import {
     Activity,
@@ -43,6 +44,7 @@ import { DeepDiveDrawer } from '../cluster/DeepDiveDrawer';
 import { DeleteConfirmationModal } from '../shared/DeleteConfirmationModal';
 import Loading from '../Loading';
 import { useUpdaterState, installPendingUpdate, checkForUpdatesManually } from '../Updater';
+import { NotificationCenter } from '../notifications/NotificationCenter';
 
 // Define PersistQueryClientProvider in App, so queryClient is available via hook
 
@@ -50,9 +52,10 @@ interface DashboardProps {
     onDisconnect: () => void;
     isConnected: boolean;
     setIsConnected: (v: boolean) => void;
+    onOpenAzure?: () => void;
 }
 
-export function Dashboard({ onDisconnect }: DashboardProps) {
+export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
     const [activeRes, setActiveRes] = useState<NavResource | null>(null);
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -228,6 +231,17 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
         return () => document.removeEventListener("keydown", down);
     }, []);
 
+    // Listen for event to open terminal with Claude Code
+    const [pendingClaudeCommand, setPendingClaudeCommand] = useState(false);
+    useEffect(() => {
+        const unlisten = listen('open-terminal-with-claude', () => {
+            console.log('[Dashboard] Received open-terminal-with-claude event');
+            setIsTerminalOpen(true);
+            setPendingClaudeCommand(true);
+        });
+        return () => { unlisten.then(fn => fn()); };
+    }, []);
+
     // Handle Resizing
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
@@ -301,26 +315,15 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
     const { data: crdGroups, isLoading: isCrdLoading } = useQuery({
         queryKey: ["crd-groups", currentContext],
         queryFn: async () => {
+            // CRD fetching is now integrated into discover_api_resources
+            // Returning empty object to disable separate fetching until cleaned up
+            return {};
+            /* 
             try {
                 const crds = await invoke<any[]>("list_crds");
-                const grouped: Record<string, any[]> = {};
-                crds.forEach((c: any) => {
-                    const apiGroup = c.group || "Custom";
-                    const entry = {
-                        kind: c.kind,
-                        group: c.group,
-                        version: (c.versions || [])[0]?.name || c.version || "v1",
-                        namespaced: c.scope === "Namespaced",
-                        title: c.kind
-                    };
-                    if (!grouped[apiGroup]) grouped[apiGroup] = [];
-                    grouped[apiGroup].push(entry);
-                });
-                return grouped;
-            } catch (e) {
-                console.warn("CRD listing failed", e);
-                return {};
-            }
+                ...
+            } catch (e) { ... } 
+            */
         },
         enabled: !!currentContext,
         staleTime: 1000 * 60 * 5,
@@ -434,7 +437,7 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
             Object.entries(crdGroups).forEach(([apiGroup, items]) => {
                 if (!groups[apiGroup]) groups[apiGroup] = [];
                 const existingKinds = new Set(groups[apiGroup].map(i => i.kind));
-                items.forEach((i: any) => {
+                (items as any[]).forEach((i: any) => {
                     if (!existingKinds.has(i.kind)) {
                         const normalized = { ...i, title: i.title ?? i.kind };
                         groups[apiGroup].push(normalized);
@@ -588,7 +591,7 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
                             Go Back
                         </button>
                         <button
-                            onClick={() => setActiveRes({ kind: "Azure", group: "Azure", version: "v1", namespaced: false, title: "Azure" })}
+                            onClick={() => onOpenAzure?.()}
                             className="bg-[#007acc] hover:bg-[#0098ff] text-white px-4 py-2 rounded transition-colors text-sm flex items-center gap-2"
                         >
                             <Cloud size={14} />
@@ -614,7 +617,7 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
                         Go Back
                     </button>
                     <button
-                        onClick={() => setActiveRes({ kind: "Azure", group: "Azure", version: "v1", namespaced: false, title: "Azure" })}
+                        onClick={() => onOpenAzure?.()}
                         className="bg-[#007acc] hover:bg-[#0098ff] text-white px-4 py-2 rounded transition-colors text-sm flex items-center gap-2"
                     >
                         <Cloud size={14} />
@@ -894,7 +897,10 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
                             </button>
                         </div>
                         <div className="flex-1 overflow-hidden p-2">
-                            <LocalTerminalTab />
+                            <LocalTerminalTab
+                                initialCommand={pendingClaudeCommand ? 'claude' : undefined}
+                                onCommandSent={() => setPendingClaudeCommand(false)}
+                            />
                         </div>
                     </div>
                 )
@@ -955,6 +961,7 @@ export function Dashboard({ onDisconnect }: DashboardProps) {
                             </div>
 
                             <div className="flex items-center gap-3">
+                                <NotificationCenter />
                                 <div className="relative group">
                                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
                                         <Search size={14} />

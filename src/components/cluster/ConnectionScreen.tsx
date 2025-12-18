@@ -330,7 +330,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                 const result = await Promise.race([
                     invoke<string>("set_kube_config", { context, path: customPath }),
                     new Promise<string>((_, reject) =>
-                        setTimeout(() => reject(new Error("Connection timeout after 15 seconds")), 15000)
+                        setTimeout(() => reject(new Error("Connection timeout after 60 seconds")), 60000)
                     )
                 ]);
                 addLog(result || 'Connected successfully', 'success');

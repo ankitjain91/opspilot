@@ -1,0 +1,167 @@
+
+> opspilot@0.2.21 build
+> npm run build:python & npm run build:web & wait && tauri build
+
+
+> opspilot@0.2.21 build:python
+> python3 scripts/build_sidecar.py
+
+
+> opspilot@0.2.21 build:web
+> node scripts/ensure-embeddings.cjs && vite build
+
+[embeddings] Embeddings file exists (0.7MB). Skipping generation.
+[embeddings] Delete the file to regenerate, or use SKIP_EMBEDDINGS=1 to skip.
+vite v7.2.4 building client environment for production...
+96 INFO: PyInstaller: 6.17.0, contrib hooks: 2025.10
+96 INFO: Python: 3.14.0
+117 INFO: Platform: macOS-15.7.2-arm64-arm-64bit-Mach-O
+118 INFO: Python environment: /Users/ankitjain/lens-killer/.venv-build
+118 INFO: wrote /Users/ankitjain/lens-killer/python/agent-server.spec
+123 INFO: Module search paths (PYTHONPATH):
+['/Users/ankitjain/lens-killer',
+ '/Users/ankitjain/lens-killer',
+ '/Users/ankitjain/lens-killer/python',
+ '/opt/homebrew/Cellar/python@3.14/3.14.0_1/Frameworks/Python.framework/Versions/3.14/lib/python314.zip',
+ '/opt/homebrew/Cellar/python@3.14/3.14.0_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14',
+ '/opt/homebrew/Cellar/python@3.14/3.14.0_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/lib-dynload',
+ '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages',
+ '/Users/ankitjain/lens-killer/python']
+transforming...
+337 INFO: Appending 'datas' from .spec
+339 INFO: checking Analysis
+357 INFO: Building because excludes changed
+357 INFO: Looking for Python shared library...
+360 INFO: Using Python shared library: /opt/homebrew/Cellar/python@3.14/3.14.0_1/Frameworks/Python.framework/Versions/3.14/Python
+360 INFO: Running Analysis Analysis-00.toc
+360 INFO: Target bytecode optimization level: 0
+360 INFO: Initializing module dependency graph...
+360 INFO: Initializing module graph hook caches...
+365 INFO: Analyzing modules for base_library.zip ...
+1339 INFO: Processing standard module hook 'hook-encodings.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+1603 INFO: Processing standard module hook 'hook-pickle.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+1811 INFO: Processing standard module hook 'hook-difflib.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+1832 INFO: Processing standard module hook 'hook-heapq.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+3327 INFO: Caching module dependency graph...
+3341 INFO: Analyzing /Users/ankitjain/lens-killer/python/start_agent.py
+✓ 2698 modules transformed.
+3679 INFO: Processing standard module hook 'hook-certifi.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+3718 INFO: Processing standard module hook 'hook-platform.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+3746 INFO: Processing standard module hook 'hook-xml.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+rendering chunks...
+3764 INFO: Processing standard module hook 'hook-_ctypes.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+computing gzip size...
+dist/index.html                              1.03 kB │ gzip:   0.48 kB
+dist/assets/openai-logo-DSfl2az2.png         8.49 kB
+dist/assets/ollama-logo-D1SwLhp9.png        12.99 kB
+dist/assets/anthropic-logo-DF73r-mu.png    115.51 kB
+dist/assets/index-GnpV65je.css             154.88 kB │ gzip:  19.72 kB
+dist/assets/tauri-BnmcwJtY.js                2.65 kB │ gzip:   1.16 kB
+dist/assets/react-OvXVS5lI.js               11.32 kB │ gzip:   4.06 kB
+dist/assets/index-DTKk6qYQ.js               14.60 kB │ gzip:   5.08 kB
+dist/assets/markdown-DS7uGHyK.js           157.12 kB │ gzip:  47.43 kB
+dist/assets/charts-esCPmPni.js             375.36 kB │ gzip: 110.36 kB
+dist/assets/index-PDKUBfar.js            1,057.01 kB │ gzip: 284.86 kB
+✓ built in 3.82s
+3943 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+4430 INFO: Processing standard module hook 'hook-anyio.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+4649 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4650 INFO: SetuptoolsInfo: initializing cached setuptools info...
+7207 INFO: Processing standard module hook 'hook-pydantic.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/utils/hooks/__init__.py:665: UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.
+  __import__(name)
+7672 INFO: Processing standard module hook 'hook-zoneinfo.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+7686 INFO: Processing standard module hook 'hook-sysconfig.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+7695 INFO: Processing standard module hook 'hook-_osx_support.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+8811 INFO: Processing standard module hook 'hook-orjson.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+8920 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+8976 INFO: Processing standard module hook 'hook-urllib3.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+9055 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9055 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+9063 INFO: Processing standard module hook 'hook-setuptools.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+9072 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9093 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9093 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+9099 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9099 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+9333 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+9334 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9451 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9452 INFO: Setuptools: 'importlib_metadata' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.importlib_metadata'!
+9469 INFO: Processing standard module hook 'hook-setuptools._vendor.importlib_metadata.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+9470 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9470 INFO: Setuptools: 'zipp' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.zipp'!
+9662 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+9662 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+10028 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+10030 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+10406 INFO: Processing standard module hook 'hook-charset_normalizer.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+11887 INFO: Processing standard module hook 'hook-jinja2.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+12219 INFO: Processing standard module hook 'hook-numpy.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+14410 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+14555 INFO: Processing standard module hook 'hook-ormsgpack.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/ormsgpack/_pyinstaller'
+15121 INFO: Processing standard module hook 'hook-dateutil.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+15200 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+18228 INFO: Processing standard module hook 'hook-uvloop.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+19945 INFO: Processing standard module hook 'hook-uvicorn.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+20308 INFO: Processing standard module hook 'hook-websockets.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+20742 INFO: Analyzing hidden import 'uvicorn.loops'
+20743 INFO: Analyzing hidden import 'uvicorn.loops.auto'
+20744 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+20745 INFO: Analyzing hidden import 'uvicorn.protocols.websockets.auto'
+20746 INFO: Analyzing hidden import 'uvicorn.lifespan'
+20746 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+20749 INFO: Analyzing hidden import 'langgraph.prebuilt'
+20790 INFO: Processing module hooks (post-graph stage)...
+21443 INFO: Performing binary vs. data reclassification (117 entries)
+21468 INFO: Looking for ctypes DLLs
+21490 WARNING: Library user32 required via ctypes not found
+21514 INFO: Analyzing run-time hooks ...
+21519 INFO: Including run-time hook 'pyi_rth_inspect.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+21521 INFO: Including run-time hook 'pyi_rth_setuptools.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+21522 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+21523 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from '/Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+21539 INFO: Creating base_library.zip...
+21548 INFO: Looking for dynamic libraries
+21683 INFO: Warnings written to /Users/ankitjain/lens-killer/python/build/agent-server/warn-agent-server.txt
+21740 INFO: Graph cross-reference written to /Users/ankitjain/lens-killer/python/build/agent-server/xref-agent-server.html
+21830 INFO: checking PYZ
+21865 INFO: EXE target arch: arm64
+21866 INFO: Code signing identity: None
+21868 INFO: checking PKG
+21869 INFO: Building because toc changed
+21869 INFO: Building PKG (CArchive) agent-server.pkg
+25487 INFO: Building PKG (CArchive) agent-server.pkg completed successfully.
+25490 INFO: Bootloader /Users/ankitjain/lens-killer/.venv-build/lib/python3.14/site-packages/PyInstaller/bootloader/Darwin-64bit/run
+25490 INFO: checking EXE
+25495 INFO: Building because toc changed
+25495 INFO: Building EXE from EXE-00.toc
+25513 INFO: Copying bootloader EXE to /Users/ankitjain/lens-killer/python/dist/agent-server
+25513 INFO: Converting EXE to target arch (arm64)
+25539 INFO: Removing signature(s) from EXE
+25560 INFO: Modifying Mach-O image UUID(s) in EXE
+25574 INFO: Appending PKG archive to EXE
+25591 INFO: Fixing EXE headers for code signing
+25593 INFO: Rewriting the executable's macOS SDK version (15.5.0) to match the SDK version of the Python library (15.4.0) in order to avoid inconsistent behavior and potential UI issues in the frozen application.
+25594 INFO: Re-signing the EXE
+25654 INFO: Building EXE from EXE-00.toc completed successfully.
+25656 INFO: Build complete! The results are available in: /Users/ankitjain/lens-killer/python/dist
+Building agent-server for darwin...
+Copying /Users/ankitjain/lens-killer/python/dist/agent-server to /Users/ankitjain/lens-killer/src-tauri/binaries/agent-server-aarch64-apple-darwin...
+Done! Sidecar binary: /Users/ankitjain/lens-killer/src-tauri/binaries/agent-server-aarch64-apple-darwin
+[build] Setting up Python build environment in /Users/ankitjain/lens-killer/.venv-build...
+[build] Dependencies up to date, skipping pip install.
+[build] Source files changed, rebuilding Agent Server binary...
+[build] Copying /Users/ankitjain/lens-killer/python/dist/agent-server to /Users/ankitjain/lens-killer/src-tauri/binaries/agent-server-aarch64-apple-darwin...
+[build] Python Sidecar Build Complete!
+        Info Looking up installed tauri packages to check mismatched versions...
+   Compiling opspilot v0.2.9 (/Users/ankitjain/lens-killer/src-tauri)
+    Finished `release` profile [optimized] target(s) in 26.23s
+       Built application at: /Users/ankitjain/lens-killer/src-tauri/target/release/opspilot
+    Bundling OpsPilot.app (/Users/ankitjain/lens-killer/src-tauri/target/release/bundle/macos/OpsPilot.app)
+    Bundling OpsPilot_0.2.21_aarch64.dmg (/Users/ankitjain/lens-killer/src-tauri/target/release/bundle/dmg/OpsPilot_0.2.21_aarch64.dmg)
+     Running bundle_dmg.sh
+    Finished 2 bundles at:
+        /Users/ankitjain/lens-killer/src-tauri/target/release/bundle/macos/OpsPilot.app
+        /Users/ankitjain/lens-killer/src-tauri/target/release/bundle/dmg/OpsPilot_0.2.21_aarch64.dmg
+

@@ -219,6 +219,7 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
     const isPod = kindLower === 'pod';
     const isNode = kindLower === 'node';
     const isIaC = isIaCResource(resourceType.group);
+    const isEvent = kindLower === 'event';
 
     // Fetch metrics for pods and nodes
     const { data: metricsData } = useQuery({
@@ -229,8 +230,12 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     kind: resourceType.kind,
                     namespace: isPod ? (namespaceFilter === "All Namespaces" ? null : namespaceFilter) : null
                 });
-            } catch (e) {
-                console.warn("Metrics not available:", e);
+            } catch (e: any) {
+                // Silently ignore 404s (metrics server likely not installed)
+                const errStr = String(e);
+                if (!errStr.includes("404")) {
+                    console.warn("Metrics not available:", e);
+                }
                 return [];
             }
         },
@@ -431,6 +436,15 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     <SortableHeader label="Age" sortKey="age" />
                     <div />
                 </div>
+            ) : isEvent ? (
+                <div className="grid grid-cols-[1.5fr_1fr_2.5fr_0.8fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
+                    <SortableHeader label="Reason" sortKey="name" /> {/* Events have 'name' but we usually care about Reason/Message */}
+                    <SortableHeader label="Type" sortKey="type" />
+                    <SortableHeader label="Message" sortKey="message" />
+                    <SortableHeader label="Count" sortKey="count" />
+                    <SortableHeader label="Last Prior" sortKey="age" />
+                    <div />
+                </div>
             ) : (
                 <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
                     <SortableHeader label="Name" sortKey="name" />
@@ -529,6 +543,23 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                         </div>
                                     );
                                 })()
+                            ) : isEvent ? (
+                                <div
+                                    onClick={() => onSelect(obj)}
+                                    className={`grid grid-cols-[1.5fr_1fr_2.5fr_0.8fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
+                                >
+                                    <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{(obj as any).reason || obj.name}</div>
+                                    <div className={`${(obj as any).type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{(obj as any).type || 'Normal'}</div>
+                                    <div className="text-zinc-600 truncate" title={(obj as any).message}>{(obj as any).message || '-'}</div>
+                                    <div className="text-zinc-500 font-mono text-xs">{(obj as any).count || 1}</div>
+                                    <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
+                                    <ResourceContextMenu
+                                        resource={obj}
+                                        onViewDetails={() => onSelect(obj)}
+                                        onDelete={() => handleDeleteRequest(obj)}
+                                        disabled={isResourceDeleting}
+                                    />
+                                </div>
                             ) : (
                                 <div
                                     onClick={() => onSelect(obj)}

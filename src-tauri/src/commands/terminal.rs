@@ -1,151 +1,330 @@
-
-use tauri::{State, Emitter};
-use crate::state::{AppState, ShellSession};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use tauri::{AppHandle, Emitter, State};
 use std::sync::{Arc, Mutex};
-use std::io::Read;
+use std::io::{Read, Write};
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use crate::state::{AppState, ShellSession};
+
+// --- Terminal Agent Commands (New) ---
+
+
+#[tauri::command]
+pub async fn start_terminal_agent(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    // 1. Prepare PTY System
+    let pty_system = NativePtySystem::default();
+    
+    // 2. Prepare Command (Claude CLI)
+    // We assume 'claude' is in the PATH. 
+    // If not, we might need to find it or ask user for path.
+    // We run it in interactive mode.
+    let cmd = CommandBuilder::new("claude");
+    
+    // 3. Open PTY
+    let pair = pty_system.openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+    // 4. Spawn Reader Thread
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(n) if n > 0 => {
+                    let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    // Emit to the specific event expected by TerminalBlock
+                    let _ = app_handle.emit("agent:terminal:data", data);
+                }
+                _ => break, // EOF or error
+            }
+        }
+        // Emit exit/closed event?
+        let _ = app_handle.emit("agent:terminal:closed", ());
+    });
+    
+    // 5. Spawn Child Process
+    let _child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn claude: {}", e))?;
+
+    // 6. Store Session
+    // We reuse the shell_sessions map, but use a reserved ID "claude-agent"
+    let session = Arc::new(ShellSession {
+        writer: Arc::new(Mutex::new(writer)),
+        master: Arc::new(Mutex::new(pair.master)),
+    });
+
+    state.shell_sessions.lock().unwrap().insert("claude-agent".to_string(), session.clone());
+
+    // 7. Auto-accept trust prompt
+    // Claude Code shows a "Do you trust files in this folder?" prompt on startup
+    // Wait for it to appear, then send Enter to accept (option 1 is pre-selected)
+    // Use longer delay and carriage return (\r) which terminals expect
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    if let Ok(mut w) = session.writer.lock() {
+        let _ = w.write_all(b"\r");
+        let _ = w.flush();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn execute_agent_command(app: AppHandle, command: String, _thread_id: String) -> Result<(), String> {
+    // Legacy/Mock function - Deprecated by real PTY agent
+    // But we might keep it to avoid breaking frontend calls if any still exist
+    let _ = app.emit("agent:terminal:data", format!("Executing (Legacy): {}\n", command));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn send_agent_input(
+    state: State<'_, AppState>,
+    data: String,
+) -> Result<(), String> {
+    // First try shell_sessions["claude-agent"] (from start_terminal_agent)
+    if let Some(session) = state.shell_sessions.lock().unwrap().get("claude-agent") {
+        if let Ok(mut writer) = session.writer.lock() {
+            write!(writer, "{}", data).map_err(|e| e.to_string())?;
+            let _ = writer.flush();
+            return Ok(());
+        }
+    }
+
+    // Fall back to claude_session (from call_claude_code)
+    if let Some(session) = state.claude_session.lock().unwrap().as_ref() {
+        if let Ok(mut writer) = session.writer.lock() {
+            write!(writer, "{}", data).map_err(|e| e.to_string())?;
+            let _ = writer.flush();
+            return Ok(());
+        }
+    }
+
+    Err("No active Claude session found".to_string())
+}
+
+#[tauri::command]
+pub fn resize_agent_terminal(
+    state: State<'_, AppState>,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    if let Some(session) = state.shell_sessions.lock().unwrap().get("claude-agent") {
+        if let Ok(master) = session.master.lock() {
+             master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            }).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+
+// --- Restored Terminal Commands (Shell / Exec) ---
 
 #[tauri::command]
 pub async fn start_local_shell(
-    app: tauri::AppHandle,
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    // Clean up any existing session
-    {
-        let mut sessions = state.shell_sessions.lock().unwrap();
-        sessions.remove(&session_id);
-    }
+    let pty_system = NativePtySystem::default();
 
-    // Create PTY
-    let pty_system = native_pty_system();
-    let pty_pair = pty_system.openpty(PtySize {
+    // Default to shell or sh
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+    let cmd = CommandBuilder::new(&shell);
+
+    // Use reasonable default size, will be resized by frontend
+    let pair = pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).map_err(|e| e.to_string())?;
+
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+
+    // Spawn thread to read PTY and emit events
+    let app_handle = app.clone();
+    let sid = session_id.clone();
+
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buffer = [0u8; 4096];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(n) if n > 0 => {
+                    let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    // Emit with the event name the frontend expects
+                    let _ = app_handle.emit(&format!("shell_output:{}", sid), data);
+                }
+                _ => {
+                    // Emit closed event
+                    let _ = app_handle.emit(&format!("shell_closed:{}", sid), ());
+                    break;
+                }
+            }
+        }
+    });
+
+    // Spawn shell
+    let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+
+    // Store session
+    let session = Arc::new(ShellSession {
+        writer: Arc::new(Mutex::new(writer)),
+        master: Arc::new(Mutex::new(pair.master)),
+    });
+
+    state.shell_sessions.lock().unwrap().insert(session_id, session);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn send_shell_input(
+    state: State<'_, AppState>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
+        if let Ok(mut writer) = session.writer.lock() {
+            write!(writer, "{}", data).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resize_shell(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
+        if let Ok(master) = session.master.lock() {
+             master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            }).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_local_shell(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    state.shell_sessions.lock().unwrap().remove(&session_id);
+    Ok(())
+}
+
+// --- Exec Commands (kubectl exec into pod) ---
+
+#[tauri::command]
+pub async fn start_exec(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    namespace: String,
+    name: String,
+    container: String,
+    session_id: String,
+) -> Result<(), String> {
+    let pty_system = NativePtySystem::default();
+
+    // Build kubectl exec command
+    let mut cmd = CommandBuilder::new("kubectl");
+    cmd.args(&["exec", "-it", &name, "-n", &namespace, "-c", &container, "--", "/bin/sh"]);
+
+    let pair = pty_system.openpty(PtySize {
         rows: 24,
         cols: 80,
         pixel_width: 0,
         pixel_height: 0,
     }).map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    // Build shell command
-    let mut cmd = if cfg!(target_os = "windows") {
-        CommandBuilder::new("powershell")
-    } else {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        CommandBuilder::new(shell)
-    };
-    cmd.env("TERM", "xterm-256color");
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    // Spawn shell in PTY
-    let _child = pty_pair.slave.spawn_command(cmd)
-        .map_err(|e| format!("Failed to spawn shell: {}", e))?;
-
-    // Get reader and writer from master
-    let mut reader = pty_pair.master.try_clone_reader()
-        .map_err(|e| format!("Failed to get PTY reader: {}", e))?;
-    let writer = pty_pair.master.take_writer()
-        .map_err(|e| format!("Failed to get PTY writer: {}", e))?;
-
-    // Store session
-    let session = ShellSession {
-        writer: Arc::new(Mutex::new(Box::new(writer) as Box<dyn std::io::Write + Send>)),
-        master: Arc::new(Mutex::new(pty_pair.master)),
-    };
-    state.shell_sessions.lock().unwrap().insert(session_id.clone(), Arc::new(session));
-
-    // Read PTY output in background thread
-    let session_id_clone = session_id.clone();
-    let app_clone = app.clone();
-    let shell_sessions = state.shell_sessions.clone();
-
+    // Spawn reader thread
+    let app_handle = app.clone();
+    let sid = session_id.clone();
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
+        let mut reader = reader;
+        let mut buffer = [0u8; 4096];
         loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break, // EOF
-                Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if app_clone.emit(&format!("shell_output:{}", session_id_clone), data).is_err() {
-                        break;
-                    }
+            match reader.read(&mut buffer) {
+                Ok(n) if n > 0 => {
+                    let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    let _ = app_handle.emit(&format!("term_output:{}", sid), data);
                 }
-                Err(_) => break,
+                _ => {
+                    let _ = app_handle.emit(&format!("term_closed:{}", sid), ());
+                    break;
+                }
             }
         }
-        // Cleanup
-        shell_sessions.lock().unwrap().remove(&session_id_clone);
-        let _ = app_clone.emit(&format!("shell_closed:{}", session_id_clone), ());
     });
+
+    // Spawn command
+    let _child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn kubectl exec: {}", e))?;
+
+    // Store session
+    let session = Arc::new(ShellSession {
+        writer: Arc::new(Mutex::new(writer)),
+        master: Arc::new(Mutex::new(pair.master)),
+    });
+
+    state.shell_sessions.lock().unwrap().insert(session_id, session);
 
     Ok(())
 }
 
 #[tauri::command]
-pub async fn send_shell_input(
+pub fn send_exec_input(
     state: State<'_, AppState>,
     session_id: String,
     data: String,
 ) -> Result<(), String> {
-    let sessions = state.shell_sessions.lock().unwrap();
-    if let Some(session) = sessions.get(&session_id) {
+    if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
         if let Ok(mut writer) = session.writer.lock() {
-            let _ = writer.write_all(data.as_bytes()).map_err(|e| e.to_string());
-            let _ = writer.flush();
+            write!(writer, "{}", data).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn resize_shell(
+pub fn resize_exec(
     state: State<'_, AppState>,
     session_id: String,
-    rows: u16,
     cols: u16,
+    rows: u16,
 ) -> Result<(), String> {
-    let sessions = state.shell_sessions.lock().unwrap();
-    if let Some(session) = sessions.get(&session_id) {
+    if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
         if let Ok(master) = session.master.lock() {
-            let _ = master.resize(PtySize {
+            master.resize(PtySize {
                 rows,
                 cols,
                 pixel_width: 0,
                 pixel_height: 0,
-            });
+            }).map_err(|e| e.to_string())?;
         }
     }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn stop_local_shell(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
-    let mut sessions = state.shell_sessions.lock().unwrap();
-    sessions.remove(&session_id);
-    Ok(())
-}
-
-// Remote Exec Commands (Pod Terminal)
-#[tauri::command]
-pub async fn send_exec_input(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    let session = {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(&session_id).cloned()
-    };
-
-    if let Some(session) = session {
-        use tokio::io::AsyncWriteExt;
-        let mut stdin = session.stdin.lock().await;
-        stdin.write_all(data.as_bytes()).await.map_err(|e| e.to_string())?;
-        Ok(())
-    } else {
-        Err(format!("Session {} not found", session_id))
-    }
-}
-
-#[tauri::command]
-pub async fn resize_exec(_state: State<'_, AppState>, _session_id: String, _cols: u16, _rows: u16) -> Result<(), String> {
-    // Note: kube-rs AttachedProcess doesn't expose resize easily yet without accessing the underlying websocket.
     Ok(())
 }

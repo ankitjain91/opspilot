@@ -1,0 +1,82 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "annotations": {
+                    "meta.helm.sh/release-name": "universal-crossplane",
+                    "meta.helm.sh/release-namespace": "upbound-system",
+                    "vcluster.loft.sh/managed-annotations": "meta.helm.sh/release-name\nmeta.helm.sh/release-namespace",
+                    "vcluster.loft.sh/object-host-name": "crossplane-webhooks-x-upbound-system-x-management-cluster",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Service",
+                    "vcluster.loft.sh/object-name": "crossplane-webhooks",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "79017317-24c9-47db-8ea3-18708547c2bd"
+                },
+                "creationTimestamp": "2025-12-04T17:41:09Z",
+                "labels": {
+                    "app": "crossplane",
+                    "app.kubernetes.io/component": "cloud-infrastructure-controller",
+                    "app.kubernetes.io/instance": "universal-crossplane",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "crossplane",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "app.kubernetes.io/version": "1.20.1-up.1",
+                    "helm.sh/chart": "universal-crossplane-1.20.1-up.1",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "name": "crossplane-webhooks-x-upbound-system-x-management-cluster",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": false,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "17466318",
+                "uid": "342c875b-6195-4aa8-982d-bfcb6a22fd3c"
+            },
+            "spec": {
+                "clusterIP": "10.0.130.94",
+                "clusterIPs": [
+                    "10.0.130.94"
+                ],
+                "internalTrafficPolicy": "Cluster",
+                "ipFamilies": [
+                    "IPv4"
+                ],
+                "ipFamilyPolicy": "SingleStack",
+                "ports": [
+                    {
+                        "port": 9443,
+                        "protocol": "TCP",
+                        "targetPort": 9443
+                    }
+                ],
+                "selector": {
+                    "app": "crossplane",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system"
+                },
+                "sessionAffinity": "None",
+                "type": "ClusterIP"
+            },
+            "status": {
+                "loadBalancer": {}
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

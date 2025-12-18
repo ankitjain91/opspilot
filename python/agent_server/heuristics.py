@@ -32,15 +32,52 @@ SYNONYM_MAP = {
     'cert-manager': ['cert manager', 'certificate', 'tls', 'ssl'],
 }
 
+def try_pluralization_variants(word: str) -> List[str]:
+    """Generate plural/singular variants for K8s resource names.
+
+    Handles common English pluralization rules to match CRD names.
+
+    Examples:
+        "customerclusters" → ["customerclusters", "customercluster"]
+        "databases" → ["databases", "database"]
+        "policies" → ["policies", "policy"]
+        "vcluster" → ["vcluster", "vclusters"]
+    """
+    variants = [word]
+
+    # Skip words unlikely to be resources (too short or common words)
+    if len(word) < 4 or word in ['kubernetes', 'the', 'what', 'how', 'why', 'this', 'that', 'these', 'those']:
+        return variants
+
+    # Handle plural → singular
+    if word.endswith('ses') and len(word) > 5:  # "databases" → "database"
+        variants.append(word[:-2])
+    elif word.endswith('ies') and len(word) > 5:  # "policies" → "policy"
+        variants.append(word[:-3] + 'y')
+    elif word.endswith('s') and not word.endswith(('ss', 'us')):  # "clusters" → "cluster"
+        # Avoid false positives like "status" → "statu"
+        variants.append(word[:-1])
+
+    # Handle singular → plural (if not already plural)
+    if not word.endswith('s'):
+        if word.endswith('y') and len(word) > 3 and word[-2] not in 'aeiou':  # "policy" → "policies"
+            variants.append(word[:-1] + 'ies')
+        elif word.endswith(('s', 'x', 'z', 'ch', 'sh')):  # "address" → "addresses"
+            variants.append(word + 'es')
+        else:  # "cluster" → "clusters"
+            variants.append(word + 's')
+
+    return list(set(variants))
+
 def expand_query(query: str) -> List[str]:
     """
-    Expand query with synonyms for better KB retrieval.
+    Expand query with synonyms and pluralization for better KB retrieval.
 
     Returns list of query variants (original + expansions).
 
     Example:
-        Input: "crashloop pods"
-        Output: ["crashloop pods", "crashloopbackoff pods", "crashing containers"]
+        Input: "list customerclusters"
+        Output: ["list customerclusters", "list customercluster", "find customerclusters", ...]
     """
     query_lower = query.lower()
     variants = [query]  # Always include original
@@ -68,9 +105,24 @@ def expand_query(query: str) -> List[str]:
                         if variant2 != query_lower and variant2 not in variants:
                             variants.append(variant2)
 
-    # Deduplicate and limit to top 5 most diverse variants
+    # Add pluralization variants for potential resource names
+    # Split query into words and try pluralization on each significant word
+    words = query_lower.split()
+    for i, word in enumerate(words):
+        plural_variants = try_pluralization_variants(word)
+        if len(plural_variants) > 1:  # If we got variants beyond the original
+            for variant_word in plural_variants:
+                if variant_word != word:
+                    # Replace this word in the query
+                    new_words = words.copy()
+                    new_words[i] = variant_word
+                    variant = ' '.join(new_words)
+                    if variant not in variants:
+                        variants.append(variant)
+
+    # Deduplicate and limit to top 8 most diverse variants (increased from 5 to accommodate pluralization)
     variants = list(dict.fromkeys(variants))  # Preserve order, remove duplicates
-    return variants[:5]
+    return variants[:8]
 
 def normalize_query(query: str) -> tuple[str, str | None]:
     """Minimal query normalization - let the LLM handle natural language variations.
@@ -230,8 +282,12 @@ def select_relevant_examples(query: str, max_examples: int = 15) -> list[str]:
     query_lower = query.lower()
     selected = set()
 
-    # Always include core examples
-    selected.update(EXAMPLE_CATEGORIES["core"]["examples"])
+    # Always include core examples (but respect max limit)
+    core_examples = EXAMPLE_CATEGORIES["core"]["examples"]
+    for ex in core_examples:
+        if len(selected) >= max_examples:
+            break
+        selected.add(ex)
 
     category_scores = []
     for cat_name, cat_data in EXAMPLE_CATEGORIES.items():
@@ -243,9 +299,13 @@ def select_relevant_examples(query: str, max_examples: int = 15) -> list[str]:
 
     category_scores.sort(reverse=True, key=lambda x: x[0])
 
+    # Add examples one by one to respect max limit
     for score, cat_name, examples in category_scores:
+        for ex in examples:
+            if len(selected) >= max_examples:
+                break
+            selected.add(ex)
         if len(selected) >= max_examples:
             break
-        selected.update(examples)
 
     return sorted(list(selected))

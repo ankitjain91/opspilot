@@ -20,9 +20,41 @@ async def plan_executor_node(state: AgentState) -> dict:
     plan = state.get('execution_plan')
     if not plan:
         return {**state, 'next_action': 'supervisor'}
-        
+
+    # --- HUMAN-IN-THE-LOOP CONTROLS ---
+
+    # Skip current step: User wants to move to next step without executing
+    if state.get('skip_current_step'):
+        active_step = get_current_step(plan)
+        if active_step:
+            step_idx = active_step['step'] - 1
+            plan[step_idx]['status'] = 'skipped'
+            print(f"[plan_executor] ⏭️ User skipped step {active_step['step']}: {active_step['instruction'][:50]}...", flush=True)
+            return {
+                **state,
+                'execution_plan': plan,
+                'skip_current_step': False,  # Clear the flag
+                'next_action': 'execute_plan',  # Loop back to get next step
+            }
+
+    # Pause after step: User wants approval before each step
+    if state.get('pause_after_step') and state.get('step_status') == 'in_progress':
+        # Emit event for UI to show pause dialog
+        events = list(state.get('events', []))
+        from ..utils import emit_event
+        events.append(emit_event("pause_for_approval", {
+            "message": "Paused for user approval",
+            "current_step": get_current_step(plan)
+        }))
+        return {
+            **state,
+            'events': events,
+            'awaiting_approval': True,
+            'next_action': 'human_approval',
+        }
+
     # --- 1. STATE MACHINE TRANSITION LOGIC ---
-    
+
     # Context
     previous_reflection = state.get('last_reflection')
     retry_count = state.get('retry_count', 0)

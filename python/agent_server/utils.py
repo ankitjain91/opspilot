@@ -108,40 +108,70 @@ def truncate_output(text: str, max_len: int = MAX_OUTPUT_LENGTH) -> str:
     half = max_len // 2
     return f"{text[:half]}\n\n... [truncated {len(text) - max_len} chars] ...\n\n{text[-half:]}"
 
-def format_command_history(history: list) -> str:
-    """Format command history for the LLM prompt.
+def format_command_history(history: list, task_type: str = None, evidence_chain: list = None) -> str:
+    """Format command history for the LLM prompt with adaptive compression.
 
-    Limits to last 5 commands to prevent context overflow.
-    Uses smart truncation to keep only important output rows.
+    Compression Strategy:
+    1. Last 2 commands: Full detail (3000 chars) - most relevant for next step
+    2. Older commands with evidence: Medium detail (1000 chars) - keeps important findings
+    3. Older commands without evidence: Minimal (300 chars) - just context
+    4. Commands marked SOLVED/SUCCESS: Summarize only (100 chars) - already done
+
+    Args:
+        history: List of command history entries
+        task_type: Optional task type (discovery/diagnosis/remediation) for priority
+        evidence_chain: Optional list of key findings to prioritize
     """
     if not history:
         return '(none yet)'
 
-    # Limit to last 5 commands to reduce context size
-    recent_history = history[-5:] if len(history) > 5 else history
+    # Adaptive window size based on history length
+    # More commands = more aggressive compression
+    window_size = 5 if len(history) <= 10 else 4 if len(history) <= 15 else 3
+    recent_history = history[-window_size:] if len(history) > window_size else history
 
     lines = []
-    # Reverse to process most recent first
-    recent_history = history[-5:] if len(history) > 5 else history
     total_items = len(recent_history)
-    
+    evidence_set = set(evidence_chain or [])
+
     for i, h in enumerate(recent_history, 1):
-        # Adaptive truncation: 
-        # - Last 2 commands: High detail (3000 chars)
-        # - Older commands: Low detail (500 chars) to save tokens
-        is_recent = i >= total_items - 1
-        max_chars = 3000 if is_recent else 500
-        
+        cmd = h.get('command', '')
+        assessment = h.get('assessment', '')
+        output = h.get('output', '')
+
+        # Determine compression level based on multiple factors
+        is_recent = i >= total_items - 1  # Last 2 commands
+        has_evidence = any(ev in output for ev in evidence_set) if evidence_set else False
+        is_solved = assessment in ['SOLVED', 'AUTO_SOLVED', 'SUCCESS']
+        is_error = bool(h.get('error')) or assessment in ['ERROR', 'FAILED']
+
+        # Adaptive max_chars based on relevance
+        if is_solved:
+            # Already solved - minimal context needed
+            max_chars = 100
+        elif is_error:
+            # Errors are important - keep more detail
+            max_chars = 1500
+        elif is_recent:
+            # Most recent - full detail
+            max_chars = 3000
+        elif has_evidence:
+            # Has key evidence - medium detail
+            max_chars = 1000
+        else:
+            # Older, no evidence - minimal
+            max_chars = 300
+
         if h.get('error'):
             result = f"ERROR: {h['error']}"
         else:
-            result = smart_truncate_output(h['output'], max_chars=max_chars)
+            result = smart_truncate_output(output, max_chars=max_chars)
 
-        assessment = f"\nREFLECTION: {h['assessment']} - {h.get('reasoning', '')}" if h.get('assessment') else ""
-        lines.append(f"[{i}] $ {h['command']}\n{result}{assessment}")
+        assessment_str = f"\nREFLECTION: {assessment} - {h.get('reasoning', '')[:150]}" if assessment else ""
+        lines.append(f"[{i}] $ {cmd}\n{result}{assessment_str}")
 
-    if len(history) > 5:
-        lines.insert(0, f"(Showing last 5 of {len(history)} commands)")
+    if len(history) > window_size:
+        lines.insert(0, f"(Showing last {window_size} of {len(history)} commands - compression: adaptive)")
 
     return '\n\n'.join(lines)
 
@@ -549,235 +579,64 @@ def cache_command_result(state: dict, command: str, output: str) -> dict:
         
     return state
 
-def parse_kubectl_json_output(json_str: str) -> str:
+
+def parse_kubectl_json_output(json_output: str) -> str:
     """
-    Parse kubectl JSON output using Pydantic models for strict validation.
-    
-    Returns structured summaries (e.g., "Found 5 Pods, 2 Unhealthy: ...") rather than strict dictionaries.
+    Parse generic kubectl JSON output and return a human-readable summary.
+    Handles both lists (KindList) and single resources.
     """
     try:
-        if not json_str.strip():
-            return "(empty output)"
-            
-        data = json.loads(json_str)
-        kind = data.get('kind', 'Unknown')
-        
-        # Import models inside function to avoid circular imports
-        from .models.k8s import K8sPod, K8sDeployment, K8sEvent, K8sNode
-        
-        # Handle List type
-        if kind == 'List' or 'items' in data:
-            items = data.get('items', [])
-            count = len(items)
-            if count == 0:
-                return "No resources found (0 items)."
-                
-            # Detect resource type from first item
-            first_kind = items[0].get('kind')
-            
-            # --- POD PARSING ---
-            if first_kind == 'Pod':
-                pods = [K8sPod.from_dict(item) for item in items]
-                unhealthy = [p for p in pods if not p.is_healthy]
-                
-                parts = [f"Found {len(pods)} Pods."]
-                if unhealthy:
-                    parts.append(f"{len(unhealthy)} Unhealthy:")
-                    for p in unhealthy[:10]:
-                        parts.append(f"- {p.summary()}")
-                    if len(unhealthy) > 10:
-                        parts.append(f"... ({len(unhealthy)-10} more omitted)")
-                else:
-                    parts.append("✅ All pods are verified healthy (Running/Ready).")
-                return "\n".join(parts)
-
-            # --- DEPLOYMENT PARSING ---
-            elif first_kind == 'Deployment':
-                deps = [K8sDeployment.from_dict(item) for item in items]
-                unhealthy = [d for d in deps if not d.is_healthy]
-                
-                parts = [f"Found {len(deps)} Deployments."]
-                if unhealthy:
-                    parts.append(f"{len(unhealthy)} Unhealthy:")
-                    for d in unhealthy:
-                        parts.append(f"- {d.summary()}")
-                else:
-                    parts.append("✅ All deployments are fully reconciled.")
-                return "\n".join(parts)
-
-            # --- EVENT PARSING ---
-            elif first_kind == 'Event':
-                events = [K8sEvent.from_dict(item) for item in items]
-                warnings = [e for e in events if e.type == 'Warning']
-                
-                if not warnings:
-                    return "No warning events found."
-                
-                parts = [f"Found {len(warnings)} Warning events:"]
-                # De-duplicate events
-                seen = set()
-                count = 0
-                for e in warnings:
-                   key = f"{e.reason}-{e.object}-{e.message}"
-                   if key not in seen:
-                       seen.add(key)
-                       parts.append(f"- {e.summary()}")
-                       count += 1
-                       if count >= 15:
-                           break
-                return "\n".join(parts)
-
-            # --- NODE PARSING ---
-            elif first_kind == 'Node':
-                nodes = [K8sNode.from_dict(item) for item in items]
-                # ... simple summary 
-                return f"Found {len(nodes)} Nodes. {[n.summary() for n in nodes]}"
-
-            else:
-                # Fallback for generic resources - extract FULL details for LLM
-                # Instead of summarizing, provide comprehensive JSON representation
-                resource_details = []
-
-                for item in items[:10]:  # Limit to 10 for readability
-                    metadata = item.get('metadata', {})
-                    spec = item.get('spec', {})
-                    status_obj = item.get('status', {})
-
-                    name = metadata.get('name', 'unknown')
-                    namespace = metadata.get('namespace')
-
-                    # Build comprehensive detail block
-                    detail = f"\n## {first_kind}: {name}"
-                    if namespace:
-                        detail += f" (namespace: {namespace})"
-
-                    # Add creation timestamp
-                    created = metadata.get('creationTimestamp')
-                    if created:
-                        detail += f"\n  Created: {created}"
-
-                    # Add labels if present
-                    labels = metadata.get('labels', {})
-                    if labels:
-                        detail += f"\n  Labels: {', '.join([f'{k}={v}' for k, v in list(labels.items())[:5]])}"
-
-                    # Add spec details with VALUES (first level)
-                    if spec:
-                        detail += "\n  Spec:"
-                        for key, value in list(spec.items())[:10]:
-                            # Format value based on type
-                            if isinstance(value, (str, int, float, bool)):
-                                detail += f"\n    - {key}: {value}"
-                            elif isinstance(value, dict):
-                                # Show nested dict keys or compact JSON
-                                if len(value) <= 3:
-                                    detail += f"\n    - {key}: {json.dumps(value)}"
-                                else:
-                                    dict_keys = ', '.join(list(value.keys())[:5])
-                                    detail += f"\n    - {key}: {{{dict_keys}...}}"
-                            elif isinstance(value, list):
-                                detail += f"\n    - {key}: [{len(value)} items]"
-                            else:
-                                detail += f"\n    - {key}: {str(value)[:100]}"
-
-                    # Add status details
-                    if status_obj:
-                        # Common status fields
-                        phase = status_obj.get('phase', status_obj.get('state'))
-                        if phase:
-                            detail += f"\n  Status/Phase: {phase}"
-
-                        # Conditions
-                        conditions = status_obj.get('conditions', [])
-                        if conditions:
-                            detail += "\n  Conditions:"
-                            for cond in conditions[:3]:  # Show first 3 conditions
-                                cond_type = cond.get('type', 'Unknown')
-                                cond_status = cond.get('status', 'Unknown')
-                                cond_reason = cond.get('reason', '')
-                                detail += f"\n    - {cond_type}: {cond_status}"
-                                if cond_reason and cond_status != 'True':
-                                    detail += f" ({cond_reason})"
-
-                        # Other status fields with VALUES (show first 10 fields)
-                        other_status = {k: v for k, v in status_obj.items() if k not in ['conditions', 'phase', 'state']}
-                        if other_status:
-                            detail += "\n  Additional Status:"
-                            for key, value in list(other_status.items())[:10]:
-                                # Format value based on type
-                                if isinstance(value, (str, int, float, bool)):
-                                    detail += f"\n    - {key}: {value}"
-                                elif isinstance(value, dict):
-                                    # Show nested dict keys or compact JSON
-                                    if len(value) <= 3:
-                                        detail += f"\n    - {key}: {json.dumps(value)}"
-                                    else:
-                                        dict_keys = ', '.join(list(value.keys())[:5])
-                                        detail += f"\n    - {key}: {{{dict_keys}...}}"
-                                elif isinstance(value, list):
-                                    detail += f"\n    - {key}: [{len(value)} items]"
-                                else:
-                                    detail += f"\n    - {key}: {str(value)[:100]}"
-
-                    resource_details.append(detail)
-
-                header = f"Found {count} {first_kind} resource(s):"
-                if count > 10:
-                    header += f" (showing first 10)"
-
-                return header + "".join(resource_details)
-
-        else:
-            # Single Object
-            if kind == 'Pod':
-                return K8sPod.from_dict(data).summary()
-            elif kind == 'Deployment':
-                return K8sDeployment.from_dict(data).summary()
-            elif 'CustomerCluster' in str(kind):
-                # Specialized summary for CustomerCluster CRD
-                status = data.get('status', {})
-                metadata = data.get('metadata', {})
-                name = metadata.get('name', 'unknown')
-                namespace = metadata.get('namespace', '')
-                ns_str = f" (namespace: {namespace})" if namespace else ""
-
-                phase = status.get('phase') or status.get('state') or 'Unknown'
-                ready = status.get('ready')
-                synced = status.get('synced')
-                conditions = status.get('conditions', [])
-                failing_conds = []
-                for cond in conditions:
-                    ctype = cond.get('type', 'Unknown')
-                    cstat = cond.get('status', 'Unknown')
-                    creason = cond.get('reason', '')
-                    if str(cstat).lower() not in ['true', 'ready', 'synced']:
-                        failing_conds.append(f"{ctype}={cstat}{(':'+creason) if creason else ''}")
-
-                lines = [
-                    f"Resource: CustomerCluster/{name}{ns_str}",
-                    f"Status/Phase: {phase}",
-                ]
-                if ready is not None:
-                    lines.append(f"Ready: {ready}")
-                if synced is not None:
-                    lines.append(f"Synced: {synced}")
-                if failing_conds:
-                    lines.append("Conditions indicating issues:")
-                    for fc in failing_conds[:5]:
-                        lines.append(f"  - {fc}")
-                return "\n".join(lines)
-            else:
-                metadata = data.get('metadata', {})
-                name = metadata.get('name', 'unknown')
-                namespace = metadata.get('namespace')
-                ns_str = f" (namespace: {namespace})" if namespace else ""
-                status = data.get('status', {})
-                phase = status.get('phase', status.get('state', 'Unknown'))
-                return f"Resource: {kind}/{name}{ns_str}\nStatus: {phase}"
-
+        data = json.loads(json_output)
     except json.JSONDecodeError:
-        return f"(Output was not valid JSON: {json_str[:100]}...)"
-    except Exception as e:
-        # Fallback to heuristic parsing if strict validation fails (graceful degradation)
-        print(f"[agent-sidecar] ⚠️ Strict parsing failed: {e}. Falling back to heuristic.", flush=True)
-        return smart_truncate_output(json_str, max_chars=2000)
+        return f"Error: Failed to parse JSON output. Check syntax."
+
+    kind = data.get('kind', 'Unknown')
+    metadata = data.get('metadata', {})
+    
+    # Handle Lists
+    if kind.endswith('List') and 'items' in data:
+        items = data['items']
+        count = len(items)
+        if count == 0:
+            return f"No {kind.replace('List', 's')} found."
+            
+        summary = [f"{kind}: Found {count} items"]
+        
+        # Summarize each item
+        for i, item in enumerate(items):
+            if i >= 10: # Limit list summary
+                summary.append(f"... and {count - 10} more.")
+                break
+                
+            m = item.get('metadata', {})
+            name = m.get('name', 'unknown')
+            ns = m.get('namespace', '-')
+            
+            # Status summary
+            status_obj = item.get('status', {})
+            phase = status_obj.get('phase', '')
+            if not phase and 'conditions' in status_obj:
+                # Find True condition
+                true_conds = [c['type'] for c in status_obj['conditions'] if c.get('status') == 'True']
+                phase = ', '.join(true_conds[:2])
+            
+            status_str = f" | Status: {phase}" if phase else ""
+            summary.append(f"- {name} (ns: {ns}){status_str}")
+            
+        return "\\n".join(summary)
+
+    # Handle Single Object
+    else:
+        name = metadata.get('name', 'unknown')
+        ns = metadata.get('namespace', 'default')
+        
+        # simplified yaml-like dump for single object
+        # remove managedFields to reduce noise
+        if 'managedFields' in metadata:
+            del metadata['managedFields']
+            
+        return f"Resource: {kind}/{name} (ns: {ns})\\nData: {json.dumps(data, indent=2)}"
+
+
+
+

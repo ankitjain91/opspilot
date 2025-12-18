@@ -71,7 +71,7 @@ LARGE_OUTPUT_VERBS = [
     'get all', 'top', 'logs -f', 'get --watch'
 ]
 
-MAX_ITERATIONS = 7  # Reduced from 10 - with better prompts/accuracy, fewer iterations needed
+MAX_ITERATIONS = 20  # Safety limit only - LLM decides when to stop, not hardcoded iteration limits
 MAX_OUTPUT_LENGTH = 8000
 
 # ---- Embeddings RAG config ----

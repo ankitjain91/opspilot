@@ -1,0 +1,3089 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "cluster-autoscaler.kubernetes.io/safe-to-evict": "true",
+                    "cni.projectcalico.org/containerID": "a58b2418ff2c7e3f5ac5ef434cddb56d032edb4dcc1d5b6108e3a2eabfb89bef",
+                    "cni.projectcalico.org/podIP": "10.244.2.186/32",
+                    "cni.projectcalico.org/podIPs": "10.244.2.186/32",
+                    "prometheus.io/path": "/metrics",
+                    "prometheus.io/port": "8080",
+                    "prometheus.io/scrape": "true",
+                    "vcluster.loft.sh/labels": "app.kubernetes.io/component=\"cloud-infrastructure-controller\"\napp.kubernetes.io/instance=\"universal-crossplane\"\napp.kubernetes.io/managed-by=\"Helm\"\napp.kubernetes.io/name=\"crossplane\"\napp.kubernetes.io/part-of=\"crossplane\"\napp.kubernetes.io/version=\"1.20.1-up.1\"\napp=\"crossplane\"\nhelm.sh/chart=\"universal-crossplane-1.20.1-up.1\"\npod-template-hash=\"844b54fc95\"\nrelease=\"universal-crossplane\"",
+                    "vcluster.loft.sh/managed-annotations": "prometheus.io/path\nprometheus.io/port\nprometheus.io/scrape",
+                    "vcluster.loft.sh/name": "crossplane-844b54fc95-b4bjd",
+                    "vcluster.loft.sh/namespace": "upbound-system",
+                    "vcluster.loft.sh/object-host-name": "crossplane-844b54fc95-b4bjd-x-upbound-system-x-manag-9a078540ad",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Pod",
+                    "vcluster.loft.sh/object-name": "crossplane-844b54fc95-b4bjd",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "64a3af3d-be2e-4e18-bc93-1457f786976a",
+                    "vcluster.loft.sh/owner-references": "[{\"apiVersion\":\"apps/v1\",\"kind\":\"ReplicaSet\",\"name\":\"crossplane-844b54fc95\",\"uid\":\"da1bf9f4-c0a7-4603-a13c-ecfd25f3712b\",\"controller\":true,\"blockOwnerDeletion\":true}]",
+                    "vcluster.loft.sh/owner-set-kind": "ReplicaSet",
+                    "vcluster.loft.sh/service-account-name": "crossplane",
+                    "vcluster.loft.sh/token-zyeufkuu": "eyJhbGciOiJSUzI1NiIsImtpZCI6InpFc2M2WnFLRWR0Snk0YkJJRjhLQWFVS0FNTDZQWUpFN3E0N3ZmU0Y2RzQifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdC5zdmMiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdCJdLCJleHAiOjIwODA4NTIyMjYsImlhdCI6MTc2NTQ5MjIyNiwiaXNzIjoiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJrdWJlcm5ldGVzLmlvIjp7Im5hbWVzcGFjZSI6InVwYm91bmQtc3lzdGVtIiwicG9kIjp7Im5hbWUiOiJjcm9zc3BsYW5lLTg0NGI1NGZjOTUtYjRiamQiLCJ1aWQiOiI2NGEzYWYzZC1iZTJlLTRlMTgtYmM5My0xNDU3Zjc4Njk3NmEifSwic2VydmljZWFjY291bnQiOnsibmFtZSI6ImNyb3NzcGxhbmUiLCJ1aWQiOiIxZDcyMTZjNC0wZmU3LTRmZDctOWY2Yi04ZmJkYmE3MGZlNzMifX0sIm5iZiI6MTc2NTQ5MjIyNiwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50OnVwYm91bmQtc3lzdGVtOmNyb3NzcGxhbmUifQ.fKDggCXr9rwKAqpLkCVrd8Iy4VthBmleSAfz3fwZavByUkwbw65WH_7K-cI2By4L7H01hASZ8vDbw5xrZXLt8LkdPTLj6tTVSgqs9x-SZVLPCspvm9zKW4AvFX9JjXhnZZK9iJKpWWnaE8sDdU4QHnGV72HzhrJST0eNWYrID-7ACJCOo-b_YafHqhXfKA8w3mmDiEugvZbZWJOp35Qh-xpYp5kNdwTT4PUQ9WpecFWo94otLGsjMbWL8E4Rh8t7I5DWy-LuGoKNIf0GKjqVWC0spYzZW0OuJsp2GBTkR1ojC8myLm2aTOUyRvzgYmp7SbYE_r1krj-yjU1ohdqVGw",
+                    "vcluster.loft.sh/uid": "64a3af3d-be2e-4e18-bc93-1457f786976a"
+                },
+                "creationTimestamp": "2025-12-11T22:30:26Z",
+                "generation": 1,
+                "labels": {
+                    "app": "crossplane",
+                    "app.kubernetes.io/component": "cloud-infrastructure-controller",
+                    "app.kubernetes.io/instance": "universal-crossplane",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "crossplane",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "app.kubernetes.io/version": "1.20.1-up.1",
+                    "helm.sh/chart": "universal-crossplane-1.20.1-up.1",
+                    "pod-template-hash": "844b54fc95",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system",
+                    "vcluster.loft.sh/ns-label-management-cluster-x-cf1227b7b2": "upbound-system"
+                },
+                "name": "crossplane-844b54fc95-b4bjd-x-upbound-system-x-manag-9a078540ad",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "25061041",
+                "uid": "e60800dd-4e6a-4aae-b563-6f968d6f5cd7"
+            },
+            "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [
+                    {
+                        "args": [
+                            "core",
+                            "start"
+                        ],
+                        "env": [
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT",
+                                "value": "tcp://10.0.247.116:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP",
+                                "value": "tcp://10.0.247.116:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_ADDR",
+                                "value": "10.0.247.116"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_HOST",
+                                "value": "10.0.247.116"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_HOST",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT",
+                                "value": "tcp://10.0.53.240:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP",
+                                "value": "tcp://10.0.53.240:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_ADDR",
+                                "value": "10.0.53.240"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_HOST",
+                                "value": "10.0.53.240"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT",
+                                "value": "tcp://10.0.28.75:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP",
+                                "value": "tcp://10.0.28.75:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.28.75"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_HOST",
+                                "value": "10.0.28.75"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT",
+                                "value": "tcp://10.0.235.244:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP",
+                                "value": "tcp://10.0.235.244:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.235.244"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_HOST",
+                                "value": "10.0.235.244"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT",
+                                "value": "tcp://10.0.157.215:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP",
+                                "value": "tcp://10.0.157.215:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.157.215"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_HOST",
+                                "value": "10.0.157.215"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT",
+                                "value": "tcp://10.0.71.150:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP",
+                                "value": "tcp://10.0.71.150:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.71.150"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_HOST",
+                                "value": "10.0.71.150"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT",
+                                "value": "tcp://10.0.192.90:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP",
+                                "value": "tcp://10.0.192.90:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.192.90"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_HOST",
+                                "value": "10.0.192.90"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT",
+                                "value": "tcp://10.0.23.184:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP",
+                                "value": "tcp://10.0.23.184:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.23.184"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_HOST",
+                                "value": "10.0.23.184"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT",
+                                "value": "tcp://10.0.7.3:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP",
+                                "value": "tcp://10.0.7.3:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_ADDR",
+                                "value": "10.0.7.3"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_HOST",
+                                "value": "10.0.7.3"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT",
+                                "value": "tcp://10.0.229.186:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.229.186:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.229.186"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_HOST",
+                                "value": "10.0.229.186"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT",
+                                "value": "tcp://10.0.16.35:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.16.35:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.16.35"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_HOST",
+                                "value": "10.0.16.35"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT",
+                                "value": "tcp://10.0.9.55:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP",
+                                "value": "tcp://10.0.9.55:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.9.55"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_HOST",
+                                "value": "10.0.9.55"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT",
+                                "value": "tcp://10.0.122.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP",
+                                "value": "tcp://10.0.122.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.122.166"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_HOST",
+                                "value": "10.0.122.166"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT",
+                                "value": "tcp://10.0.210.38:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP",
+                                "value": "tcp://10.0.210.38:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_ADDR",
+                                "value": "10.0.210.38"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_HOST",
+                                "value": "10.0.210.38"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT",
+                                "value": "tcp://10.0.68.229:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP",
+                                "value": "tcp://10.0.68.229:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.68.229"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_HOST",
+                                "value": "10.0.68.229"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT",
+                                "value": "tcp://10.0.82.209:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP",
+                                "value": "tcp://10.0.82.209:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_ADDR",
+                                "value": "10.0.82.209"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_HOST",
+                                "value": "10.0.82.209"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT",
+                                "value": "tcp://10.0.81.205:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP",
+                                "value": "tcp://10.0.81.205:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.81.205"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_HOST",
+                                "value": "10.0.81.205"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT",
+                                "value": "tcp://10.0.22.4:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP",
+                                "value": "tcp://10.0.22.4:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_ADDR",
+                                "value": "10.0.22.4"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_HOST",
+                                "value": "10.0.22.4"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT",
+                                "value": "tcp://10.0.177.121:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP",
+                                "value": "tcp://10.0.177.121:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_ADDR",
+                                "value": "10.0.177.121"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_HOST",
+                                "value": "10.0.177.121"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT",
+                                "value": "tcp://10.0.213.80:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP",
+                                "value": "tcp://10.0.213.80:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.213.80"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_HOST",
+                                "value": "10.0.213.80"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT",
+                                "value": "tcp://10.0.13.86:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.13.86:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.13.86"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_HOST",
+                                "value": "10.0.13.86"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT",
+                                "value": "tcp://10.0.58.200:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP",
+                                "value": "tcp://10.0.58.200:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.58.200"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_HOST",
+                                "value": "10.0.58.200"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT",
+                                "value": "tcp://10.0.242.245:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP",
+                                "value": "tcp://10.0.242.245:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.242.245"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_HOST",
+                                "value": "10.0.242.245"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT",
+                                "value": "tcp://10.0.211.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP",
+                                "value": "tcp://10.0.211.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.211.166"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_HOST",
+                                "value": "10.0.211.166"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT",
+                                "value": "tcp://10.0.83.162:9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP",
+                                "value": "tcp://10.0.83.162:9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_ADDR",
+                                "value": "10.0.83.162"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_HOST",
+                                "value": "10.0.83.162"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT",
+                                "value": "tcp://10.0.234.144:9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP",
+                                "value": "tcp://10.0.234.144:9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_ADDR",
+                                "value": "10.0.234.144"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_HOST",
+                                "value": "10.0.234.144"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "GOMAXPROCS",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane",
+                                        "divisor": "1",
+                                        "resource": "limits.cpu"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GOMEMLIMIT",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane",
+                                        "divisor": "1",
+                                        "resource": "limits.memory"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_SERVICE_ACCOUNT",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/service-account-name']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "LEADER_ELECTION",
+                                "value": "true"
+                            },
+                            {
+                                "name": "TLS_SERVER_SECRET_NAME",
+                                "value": "crossplane-tls-server"
+                            },
+                            {
+                                "name": "TLS_SERVER_CERTS_DIR",
+                                "value": "/tls/server"
+                            },
+                            {
+                                "name": "TLS_CLIENT_SECRET_NAME",
+                                "value": "crossplane-tls-client"
+                            },
+                            {
+                                "name": "TLS_CLIENT_CERTS_DIR",
+                                "value": "/tls/client"
+                            }
+                        ],
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "universal-crossplane",
+                        "ports": [
+                            {
+                                "containerPort": 8081,
+                                "name": "readyz",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 8080,
+                                "name": "metrics",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 9443,
+                                "name": "webhooks",
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 65532,
+                            "runAsUser": 65532
+                        },
+                        "startupProbe": {
+                            "failureThreshold": 30,
+                            "periodSeconds": 2,
+                            "successThreshold": 1,
+                            "tcpSocket": {
+                                "port": "readyz"
+                            },
+                            "timeoutSeconds": 1
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/cache/xpkg",
+                                "name": "package-cache"
+                            },
+                            {
+                                "mountPath": "/cache/xfn",
+                                "name": "function-cache"
+                            },
+                            {
+                                "mountPath": "/tls/server",
+                                "name": "tls-server-certs"
+                            },
+                            {
+                                "mountPath": "/tls/client",
+                                "name": "tls-client-certs"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-mrzgb",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsConfig": {
+                    "nameservers": [
+                        "10.0.193.122"
+                    ],
+                    "options": [
+                        {
+                            "name": "ndots",
+                            "value": "5"
+                        }
+                    ],
+                    "searches": [
+                        "upbound-system.svc.cluster.local",
+                        "svc.cluster.local",
+                        "cluster.local"
+                    ]
+                },
+                "dnsPolicy": "None",
+                "enableServiceLinks": false,
+                "hostAliases": [
+                    {
+                        "hostnames": [
+                            "kubernetes",
+                            "kubernetes.default",
+                            "kubernetes.default.svc"
+                        ],
+                        "ip": "10.0.71.135"
+                    }
+                ],
+                "hostname": "crossplane-844b54fc95-b4bjd",
+                "initContainers": [
+                    {
+                        "args": [
+                            "core",
+                            "init"
+                        ],
+                        "env": [
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT",
+                                "value": "tcp://10.0.247.116:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP",
+                                "value": "tcp://10.0.247.116:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_ADDR",
+                                "value": "10.0.247.116"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_HOST",
+                                "value": "10.0.247.116"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_PROVIDER_CASTAI_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_HOST",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT",
+                                "value": "tcp://10.0.53.240:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP",
+                                "value": "tcp://10.0.53.240:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_ADDR",
+                                "value": "10.0.53.240"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_HOST",
+                                "value": "10.0.53.240"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_AUTHORIZATION_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT",
+                                "value": "tcp://10.0.28.75:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP",
+                                "value": "tcp://10.0.28.75:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.28.75"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_HOST",
+                                "value": "10.0.28.75"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CACHE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT",
+                                "value": "tcp://10.0.235.244:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP",
+                                "value": "tcp://10.0.235.244:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.235.244"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_HOST",
+                                "value": "10.0.235.244"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COMPUTE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT",
+                                "value": "tcp://10.0.157.215:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP",
+                                "value": "tcp://10.0.157.215:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.157.215"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_HOST",
+                                "value": "10.0.157.215"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERREGISTRY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT",
+                                "value": "tcp://10.0.71.150:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP",
+                                "value": "tcp://10.0.71.150:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.71.150"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_HOST",
+                                "value": "10.0.71.150"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_CONTAINERSERVICE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT",
+                                "value": "tcp://10.0.192.90:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP",
+                                "value": "tcp://10.0.192.90:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.192.90"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_HOST",
+                                "value": "10.0.192.90"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_COSMOSDB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT",
+                                "value": "tcp://10.0.23.184:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP",
+                                "value": "tcp://10.0.23.184:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.23.184"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_HOST",
+                                "value": "10.0.23.184"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAFACTORY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT",
+                                "value": "tcp://10.0.7.3:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP",
+                                "value": "tcp://10.0.7.3:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_ADDR",
+                                "value": "10.0.7.3"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_HOST",
+                                "value": "10.0.7.3"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DATAPROTECTION_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT",
+                                "value": "tcp://10.0.229.186:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.229.186:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.229.186"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_HOST",
+                                "value": "10.0.229.186"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORMYSQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT",
+                                "value": "tcp://10.0.16.35:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.16.35:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.16.35"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_HOST",
+                                "value": "10.0.16.35"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_DBFORPOSTGRESQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT",
+                                "value": "tcp://10.0.9.55:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP",
+                                "value": "tcp://10.0.9.55:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.9.55"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_HOST",
+                                "value": "10.0.9.55"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_EVENTHUB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT",
+                                "value": "tcp://10.0.122.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP",
+                                "value": "tcp://10.0.122.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.122.166"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_HOST",
+                                "value": "10.0.122.166"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_INSIGHTS_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT",
+                                "value": "tcp://10.0.210.38:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP",
+                                "value": "tcp://10.0.210.38:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_ADDR",
+                                "value": "10.0.210.38"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_HOST",
+                                "value": "10.0.210.38"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_KEYVAULT_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT",
+                                "value": "tcp://10.0.68.229:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP",
+                                "value": "tcp://10.0.68.229:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_ADDR",
+                                "value": "10.0.68.229"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_HOST",
+                                "value": "10.0.68.229"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_MANAGEDIDENTITY_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT",
+                                "value": "tcp://10.0.82.209:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP",
+                                "value": "tcp://10.0.82.209:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_ADDR",
+                                "value": "10.0.82.209"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_HOST",
+                                "value": "10.0.82.209"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_NETWORK_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT",
+                                "value": "tcp://10.0.81.205:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP",
+                                "value": "tcp://10.0.81.205:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.81.205"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_HOST",
+                                "value": "10.0.81.205"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_OPERATIONALINSIGHTS_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT",
+                                "value": "tcp://10.0.22.4:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP",
+                                "value": "tcp://10.0.22.4:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_ADDR",
+                                "value": "10.0.22.4"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_HOST",
+                                "value": "10.0.22.4"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_RESOURCES_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT",
+                                "value": "tcp://10.0.177.121:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP",
+                                "value": "tcp://10.0.177.121:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_ADDR",
+                                "value": "10.0.177.121"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_HOST",
+                                "value": "10.0.177.121"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SEARCH_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT",
+                                "value": "tcp://10.0.213.80:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP",
+                                "value": "tcp://10.0.213.80:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.213.80"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_HOST",
+                                "value": "10.0.213.80"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SIGNALRSERVICE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT",
+                                "value": "tcp://10.0.13.86:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP",
+                                "value": "tcp://10.0.13.86:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_ADDR",
+                                "value": "10.0.13.86"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_HOST",
+                                "value": "10.0.13.86"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_SQL_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT",
+                                "value": "tcp://10.0.58.200:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP",
+                                "value": "tcp://10.0.58.200:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.58.200"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_HOST",
+                                "value": "10.0.58.200"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_STORAGE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT",
+                                "value": "tcp://10.0.242.245:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP",
+                                "value": "tcp://10.0.242.245:9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_ADDR",
+                                "value": "10.0.242.245"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_HOST",
+                                "value": "10.0.242.245"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_AZURE_WEB_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT",
+                                "value": "tcp://10.0.211.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP",
+                                "value": "tcp://10.0.211.166:9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_ADDR",
+                                "value": "10.0.211.166"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_HOST",
+                                "value": "10.0.211.166"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_FAMILY_AZURE_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT",
+                                "value": "tcp://10.0.83.162:9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP",
+                                "value": "tcp://10.0.83.162:9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_ADDR",
+                                "value": "10.0.83.162"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_HOST",
+                                "value": "10.0.83.162"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_HELM_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT",
+                                "value": "tcp://10.0.234.144:9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP",
+                                "value": "tcp://10.0.234.144:9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_ADDR",
+                                "value": "10.0.234.144"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_HOST",
+                                "value": "10.0.234.144"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "PROVIDER_TERRAFORM_SERVICE_PORT_WEBHOOK",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "GOMAXPROCS",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane-init",
+                                        "divisor": "1",
+                                        "resource": "limits.cpu"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GOMEMLIMIT",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane-init",
+                                        "divisor": "1",
+                                        "resource": "limits.memory"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_SERVICE_ACCOUNT",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/service-account-name']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_NAME",
+                                "value": "crossplane-webhooks"
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "TLS_CA_SECRET_NAME",
+                                "value": "crossplane-root-ca"
+                            },
+                            {
+                                "name": "TLS_SERVER_SECRET_NAME",
+                                "value": "crossplane-tls-server"
+                            },
+                            {
+                                "name": "TLS_CLIENT_SECRET_NAME",
+                                "value": "crossplane-tls-client"
+                            }
+                        ],
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "universal-crossplane-init",
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 65532,
+                            "runAsUser": 65532
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-mrzgb",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "nodeName": "aks-default-49089664-vmss000002",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "vc-workload-management-cluster",
+                "serviceAccountName": "vc-workload-management-cluster",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoSchedule",
+                        "key": "node.kubernetes.io/memory-pressure",
+                        "operator": "Exists"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "20Mi"
+                        },
+                        "name": "package-cache"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "512Mi"
+                        },
+                        "name": "function-cache"
+                    },
+                    {
+                        "name": "tls-server-certs",
+                        "secret": {
+                            "defaultMode": 420,
+                            "secretName": "crossplane-tls-server-x-upbound-system-x-management-cluster"
+                        }
+                    },
+                    {
+                        "name": "tls-client-certs",
+                        "secret": {
+                            "defaultMode": 420,
+                            "secretName": "crossplane-tls-client-x-upbound-system-x-management-cluster"
+                        }
+                    },
+                    {
+                        "name": "kube-api-access-mrzgb",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/token-zyeufkuu']"
+                                                },
+                                                "mode": 420,
+                                                "path": "token"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt-x-upbound-system-x-management-cluster"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:30:33Z",
+                        "status": "True",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:30:51Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:30:55Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:30:55Z",
+                        "status": "True",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:30:26Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "allocatedResources": {
+                            "cpu": "100m",
+                            "memory": "256Mi"
+                        },
+                        "containerID": "containerd://f808de1f99350c96e7ddf8e7f96336df6e1547419f474c6e85c272b38dc41f81",
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imageID": "xpkg.upbound.io/upbound/crossplane@sha256:9bf93f93178e3d999b4f360b1a554e595e632c707040c3a3b7f01cfd632b8444",
+                        "lastState": {},
+                        "name": "universal-crossplane",
+                        "ready": true,
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "restartCount": 0,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2025-12-11T22:30:52Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/cache/xpkg",
+                                "name": "package-cache"
+                            },
+                            {
+                                "mountPath": "/cache/xfn",
+                                "name": "function-cache"
+                            },
+                            {
+                                "mountPath": "/tls/server",
+                                "name": "tls-server-certs"
+                            },
+                            {
+                                "mountPath": "/tls/client",
+                                "name": "tls-client-certs"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-mrzgb",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.1.1.6",
+                "hostIPs": [
+                    {
+                        "ip": "10.1.1.6"
+                    }
+                ],
+                "initContainerStatuses": [
+                    {
+                        "allocatedResources": {
+                            "cpu": "100m",
+                            "memory": "256Mi"
+                        },
+                        "containerID": "containerd://03b493414e2ecb39d61f6fb1a02c2c6d2e046a61a39b7a9fc9d079110b1f003e",
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imageID": "xpkg.upbound.io/upbound/crossplane@sha256:9bf93f93178e3d999b4f360b1a554e595e632c707040c3a3b7f01cfd632b8444",
+                        "lastState": {},
+                        "name": "universal-crossplane-init",
+                        "ready": true,
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "restartCount": 0,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://03b493414e2ecb39d61f6fb1a02c2c6d2e046a61a39b7a9fc9d079110b1f003e",
+                                "exitCode": 0,
+                                "finishedAt": "2025-12-11T22:30:45Z",
+                                "reason": "Completed",
+                                "startedAt": "2025-12-11T22:30:33Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-mrzgb",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "phase": "Running",
+                "podIP": "10.244.2.186",
+                "podIPs": [
+                    {
+                        "ip": "10.244.2.186"
+                    }
+                ],
+                "qosClass": "Burstable",
+                "startTime": "2025-12-11T22:30:26Z"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "annotations": {
+                    "cluster-autoscaler.kubernetes.io/safe-to-evict": "true",
+                    "cni.projectcalico.org/containerID": "7f580e5b3cac2c32d13f392ed29c14038f33d79d0601a5955b77fa54ed3a8616",
+                    "cni.projectcalico.org/podIP": "10.244.2.129/32",
+                    "cni.projectcalico.org/podIPs": "10.244.2.129/32",
+                    "prometheus.io/path": "/metrics",
+                    "prometheus.io/port": "8080",
+                    "prometheus.io/scrape": "true",
+                    "vcluster.loft.sh/labels": "app.kubernetes.io/component=\"cloud-infrastructure-controller\"\napp.kubernetes.io/instance=\"universal-crossplane\"\napp.kubernetes.io/managed-by=\"Helm\"\napp.kubernetes.io/name=\"crossplane\"\napp.kubernetes.io/part-of=\"crossplane\"\napp.kubernetes.io/version=\"1.20.1-up.1\"\napp=\"crossplane\"\nhelm.sh/chart=\"universal-crossplane-1.20.1-up.1\"\npod-template-hash=\"844b54fc95\"\nrelease=\"universal-crossplane\"",
+                    "vcluster.loft.sh/managed-annotations": "prometheus.io/path\nprometheus.io/port\nprometheus.io/scrape",
+                    "vcluster.loft.sh/name": "crossplane-844b54fc95-nsmfc",
+                    "vcluster.loft.sh/namespace": "upbound-system",
+                    "vcluster.loft.sh/object-host-name": "crossplane-844b54fc95-nsmfc-x-upbound-system-x-manag-58bcc191bf",
+                    "vcluster.loft.sh/object-host-namespace": "taasvstst",
+                    "vcluster.loft.sh/object-kind": "/v1, Kind=Pod",
+                    "vcluster.loft.sh/object-name": "crossplane-844b54fc95-nsmfc",
+                    "vcluster.loft.sh/object-namespace": "upbound-system",
+                    "vcluster.loft.sh/object-uid": "83b4eda1-a8ea-4407-a3b8-77fb0d8e994c",
+                    "vcluster.loft.sh/owner-references": "[{\"apiVersion\":\"apps/v1\",\"kind\":\"ReplicaSet\",\"name\":\"crossplane-844b54fc95\",\"uid\":\"da1bf9f4-c0a7-4603-a13c-ecfd25f3712b\",\"controller\":true,\"blockOwnerDeletion\":true}]",
+                    "vcluster.loft.sh/owner-set-kind": "ReplicaSet",
+                    "vcluster.loft.sh/service-account-name": "crossplane",
+                    "vcluster.loft.sh/token-xqohhyhp": "eyJhbGciOiJSUzI1NiIsImtpZCI6InpFc2M2WnFLRWR0Snk0YkJJRjhLQWFVS0FNTDZQWUpFN3E0N3ZmU0Y2RzQifQ.eyJhdWQiOlsiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdC5zdmMiLCJodHRwczovL2t1YmVybmV0ZXMuZGVmYXVsdCJdLCJleHAiOjIwODAyMzAwNzAsImlhdCI6MTc2NDg3MDA3MCwiaXNzIjoiaHR0cHM6Ly9rdWJlcm5ldGVzLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwiLCJrdWJlcm5ldGVzLmlvIjp7Im5hbWVzcGFjZSI6InVwYm91bmQtc3lzdGVtIiwicG9kIjp7Im5hbWUiOiJjcm9zc3BsYW5lLTg0NGI1NGZjOTUtbnNtZmMiLCJ1aWQiOiI4M2I0ZWRhMS1hOGVhLTQ0MDctYTNiOC03N2ZiMGQ4ZTk5NGMifSwic2VydmljZWFjY291bnQiOnsibmFtZSI6ImNyb3NzcGxhbmUiLCJ1aWQiOiIxZDcyMTZjNC0wZmU3LTRmZDctOWY2Yi04ZmJkYmE3MGZlNzMifX0sIm5iZiI6MTc2NDg3MDA3MCwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50OnVwYm91bmQtc3lzdGVtOmNyb3NzcGxhbmUifQ.s-NbM81hQDYbezFK1vwbPCrVYBlQD7UHp0QzZL15YXPTeWeRsLEw9moRgk-6G707cPedYiu2ZufmTxNhB3yK3NVxIYMLxtDccupWHZuZwvyleXVWh4r1IVlDiDOAFpgdpHSyhhSp820Pbb6n1e8QJvvdjdSPf7nGhPAmNaglzu1xOFKf3jHdyJqYfEtxUplO0lkihHh8EuHXZwGc3FVQBWA1Jc-c42f7s-F-5UeHKdWsz5BeMpcgJFwQt6-0Iiltp3Xfsmd0lZ715N6UkcL8xkuCIJqepU78e3ZuBdogb6veliyW7qZhH8YEt4VooBzXonBphQq9WcAIWJd0I6dApQ",
+                    "vcluster.loft.sh/uid": "83b4eda1-a8ea-4407-a3b8-77fb0d8e994c"
+                },
+                "creationTimestamp": "2025-12-04T17:41:10Z",
+                "generation": 1,
+                "labels": {
+                    "app": "crossplane",
+                    "app.kubernetes.io/component": "cloud-infrastructure-controller",
+                    "app.kubernetes.io/instance": "universal-crossplane",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "crossplane",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "app.kubernetes.io/version": "1.20.1-up.1",
+                    "helm.sh/chart": "universal-crossplane-1.20.1-up.1",
+                    "pod-template-hash": "844b54fc95",
+                    "vcluster.loft.sh/label-management-cluster-x-a4d451ec23": "universal-crossplane",
+                    "vcluster.loft.sh/managed-by": "management-cluster",
+                    "vcluster.loft.sh/namespace": "upbound-system",
+                    "vcluster.loft.sh/ns-label-management-cluster-x-cf1227b7b2": "upbound-system"
+                },
+                "name": "crossplane-844b54fc95-nsmfc-x-upbound-system-x-manag-58bcc191bf",
+                "namespace": "taasvstst",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "v1",
+                        "controller": true,
+                        "kind": "Service",
+                        "name": "management-cluster",
+                        "uid": "88f822fa-1821-4d4a-9958-b6f88753af18"
+                    }
+                ],
+                "resourceVersion": "25049814",
+                "uid": "def7f277-fbec-4b5f-a122-65f4199e6084"
+            },
+            "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [
+                    {
+                        "args": [
+                            "core",
+                            "start"
+                        ],
+                        "env": [
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_HOST",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "GOMAXPROCS",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane",
+                                        "divisor": "1",
+                                        "resource": "limits.cpu"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GOMEMLIMIT",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane",
+                                        "divisor": "1",
+                                        "resource": "limits.memory"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_SERVICE_ACCOUNT",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/service-account-name']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "LEADER_ELECTION",
+                                "value": "true"
+                            },
+                            {
+                                "name": "TLS_SERVER_SECRET_NAME",
+                                "value": "crossplane-tls-server"
+                            },
+                            {
+                                "name": "TLS_SERVER_CERTS_DIR",
+                                "value": "/tls/server"
+                            },
+                            {
+                                "name": "TLS_CLIENT_SECRET_NAME",
+                                "value": "crossplane-tls-client"
+                            },
+                            {
+                                "name": "TLS_CLIENT_CERTS_DIR",
+                                "value": "/tls/client"
+                            }
+                        ],
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "universal-crossplane",
+                        "ports": [
+                            {
+                                "containerPort": 8081,
+                                "name": "readyz",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 8080,
+                                "name": "metrics",
+                                "protocol": "TCP"
+                            },
+                            {
+                                "containerPort": 9443,
+                                "name": "webhooks",
+                                "protocol": "TCP"
+                            }
+                        ],
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 65532,
+                            "runAsUser": 65532
+                        },
+                        "startupProbe": {
+                            "failureThreshold": 30,
+                            "periodSeconds": 2,
+                            "successThreshold": 1,
+                            "tcpSocket": {
+                                "port": "readyz"
+                            },
+                            "timeoutSeconds": 1
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/cache/xpkg",
+                                "name": "package-cache"
+                            },
+                            {
+                                "mountPath": "/cache/xfn",
+                                "name": "function-cache"
+                            },
+                            {
+                                "mountPath": "/tls/server",
+                                "name": "tls-server-certs"
+                            },
+                            {
+                                "mountPath": "/tls/client",
+                                "name": "tls-client-certs"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jlscx",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "dnsConfig": {
+                    "nameservers": [
+                        "10.0.193.122"
+                    ],
+                    "options": [
+                        {
+                            "name": "ndots",
+                            "value": "5"
+                        }
+                    ],
+                    "searches": [
+                        "upbound-system.svc.cluster.local",
+                        "svc.cluster.local",
+                        "cluster.local"
+                    ]
+                },
+                "dnsPolicy": "None",
+                "enableServiceLinks": false,
+                "hostAliases": [
+                    {
+                        "hostnames": [
+                            "kubernetes",
+                            "kubernetes.default",
+                            "kubernetes.default.svc"
+                        ],
+                        "ip": "10.0.71.135"
+                    }
+                ],
+                "hostname": "crossplane-844b54fc95-nsmfc",
+                "initContainers": [
+                    {
+                        "args": [
+                            "core",
+                            "init"
+                        ],
+                        "env": [
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP",
+                                "value": "tcp://10.0.130.94:9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_ADDR",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_PORT_9443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_HOST",
+                                "value": "10.0.130.94"
+                            },
+                            {
+                                "name": "CROSSPLANE_WEBHOOKS_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP",
+                                "value": "tcp://10.0.71.135:443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_ADDR",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_PORT_443_TCP_PROTO",
+                                "value": "tcp"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_HOST",
+                                "value": "10.0.71.135"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT",
+                                "value": "443"
+                            },
+                            {
+                                "name": "KUBERNETES_SERVICE_PORT_HTTPS",
+                                "value": "443"
+                            },
+                            {
+                                "name": "GOMAXPROCS",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane-init",
+                                        "divisor": "1",
+                                        "resource": "limits.cpu"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "GOMEMLIMIT",
+                                "valueFrom": {
+                                    "resourceFieldRef": {
+                                        "containerName": "universal-crossplane-init",
+                                        "divisor": "1",
+                                        "resource": "limits.memory"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "POD_SERVICE_ACCOUNT",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/service-account-name']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_NAME",
+                                "value": "crossplane-webhooks"
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_NAMESPACE",
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "apiVersion": "v1",
+                                        "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "WEBHOOK_SERVICE_PORT",
+                                "value": "9443"
+                            },
+                            {
+                                "name": "TLS_CA_SECRET_NAME",
+                                "value": "crossplane-root-ca"
+                            },
+                            {
+                                "name": "TLS_SERVER_SECRET_NAME",
+                                "value": "crossplane-tls-server"
+                            },
+                            {
+                                "name": "TLS_CLIENT_SECRET_NAME",
+                                "value": "crossplane-tls-client"
+                            }
+                        ],
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "universal-crossplane-init",
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "readOnlyRootFilesystem": true,
+                            "runAsGroup": 65532,
+                            "runAsUser": 65532
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jlscx",
+                                "readOnly": true
+                            }
+                        ]
+                    }
+                ],
+                "nodeName": "aks-default-49089664-vmss000002",
+                "preemptionPolicy": "PreemptLowerPriority",
+                "priority": 0,
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "serviceAccount": "vc-workload-management-cluster",
+                "serviceAccountName": "vc-workload-management-cluster",
+                "terminationGracePeriodSeconds": 30,
+                "tolerations": [
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/not-ready",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoExecute",
+                        "key": "node.kubernetes.io/unreachable",
+                        "operator": "Exists",
+                        "tolerationSeconds": 300
+                    },
+                    {
+                        "effect": "NoSchedule",
+                        "key": "node.kubernetes.io/memory-pressure",
+                        "operator": "Exists"
+                    }
+                ],
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "20Mi"
+                        },
+                        "name": "package-cache"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "512Mi"
+                        },
+                        "name": "function-cache"
+                    },
+                    {
+                        "name": "tls-server-certs",
+                        "secret": {
+                            "defaultMode": 420,
+                            "secretName": "crossplane-tls-server-x-upbound-system-x-management-cluster"
+                        }
+                    },
+                    {
+                        "name": "tls-client-certs",
+                        "secret": {
+                            "defaultMode": 420,
+                            "secretName": "crossplane-tls-client-x-upbound-system-x-management-cluster"
+                        }
+                    },
+                    {
+                        "name": "kube-api-access-jlscx",
+                        "projected": {
+                            "defaultMode": 420,
+                            "sources": [
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/token-xqohhyhp']"
+                                                },
+                                                "mode": 420,
+                                                "path": "token"
+                                            }
+                                        ]
+                                    }
+                                },
+                                {
+                                    "configMap": {
+                                        "items": [
+                                            {
+                                                "key": "ca.crt",
+                                                "path": "ca.crt"
+                                            }
+                                        ],
+                                        "name": "kube-root-ca.crt-x-upbound-system-x-management-cluster"
+                                    }
+                                },
+                                {
+                                    "downwardAPI": {
+                                        "items": [
+                                            {
+                                                "fieldRef": {
+                                                    "apiVersion": "v1",
+                                                    "fieldPath": "metadata.annotations['vcluster.loft.sh/namespace']"
+                                                },
+                                                "path": "namespace"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-04T17:41:11Z",
+                        "status": "True",
+                        "type": "PodReadyToStartContainers"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-04T17:41:19Z",
+                        "status": "True",
+                        "type": "Initialized"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:16:56Z",
+                        "status": "True",
+                        "type": "Ready"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-11T22:16:56Z",
+                        "status": "True",
+                        "type": "ContainersReady"
+                    },
+                    {
+                        "lastProbeTime": null,
+                        "lastTransitionTime": "2025-12-04T17:41:10Z",
+                        "status": "True",
+                        "type": "PodScheduled"
+                    }
+                ],
+                "containerStatuses": [
+                    {
+                        "allocatedResources": {
+                            "cpu": "100m",
+                            "memory": "256Mi"
+                        },
+                        "containerID": "containerd://630bc2d990f0280046464514aa69db169d5f5d1d234c46e5b248893e7f3263ff",
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imageID": "xpkg.upbound.io/upbound/crossplane@sha256:9bf93f93178e3d999b4f360b1a554e595e632c707040c3a3b7f01cfd632b8444",
+                        "lastState": {
+                            "terminated": {
+                                "containerID": "containerd://7f2e8a8f6ad6bfe69bef9d8148a94b9a9f76663e733dfd4beb5a3d7a0372cf78",
+                                "exitCode": 1,
+                                "finishedAt": "2025-12-11T22:16:27Z",
+                                "reason": "Error",
+                                "startedAt": "2025-12-11T22:16:27Z"
+                            }
+                        },
+                        "name": "universal-crossplane",
+                        "ready": true,
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "restartCount": 9,
+                        "started": true,
+                        "state": {
+                            "running": {
+                                "startedAt": "2025-12-11T22:16:54Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/cache/xpkg",
+                                "name": "package-cache"
+                            },
+                            {
+                                "mountPath": "/cache/xfn",
+                                "name": "function-cache"
+                            },
+                            {
+                                "mountPath": "/tls/server",
+                                "name": "tls-server-certs"
+                            },
+                            {
+                                "mountPath": "/tls/client",
+                                "name": "tls-client-certs"
+                            },
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jlscx",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "hostIP": "10.1.1.6",
+                "hostIPs": [
+                    {
+                        "ip": "10.1.1.6"
+                    }
+                ],
+                "initContainerStatuses": [
+                    {
+                        "allocatedResources": {
+                            "cpu": "100m",
+                            "memory": "256Mi"
+                        },
+                        "containerID": "containerd://913320abda66b588961a033e9e5bdab51dc8f6459827fa175f44f7f94201744f",
+                        "image": "xpkg.upbound.io/upbound/crossplane:v1.20.1-up.1",
+                        "imageID": "xpkg.upbound.io/upbound/crossplane@sha256:9bf93f93178e3d999b4f360b1a554e595e632c707040c3a3b7f01cfd632b8444",
+                        "lastState": {},
+                        "name": "universal-crossplane-init",
+                        "ready": true,
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "1Gi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "256Mi"
+                            }
+                        },
+                        "restartCount": 1,
+                        "started": false,
+                        "state": {
+                            "terminated": {
+                                "containerID": "containerd://913320abda66b588961a033e9e5bdab51dc8f6459827fa175f44f7f94201744f",
+                                "exitCode": 0,
+                                "finishedAt": "2025-12-04T17:41:18Z",
+                                "reason": "Completed",
+                                "startedAt": "2025-12-04T17:41:15Z"
+                            }
+                        },
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+                                "name": "kube-api-access-jlscx",
+                                "readOnly": true,
+                                "recursiveReadOnly": "Disabled"
+                            }
+                        ]
+                    }
+                ],
+                "phase": "Running",
+                "podIP": "10.244.2.129",
+                "podIPs": [
+                    {
+                        "ip": "10.244.2.129"
+                    }
+                ],
+                "qosClass": "Burstable",
+                "startTime": "2025-12-04T17:41:10Z"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

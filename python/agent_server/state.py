@@ -1,5 +1,5 @@
 
-from typing import TypedDict, Literal, List, Dict, Optional
+from typing import TypedDict, Annotated, List, Dict, Any, Union, Optional, Literal
 
 class CommandHistory(TypedDict):
     """Stores the execution and reflection result of a single command."""
@@ -29,6 +29,41 @@ class ReflectionData(TypedDict, total=False):
     next_command_hint: str | None
     reason: str | None
 
+class DebuggingContext(TypedDict, total=False):
+    """Structured debugging state extracted from kubectl outputs.
+
+    This context is automatically populated by LLM extraction after each command.
+    It provides persistent memory across iterations, preventing the agent from
+    "forgetting" critical information like namespaces, resource names, etc.
+    """
+    # Resource Discovery
+    crd_type: str | None  # e.g., "customerclusters", "azuredatabases"
+    api_group: str | None  # e.g., "dedicated.uipath.com"
+    resource_name: str | None  # e.g., "customercluster-prod"
+    namespace: str | None  # e.g., "argocd"
+
+    # Controller Information
+    controller_pod: str | None  # e.g., "upbound-provider-azure-xxx"
+    controller_namespace: str | None  # e.g., "upbound-system"
+    controller_type: str | None  # e.g., "provider", "operator", "controller"
+
+    # Status & Error Information
+    status_state: str | None  # e.g., "ASFailed", "Running", "CrashLoopBackOff"
+    error_message: str | None  # Primary error message extracted
+    error_code: str | None  # e.g., "403", "404", "500"
+    error_type: str | None  # e.g., "AuthorizationFailed", "NotFound", "OOMKilled"
+
+    # Investigation Progress (state machine tracking)
+    debug_phase: Literal['discovery', 'status_check', 'controller_search', 'log_analysis', 'root_cause_found'] | None
+    root_cause_identified: bool  # True if we have definitive root cause
+
+    # Related Resources (for relationship tracking)
+    related_resources: List[str] | None  # e.g., ["ReplicaSet/customer-api-7d8f9", "ConfigMap/customer-config"]
+    owner_references: List[str] | None  # e.g., ["Deployment/customer-api"]
+
+    # Next Investigation Target
+    next_target: str | None  # Suggested next resource to investigate
+
 class AgentState(TypedDict):
     """State for the K8s troubleshooting agent."""
     query: str
@@ -40,7 +75,7 @@ class AgentState(TypedDict):
     current_hypothesis: str  # DEPRECATED: Use hypotheses list instead. Kept for backward compatibility.
     hypotheses: List[Hypothesis] | None  # All hypotheses being tracked
     active_hypothesis_id: str | None  # ID of currently active hypothesis being tested
-    next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate', 'batch_execute', 'create_plan', 'execute_plan_step', 'validate_plan_step', 'invoke_mcp', 'execute_next_step']
+    next_action: Literal['analyze', 'execute', 'reflect', 'respond', 'done', 'human_approval', 'delegate', 'batch_execute', 'create_plan', 'execute_plan_step', 'validate_plan_step', 'invoke_mcp', 'execute_next_step', 'smart_executor']
     pending_command: str | None
     final_response: str | None
     error: str | None
@@ -72,3 +107,17 @@ class AgentState(TypedDict):
     retry_count: int | None  # Number of retries for the current step
     last_reflection: ReflectionData | None  # Structured feedback from the reflect node
     suggested_next_steps: list[str] | None  # Proactive suggestions for next queries (max 3)
+    debugging_context: Dict[str, Any] | None  # Auto-extracted structured debugging state
+    critic_feedback: str | None  # Feedback from Judge when plan is rejected
+
+    # SmartExecutor fields
+    information_goal: str | None  # Information goal description from supervisor
+    goal_achieved: bool | None  # Whether smart_executor achieved the goal
+    gathered_data: str | None  # Data gathered by smart_executor
+    successful_strategy: str | None  # Which strategy succeeded
+    strategies_tried: list[dict] | None  # All strategies attempted
+
+    # Human-in-the-loop controls
+    user_hint: str | None  # User-provided guidance for next step
+    skip_current_step: bool | None  # Skip current plan step and move to next
+    pause_after_step: bool | None  # Pause for user approval after each step

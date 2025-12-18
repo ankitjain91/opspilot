@@ -1,0 +1,733 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "dedicated.uipath.com/v1alpha1",
+            "kind": "CustomerCluster",
+            "metadata": {
+                "annotations": {
+                    "last-applied-spec": "{\"infra\":{\"customerID\":\"\",\"cloudType\":\"azure\",\"cloudRegion\":\"eastus2\",\"cloudAccount\":\"Dummy\",\"cloudTags\":{\"BuildPipeline\":\"E2E\",\"CustomerName\":\"taasvstst\",\"DedicatedEnvironment\":\"Dev\",\"Owner\":\"sfbr@uipath.com\",\"Project\":\"Dedicated\",\"Sensitivity\":\"Medium\"},\"mgmtInfraMetadata\":{\"type\":\"azure\",\"networkInfo\":{\"azure\":{\"subnetArmId\":\"/subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/resourceGroups/dedicated-rg-dev-eastus-ankitj/providers/Microsoft.Network/virtualNetworks/dedicated-vnet-dev-eastus-ankitj/subnets/default\"}}},\"infra\":{\"azure\":{\"sql\":{\"useWI\":true,\"differentialBackupRetentionDays\":7,\"differentialBackupFreqHours\":24,\"longTermRetentionWeekly\":\"P30D\",\"longTermRetentionMonthly\":\"P1Y\",\"longTermRetentionYearly\":\"P30D\",\"private\":true,\"poolCapacity\":125,\"perDatabaseCapacity\":125,\"dbnamePrefix\":\"taasvstst\"},\"postgresql\":{},\"storage\":{\"accounts\":[{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"common\",\"containers\":[\"uipath-as-platform\",\"uipath-as-dataservice\",\"uipath-as-processmining\",\"uipath-as-taskmining\",\"uipath-as-backup\",\"taas\",\"uipath-as-llmobservability\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"orcheh\",\"containers\":[\"robot-logs\",\"robot-logs-backup\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insingest\",\"containers\":[\"insights-adf-licensingdb-parquet-staging\",\"insights-adf-orchdb-parquet-staging\",\"insights-robotlogs-parquet-container\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"inslogexp\",\"queues\":[\"operational-trigger\",\"robotlogs-file\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"inslogexpdelivery\",\"queues\":[\"backfill-ready\",\"tenant-ready\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"inslogexpmapping\",\"queues\":[\"backfill-by-hour\",\"backfill-dispatch\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"logexpfcmidstr\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insrtmpubev\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insrtmpublogs\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insrtmtransev\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insrtmval\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insrtmalert\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"insdelalerts\"},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"llmopsconsumer\",\"containers\":[\"uipath-as-llmobservability\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"llmopsproducer\",\"containers\":[\"uipath-as-llmobservability\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"llmopspoconsumer\",\"containers\":[\"uipath-as-llmobservability\"]},{\"useWI\":false,\"retentionInDays\":30,\"accountReplicationType\":\"LRS\",\"namePrefix\":\"esbackup\",\"containers\":[\"elasticsearch-snapshots\"]}],\"useWI\":false,\"accountReplicationType\":\"LRS\"},\"cache\":{\"tier\":\"Basic\",\"zones\":\"1,2,3\",\"version\":\"6\"},\"k8s\":{\"workerPools\":[{\"size\":1,\"instanceType\":\"Standard_D8s_v3\",\"mode\":\"System\",\"disableAutoScaling\":true},{\"size\":5,\"instanceType\":\"Standard_D8s_v3\",\"mode\":\"User\"},{\"size\":3,\"taints\":[{\"effect\":\"NoSchedule\",\"key\":\"loadType\",\"value\":\"elasticsearch\"}],\"labels\":{\"loadType\":\"elasticsearch\"},\"instanceType\":\"Standard_D16s_v3\"}],\"ipv6\":{\"enabled\":false},\"version\":\"v1.31.11\",\"honorPatchVersion\":true,\"proxy\":{\"enabled\":false},\"castAI\":{\"enabled\":false},\"secondaryCluster\":{\"gpuSKU\":\"STANDARD_NC16AS_T4_V3\"},\"useWI\":true,\"enableAAD\":true,\"monitoring\":{\"enabled\":true}},\"eventHub\":{\"enabled\":false,\"capacity\":\"5.0\",\"autoInflate\":true,\"sku\":\"Standard\",\"retention\":\"4.0\",\"maximumThroughputUnits\":\"5.0\",\"captureSizeInBytes\":\"52428800.0\",\"partitionCount\":\"32.0\",\"instances\":[{\"namespace\":\"taasvstst\",\"capacity\":\"1.0\",\"autoInflate\":true,\"sku\":\"Standard\",\"retention\":\"4.0\",\"maximumThroughputUnits\":\"5.0\",\"captureSizeInBytes\":\"52428800\",\"partitionCount\":\"32.0\",\"eventHubs\":[{\"name\":\"robot-logs\",\"consumerGroups\":[\"logstash\",\"logstash-blue\",\"insights-databricks\"],\"enableDiagnostics\":true,\"storageAccountNamePrefix\":\"orcheh\",\"storageAccountNameContainer\":\"robot-logs-backup\"}]},{\"namespace\":\"taasvstst-insights\",\"capacity\":\"1.0\",\"autoInflate\":true,\"sku\":\"Standard\",\"retention\":\"4.0\",\"maximumThroughputUnits\":\"5.0\",\"captureSizeInBytes\":\"52428800\",\"partitionCount\":\"32.0\",\"eventHubs\":[{\"name\":\"publisher-events-eh\",\"consumerGroups\":[\"publisher-events-eh_publisher\",\"publisher-events-eh_publisher_all_tenants\"]},{\"name\":\"publisher-events-enabled-tenants-eh\",\"consumerGroups\":[\"publisher-events-enabled-tenants-eh_publisher\"]},{\"name\":\"publisher-logs-eh\",\"consumerGroups\":[\"publisher-logs-eh_publisher\"]},{\"name\":\"publisher-logs-enabled-tenants-eh\",\"consumerGroups\":[\"publisher-logs-enabled-tenants-eh_publisher\"]},{\"name\":\"transform-events-eh\",\"consumerGroups\":[\"transform-events-eh_transform\",\"insights-databricks\"]}]},{\"namespace\":\"taasvstst-maestro\",\"capacity\":\"1.0\",\"autoInflate\":true,\"sku\":\"Standard\",\"retention\":\"4.0\",\"maximumThroughputUnits\":\"5.0\",\"captureSizeInBytes\":\"52428800\",\"partitionCount\":\"32.0\",\"eventHubs\":[{\"name\":\"raw\",\"consumerGroups\":[\"maestro\"],\"enableDiagnostics\":true,\"storageAccountNamePrefix\":\"common\",\"storageAccountNameContainer\":\"raw-backup\"}]},{\"namespace\":\"taasvstst-llmops-eventhub-ns\",\"capacity\":\"5.0\",\"autoInflate\":true,\"sku\":\"Standard\",\"retention\":\"7.0\",\"maximumThroughputUnits\":\"20.0\",\"captureSizeInBytes\":\"52428800\",\"partitionCount\":\"32.0\",\"eventHubs\":[{\"name\":\"llmops-audit-events\",\"consumerGroups\":[\"llmops-audits_audits-runtime\",\"llmops-audits_taskrunner\"]},{\"name\":\"llmops-trace-events\",\"consumerGroups\":[\"llmops-traces_traces-runtime\",\"llmops-traces_taskrunner\"]},{\"name\":\"llmops-batch-layer\",\"consumerGroups\":[\"llmops-batch_taskrunner\"]}]}]},\"elasticsearch\":{\"enabled\":true,\"components\":{\"elasticsearch\":{\"memory\":\"30Gi\",\"storage\":\"4096Gi\",\"replicas\":3},\"logstash\":{\"memory\":\"4Gi\",\"storage\":\"16Gi\",\"replicas\":3}},\"snapshots\":[{\"name\":\"snapshot-24h\",\"cronExpression\":\"0 0 10 * * ?\",\"expireAfter\":\"2560d\"},{\"name\":\"snapshot-30m\",\"cronExpression\":\"0 15/30 * * * ?\",\"expireAfter\":\"60d\"}]},\"adf\":{\"enabled\":false,\"instances\":[{\"name\":\"taasvstst\",\"private\":true,\"failover\":false},{\"name\":\"taasvstst-insights\",\"private\":true,\"failover\":false}]},\"keyVault\":{\"enabled\":true,\"CMKEnabled\":true,\"private\":true},\"backupVault\":{\"enabled\":false},\"functionApp\":[{\"enabled\":true,\"name\":\"inslogexp\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"insmon\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"inslogexpdelivery\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"inslogexpmapping\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"insrtm\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"insrtmvalidation\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"insdelalerts\",\"storage_account_name_prefix\":\"\",\"sku\":\"EP1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"Dynamic\",\"workerCount\":1},{\"enabled\":true,\"name\":\"llmopsconsumer\",\"storage_account_name_prefix\":\"\",\"sku\":\"FC1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"FlexConsumption\",\"workerCount\":1},{\"enabled\":true,\"name\":\"llmopsproducer\",\"storage_account_name_prefix\":\"\",\"sku\":\"FC1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"FlexConsumption\",\"workerCount\":1},{\"enabled\":true,\"name\":\"llmopspoconsumer\",\"storage_account_name_prefix\":\"\",\"sku\":\"FC1\",\"instanceSize\":\"Small\",\"kind\":\"FunctionApp\",\"tier\":\"FlexConsumption\",\"workerCount\":1}],\"linuxFunctionApps\":{\"enabled\":true,\"sku\":\"FC1\",\"dotnetVersion\":\"8\",\"tier\":\"FlexConsumption\",\"size\":\"FC1\",\"storageAccountNamePrefix\":\"\"},\"dns\":{},\"mysql\":{\"enabled\":true,\"sku\":\"GP_Standard_D2ds_v4\",\"storage\":{\"auto_grow_enabled\":true,\"size\":\"20\"},\"version\":\"5.7\",\"backup_retention_days\":\"4\",\"private\":true},\"snowflake\":{\"enabled\":true},\"cosmosDB\":[{\"name\":\"insights\",\"tables\":[\"TargetTenants\",\"Watermark\"],\"failoverRegion\":[\"centralus\"]},{\"name\":\"processorchestration\"}],\"signalR\":{\"enabled\":true,\"settings\":[{\"namePrefix\":\"orch\",\"serviceMode\":\"Default\",\"sku\":\"Premium_P1\",\"capacity\":1},{\"namePrefix\":\"maestro\",\"serviceMode\":\"Default\",\"sku\":\"Premium_P1\",\"capacity\":1},{\"namePrefix\":\"llmops-signalr\",\"serviceMode\":\"Default\",\"sku\":\"Standard_S1\",\"capacity\":1}]},\"databricks\":{\"instances\":[{\"workspaceSku\":\"premium\",\"name\":\"taasvstst\"}]},\"aiSearch\":{},\"managedCassandra\":{\"enabled\":true,\"name\":\"taasvstst\",\"dataCenters\":[{\"name\":\"taasvstst-dc1\",\"nodeCount\":3,\"sku\":\"Standard_D8s_v4\",\"diskCapacity\":4,\"diskSku\":\"P30\"}]}},\"aws\":{\"multiSite\":{},\"k8s\":{\"ipv6\":{\"enabled\":false},\"proxy\":{\"enabled\":false},\"castAI\":{\"enabled\":false}},\"sql\":{\"primaryNodeAuth\":{},\"dns\":{}},\"postgresql\":{},\"cache\":{},\"s3\":{\"replication\":{}},\"route53\":{}}}},\"region\":\"eastus2\",\"dns\":{\"proxied\":true,\"host\":\"taasvstst\"},\"releaseVersion\":\"2.2610.0-rc.10608117\",\"monitoring\":true,\"profile\":\"default\",\"elasticSearch\":true,\"AICenter\":{\"enabled\":false},\"ActionCenter\":{\"enabled\":true},\"Apps\":{\"enabled\":true},\"AsRobots\":{\"enabled\":false,\"minSize\":0,\"maxSize\":0,\"packageCaching\":false,\"packageCacheFolder\":\"\"},\"AutomationHub\":{\"enabled\":false},\"AutomationOps\":{\"enabled\":true},\"DataService\":{\"enabled\":true},\"DocumentUnderstanding\":{\"enabled\":false},\"Insights\":{\"enabled\":true},\"Orchestrator\":{\"enabled\":true},\"Platform\":{\"enabled\":true},\"ProcessMining\":{\"enabled\":false},\"StudioWeb\":{\"enabled\":false},\"TaskMining\":{\"enabled\":false},\"TestManager\":{\"enabled\":true},\"IntegrationServices\":{\"enabled\":false},\"LLMGateway\":{\"enabled\":true},\"Maestro\":{\"enabled\":true},\"AutopilotEveryone\":{\"enabled\":false},\"LLMObservability\":{\"enabled\":true},\"Taas\":{\"enabled\":true},\"AutomationSolution\":{\"enabled\":false},\"ECS\":{\"enabled\":false,\"aiSearchCount\":1},\"BlackoutWindows\":[],\"ingressAccessControl\":{\"cloudflareEnabled\":false,\"azureFirewallEnabled\":false,\"istioEnabled\":false},\"canary\":true}"
+                },
+                "creationTimestamp": "2025-12-04T17:39:04Z",
+                "finalizers": [
+                    "finalizer.dedicated.uipath.com"
+                ],
+                "generation": 1,
+                "labels": {
+                    "PricingTier": "TierStandard"
+                },
+                "name": "taasvstst",
+                "namespace": "taasvstst",
+                "resourceVersion": "18083869",
+                "uid": "87e44a75-6636-4dc4-b7a0-d71a843e510c"
+            },
+            "spec": {
+                "AICenter": {
+                    "enabled": false
+                },
+                "ActionCenter": {
+                    "enabled": true
+                },
+                "Apps": {
+                    "enabled": true
+                },
+                "AsRobots": {
+                    "enabled": false,
+                    "maxSize": 0,
+                    "minSize": 0,
+                    "packageCacheFolder": "",
+                    "packageCaching": false
+                },
+                "AutomationHub": {
+                    "enabled": false
+                },
+                "AutomationOps": {
+                    "enabled": true
+                },
+                "AutomationSolution": {
+                    "enabled": false
+                },
+                "AutopilotEveryone": {
+                    "enabled": false
+                },
+                "BlackoutWindows": [],
+                "DataService": {
+                    "enabled": true
+                },
+                "DocumentUnderstanding": {
+                    "enabled": false
+                },
+                "ECS": {
+                    "aiSearchCount": 1,
+                    "enabled": false
+                },
+                "Insights": {
+                    "enabled": true
+                },
+                "IntegrationServices": {
+                    "enabled": false
+                },
+                "LLMGateway": {
+                    "enabled": true
+                },
+                "LLMObservability": {
+                    "enabled": true
+                },
+                "Maestro": {
+                    "enabled": true
+                },
+                "Orchestrator": {
+                    "enabled": true
+                },
+                "Platform": {
+                    "enabled": true
+                },
+                "ProcessMining": {
+                    "enabled": false
+                },
+                "StudioWeb": {
+                    "enabled": false
+                },
+                "Taas": {
+                    "enabled": true
+                },
+                "TaskMining": {
+                    "enabled": false
+                },
+                "TestManager": {
+                    "enabled": true
+                },
+                "canary": true,
+                "dns": {
+                    "host": "taasvstst",
+                    "proxied": true
+                },
+                "elasticSearch": true,
+                "infra": {
+                    "cloudAccount": "Dummy",
+                    "cloudRegion": "eastus2",
+                    "cloudTags": {
+                        "BuildPipeline": "E2E",
+                        "CustomerName": "taasvstst",
+                        "DedicatedEnvironment": "Dev",
+                        "Owner": "sfbr@uipath.com",
+                        "Project": "Dedicated",
+                        "Sensitivity": "Medium"
+                    },
+                    "cloudType": "azure",
+                    "infra": {
+                        "azure": {
+                            "adf": {
+                                "failover": false,
+                                "instances": [
+                                    {
+                                        "failover": false,
+                                        "name": "taasvstst",
+                                        "private": true
+                                    },
+                                    {
+                                        "failover": false,
+                                        "name": "taasvstst-insights",
+                                        "private": true
+                                    }
+                                ]
+                            },
+                            "cache": {
+                                "failover": false,
+                                "private": false,
+                                "tier": "Basic",
+                                "version": "6",
+                                "zones": "1,2,3"
+                            },
+                            "cosmosDB": [
+                                {
+                                    "failover": false,
+                                    "failoverRegion": [
+                                        "centralus"
+                                    ],
+                                    "multiAZ": false,
+                                    "name": "insights",
+                                    "tables": [
+                                        "TargetTenants",
+                                        "Watermark"
+                                    ]
+                                },
+                                {
+                                    "failover": false,
+                                    "multiAZ": false,
+                                    "name": "processorchestration",
+                                    "tables": []
+                                }
+                            ],
+                            "databricks": {
+                                "instances": [
+                                    {
+                                        "name": "taasvstst",
+                                        "workspaceSku": "premium"
+                                    }
+                                ]
+                            },
+                            "dns": {
+                                "enabled": false
+                            },
+                            "elasticsearch": {
+                                "components": {
+                                    "elasticsearch": {
+                                        "memory": "30Gi",
+                                        "replicas": 3,
+                                        "storage": "4096Gi"
+                                    },
+                                    "logstash": {
+                                        "memory": "4Gi",
+                                        "replicas": 3,
+                                        "storage": "16Gi"
+                                    }
+                                },
+                                "enabled": true,
+                                "snapshots": [
+                                    {
+                                        "cronExpression": "0 0 10 * * ?",
+                                        "expireAfter": "2560d",
+                                        "name": "snapshot-24h"
+                                    },
+                                    {
+                                        "cronExpression": "0 15/30 * * * ?",
+                                        "expireAfter": "60d",
+                                        "name": "snapshot-30m"
+                                    }
+                                ]
+                            },
+                            "eventHub": {
+                                "autoInflate": true,
+                                "capacity": "5.0",
+                                "captureSizeInBytes": "52428800.0",
+                                "failover": false,
+                                "instances": [
+                                    {
+                                        "autoInflate": true,
+                                        "capacity": "1.0",
+                                        "captureSizeInBytes": "52428800",
+                                        "eventHubs": [
+                                            {
+                                                "consumerGroups": [
+                                                    "logstash",
+                                                    "logstash-blue",
+                                                    "insights-databricks"
+                                                ],
+                                                "enableDiagnostics": true,
+                                                "name": "robot-logs",
+                                                "storageAccountNameContainer": "robot-logs-backup",
+                                                "storageAccountNamePrefix": "orcheh"
+                                            }
+                                        ],
+                                        "failover": false,
+                                        "maximumThroughputUnits": "5.0",
+                                        "multiAZ": false,
+                                        "namespace": "taasvstst",
+                                        "partitionCount": "32.0",
+                                        "private": false,
+                                        "retention": "4.0",
+                                        "sku": "Standard"
+                                    },
+                                    {
+                                        "autoInflate": true,
+                                        "capacity": "1.0",
+                                        "captureSizeInBytes": "52428800",
+                                        "eventHubs": [
+                                            {
+                                                "consumerGroups": [
+                                                    "publisher-events-eh_publisher",
+                                                    "publisher-events-eh_publisher_all_tenants"
+                                                ],
+                                                "name": "publisher-events-eh"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "publisher-events-enabled-tenants-eh_publisher"
+                                                ],
+                                                "name": "publisher-events-enabled-tenants-eh"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "publisher-logs-eh_publisher"
+                                                ],
+                                                "name": "publisher-logs-eh"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "publisher-logs-enabled-tenants-eh_publisher"
+                                                ],
+                                                "name": "publisher-logs-enabled-tenants-eh"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "transform-events-eh_transform",
+                                                    "insights-databricks"
+                                                ],
+                                                "name": "transform-events-eh"
+                                            }
+                                        ],
+                                        "failover": false,
+                                        "maximumThroughputUnits": "5.0",
+                                        "multiAZ": false,
+                                        "namespace": "taasvstst-insights",
+                                        "partitionCount": "32.0",
+                                        "private": false,
+                                        "retention": "4.0",
+                                        "sku": "Standard"
+                                    },
+                                    {
+                                        "autoInflate": true,
+                                        "capacity": "1.0",
+                                        "captureSizeInBytes": "52428800",
+                                        "eventHubs": [
+                                            {
+                                                "consumerGroups": [
+                                                    "maestro"
+                                                ],
+                                                "enableDiagnostics": true,
+                                                "name": "raw",
+                                                "storageAccountNameContainer": "raw-backup",
+                                                "storageAccountNamePrefix": "common"
+                                            }
+                                        ],
+                                        "failover": false,
+                                        "maximumThroughputUnits": "5.0",
+                                        "multiAZ": false,
+                                        "namespace": "taasvstst-maestro",
+                                        "partitionCount": "32.0",
+                                        "private": false,
+                                        "retention": "4.0",
+                                        "sku": "Standard"
+                                    },
+                                    {
+                                        "autoInflate": true,
+                                        "capacity": "5.0",
+                                        "captureSizeInBytes": "52428800",
+                                        "eventHubs": [
+                                            {
+                                                "consumerGroups": [
+                                                    "llmops-audits_audits-runtime",
+                                                    "llmops-audits_taskrunner"
+                                                ],
+                                                "name": "llmops-audit-events"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "llmops-traces_traces-runtime",
+                                                    "llmops-traces_taskrunner"
+                                                ],
+                                                "name": "llmops-trace-events"
+                                            },
+                                            {
+                                                "consumerGroups": [
+                                                    "llmops-batch_taskrunner"
+                                                ],
+                                                "name": "llmops-batch-layer"
+                                            }
+                                        ],
+                                        "failover": false,
+                                        "maximumThroughputUnits": "20.0",
+                                        "multiAZ": false,
+                                        "namespace": "taasvstst-llmops-eventhub-ns",
+                                        "partitionCount": "32.0",
+                                        "private": false,
+                                        "retention": "7.0",
+                                        "sku": "Standard"
+                                    }
+                                ],
+                                "maximumThroughputUnits": "5.0",
+                                "partitionCount": "32.0",
+                                "retention": "4.0",
+                                "sku": "Standard"
+                            },
+                            "functionApp": [
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "inslogexp",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "insmon",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "inslogexpdelivery",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "inslogexpmapping",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "insrtm",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "insrtmvalidation",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "insdelalerts",
+                                    "sku": "EP1",
+                                    "tier": "Dynamic",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "llmopsconsumer",
+                                    "sku": "FC1",
+                                    "tier": "FlexConsumption",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "llmopsproducer",
+                                    "sku": "FC1",
+                                    "tier": "FlexConsumption",
+                                    "workerCount": 1
+                                },
+                                {
+                                    "enabled": true,
+                                    "failover": false,
+                                    "instanceSize": "Small",
+                                    "kind": "FunctionApp",
+                                    "name": "llmopspoconsumer",
+                                    "sku": "FC1",
+                                    "tier": "FlexConsumption",
+                                    "workerCount": 1
+                                }
+                            ],
+                            "k8s": {
+                                "enableAAD": true,
+                                "failover": false,
+                                "honorPatchVersion": true,
+                                "monitoring": {
+                                    "enabled": true
+                                },
+                                "secondaryCluster": {
+                                    "availabilityZones": "",
+                                    "gpuSKU": "STANDARD_NC16AS_T4_V3"
+                                },
+                                "useWI": true,
+                                "version": "v1.31.11",
+                                "workerPools": [
+                                    {
+                                        "disableAutoScaling": true,
+                                        "instanceType": "Standard_D8s_v3",
+                                        "mode": "System",
+                                        "size": 1
+                                    },
+                                    {
+                                        "instanceType": "Standard_D8s_v3",
+                                        "mode": "User",
+                                        "size": 5,
+                                        "spot": false
+                                    },
+                                    {
+                                        "instanceType": "Standard_D16s_v3",
+                                        "labels": {
+                                            "loadType": "elasticsearch"
+                                        },
+                                        "size": 3,
+                                        "taints": [
+                                            {
+                                                "effect": "NoSchedule",
+                                                "key": "loadType",
+                                                "value": "elasticsearch"
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            "keyVault": {
+                                "CMKEnabled": true,
+                                "enabled": true,
+                                "private": true
+                            },
+                            "linuxFunctionApps": {
+                                "dotnetVersion": "8",
+                                "enabled": true,
+                                "size": "FC1",
+                                "sku": "FC1",
+                                "tier": "FlexConsumption"
+                            },
+                            "managedCassandra": {
+                                "dataCenters": [
+                                    {
+                                        "diskCapacity": 4,
+                                        "diskSku": "P30",
+                                        "name": "taasvstst-dc1",
+                                        "nodeCount": 3,
+                                        "sku": "Standard_D8s_v4"
+                                    }
+                                ],
+                                "enabled": true,
+                                "name": "taasvstst"
+                            },
+                            "mysql": {
+                                "backup_retention_days": "4",
+                                "enabled": true,
+                                "failover": false,
+                                "private": true,
+                                "sku": "GP_Standard_D2ds_v4",
+                                "storage": {
+                                    "auto_grow_enabled": true,
+                                    "size": "20"
+                                },
+                                "version": "5.7"
+                            },
+                            "signalR": {
+                                "enabled": true,
+                                "failover": false,
+                                "settings": [
+                                    {
+                                        "capacity": 1,
+                                        "namePrefix": "orch",
+                                        "serviceMode": "Default",
+                                        "sku": "Premium_P1"
+                                    },
+                                    {
+                                        "capacity": 1,
+                                        "namePrefix": "maestro",
+                                        "serviceMode": "Default",
+                                        "sku": "Premium_P1"
+                                    },
+                                    {
+                                        "capacity": 1,
+                                        "namePrefix": "llmops-signalr",
+                                        "private": false,
+                                        "serviceMode": "Default",
+                                        "sku": "Standard_S1"
+                                    }
+                                ]
+                            },
+                            "snowflake": {
+                                "enabled": true
+                            },
+                            "sql": {
+                                "dbnamePrefix": "taasvstst",
+                                "differentialBackupFreqHours": 24,
+                                "differentialBackupRetentionDays": 7,
+                                "failover": false,
+                                "longTermRetentionMonthly": "P1Y",
+                                "longTermRetentionWeekly": "P30D",
+                                "longTermRetentionYearly": "P30D",
+                                "multiAZ": false,
+                                "perDatabaseCapacity": 125,
+                                "poolCapacity": 125,
+                                "private": true,
+                                "useWI": true
+                            },
+                            "storage": {
+                                "accountReplicationType": "LRS",
+                                "accounts": [
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "uipath-as-platform",
+                                            "uipath-as-dataservice",
+                                            "uipath-as-processmining",
+                                            "uipath-as-taskmining",
+                                            "uipath-as-backup",
+                                            "taas",
+                                            "uipath-as-llmobservability"
+                                        ],
+                                        "namePrefix": "common",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "robot-logs",
+                                            "robot-logs-backup"
+                                        ],
+                                        "namePrefix": "orcheh",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "insights-adf-licensingdb-parquet-staging",
+                                            "insights-adf-orchdb-parquet-staging",
+                                            "insights-robotlogs-parquet-container"
+                                        ],
+                                        "namePrefix": "insingest",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "inslogexp",
+                                        "queues": [
+                                            "operational-trigger",
+                                            "robotlogs-file"
+                                        ],
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "inslogexpdelivery",
+                                        "queues": [
+                                            "backfill-ready",
+                                            "tenant-ready"
+                                        ],
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "inslogexpmapping",
+                                        "queues": [
+                                            "backfill-by-hour",
+                                            "backfill-dispatch"
+                                        ],
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "logexpfcmidstr",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insrtmpubev",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insrtmpublogs",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insrtmtransev",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insrtmval",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insrtmalert",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "namePrefix": "insdelalerts",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "uipath-as-llmobservability"
+                                        ],
+                                        "namePrefix": "llmopsconsumer",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "uipath-as-llmobservability"
+                                        ],
+                                        "namePrefix": "llmopsproducer",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "uipath-as-llmobservability"
+                                        ],
+                                        "namePrefix": "llmopspoconsumer",
+                                        "retentionInDays": 30
+                                    },
+                                    {
+                                        "accountReplicationType": "LRS",
+                                        "containers": [
+                                            "elasticsearch-snapshots"
+                                        ],
+                                        "namePrefix": "esbackup",
+                                        "retentionInDays": 30
+                                    }
+                                ],
+                                "private": false,
+                                "retentionInDays": 0
+                            }
+                        }
+                    },
+                    "mgmtInfraMetadata": {
+                        "networkInfo": {
+                            "azure": {
+                                "subnetArmId": "/subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/resourceGroups/dedicated-rg-dev-eastus-ankitj/providers/Microsoft.Network/virtualNetworks/dedicated-vnet-dev-eastus-ankitj/subnets/default"
+                            }
+                        },
+                        "type": "azure"
+                    }
+                },
+                "ingressAccessControl": {},
+                "monitoring": true,
+                "profile": "default",
+                "provisionOnlyInfra": false,
+                "region": "eastus2",
+                "releaseVersion": "2.2610.0-rc.10608117",
+                "rolloutDelaySeconds": 0
+            },
+            "status": {
+                "currentState": "ASFailed",
+                "versions": {
+                    "asVersion": "2.2610.0-rc.10608117",
+                    "k8sVersion": "v1.31.11"
+                }
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

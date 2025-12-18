@@ -1,0 +1,48 @@
+
+> opspilot@0.2.21 build
+> npm run build:python & npm run build:web & wait && tauri build
+
+
+> opspilot@0.2.21 build:web
+> node scripts/ensure-embeddings.cjs && vite build
+
+
+> opspilot@0.2.21 build:python
+> python3 scripts/build_sidecar.py
+
+[embeddings] Embeddings file exists (0.7MB). Skipping generation.
+[embeddings] Delete the file to regenerate, or use SKIP_EMBEDDINGS=1 to skip.
+[build] Setting up Python build environment in /Users/ankitjain/lens-killer/.venv-build...
+[build] Dependencies up to date, skipping pip install.
+[build] Source files unchanged, skipping PyInstaller rebuild.
+[build] Using existing binary: /Users/ankitjain/lens-killer/python/dist/agent-server
+[build] Copying /Users/ankitjain/lens-killer/python/dist/agent-server to /Users/ankitjain/lens-killer/src-tauri/binaries/agent-server-aarch64-apple-darwin...
+[build] Python Sidecar Build Complete!
+vite v7.2.4 building client environment for production...
+transforming...
+✓ 2698 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                              1.03 kB │ gzip:   0.48 kB
+dist/assets/openai-logo-DSfl2az2.png         8.49 kB
+dist/assets/ollama-logo-D1SwLhp9.png        12.99 kB
+dist/assets/anthropic-logo-DF73r-mu.png    115.51 kB
+dist/assets/index-GnpV65je.css             154.88 kB │ gzip:  19.72 kB
+dist/assets/tauri-BnmcwJtY.js                2.65 kB │ gzip:   1.16 kB
+dist/assets/react-OvXVS5lI.js               11.32 kB │ gzip:   4.06 kB
+dist/assets/index-DTKk6qYQ.js               14.60 kB │ gzip:   5.08 kB
+dist/assets/markdown-DS7uGHyK.js           157.12 kB │ gzip:  47.43 kB
+dist/assets/charts-esCPmPni.js             375.36 kB │ gzip: 110.36 kB
+dist/assets/index-PDKUBfar.js            1,057.01 kB │ gzip: 284.86 kB
+✓ built in 5.65s
+        Info Looking up installed tauri packages to check mismatched versions...
+   Compiling opspilot v0.2.9 (/Users/ankitjain/lens-killer/src-tauri)
+    Finished `release` profile [optimized] target(s) in 26.88s
+       Built application at: /Users/ankitjain/lens-killer/src-tauri/target/release/opspilot
+    Bundling OpsPilot.app (/Users/ankitjain/lens-killer/src-tauri/target/release/bundle/macos/OpsPilot.app)
+    Bundling OpsPilot_0.2.21_aarch64.dmg (/Users/ankitjain/lens-killer/src-tauri/target/release/bundle/dmg/OpsPilot_0.2.21_aarch64.dmg)
+     Running bundle_dmg.sh
+    Finished 2 bundles at:
+        /Users/ankitjain/lens-killer/src-tauri/target/release/bundle/macos/OpsPilot.app
+        /Users/ankitjain/lens-killer/src-tauri/target/release/bundle/dmg/OpsPilot_0.2.21_aarch64.dmg
+

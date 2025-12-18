@@ -131,10 +131,22 @@ class PredictScaling(BaseModel):
     horizon_minutes: int = Field(30, description="Minutes into the future to predict")
 
 class ShellCommand(BaseModel):
-    """Execute arbitrary shell command with pipes, grep, awk, etc. Use for complex queries that need shell features."""
+    """Execute arbitrary shell command with pipes, grep, awk, jq for advanced data extraction.
+
+    CRITICAL USE CASES:
+    1. CRD error extraction: kubectl get <crd> <name> -n <ns> -o json | jq -r '.status | to_entries | map(select(.key | test("message|error";"i"))) | .[] | "\\(.key): \\(.value)"'
+    2. Filtering lists: kubectl get pods -A | grep -i error
+    3. Complex parsing: kubectl get events -A --sort-by='.lastTimestamp' | tail -20
+    4. Multi-step pipelines: kubectl get all -A -o json | jq -r '.items[] | select(.status.phase=="Failed") | .metadata.name'
+
+    Use this tool when:
+    - Extracting specific fields from CRD status (status.message, status.errorMessage, etc.)
+    - Filtering or transforming kubectl output
+    - Running multi-command workflows with pipes
+    """
     tool: Literal["shell_command"]
-    command: str = Field(..., description="Shell command to execute (supports pipes |, grep, awk, etc.)")
-    purpose: str = Field(..., description="Brief explanation of what this command does")
+    command: str = Field(..., description="Shell command to execute (supports pipes |, grep, awk, jq, etc.)")
+    purpose: str = Field(..., description="Brief explanation of what this command does and why shell features are needed")
 
 class KubectlExec(BaseModel):
     """Execute a command inside a container. Equivalent to `kubectl exec <pod> -c <container> -- <command>`."""
@@ -155,11 +167,61 @@ class KubectlExecShell(BaseModel):
     shell_script: str = Field(..., description="Bash script to execute (supports full bash syntax: pipes, loops, functions, etc.)")
     purpose: str = Field(..., description="Brief explanation of what this script does")
 
+class ListDir(BaseModel):
+    tool: Literal["fs_list_dir"]
+    path: str = Field(..., description="Absolute path to directory to list")
+    recursive: bool = Field(False, description="Whether to list recursively (limit 1000 items)")
+
+class ReadFile(BaseModel):
+    tool: Literal["fs_read_file"]
+    path: str = Field(..., description="Absolute path to file to read")
+    max_lines: int = Field(2000, description="Maximum number of lines to read")
+    start_line: int = Field(0, description="Start reading from this line (0-indexed)")
+
+class GrepSearch(BaseModel):
+    tool: Literal["fs_grep"]
+    query: str = Field(..., description="Pattern to search for (regex supported)")
+    path: str = Field(..., description="File or directory path to search in")
+    recursive: bool = Field(True, description="Search recursively if path is a directory")
+    case_insensitive: bool = Field(True, description="Perform case-insensitive search")
+
+class FindFile(BaseModel):
+    tool: Literal["fs_find"]
+    pattern: str = Field(..., description="Glob pattern to find (e.g., *.ts, config.*)")
+    path: str = Field(..., description="Root path to start search from")
+
 # Discriminated Union Entry Point
+
+
+class RunK8sPython(BaseModel):
+    """
+    Execute Python code with the Kubernetes client pre-loaded.
+    
+    10X ACCURACY TOOL: Use this for ALL counting, filtering, and complex logic.
+    NEVER use kubectl + grep/jq for simple counting.
+    
+    Pre-loaded variables:
+    - v1: CoreV1Api (pods, nodes, services, namespaces)
+    - apps_v1: AppsV1Api (deployments, statefulsets, daemonsets)
+    - custom: CustomObjectsApi (CRDs)
+    - client: The raw python client module
+    
+    Examples:
+    1. Count Pods: `print(len(v1.list_pod_for_all_namespaces().items))`
+    2. Find Failed Pods:
+       `failed = [p.metadata.name for p in v1.list_pod_for_all_namespaces().items if p.status.phase != 'Running']`
+       `print(failed)`
+    3. Get specific Service: `print(v1.read_namespaced_service('my-service', 'default').spec.cluster_ip)`
+    """
+    tool: Literal["run_k8s_python"]
+    code: str = Field(..., description="Python code to execute. Must print result to stdout.")
+
 class AgentToolWrapper(BaseModel):
     tool_call: Annotated[Union[
+        RunK8sPython,
         KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
         KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff, GitCommit, PredictScaling,
         KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
-        ShellCommand
+        ShellCommand,
+        ListDir, ReadFile, GrepSearch, FindFile
     ], Field(discriminator='tool')]

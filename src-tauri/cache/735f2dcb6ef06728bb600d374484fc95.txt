@@ -1,0 +1,24 @@
+{
+  "failureThreshold": 3,
+  "httpGet": {
+    "path": "/health",
+    "port": 8080,
+    "scheme": "HTTP"
+  },
+  "initialDelaySeconds": 120,
+  "periodSeconds": 15,
+  "successThreshold": 1,
+  "timeoutSeconds": 5
+}
+{
+  "failureThreshold": 3,
+  "httpGet": {
+    "path": "/healthz",
+    "port": 9999,
+    "scheme": "HTTP"
+  },
+  "initialDelaySeconds": 10,
+  "periodSeconds": 60,
+  "successThreshold": 1,
+  "timeoutSeconds": 1
+}

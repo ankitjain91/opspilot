@@ -6,6 +6,7 @@ from ..llm import call_llm
 from ..parsing import parse_reflection
 from ..utils import truncate_output, emit_event
 from ..context_builder import build_discovered_context
+from ..fsm import enforce_fsm_rules
 
 async def reflect_node(state: AgentState) -> dict:
     """Reflect Node (70B): Assesses the result."""
@@ -72,9 +73,10 @@ async def reflect_node(state: AgentState) -> dict:
             import json
             decision = json.loads(llm_response)
 
-            if decision.get('empty_is_answer') and decision.get('confidence', 0) >= 0.7:
+            # LLM-DRIVEN: Trust the LLM's empty_is_answer decision without hardcoded confidence threshold
+            if decision.get('empty_is_answer'):
                 # LLM confirmed: Empty output answers the question
-                print(f"[reflect] ⚡ LLM determined empty output answers query (confidence: {decision.get('confidence'):.2f})", flush=True)
+                print(f"[reflect] ⚡ LLM determined empty output answers query (confidence: {decision.get('confidence', 0):.2f})", flush=True)
                 print(f"[reflect] Reasoning: {decision.get('reasoning')}", flush=True)
 
                 # Create reflection without final_response so synthesizer generates it
@@ -134,6 +136,73 @@ async def reflect_node(state: AgentState) -> dict:
             else:
                 # LLM says empty output does NOT answer the question - continue investigation
                 print(f"[reflect] ℹ️ LLM determined empty output requires further investigation", flush=True)
+
+                # PROGRESSIVE DISCOVERY: Suggest alternative discovery methods
+                tried_methods = state.get('tried_discovery_methods', [])
+                current_command = last_command_info.get('command', '')
+
+                # Extract resource name from query for alternative strategies
+                from ..discovery_strategies import get_progressive_discovery_strategies, should_try_next_strategy
+
+                # Only suggest alternatives for discovery queries (not diagnostics)
+                is_discovery = any(word in query.lower() for word in ['find', 'list', 'show', 'get', 'where'])
+
+                if is_discovery and should_try_next_strategy(output, None):
+                    # Try to extract resource name from query
+                    query_words = query.lower().split()
+                    resource_hints = [w for w in query_words if w not in ['find', 'list', 'show', 'get', 'all', 'the', 'a', 'an', 'what', 'where', 'is', 'are']]
+                    resource_name = ' '.join(resource_hints[:2]) if resource_hints else query
+
+                    strategies = get_progressive_discovery_strategies(resource_name, query)
+
+                    # Find next untried strategy
+                    next_strategy = None
+                    for strategy in strategies:
+                        if strategy.name not in tried_methods:
+                            next_strategy = strategy
+                            break
+
+                    if next_strategy:
+                        print(f"[reflect] 🔄 Suggesting alternative discovery method: {next_strategy.name}", flush=True)
+
+                        # Add to tried methods
+                        tried_methods.append(next_strategy.name)
+
+                        # Create reflection suggesting the alternative approach
+                        reflection = {
+                            "directive": "RETRY",
+                            "found_solution": False,
+                            "thought": f"Empty result from {current_command}. Trying alternative approach: {next_strategy.description}",
+                            "verified_facts": [],
+                            "next_step_hint": f"Try {next_strategy.name}: {next_strategy.commands[0]}",
+                            "reason": f"Previous method failed. Attempting method {len(tried_methods)}/{len(strategies)}: {next_strategy.name}"
+                        }
+
+                        updated_history = list(state['command_history'])
+                        updated_history[-1] = {
+                            **updated_history[-1],
+                            'assessment': "EMPTY_RETRYING",
+                            'useful': False,
+                            'reasoning': reflection["thought"],
+                        }
+
+                        events.append(emit_event("reflection", {
+                            "assessment": "RETRY_ALTERNATIVE",
+                            "reasoning": reflection["thought"],
+                            "alternative_method": next_strategy.name,
+                            "remaining_methods": len(strategies) - len(tried_methods)
+                        }))
+
+                        return {
+                            **state,
+                            'next_action': 'supervisor',
+                            'current_plan': reflection["next_step_hint"],
+                            'command_history': updated_history,
+                            'reflection_reasoning': reflection["thought"],
+                            'tried_discovery_methods': tried_methods,
+                            'suggested_commands': next_strategy.commands,  # Give supervisor specific commands to try
+                            'events': events,
+                        }
                 # Fall through to normal reflection LLM below
 
         except Exception as e:
@@ -304,6 +373,25 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             next_action = 'synthesizer'
             print(f"[reflect] 📊 No plan detected - routing to synthesizer for answer generation", flush=True)
 
+        # FSM ENFORCEMENT: Check if action is allowed for CRD debugging
+        allowed, error_msg, required_action = enforce_fsm_rules(
+            query=state.get('query', ''),
+            debugging_context=state.get('debugging_context', {}),
+            next_action=next_action,
+            command_history=state.get('command_history', [])
+        )
+
+        if not allowed:
+            print(f"[reflect] 🛡️ FSM blocked transition: {error_msg}", flush=True)
+            print(f"[reflect] Required action: {required_action}", flush=True)
+
+            # Override next_action - route back to supervisor with specific instruction
+            next_action = 'supervisor'
+            events.append(emit_event("fsm_block", {
+                "error": error_msg,
+                "required_action": required_action
+            }))
+
         return {
             **state,
             'next_action': next_action,
@@ -311,6 +399,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             'reflection_reasoning': reflection["thought"],
             'last_reflection': reflection, # Pass the structured object back
             'current_hypothesis': new_hypothesis,
+            'current_plan': required_action if not allowed else state.get('current_plan'),  # Set FSM-required action as plan
             'events': events,
         }
     except asyncio.TimeoutError:
@@ -335,6 +424,16 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
         return {
             **state,
             'next_action': 'execute_next_step',
+            'last_reflection': {
+                'directive': 'RETRY',
+                'thought': f"Reflection mechanism failed: {str(e)}. Retrying the step.",
+                'found_solution': False,
+                'verified_facts': [],
+                'next_step_hint': 'Retry due to internal error',
+                'reason': f"Internal Error: {str(e)}"
+            },
+            'events': events,
+        }
             'last_reflection': {
                 'directive': 'RETRY',
                 'thought': f"Reflection mechanism failed: {str(e)}. Retrying the step.",

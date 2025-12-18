@@ -111,23 +111,17 @@ async def critic_node(state: AgentState) -> dict:
         else:
             print(f"[agent-sidecar] 👩‍⚖️ Plan REJECTED: {critique}", flush=True)
             events.append(emit_event("warning", {"message": f"⛔ Plan Rejected: {critique}"}))
-            
-            # Feed critique back to supervisor
-            # We append it as a virtual "System" message in history or just update the state
-            # Adding to history ensures the Supervisor sees it in the next "Reflect/Plan" cycle
-            
+
+            # Feed critique back to supervisor WITHOUT adding to command_history
+            # The critic feedback is not evidence from kubectl - it's planning feedback
+            # Adding it to command_history confuses the supervisor into thinking it has "evidence"
+
             return {
                 **state,
                 'next_action': 'supervisor', # Go back to planning
                 'events': events,
-                'critic_feedback': critique, # Supervisor should look for this
-                # We can also inject into command history as a "Plan Check Failed" entry
-                'command_history': state['command_history'] + [{
-                    'command': 'plan_review',
-                    'output': f"CRITIC REJECTED PLAN: {critique}",
-                    'error': 'Plan rejected by safety policy.',
-                    'assessment': 'FAILED'
-                }]
+                'critic_feedback': critique, # Supervisor will see this and incorporate into next plan
+                # DO NOT add to command_history - this is not kubectl output
             }
 
     except Exception as e:

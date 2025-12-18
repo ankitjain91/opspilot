@@ -1,0 +1,89 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "clusterctl.cluster.x-k8s.io/v1alpha3",
+            "kind": "Provider",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:40:42Z",
+                "generation": 1,
+                "labels": {
+                    "cluster.x-k8s.io/provider": "cluster-api",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "inventory"
+                },
+                "name": "cluster-api",
+                "namespace": "capi-system",
+                "resourceVersion": "656",
+                "uid": "6352e3ae-27c1-47f8-a6db-6d86105d35af"
+            },
+            "providerName": "cluster-api",
+            "type": "CoreProvider",
+            "version": "v1.10.7"
+        },
+        {
+            "apiVersion": "clusterctl.cluster.x-k8s.io/v1alpha3",
+            "kind": "Provider",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:40:44Z",
+                "generation": 1,
+                "labels": {
+                    "cluster.x-k8s.io/provider": "bootstrap-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "inventory"
+                },
+                "name": "bootstrap-kubeadm",
+                "namespace": "capi-kubeadm-bootstrap-system",
+                "resourceVersion": "727",
+                "uid": "357cf107-c565-47e7-9f6f-141fd8af6fe3"
+            },
+            "providerName": "kubeadm",
+            "type": "BootstrapProvider",
+            "version": "v1.10.7"
+        },
+        {
+            "apiVersion": "clusterctl.cluster.x-k8s.io/v1alpha3",
+            "kind": "Provider",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:40:46Z",
+                "generation": 1,
+                "labels": {
+                    "cluster.x-k8s.io/provider": "control-plane-kubeadm",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "inventory"
+                },
+                "name": "control-plane-kubeadm",
+                "namespace": "capi-kubeadm-control-plane-system",
+                "resourceVersion": "798",
+                "uid": "96714dfe-a8b2-4fce-9826-d231c069d841"
+            },
+            "providerName": "kubeadm",
+            "type": "ControlPlaneProvider",
+            "version": "v1.10.7"
+        },
+        {
+            "apiVersion": "clusterctl.cluster.x-k8s.io/v1alpha3",
+            "kind": "Provider",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:40:56Z",
+                "generation": 1,
+                "labels": {
+                    "cluster.x-k8s.io/provider": "infrastructure-azure",
+                    "clusterctl.cluster.x-k8s.io": "",
+                    "clusterctl.cluster.x-k8s.io/core": "inventory"
+                },
+                "name": "infrastructure-azure",
+                "namespace": "capz-system",
+                "resourceVersion": "1134",
+                "uid": "b36f9efe-bb86-4023-afc1-16c41e9f46ca"
+            },
+            "providerName": "azure",
+            "type": "InfrastructureProvider",
+            "version": "v1.21.0"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

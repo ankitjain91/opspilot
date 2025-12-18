@@ -17,6 +17,7 @@ pydantic>=2.0.0
 httpx>=0.27.0
 
 # Kubernetes Async Client (For Sentinel/Watch)
+kubernetes>=28.0.0
 kubernetes_asyncio>=28.0.0
 
 # Server-Sent Events for streaming
@@ -25,5 +26,4 @@ sse-starlette>=2.0.0
 # Build Tools (for creating standalone binary)
 pyinstaller>=6.0.0
 
-# Keyword search (BM25) for hybrid RAG
-rank-bm25>=0.2.2
+

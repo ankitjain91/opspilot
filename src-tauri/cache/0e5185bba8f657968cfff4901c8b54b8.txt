@@ -1,0 +1,216 @@
+NAME                                      SHORTNAMES           APIVERSION                                       NAMESPACED   KIND
+componentstatuses                         cs                   v1                                               false        ComponentStatus
+configmaps                                cm                   v1                                               true         ConfigMap
+endpoints                                 ep                   v1                                               true         Endpoints
+events                                    ev                   v1                                               true         Event
+limitranges                               limits               v1                                               true         LimitRange
+namespaces                                ns                   v1                                               false        Namespace
+nodes                                     no                   v1                                               false        Node
+persistentvolumeclaims                    pvc                  v1                                               true         PersistentVolumeClaim
+persistentvolumes                         pv                   v1                                               false        PersistentVolume
+pods                                      po                   v1                                               true         Pod
+podtemplates                                                   v1                                               true         PodTemplate
+replicationcontrollers                    rc                   v1                                               true         ReplicationController
+resourcequotas                            quota                v1                                               true         ResourceQuota
+secrets                                                        v1                                               true         Secret
+serviceaccounts                           sa                   v1                                               true         ServiceAccount
+services                                  svc                  v1                                               true         Service
+challenges                                                     acme.cert-manager.io/v1                          true         Challenge
+orders                                                         acme.cert-manager.io/v1                          true         Order
+clusterresourcesetbindings                                     addons.cluster.x-k8s.io/v1beta1                  true         ClusterResourceSetBinding
+clusterresourcesets                                            addons.cluster.x-k8s.io/v1beta1                  true         ClusterResourceSet
+mutatingwebhookconfigurations                                  admissionregistration.k8s.io/v1                  false        MutatingWebhookConfiguration
+validatingadmissionpolicies                                    admissionregistration.k8s.io/v1                  false        ValidatingAdmissionPolicy
+validatingadmissionpolicybindings                              admissionregistration.k8s.io/v1                  false        ValidatingAdmissionPolicyBinding
+validatingwebhookconfigurations                                admissionregistration.k8s.io/v1                  false        ValidatingWebhookConfiguration
+customresourcedefinitions                 crd,crds             apiextensions.k8s.io/v1                          false        CustomResourceDefinition
+apiservices                                                    apiregistration.k8s.io/v1                        false        APIService
+controllerrevisions                                            apps/v1                                          true         ControllerRevision
+daemonsets                                ds                   apps/v1                                          true         DaemonSet
+deployments                               deploy               apps/v1                                          true         Deployment
+replicasets                               rs                   apps/v1                                          true         ReplicaSet
+statefulsets                              sts                  apps/v1                                          true         StatefulSet
+roleassignments                                                authorization.azure.com/v1api20200801preview     true         RoleAssignment
+roledefinitions                                                authorization.azure.com/v1api20220401            true         RoleDefinition
+horizontalpodautoscalers                  hpa                  autoscaling/v2                                   true         HorizontalPodAutoscaler
+podmonitors                               pmon                 azmonitoring.coreos.com/v1                       true         PodMonitor
+servicemonitors                           smon                 azmonitoring.coreos.com/v1                       true         ServiceMonitor
+cronjobs                                  cj                   batch/v1                                         true         CronJob
+jobs                                                           batch/v1                                         true         Job
+kubeadmconfigs                                                 bootstrap.cluster.x-k8s.io/v1beta1               true         KubeadmConfig
+kubeadmconfigtemplates                                         bootstrap.cluster.x-k8s.io/v1beta1               true         KubeadmConfigTemplate
+certificaterequests                       cr,crs               cert-manager.io/v1                               true         CertificateRequest
+certificates                              cert,certs           cert-manager.io/v1                               true         Certificate
+clusterissuers                            ciss                 cert-manager.io/v1                               false        ClusterIssuer
+issuers                                   iss                  cert-manager.io/v1                               true         Issuer
+certificatesigningrequests                csr                  certificates.k8s.io/v1                           false        CertificateSigningRequest
+clusterclasses                            cc                   cluster.x-k8s.io/v1beta1                         true         ClusterClass
+clusters                                  cl                   cluster.x-k8s.io/v1beta1                         true         Cluster
+machinedeployments                        md                   cluster.x-k8s.io/v1beta1                         true         MachineDeployment
+machinedrainrules                                              cluster.x-k8s.io/v1beta1                         true         MachineDrainRule
+machinehealthchecks                       mhc,mhcs             cluster.x-k8s.io/v1beta1                         true         MachineHealthCheck
+machinepools                              mp                   cluster.x-k8s.io/v1beta1                         true         MachinePool
+machines                                  ma                   cluster.x-k8s.io/v1beta1                         true         Machine
+machinesets                               ms                   cluster.x-k8s.io/v1beta1                         true         MachineSet
+kubeadmcontrolplanes                      kcp                  controlplane.cluster.x-k8s.io/v1beta1            true         KubeadmControlPlane
+kubeadmcontrolplanetemplates                                   controlplane.cluster.x-k8s.io/v1beta1            true         KubeadmControlPlaneTemplate
+leases                                                         coordination.k8s.io/v1                           true         Lease
+bgpconfigurations                                              crd.projectcalico.org/v1                         false        BGPConfiguration
+bgpfilters                                                     crd.projectcalico.org/v1                         false        BGPFilter
+bgppeers                                                       crd.projectcalico.org/v1                         false        BGPPeer
+blockaffinities                                                crd.projectcalico.org/v1                         false        BlockAffinity
+caliconodestatuses                                             crd.projectcalico.org/v1                         false        CalicoNodeStatus
+clusterinformations                                            crd.projectcalico.org/v1                         false        ClusterInformation
+felixconfigurations                                            crd.projectcalico.org/v1                         false        FelixConfiguration
+globalnetworkpolicies                                          crd.projectcalico.org/v1                         false        GlobalNetworkPolicy
+globalnetworksets                                              crd.projectcalico.org/v1                         false        GlobalNetworkSet
+hostendpoints                                                  crd.projectcalico.org/v1                         false        HostEndpoint
+ipamblocks                                                     crd.projectcalico.org/v1                         false        IPAMBlock
+ipamconfigs                                                    crd.projectcalico.org/v1                         false        IPAMConfig
+ipamhandles                                                    crd.projectcalico.org/v1                         false        IPAMHandle
+ippools                                                        crd.projectcalico.org/v1                         false        IPPool
+ipreservations                                                 crd.projectcalico.org/v1                         false        IPReservation
+kubecontrollersconfigurations                                  crd.projectcalico.org/v1                         false        KubeControllersConfiguration
+networkpolicies                                                crd.projectcalico.org/v1                         true         NetworkPolicy
+networksets                                                    crd.projectcalico.org/v1                         true         NetworkSet
+stagedglobalnetworkpolicies                                    crd.projectcalico.org/v1                         false        StagedGlobalNetworkPolicy
+stagedkubernetesnetworkpolicies                                crd.projectcalico.org/v1                         true         StagedKubernetesNetworkPolicy
+stagednetworkpolicies                                          crd.projectcalico.org/v1                         true         StagedNetworkPolicy
+tiers                                                          crd.projectcalico.org/v1                         false        Tier
+cloudflarecustomrules                                          dedicated.uipath.com/v1alpha1                    true         CloudflareCustomRule
+cloudflarednsrecords                                           dedicated.uipath.com/v1alpha1                    true         CloudflareDnsRecord
+customerclusters                                               dedicated.uipath.com/v1alpha1                    true         CustomerCluster
+jobrequests                                                    dedicated.uipath.com/v1alpha1                    true         JobRequest
+managementclusters                                             dedicated.uipath.com/v1alpha1                    true         ManagementCluster
+subscriptions                                                  dedicated.uipath.com/v1alpha1                    true         Subscription
+endpointslices                                                 discovery.k8s.io/v1                              true         EndpointSlice
+events                                    ev                   events.k8s.io/v1                                 true         Event
+wasmplugins                                                    extensions.istio.io/v1alpha1                     true         WasmPlugin
+flowschemas                                                    flowcontrol.apiserver.k8s.io/v1                  false        FlowSchema
+prioritylevelconfigurations                                    flowcontrol.apiserver.k8s.io/v1                  false        PriorityLevelConfiguration
+vclusters                                                      infrastructure.cluster.x-k8s.io/v1alpha1         true         VCluster
+ipaddressclaims                                                ipam.cluster.x-k8s.io/v1beta1                    true         IPAddressClaim
+ipaddresses                                                    ipam.cluster.x-k8s.io/v1beta1                    true         IPAddress
+cleanuppolicies                           cleanpol             kyverno.io/v2                                    true         CleanupPolicy
+clustercleanuppolicies                    ccleanpol            kyverno.io/v2                                    false        ClusterCleanupPolicy
+clusterpolicies                           cpol                 kyverno.io/v1                                    false        ClusterPolicy
+globalcontextentries                      gctxentry            kyverno.io/v2alpha1                              false        GlobalContextEntry
+policies                                  pol                  kyverno.io/v1                                    true         Policy
+policyexceptions                          polex                kyverno.io/v2                                    true         PolicyException
+updaterequests                            ur                   kyverno.io/v2                                    true         UpdateRequest
+federatedidentitycredentials                                   managedidentity.azure.com/v1api20220131preview   true         FederatedIdentityCredential
+userassignedidentities                                         managedidentity.azure.com/v1api20181130          true         UserAssignedIdentity
+nodes                                                          metrics.k8s.io/v1beta1                           false        NodeMetrics
+pods                                                           metrics.k8s.io/v1beta1                           true         PodMetrics
+applicationgateways                                            network.azure.com/v1api20220701                  true         ApplicationGateway
+bastionhosts                                                   network.azure.com/v1api20220701                  true         BastionHost
+dnsforwardingrulesets                                          network.azure.com/v1api20220701                  true         DnsForwardingRuleset
+dnsforwardingrulesetsforwardingrules                           network.azure.com/v1api20220701                  true         DnsForwardingRuleSetsForwardingRule
+dnsresolvers                                                   network.azure.com/v1api20220701                  true         DnsResolver
+dnsresolversinboundendpoints                                   network.azure.com/v1api20220701                  true         DnsResolversInboundEndpoint
+dnsresolversoutboundendpoints                                  network.azure.com/v1api20220701                  true         DnsResolversOutboundEndpoint
+dnszones                                                       network.azure.com/v1api20180501                  true         DnsZone
+dnszonesaaaarecords                                            network.azure.com/v1api20180501                  true         DnsZonesAAAARecord
+dnszonesarecords                                               network.azure.com/v1api20180501                  true         DnsZonesARecord
+dnszonescaarecords                                             network.azure.com/v1api20180501                  true         DnsZonesCAARecord
+dnszonescnamerecords                                           network.azure.com/v1api20180501                  true         DnsZonesCNAMERecord
+dnszonesmxrecords                                              network.azure.com/v1api20180501                  true         DnsZonesMXRecord
+dnszonesnsrecords                                              network.azure.com/v1api20180501                  true         DnsZonesNSRecord
+dnszonesptrrecords                                             network.azure.com/v1api20180501                  true         DnsZonesPTRRecord
+dnszonessrvrecords                                             network.azure.com/v1api20180501                  true         DnsZonesSRVRecord
+dnszonestxtrecords                                             network.azure.com/v1api20180501                  true         DnsZonesTXTRecord
+loadbalancers                                                  network.azure.com/v1api20201101                  true         LoadBalancer
+loadbalancersinboundnatrules                                   network.azure.com/v1api20201101                  true         LoadBalancersInboundNatRule
+natgateways                                                    network.azure.com/v1api20220701                  true         NatGateway
+networkinterfaces                                              network.azure.com/v1api20201101                  true         NetworkInterface
+networksecuritygroups                                          network.azure.com/v1api20201101                  true         NetworkSecurityGroup
+networksecuritygroupssecurityrules                             network.azure.com/v1api20201101                  true         NetworkSecurityGroupsSecurityRule
+privatednszones                                                network.azure.com/v1api20180901                  true         PrivateDnsZone
+privatednszonesaaaarecords                                     network.azure.com/v1api20200601                  true         PrivateDnsZonesAAAARecord
+privatednszonesarecords                                        network.azure.com/v1api20200601                  true         PrivateDnsZonesARecord
+privatednszonescnamerecords                                    network.azure.com/v1api20200601                  true         PrivateDnsZonesCNAMERecord
+privatednszonesmxrecords                                       network.azure.com/v1api20200601                  true         PrivateDnsZonesMXRecord
+privatednszonesptrrecords                                      network.azure.com/v1api20200601                  true         PrivateDnsZonesPTRRecord
+privatednszonessrvrecords                                      network.azure.com/v1api20200601                  true         PrivateDnsZonesSRVRecord
+privatednszonestxtrecords                                      network.azure.com/v1api20200601                  true         PrivateDnsZonesTXTRecord
+privatednszonesvirtualnetworklinks                             network.azure.com/v1api20200601                  true         PrivateDnsZonesVirtualNetworkLink
+privateendpoints                                               network.azure.com/v1api20220701                  true         PrivateEndpoint
+privateendpointsprivatednszonegroups                           network.azure.com/v1api20220701                  true         PrivateEndpointsPrivateDnsZoneGroup
+privatelinkservices                                            network.azure.com/v1api20220701                  true         PrivateLinkService
+publicipaddresses                                              network.azure.com/v1api20201101                  true         PublicIPAddress
+publicipprefixes                                               network.azure.com/v1api20220701                  true         PublicIPPrefix
+routetables                                                    network.azure.com/v1api20201101                  true         RouteTable
+routetablesroutes                                              network.azure.com/v1api20201101                  true         RouteTablesRoute
+trafficmanagerprofiles                                         network.azure.com/v1api20220401                  true         TrafficManagerProfile
+trafficmanagerprofilesazureendpoints                           network.azure.com/v1api20220401                  true         TrafficManagerProfilesAzureEndpoint
+trafficmanagerprofilesexternalendpoints                        network.azure.com/v1api20220401                  true         TrafficManagerProfilesExternalEndpoint
+trafficmanagerprofilesnestedendpoints                          network.azure.com/v1api20220401                  true         TrafficManagerProfilesNestedEndpoint
+virtualnetworkgateways                                         network.azure.com/v1api20201101                  true         VirtualNetworkGateway
+virtualnetworks                                                network.azure.com/v1api20201101                  true         VirtualNetwork
+virtualnetworkssubnets                                         network.azure.com/v1api20201101                  true         VirtualNetworksSubnet
+virtualnetworksvirtualnetworkpeerings                          network.azure.com/v1api20201101                  true         VirtualNetworksVirtualNetworkPeering
+destinationrules                          dr                   networking.istio.io/v1                           true         DestinationRule
+envoyfilters                                                   networking.istio.io/v1alpha3                     true         EnvoyFilter
+gateways                                  gw                   networking.istio.io/v1                           true         Gateway
+proxyconfigs                                                   networking.istio.io/v1beta1                      true         ProxyConfig
+serviceentries                            se                   networking.istio.io/v1                           true         ServiceEntry
+sidecars                                                       networking.istio.io/v1                           true         Sidecar
+virtualservices                           vs                   networking.istio.io/v1                           true         VirtualService
+workloadentries                           we                   networking.istio.io/v1                           true         WorkloadEntry
+workloadgroups                            wg                   networking.istio.io/v1                           true         WorkloadGroup
+ingressclasses                                                 networking.k8s.io/v1                             false        IngressClass
+ingresses                                 ing                  networking.k8s.io/v1                             true         Ingress
+ipaddresses                               ip                   networking.k8s.io/v1                             false        IPAddress
+networkpolicies                           netpol               networking.k8s.io/v1                             true         NetworkPolicy
+servicecidrs                                                   networking.k8s.io/v1                             false        ServiceCIDR
+runtimeclasses                                                 node.k8s.io/v1                                   false        RuntimeClass
+instrumentations                          otelinst,otelinsts   opentelemetry.io/v1alpha1                        true         Instrumentation
+opampbridges                                                   opentelemetry.io/v1alpha1                        true         OpAMPBridge
+opentelemetrycollectors                   otelcol,otelcols     opentelemetry.io/v1beta1                         true         OpenTelemetryCollector
+addonproviders                            caap                 operator.cluster.x-k8s.io/v1alpha2               true         AddonProvider
+bootstrapproviders                        cabp                 operator.cluster.x-k8s.io/v1alpha2               true         BootstrapProvider
+controlplaneproviders                     cacpp                operator.cluster.x-k8s.io/v1alpha2               true         ControlPlaneProvider
+coreproviders                             cacp                 operator.cluster.x-k8s.io/v1alpha2               true         CoreProvider
+infrastructureproviders                   caip                 operator.cluster.x-k8s.io/v1alpha2               true         InfrastructureProvider
+ipamproviders                             caipamp              operator.cluster.x-k8s.io/v1alpha2               true         IPAMProvider
+runtimeextensionproviders                 carep                operator.cluster.x-k8s.io/v1alpha2               true         RuntimeExtensionProvider
+apiservers                                                     operator.tigera.io/v1                            false        APIServer
+gatewayapis                                                    operator.tigera.io/v1                            false        GatewayAPI
+goldmanes                                                      operator.tigera.io/v1                            false        Goldmane
+imagesets                                                      operator.tigera.io/v1                            false        ImageSet
+installations                                                  operator.tigera.io/v1                            false        Installation
+managementclusterconnections                                   operator.tigera.io/v1                            false        ManagementClusterConnection
+tigerastatuses                                                 operator.tigera.io/v1                            false        TigeraStatus
+whiskers                                                       operator.tigera.io/v1                            false        Whisker
+deletingpolicies                          dpol                 policies.kyverno.io/v1alpha1                     false        DeletingPolicy
+generatingpolicies                        gpol                 policies.kyverno.io/v1alpha1                     false        GeneratingPolicy
+imagevalidatingpolicies                   ivpol                policies.kyverno.io/v1alpha1                     false        ImageValidatingPolicy
+mutatingpolicies                          mpol                 policies.kyverno.io/v1alpha1                     false        MutatingPolicy
+policyexceptions                                               policies.kyverno.io/v1alpha1                     true         PolicyException
+validatingpolicies                        vpol                 policies.kyverno.io/v1alpha1                     false        ValidatingPolicy
+poddisruptionbudgets                      pdb                  policy/v1                                        true         PodDisruptionBudget
+adminnetworkpolicies                      anp                  policy.networking.k8s.io/v1alpha1                false        AdminNetworkPolicy
+baselineadminnetworkpolicies              banp                 policy.networking.k8s.io/v1alpha1                false        BaselineAdminNetworkPolicy
+clusterrolebindings                                            rbac.authorization.k8s.io/v1                     false        ClusterRoleBinding
+clusterroles                                                   rbac.authorization.k8s.io/v1                     false        ClusterRole
+rolebindings                                                   rbac.authorization.k8s.io/v1                     true         RoleBinding
+roles                                                          rbac.authorization.k8s.io/v1                     true         Role
+clusterephemeralreports                   cephr                reports.kyverno.io/v1                            false        ClusterEphemeralReport
+ephemeralreports                          ephr                 reports.kyverno.io/v1                            true         EphemeralReport
+resourcegroups                                                 resources.azure.com/v1api20200601                true         ResourceGroup
+extensionconfigs                          ext                  runtime.cluster.x-k8s.io/v1alpha1                false        ExtensionConfig
+priorityclasses                           pc                   scheduling.k8s.io/v1                             false        PriorityClass
+authorizationpolicies                     ap                   security.istio.io/v1                             true         AuthorizationPolicy
+peerauthentications                       pa                   security.istio.io/v1                             true         PeerAuthentication
+requestauthentications                    ra                   security.istio.io/v1                             true         RequestAuthentication
+volumesnapshotclasses                     vsclass,vsclasses    snapshot.storage.k8s.io/v1                       false        VolumeSnapshotClass
+volumesnapshotcontents                    vsc,vscs             snapshot.storage.k8s.io/v1                       false        VolumeSnapshotContent
+volumesnapshots                           vs                   snapshot.storage.k8s.io/v1                       true         VolumeSnapshot
+csidrivers                                                     storage.k8s.io/v1                                false        CSIDriver
+csinodes                                                       storage.k8s.io/v1                                false        CSINode
+csistoragecapacities                                           storage.k8s.io/v1                                true         CSIStorageCapacity
+storageclasses                            sc                   storage.k8s.io/v1                                false        StorageClass
+volumeattachments                                              storage.k8s.io/v1                                false        VolumeAttachment
+telemetries                               telemetry            telemetry.istio.io/v1                            true         Telemetry
+clusterpolicyreports                      cpolr                wgpolicyk8s.io/v1alpha2                          false        ClusterPolicyReport
+policyreports                             polr                 wgpolicyk8s.io/v1alpha2                          true         PolicyReport

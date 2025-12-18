@@ -1,0 +1,92 @@
+[
+    {
+        "id": "shallow_list_pods",
+        "query": "List all pods in the default namespace",
+        "complexity": "shallow",
+        "mock_scenarios": {
+            "get pods": {
+                "stdout": "NAME           READY   STATUS    RESTARTS   AGE\nnginx-app      1/1     Running   0          5m\ndb-service     1/1     Running   0          5m",
+                "returncode": 0
+            }
+        },
+        "expected_tools": [
+            "kubectl_get"
+        ],
+        "expected_keywords": [
+            "nginx-app",
+            "db-service"
+        ],
+        "forbidden_keywords": [
+            "Error",
+            "Python"
+        ]
+    },
+    {
+        "id": "deep_crashloop",
+        "query": "Why is the backend-api pod crashing?",
+        "complexity": "deep",
+        "mock_scenarios": {
+            "get pods": {
+                "stdout": "NAME           READY   STATUS             RESTARTS   AGE\nbackend-api    0/1     CrashLoopBackOff   5          2m",
+                "returncode": 0
+            },
+            "backend-api": {
+                "stdout": "NAME           READY   STATUS             RESTARTS   AGE\nbackend-api    0/1     CrashLoopBackOff   5          2m",
+                "returncode": 0
+            },
+            "describe pod backend-api": {
+                "stdout": "Name: backend-api\nContainers:\n  main:\n    State: Waiting\n      Reason: CrashLoopBackOff\n    Last State: Terminated\n      Reason: Error\n      Exit Code: 137",
+                "returncode": 0
+            },
+            "logs backend-api": {
+                "stdout": "[FATAL] PostgresConnectionError: FATAL: password authentication failed for user 'postgres'",
+                "returncode": 0
+            },
+            "logs": {
+                "stdout": "[FATAL] PostgresConnectionError: FATAL: password authentication failed for user 'postgres'",
+                "returncode": 0
+            }
+        },
+        "expected_tools": [
+            "kubectl_get",
+            "kubectl_logs"
+        ],
+        "expected_keywords": [
+            "authentication failed",
+            "postgres",
+            "password"
+        ],
+        "forbidden_keywords": [
+            "unknown error"
+        ]
+    },
+    {
+        "id": "complex_scaling",
+        "query": "Scale the frontend deployment to 5 replicas",
+        "complexity": "mutation",
+        "mock_scenarios": {
+            "get deployment frontend": {
+                "stdout": "NAME       READY   UP-TO-DATE   AVAILABLE   AGE\nfrontend   2/2     2            2           10d",
+                "returncode": 0
+            },
+            "scale deployment frontend --replicas=5": {
+                "stdout": "deployment.apps/frontend scaled",
+                "returncode": 0
+            },
+            "get deployments": {
+                "stdout": "NAME       READY   UP-TO-DATE   AVAILABLE   AGE\nfrontend   2/2     2            2           10d",
+                "returncode": 0
+            }
+        },
+        "expected_tools": [
+            "kubectl_scale",
+            "kubectl_get"
+        ],
+        "expected_keywords": [
+            "scaled",
+            "frontend",
+            "5"
+        ],
+        "requires_approval": true
+    }
+]

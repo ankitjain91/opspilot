@@ -195,11 +195,17 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
 
 #[tauri::command]
 pub async fn disconnect_vcluster(state: State<'_, AppState>) -> Result<String, String> {
-    // Run "vcluster disconnect"
-    let output = Command::new("vcluster")
-        .args(["disconnect"])
-        .output()
-        .map_err(|e| format!("Failed to execute vcluster command: {}", e))?;
+    // Run "vcluster disconnect" with timeout
+    let output_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::process::Command::new("vcluster").args(["disconnect"]).output()
+    ).await;
+
+    let output = match output_result {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(format!("Failed to execute vcluster command: {}", e)),
+        Err(_) => return Err("vcluster disconnect timed out".to_string()),
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

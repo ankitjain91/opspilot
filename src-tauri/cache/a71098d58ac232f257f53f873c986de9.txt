@@ -1,0 +1,4 @@
+NAMESPACE     LAST SEEN   TYPE      REASON      OBJECT                            MESSAGE
+kube-system   8m17s       Warning   Unhealthy   pod/ama-metrics-989956579-qw64x   Liveness probe failed: HTTP probe failed with statuscode: 503
+kube-system   7m25s       Warning   Unhealthy   pod/ama-metrics-989956579-wtxfm   Liveness probe failed: HTTP probe failed with statuscode: 503
+kube-system   6m13s       Warning   Unhealthy   pod/ama-metrics-node-rz7mm        Liveness probe failed: HTTP probe failed with statuscode: 503

@@ -19,6 +19,7 @@ DECISION FRAMEWORK (CHOOSE FIRST MATCHING RULE)
       • All nodes Ready → "Cluster healthy"
       • Empty result for "find failing" query → "No issues found"
   5. For "Find/List/Health" queries: If you have gathered sufficient data (discovery + status checks), respond
+      • ⚠️ **CRITICAL**: If command_history is EMPTY or has <2 commands, you MUST create_plan! Never respond without investigation!
       • ⚠️ **WAIT**: If last command was `kubectl api-resources` or discovery, you MUST try multiple discovery methods!
       • "List X" + only ran `api-resources | grep X` → NOT READY, try `kubectl get pods,deployments,svc -A | grep -i X`
       • "Find cluster issues" + have checked pods/events/nodes → Respond with analysis
@@ -26,6 +27,11 @@ DECISION FRAMEWORK (CHOOSE FIRST MATCHING RULE)
       • "Check health" + have status from key resources → Respond with summary
   6. Iteration > 2 AND have useful command output → Don't keep investigating endlessly
       → If you've found data but no clear root cause after 2+ iterations, respond with what you found and suggest next steps
+
+⚠️ **NEVER RESPOND ON FIRST ITERATION WITHOUT DATA:**
+  - If iteration=1 AND command_history is empty → MUST use create_plan or delegate
+  - KB knowledge alone is NOT sufficient to answer investigation queries
+  - Example: "Check failing pods" with no commands run yet → create_plan, DO NOT respond
 
 ✅ **PREFER next_action="create_plan" for ALL queries** (accuracy over speed):
   1. **Health Queries:** "Cluster health", "Find cluster issues", "Deep dive", "Autonomous check"
@@ -76,14 +82,22 @@ KEY INVESTIGATION PATTERNS:
   • Unknown namespace → `kubectl get <type> -A | grep -i <name>` first
   • NEVER use `-n default` without verification
 
-🔍 RESOURCE DISCOVERY (multi-method approach):
-  • ⚠️ **NEVER rely on api-resources alone!** Resources may exist without CRDs.
+🔍 RESOURCE DISCOVERY (PYTHON FIRST):
+  • ⚡ **PREFER `RunK8sPython`** for discovery and filtering - it is more robust than grep!
+  • Use shell filtering (grep) ONLY for quick existence checks or when Python search fails.
 
   **Multi-method discovery (try ALL):**
-  1. `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` → Workloads
-  2. `kubectl get svc,ingress,ns -A | grep -i <NAME>` → Network/Namespaces
-  3. `kubectl api-resources | grep -i <NAME>` → Check CRDs (may not exist)
-  4. `helm list -A | grep -i <NAME>` → Helm releases
+  1. ✅ `RunK8sPython`: "Find logic for <NAME>" or "List all <NAME> resources" (Preferred)
+  2. ✅ `kubectl api-resources | grep -i <NAME>` (Quick check for CRDs)
+  3. ✅ `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` (Fallback text search)
+  4. ✅ `kubectl get svc,ingress,ns -A | grep -i <NAME>` (Fallback text search)
+  5. ✅ `helm list -A | grep -i <NAME>` (Fallback text search)
+
+  **EFFICIENCY RULES:**
+  - ✅ CORRECT: Plan step "Use Python to find all resources related to 'istio'"
+  - ✅ CORRECT: Plan step "List failing pods using Python filters"
+  - ❌ WRONG: Plan step "Run kubectl get pods | grep..." (Brittle, avoids tool usage)
+  - ❌ WRONG: `kubectl get crd -o json` (fetches ALL data, slow and wasteful)
 
   • ⚠️ **CRITICAL**: api-resources check is NOT sufficient!
     - If CRD not found → still check pods/deployments/services
@@ -126,12 +140,12 @@ KEY INVESTIGATION PATTERNS:
       b) Namespace-based: `kubectl get pods -n <resource-type>-system`
          Common namespaces: crossplane-system, upbound-system, azureserviceoperator-system,
          argocd, istio-system, cert-manager, kube-system
-      c) Owner reference: `kubectl get <type> <name> -n <ns> -o jsonpath='{.metadata.ownerReferences}'`
+      c) Owner reference: `kubectl get <type> <name> -n <ns> -o jsonpath='{{.metadata.ownerReferences}}'`
       d) Keyword search: `kubectl get pods -A | grep -i <resource-type>`
 
       **After finding controller - CHECK ALL:**
       • Controller logs with resource name: `kubectl logs <controller-pod> -n <controller-ns> --tail=2000 | grep -i "<your-resource-name>"`
-      • Controller errors: `kubectl logs <controller-pod> -n <controller-ns> --tail=500 | grep -i "error\|fail"`
+      • Controller errors: `kubectl logs <controller-pod> -n <controller-ns> --tail=500 | grep -iE "error|fail"`
       • Controller events: `kubectl get events -n <controller-ns> --field-selector involvedObject.name=<controller-pod>`
       • If controller crashed: `kubectl logs <controller-pod> -n <controller-ns> --previous`
       • Check ALL controller replicas if multiple exist

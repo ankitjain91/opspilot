@@ -7,6 +7,7 @@ import {
     Maximize2, Minimize2, X, Trash2, EthernetPort, ChevronLeft, ChevronRight, FileCode, MessageSquare
 } from 'lucide-react';
 import { ClusterChatPanel } from '../ai/ClusterChatPanel';
+import { useToast } from '../ui/Toast';
 import yaml from 'js-yaml';
 import { K8sObject } from '../../types/k8s';
 import { Tab } from '../../types/ui';
@@ -30,6 +31,7 @@ interface DeepDiveDrawerProps {
 }
 
 export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onCloseAll, onDelete, currentContext }: DeepDiveDrawerProps) {
+    const { showToast } = useToast();
     // Track content tab per resource tab (preserves state when switching)
     const [contentTabsMap, setContentTabsMap] = useState<Record<string, string>>({});
     const [drawerWidth, setDrawerWidth] = useState(650);
@@ -110,31 +112,51 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
 
     // Fetch full details for current resource
     // Fetch YAML once and derive structured object so we don't get cache collisions with YamlTab
-    const { data: resourceYaml, error: detailsError, isLoading: detailsLoading } = useQuery({
-        queryKey: ["resource_details", currentContext, resource?.namespace, resource?.group, resource?.version, resource?.kind, resource?.name],
+    const normalizedNamespace = resource?.namespace !== "-" ? resource?.namespace : null;
+
+    const { data: resourceYaml, error: detailsError, isLoading: detailsLoading, isFetching } = useQuery({
+        queryKey: ["resource_details", currentContext, normalizedNamespace, resource?.group, resource?.version, resource?.kind, resource?.name],
         queryFn: async () => {
+            console.log('[DeepDiveDrawer] Fetching resource details for:', resource?.name);
             if (!resource) return null;
-            return await invoke<string>("get_resource_details", {
+            const result = await invoke<string>("get_resource_details", {
                 req: {
                     group: resource.group,
                     version: resource.version,
                     kind: resource.kind,
-                    namespace: resource.namespace !== "-" ? resource.namespace : null
+                    namespace: normalizedNamespace
                 },
                 name: resource.name
             });
+            console.log('[DeepDiveDrawer] Received resource details, length:', result?.length);
+            return result;
         },
         enabled: !!resource,
-        staleTime: 10000,
+        staleTime: 30000, // Keep data fresh for 30s
+        gcTime: 60000, // Keep in cache for 1 minute after last use
+        retry: 2,
+        refetchOnWindowFocus: false,
+        refetchOnMount: false, // Don't refetch when component remounts
+        refetchOnReconnect: false,
     });
 
     // Parse YAML (or JSON) into an object for detail views; keep YAML string for YamlTab
+    // Note: Initial fetch returns YAML, but watch updates return JSON. Handle both.
     const fullObject = useMemo(() => {
         if (!resourceYaml) return null;
         try {
-            const obj = yaml.load(resourceYaml) as any;
+            let obj: any;
+
+            // Try JSON first (from watch updates), then fall back to YAML (from initial fetch)
+            try {
+                obj = JSON.parse(resourceYaml);
+            } catch {
+                obj = yaml.load(resourceYaml) as any;
+            }
+
             // Guard: Ensure loaded object matches current resource request to prevent stale data
-            if (obj?.metadata?.name && obj.metadata.name !== resource.name) {
+            if (obj?.metadata?.name && resource?.name && obj.metadata.name !== resource.name) {
+                console.warn("[DeepDiveDrawer] Name mismatch, ignoring stale data:", obj.metadata.name, "vs", resource.name);
                 return null;
             }
             return obj;
@@ -142,20 +164,28 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
             console.error('Failed to parse resource details', err);
             return null;
         }
-    }, [resourceYaml, resource.name]);
+    }, [resourceYaml, resource?.name]);
 
-    // Live Watch
-    useSingleResourceWatch(
-        resource ? {
-            group: resource.group,
-            version: resource.version,
-            kind: resource.kind,
-            namespace: resource.namespace !== "-" ? resource.namespace : null,
-            name: resource.name
-        } : null,
-        currentContext,
-        !!resource // enabled
-    );
+    console.log("[DeepDiveDrawer Debug] Render state:", {
+        resName: resource?.name,
+        detailsLoading,
+        hasError: !!detailsError,
+        hasFullObject: !!fullObject
+    });
+
+    // Live Watch - temporarily disabled to debug data disappearing issue
+    // TODO: Re-enable once the cache invalidation issue is resolved
+    // useSingleResourceWatch(
+    //     resource ? {
+    //         group: resource.group,
+    //         version: resource.version,
+    //         kind: resource.kind,
+    //         namespace: resource.namespace !== "-" ? resource.namespace : null,
+    //         name: resource.name
+    //     } : null,
+    //     currentContext,
+    //     !!resource // enabled
+    // );
 
     const handleDelete = () => {
         setShowDeleteModal(true);
@@ -174,13 +204,12 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                 namespace: resource.namespace !== "-" ? resource.namespace : null,
                 name: resource.name
             });
+            showToast(`${resource.kind} ${resource.name} deleted successfully`, "success");
             onDelete();
             onTabClose(activeTabId);
         } catch (err) {
             console.error("Delete failed:", err);
-            if ((window as any).showToast) {
-                (window as any).showToast(`Delete failed: ${err}`, 'error');
-            }
+            showToast(`Delete failed: ${err}`, 'error');
         }
     };
 
@@ -432,6 +461,7 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                             fullObject={fullObject}
                             currentContext={currentContext}
                             loading={detailsLoading}
+                            error={detailsError as Error | null}
                         />
                     )}
                 </div>

@@ -66,6 +66,10 @@ def extract_resources_from_output(command: str, output: str) -> Dict[str, List[s
             names = set()
 
             for line in lines[1:]:  # Skip header
+                # Skip truncation markers
+                if line.startswith('...') or 'omitted' in line:
+                    continue
+                    
                 parts = line.split()
                 if len(parts) >= 2:
                     namespaces.add(parts[0])  # First column is namespace

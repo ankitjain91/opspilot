@@ -1050,8 +1050,22 @@ pub fn get_default_llm_config(provider: String) -> LLMConfig {
 /// Analyze text using the configured LLM
 #[tauri::command]
 pub async fn analyze_text(text: String, context: String) -> Result<String, String> {
+    // Try to load persisted config, fallback to default
+    let mut config = LLMConfig::default();
+    
+    if let Some(config_dir) = dirs::config_dir() {
+        let config_path = config_dir.join("lens-killer").join("llm-config.json");
+        if config_path.exists() {
+             if let Ok(content) = std::fs::read_to_string(config_path) {
+                 if let Ok(loaded) = serde_json::from_str::<LLMConfig>(&content) {
+                     config = loaded;
+                 }
+             }
+        }
+    }
+
     let system_prompt = format!("You are a Kubernetes expert. Analyze the provided text. Context: {}. Be concise, highlight errors, and suggest fixes.", context);
-    call_local_llm(text, Some(system_prompt)).await
+    call_llm(config, text, Some(system_prompt), vec![]).await
 }
 
 // ============================================================================

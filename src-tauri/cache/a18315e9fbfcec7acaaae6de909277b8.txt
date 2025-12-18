@@ -1,0 +1,8 @@
+NAMESPACE   LAST SEEN   TYPE     REASON           OBJECT                                           MESSAGE
+taasvstst   27m         Normal   CredentialFrom   resourcegroup/taasvstst                          Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   26m         Normal   CredentialFrom   virtualnetwork/taasvstst                         Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   16m         Normal   CredentialFrom   managedclustersagentpool/taasvstst-1             Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   13m         Normal   CredentialFrom   managedclustersagentpool/taasvstst-2             Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   10m         Normal   CredentialFrom   managedcluster/taasvstst                         Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   4m11s       Normal   CredentialFrom   virtualnetworkssubnet/taasvstst-taasvststrzppv   Using credential from "taasvstst/taasvstst-aso-secret"
+taasvstst   3m23s       Normal   ClusterPaused    azuremanagedcontrolplane/taasvstst               *v1beta1.AzureManagedControlPlane or linked Cluster is marked as paused. Won't reconcile

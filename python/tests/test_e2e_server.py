@@ -76,14 +76,12 @@ def test_embedding_endpoint_configuration_flow(test_client):
 @pytest.fixture
 def mock_deps():
     with patch("agent_server.nodes.supervisor.get_relevant_kb_snippets", new_callable=AsyncMock) as mock_kb, \
-         patch("agent_server.nodes.refiner.refine_query", new_callable=AsyncMock) as mock_refiner, \
          patch("agent_server.nodes.classifier.call_llm", new_callable=AsyncMock) as mock_classifier_llm:
         
         mock_kb.return_value = ""
-        mock_refiner.return_value = "hello"
         # Mock classifier to force "complex" intent so we go to Supervisor where retry logic lives
         mock_classifier_llm.return_value = '{"intent": "complex", "reason": "test"}'
-        yield mock_kb, mock_refiner, mock_classifier_llm
+        yield mock_kb, mock_classifier_llm
 
 def test_groq_retry_on_400_logic(test_client, mock_deps):
     """

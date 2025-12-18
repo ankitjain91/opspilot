@@ -1,0 +1,181 @@
+Name:                 ama-metrics-989956579-qw64x
+Namespace:            kube-system
+Priority:             2000001000
+Priority Class Name:  system-node-critical
+Service Account:      ama-metrics-serviceaccount
+Node:                 aks-default-49089664-vmss000002/10.1.1.6
+Start Time:           Thu, 11 Dec 2025 14:30:22 -0800
+Labels:               kubernetes.azure.com/managedby=aks
+                      pod-template-hash=989956579
+                      rsName=ama-metrics
+Annotations:          agentVersion: 0.0.0.1
+                      cluster-autoscaler.kubernetes.io/safe-to-evict: true
+                      cni.projectcalico.org/containerID: ed68e1bba36ac3f0deebd26cebb813e9e5c6ba009c06969d1fd68d4f5a7f4e79
+                      cni.projectcalico.org/podIP: 10.244.2.164/32
+                      cni.projectcalico.org/podIPs: 10.244.2.164/32
+                      schema-versions: v1
+Status:               Running
+IP:                   10.244.2.164
+IPs:
+  IP:           10.244.2.164
+Controlled By:  ReplicaSet/ama-metrics-989956579
+Containers:
+  prometheus-collector:
+    Container ID:   containerd://72c47d7588a9d7dbb1459ac72e14bb29c282aaa217e0384a0e76dd6dba31b94c
+    Image:          mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744
+    Image ID:       mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images@sha256:0c7cb75e25934ec5d3fcae3226ce3b2659d241503cfbeb82786deb0f14f36cc5
+    Port:           <none>
+    Host Port:      <none>
+    State:          Running
+      Started:      Tue, 16 Dec 2025 17:53:23 -0800
+    Last State:     Terminated
+      Reason:       Completed
+      Message:      No configuration present for the AKS resource
+      Exit Code:    0
+      Started:      Tue, 16 Dec 2025 17:36:08 -0800
+      Finished:     Tue, 16 Dec 2025 17:53:23 -0800
+    Ready:          True
+    Restart Count:  430
+    Limits:
+      cpu:     7
+      memory:  14Gi
+    Requests:
+      cpu:     150m
+      memory:  500Mi
+    Liveness:  http-get http://:8080/health delay=120s timeout=5s period=15s #success=1 #failure=3
+    Environment:
+      KUBERNETES_SERVICE_HOST:                  dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io
+      KUBERNETES_PORT:                          tcp://dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io:443
+      KUBERNETES_PORT_443_TCP:                  tcp://dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io:443
+      KUBERNETES_PORT_443_TCP_ADDR:             dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io
+      CLUSTER:                                  /subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/resourceGroups/dedicated-rg-dev-eastus-ankitj/providers/Microsoft.ContainerService/managedClusters/dedicated-aks-dev-eastus-ankitj
+      AKSREGION:                                eastus
+      MAC:                                      true
+      AZMON_COLLECT_ENV:                        false
+      AZMON_OPERATOR_ENABLED:                   true
+      OPERATOR_TARGETS_HTTPS_ENABLED:           true
+      AZMON_COLLECTOR_HPA_ENABLED:              true
+      customEnvironment:                        azurepubliccloud
+      OMS_TLD:                                  opinsights.azure.com
+      CONTROLLER_TYPE:                          ReplicaSet
+      NODE_IP:                                   (v1:status.hostIP)
+      NODE_NAME:                                 (v1:spec.nodeName)
+      POD_NAME:                                 ama-metrics-989956579-qw64x (v1:metadata.name)
+      POD_NAMESPACE:                            kube-system (v1:metadata.namespace)
+      CONTAINER_CPU_LIMIT:                      7000 (limits.cpu)
+      CONTAINER_MEMORY_LIMIT:                   14336 (limits.memory)
+      KUBE_STATE_NAME:                          ama-metrics-ksm
+      NODE_EXPORTER_NAME:                       
+      NODE_EXPORTER_TARGETPORT:                 19100
+      KUBE_STATE_VERSION:                       v2.17.0-4
+      OPERATOR_TARGETS_TA_IMG_VERSION:          6.24.1-main-11-14-2025-15146744-targetallocator
+      OPERATOR_TARGETS_CFG_READER_IMG_VERSION:  6.24.1-main-11-14-2025-15146744-cfg
+      NODE_EXPORTER_VERSION:                    
+      AGENT_VERSION:                            6.24.1-main-11-14-2025-15146744
+      MODE:                                     advanced
+      WINMODE:                                  advanced
+      MINIMAL_INGESTION_PROFILE:                true
+    Mounts:
+      /anchors/mariner from anchors-mariner (ro)
+      /anchors/ubuntu from anchors-ubuntu (ro)
+      /etc/config/settings from settings-vol-config (ro)
+      /etc/config/settings/prometheus from prometheus-config-vol (ro)
+      /etc/operator-targets/client/certs from ama-metrics-operator-targets-client-tls-secret-volume (ro)
+      /etc/prometheus/certs from ama-metrics-tls-secret-volume (ro)
+      /var/log/containers from host-log-containers (ro)
+      /var/log/pods from host-log-pods (ro)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-jckrr (ro)
+  addon-token-adapter:
+    Container ID:  containerd://bf88fd58985f4fe0669ff2ed3b63e29fdc91c388561bbe9c7c45723e88e01df0
+    Image:         mcr.microsoft.com/aks/msi/addon-token-adapter:master.251015.2
+    Image ID:      mcr.microsoft.com/aks/msi/addon-token-adapter@sha256:76010315192efaa54591120f14bba1db6a3b1450c50dc8f777a00d83b9188b2c
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      /addon-token-adapter
+    Args:
+      --secret-namespace=kube-system
+      --secret-name=aad-msi-auth-token
+      --token-server-listening-port=7777
+      --health-server-listening-port=9999
+      --restart-pod-waiting-minutes-on-broken-connection=240
+    State:          Running
+      Started:      Thu, 11 Dec 2025 14:30:25 -0800
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     500m
+      memory:  500Mi
+    Requests:
+      cpu:     20m
+      memory:  30Mi
+    Liveness:  http-get http://:9999/healthz delay=10s timeout=1s period=60s #success=1 #failure=3
+    Environment:
+      KUBERNETES_SERVICE_HOST:       dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io
+      KUBERNETES_PORT:               tcp://dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io:443
+      KUBERNETES_PORT_443_TCP:       tcp://dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io:443
+      KUBERNETES_PORT_443_TCP_ADDR:  dedicated-aks-dev-eastus-ankitj-xjq94dgf.hcp.eastus.azmk8s.io
+      AZMON_COLLECT_ENV:             false
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-jckrr (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True 
+  Initialized                 True 
+  Ready                       True 
+  ContainersReady             True 
+  PodScheduled                True 
+Volumes:
+  settings-vol-config:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      ama-metrics-settings-configmap
+    Optional:  true
+  prometheus-config-vol:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      ama-metrics-prometheus-config
+    Optional:  true
+  host-log-containers:
+    Type:          HostPath (bare host directory volume)
+    Path:          /var/log/containers
+    HostPathType:  
+  host-log-pods:
+    Type:          HostPath (bare host directory volume)
+    Path:          /var/log/pods
+    HostPathType:  
+  anchors-mariner:
+    Type:          HostPath (bare host directory volume)
+    Path:          /etc/pki/ca-trust/source/anchors/
+    HostPathType:  DirectoryOrCreate
+  ama-metrics-tls-secret-volume:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  ama-metrics-mtls-secret
+    Optional:    true
+  ama-metrics-operator-targets-client-tls-secret-volume:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  ama-metrics-operator-targets-client-tls-secret
+    Optional:    true
+  anchors-ubuntu:
+    Type:          HostPath (bare host directory volume)
+    Path:          /usr/local/share/ca-certificates/
+    HostPathType:  DirectoryOrCreate
+  kube-api-access-jckrr:
+    Type:                     Projected (a volume that contains injected data from multiple sources)
+    TokenExpirationSeconds:   3607
+    ConfigMapName:            kube-root-ca.crt
+    Optional:                 false
+    DownwardAPI:              true
+QoS Class:                    Burstable
+Node-Selectors:               <none>
+Tolerations:                  :NoExecute op=Exists
+                              :NoSchedule op=Exists
+                              CriticalAddonsOnly op=Exists
+Topology Spread Constraints:  kubernetes.io/hostname:ScheduleAnyway when max skew 1 is exceeded for selector rsName=ama-metrics
+                              topology.kubernetes.io/zone:ScheduleAnyway when max skew 1 is exceeded for selector rsName=ama-metrics
+Events:
+  Type     Reason     Age                      From     Message
+  ----     ------     ----                     ----     -------
+  Normal   Started    26m (x430 over 5d3h)     kubelet  Started container prometheus-collector
+  Warning  Unhealthy  8m53s (x1290 over 5d3h)  kubelet  Liveness probe failed: HTTP probe failed with statuscode: 503
+  Normal   Killing    8m53s (x430 over 5d3h)   kubelet  Container prometheus-collector failed liveness probe, will be restarted
+  Normal   Pulled     8m52s (x431 over 5d3h)   kubelet  Container image "mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744" already present on machine
+  Normal   Created    8m52s (x431 over 5d3h)   kubelet  Created container: prometheus-collector

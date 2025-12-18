@@ -1,0 +1,2 @@
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+frontend   2/2     2            2           10d

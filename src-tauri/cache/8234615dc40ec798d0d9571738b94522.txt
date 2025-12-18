@@ -1,0 +1,13 @@
+    livenessProbe:
+      failureThreshold: 3
+      httpGet:
+        path: /health
+        port: 8080
+        scheme: HTTP
+--
+    livenessProbe:
+      failureThreshold: 3
+      httpGet:
+        path: /healthz
+        port: 9999
+        scheme: HTTP

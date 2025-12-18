@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { ChevronDown, Terminal, CheckCircle2, AlertTriangle, Command } from 'lucide-react';
+import { ChevronDown, Terminal, CheckCircle2, AlertTriangle, Command, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PythonCodeBlock } from './PythonCodeBlock';
 
 interface ToolMessageProps {
     toolName?: string;
@@ -12,13 +13,18 @@ interface ToolMessageProps {
 }
 
 export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, content, isLatest }) => {
+    // Check if it's a Python command
+    const isPython = command?.trim().startsWith("python:");
+    const pythonCode = isPython ? command?.replace(/^python:\s*/, '') : '';
+
     // Auto-collapse after 3 seconds if not an error/warning
     const [isExpanded, setIsExpanded] = useState(true);
     const isWarning = content.startsWith('⚠️') || content.includes('Error') || content.includes('Failed');
+    const isRecipeSaved = content.includes('saved to library') && content.includes('Recipe');
 
     useEffect(() => {
-        // If it's a warning, keep it open. Otherwise auto-collapse after a delay.
-        if (isWarning) return;
+        // If it's a warning or recipe saved, keep it open. Otherwise auto-collapse after a delay.
+        if (isWarning || isRecipeSaved) return;
 
         const timer = setTimeout(() => {
             setIsExpanded(false);
@@ -26,6 +32,13 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, con
 
         return () => clearTimeout(timer);
     }, [isWarning, content]);
+
+    // --- 10x Python Handler ---
+    // If this is a Python command, we use the specialized PythonCodeBlock renderer
+    // This provides syntax highlighting and a cleaner "Notebook" style look
+    if (isPython && pythonCode) {
+        return <PythonCodeBlock code={pythonCode} output={content} isExecuting={content === ''} />;
+    }
 
     return (
         <div className="relative pl-6 pb-2 group font-mono text-sm">
@@ -52,8 +65,8 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, con
                         </div>
 
                         <div className="flex-1 min-w-0 flex flex-col">
-                            <span className="text-xs font-semibold text-cyan-300 truncate font-mono tracking-tight">
-                                {command ? `$ ${command}` : toolName || 'Tool Execution'}
+                            <span className="text-xs font-semibold text-cyan-300 truncate font-mono tracking-tight" title={command}>
+                                {command ? `$ ${command.length > 50 ? command.slice(0, 50) + '...' : command}` : toolName === 'Tool Execution' ? 'Thinking...' : toolName}
                             </span>
                             {!isExpanded && (
                                 <span className="text-[10px] text-zinc-400 truncate animate-in fade-in duration-300">
@@ -62,6 +75,14 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, con
                                 </span>
                             )}
                         </div>
+
+                        {/* Recipe Saved Badge */}
+                        {isRecipeSaved && (
+                            <div className="flex items-center gap-1 bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase border border-purple-500/30 animate-pulse">
+                                <Sparkles size={10} />
+                                Recipe Saved
+                            </div>
+                        )}
 
                         <div className="flex items-center gap-2 shrink-0">
                             <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold tracking-wider

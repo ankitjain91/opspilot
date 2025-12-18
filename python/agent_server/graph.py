@@ -12,8 +12,11 @@ from .nodes.reflect import reflect_node
 from .nodes.verify import verify_command_node, human_approval_node
 from .nodes.plan_executor import plan_executor_node
 from .nodes.synthesizer import synthesizer_node
+from .nodes.evidence_validator import evidence_validator_node  # NEW: Evidence gate
 from .nodes.architect import architect_node
 from .nodes.critic import critic_node  # NEW: The Judge
+from .nodes.questioner import questioner_node  # NEW: Quality gate for answers
+from .nodes.questioner import questioner_node  # NEW: Quality gate for answers
 
 # Routing Logic
 from .routing import should_continue, handle_approval
@@ -31,7 +34,9 @@ def create_k8s_agent(checkpointer=None):
     workflow.add_node('execute', execute_node)
     workflow.add_node('batch_execute', execute_batch_node)
     workflow.add_node('reflect', reflect_node)
+    workflow.add_node('evidence_validator', evidence_validator_node)  # NEW: Evidence gate
     workflow.add_node('synthesizer', synthesizer_node)
+    workflow.add_node('questioner', questioner_node)  # NEW: Quality gate
     workflow.add_node('architect', architect_node)
     workflow.add_node('critic', critic_node) # NEW: Add Critc Node
 
@@ -50,10 +55,12 @@ def create_k8s_agent(checkpointer=None):
 
     workflow.add_conditional_edges('supervisor', should_continue, {
         'worker': 'worker',
+        'worker': 'worker',
+        'batch_execute': 'batch_execute',
         'batch_execute': 'batch_execute',
         'execute_plan': 'critic',  # CHANGED: Route plans to Critic first
-        'synthesizer': 'synthesizer', 
-        'architect': 'architect',      
+        'synthesizer': 'synthesizer',
+        'architect': 'architect',
         'done': END,
     })
 
@@ -111,18 +118,35 @@ def create_k8s_agent(checkpointer=None):
     workflow.add_edge('execute', 'reflect')
     workflow.add_edge('batch_execute', 'reflect')
 
-    # NEW FLOW: Reflect → Synthesizer (evidence evaluation) → [Done OR Supervisor]
+
+
+    # NEW FLOW: Reflect → Evidence Validator → [Worker OR Synthesizer] → [Done OR Supervisor]
     workflow.add_conditional_edges('reflect', should_continue, {
-        'execute_plan': 'plan_executor',     
-        'supervisor': 'supervisor',          
-        'synthesizer': 'synthesizer',        
-        'done': END,                         
+        'execute_plan': 'plan_executor',
+        'supervisor': 'supervisor',
+        'synthesizer': 'evidence_validator',  # Route to evidence validator first
+        'done': END,
     })
 
-    # Synthesizer decides: Can we answer? If yes → END, if no → supervisor with specific request
+    # Evidence Validator: Gate before synthesizer - blocks premature exits
+    workflow.add_conditional_edges('evidence_validator', should_continue, {
+        'worker': 'worker',          # Insufficient evidence - route back to worker
+        'synthesizer': 'synthesizer', # Evidence sufficient - allow synthesizer
+        'done': END,
+    })
+
+    # Synthesizer decides: Can we answer? If yes → Questioner (quality gate), if no → supervisor with specific request
     workflow.add_conditional_edges('synthesizer', should_continue, {
-        'supervisor': 'supervisor',  
-        'done': END,                 
+        'supervisor': 'supervisor',
+        'worker': 'worker',          # NEW: Can route directly to worker
+        'questioner': 'questioner',  # NEW: Route to questioner for quality validation
+        'done': END,
+    })
+
+    # Questioner validates answer quality: If approved → END, if rejected → Supervisor
+    workflow.add_conditional_edges('questioner', should_continue, {
+        'supervisor': 'supervisor',  # Answer insufficient - continue investigation
+        'done': END,                 # Answer approved - return to user
     })
 
     workflow.add_edge('architect', END) 

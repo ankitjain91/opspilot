@@ -36,8 +36,9 @@ class SmartLLMClient:
             if provider == "ollama" and self.provider_health["ollama"]:
                 result = await self._call_ollama(prompt, endpoint, model, temperature, force_json)
                 self.provider_health["ollama"] = True
-                return result
+
             elif provider == "groq":
+
                  # Use passed key or env key
                  effective_key = api_key or self.groq_api_key
                  if effective_key and self.provider_health["groq"]:
@@ -189,7 +190,10 @@ class SmartLLMClient:
             result = response.json()
             return result['choices'][0]['message']['content']
 
+
+
     async def list_models(self, provider: str, api_key: str | None = None, base_url: str | None = None) -> List[str]:
+
         """Fetch available models from the provider."""
         try:
             async with httpx.AsyncClient() as client:

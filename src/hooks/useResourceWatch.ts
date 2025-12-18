@@ -20,7 +20,9 @@ export function useResourceWatch(
             return;
         }
 
-        const watchId = `watch_${resourceType.group}_${resourceType.version}_${resourceType.kind}_${namespace || 'all'}_${Date.now()}`;
+        const rawWatchId = `watch_${resourceType.group}_${resourceType.version}_${resourceType.kind}_${namespace || 'all'}_${Date.now()}`;
+        // Tauri event names must be alphanumeric with -, /, :, _. No dots allowed.
+        const watchId = rawWatchId.replace(/[^a-zA-Z0-9-/_]/g, '_');
         watchIdRef.current = watchId;
         setIsWatching(true);
         setSyncComplete(false);

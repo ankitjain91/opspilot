@@ -6,14 +6,18 @@ from .definitions import (
     KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
     KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff,
     KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
-    ShellCommand
+    ShellCommand,
+    ListDir, ReadFile, GrepSearch, FindFile,
+    RunK8sPython, GitCommit, PredictScaling
 )
 
 ToolType = Union[
     KubectlGet, KubectlDescribe, KubectlLogs, KubectlEvents, KubectlTop,
     KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff,
     KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
-    ShellCommand
+    ShellCommand,
+    ListDir, ReadFile, GrepSearch, FindFile,
+    RunK8sPython, GitCommit, PredictScaling
 ]
 
 class SafeExecutor:
@@ -32,7 +36,7 @@ class SafeExecutor:
         """
         
         base = "kubectl"
-        if kube_context:
+        if kube_context and not isinstance(tool, (ShellCommand, ListDir, ReadFile, GrepSearch, FindFile)):
             base += f" --context={shlex.quote(kube_context)}"
 
         # Allow dangerous verbs for remediation, but ONLY via specific tools
@@ -43,19 +47,19 @@ class SafeExecutor:
         
         # To enable remediation in the future, we would add:
         # elif isinstance(tool, KubectlDelete): ...
-        
+
         if isinstance(tool, KubectlGet):
             cmd = [base, "get", shlex.quote(tool.resource)]
             if tool.all_namespaces:
                 cmd.append("-A")
             elif tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
-            
+
             if tool.selector:
                 cmd.append(f"-l {shlex.quote(tool.selector)}")
             if tool.field_selector:
                 cmd.append(f"--field-selector={shlex.quote(tool.field_selector)}")
-            
+
             # Enforce JSON output for structured observation (Agent Logic)
             cmd.append("-o json")
             return " ".join(cmd)
@@ -74,97 +78,47 @@ class SafeExecutor:
                 cmd.append(f"-c {shlex.quote(tool.container)}")
             if tool.previous:
                 cmd.append("-p")
-            
-            # Safe tail handling
-            tail = tool.tail if tool.tail > 0 else 100
-            cmd.append(f"--tail={tail}")
+            cmd.append(f"--tail={tool.tail}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlEvents):
+            # kubectl get events with filtering
             cmd = [base, "get", "events"]
             if tool.all_namespaces:
                 cmd.append("-A")
             elif tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
-            
             if tool.only_warnings:
                 cmd.append("--field-selector=type=Warning")
-            
-            # Grep is hard to do safely in pure kubectl, so we handle limited filtering here
-            # But normally we'd just return the list.
-            # If related_object is set, we might rely on the LLM to filter, or use grep pipe 
-            # (which we want to avoid if possible for purity, but `kubectl get events` has poor filtering).
-            
-            # For now, return the sort-by-time version to be useful
-            cmd.append("--sort-by='.lastTimestamp'")
+            cmd.append("--sort-by=.lastTimestamp")
+            # If filtering for specific object, we'll pipe to grep
+            if tool.related_object:
+                cmd.append(f"| grep -i {shlex.quote(tool.related_object)}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlTop):
-            cmd = [base, "top", shlex.quote(tool.resource)]
-            if tool.all_namespaces and tool.resource == "pod":
-                cmd.append("-A")
-            elif tool.namespace and tool.resource == "pod":
-                cmd.append(f"-n {shlex.quote(tool.namespace)}")
-            # Sort by CPU usage for clarity
-            cmd.append("--sort-by=cpu")
+            cmd = [base, "top", tool.resource]
+            if tool.resource == "pod":
+                if tool.all_namespaces:
+                    cmd.append("-A")
+                elif tool.namespace:
+                    cmd.append(f"-n {shlex.quote(tool.namespace)}")
             return " ".join(cmd)
-            
+
         elif isinstance(tool, KubectlApiResources):
             cmd = [base, "api-resources"]
             if tool.verbs:
                 cmd.append(f"--verbs={shlex.quote(tool.verbs)}")
             if tool.api_group:
                 cmd.append(f"--api-group={shlex.quote(tool.api_group)}")
-            # cmd.append("-o wider")  <-- REMOVED: Invalid flag for api-resources
             return " ".join(cmd)
-
-        elif isinstance(tool, KubectlExec):
-            cmd = [base, "exec", shlex.quote(tool.pod_name)]
-            if tool.namespace:
-                cmd.append(f"-n {shlex.quote(tool.namespace)}")
-            if tool.container:
-                cmd.append(f"-c {shlex.quote(tool.container)}")
-
-            # Separator for command
-            cmd.append("--")
-
-            # Safe quoting of all command parts
-            for arg in tool.command:
-                cmd.append(shlex.quote(str(arg)))
-
-            return " ".join(cmd)
-
-        elif isinstance(tool, KubectlExecShell):
-            # Complex bash script execution
-            # If pod_name is provided: run inside pod via kubectl exec
-            # If pod_name is None: run on local terminal
-
-            if tool.pod_name:
-                # Run inside pod with full bash support
-                cmd = [base, "exec", shlex.quote(tool.pod_name)]
-                if tool.namespace:
-                    cmd.append(f"-n {shlex.quote(tool.namespace)}")
-                if tool.container:
-                    cmd.append(f"-c {shlex.quote(tool.container)}")
-
-                # Use bash -c to execute the script
-                cmd.append("--")
-                cmd.append("/bin/bash")
-                cmd.append("-c")
-                # Quote the entire script as a single argument
-                cmd.append(shlex.quote(tool.shell_script))
-
-                return " ".join(cmd)
-            else:
-                # Run on local terminal directly
-                # Wrap in bash -c for consistency
-                return f"/bin/bash -c {shlex.quote(tool.shell_script)}"
 
         elif isinstance(tool, KubectlContext):
             if tool.action == "list":
-                 return f"{base} config get-contexts -o name"
-            elif tool.action == "use":
-                 return f"echo 'Switching internal context to {shlex.quote(tool.context_name)}'"
+                return f"{base} config get-contexts"
+            elif tool.action == "use" and tool.context_name:
+                return f"{base} config use-context {shlex.quote(tool.context_name)}"
+            raise ValueError("KubectlContext: 'use' action requires context_name")
 
         elif isinstance(tool, KubectlExplain):
             cmd = [base, "explain", shlex.quote(tool.resource)]
@@ -173,93 +127,87 @@ class SafeExecutor:
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlDiff):
-            # Construct a composite command to fetch resource from both contexts
-            # We use YAML format for best diffing by the LLM
-            
-            # Context A command
-            cmd_a = [base, "get", shlex.quote(tool.resource), shlex.quote(tool.name), "-o", "yaml"]
-            cmd_a.append(f"--context={shlex.quote(tool.context_a)}")
-            if tool.namespace:
-                cmd_a.append(f"-n {shlex.quote(tool.namespace)}")
-            str_a = " ".join(cmd_a)
+            # Diff two contexts by getting YAML from each and diffing
+            resource_spec = f"{tool.resource}/{tool.name}"
+            ns_flag = f"-n {shlex.quote(tool.namespace)}" if tool.namespace else ""
+            ctx_a = shlex.quote(tool.context_a)
+            ctx_b = shlex.quote(tool.context_b)
+            return f"diff <(kubectl --context={ctx_a} get {shlex.quote(resource_spec)} {ns_flag} -o yaml) <(kubectl --context={ctx_b} get {shlex.quote(resource_spec)} {ns_flag} -o yaml)"
 
-            # Context B command
-            cmd_b = [base, "get", shlex.quote(tool.resource), shlex.quote(tool.name), "-o", "yaml"]
-            cmd_b.append(f"--context={shlex.quote(tool.context_b)}")
-            if tool.namespace:
-                cmd_b.append(f"-n {shlex.quote(tool.namespace)}")
-            str_b = " ".join(cmd_b)
-
-            # Combine with headers
-            return f"echo '--- CONTEXT A: {shlex.quote(tool.context_a)} ---'; {str_a}; echo '\\n--- CONTEXT B: {shlex.quote(tool.context_b)} ---'; {str_b}"
-
-        # --- REMEDIATION HANDLERS ---
         elif isinstance(tool, KubectlDelete):
-            # This will only run if config.py allows 'delete' (which requires approval)
             cmd = [base, "delete", shlex.quote(tool.resource), shlex.quote(tool.name)]
             if tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlRollout):
-            cmd = [base, "rollout", shlex.quote(tool.action), shlex.quote(tool.resource), shlex.quote(tool.name)]
+            cmd = [base, "rollout", tool.action, f"{shlex.quote(tool.resource)}/{shlex.quote(tool.name)}"]
             if tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlScale):
-            cmd = [base, "scale", shlex.quote(tool.resource), shlex.quote(tool.name)]
-            cmd.append(f"--replicas={str(tool.replicas)}")
+            cmd = [base, "scale", f"{shlex.quote(tool.resource)}/{shlex.quote(tool.name)}", f"--replicas={tool.replicas}"]
             if tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlSetResources):
-            cmd = [base, "set", "resources", shlex.quote(tool.resource), shlex.quote(tool.name)]
+            cmd = [base, "set", "resources", f"{shlex.quote(tool.resource)}/{shlex.quote(tool.name)}"]
             cmd.append(f"-c {shlex.quote(tool.container)}")
-
             if tool.requests:
                 cmd.append(f"--requests={shlex.quote(tool.requests)}")
             if tool.limits:
                 cmd.append(f"--limits={shlex.quote(tool.limits)}")
-
             if tool.namespace:
                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlApply):
-            # 📐 THE COMPASS: Formal Verification with dry-run
-            # Write YAML to temp file (safer than echo piping)
-            # Return a compound command: dry-run first, then actual apply
+            # Write YAML to temp file and apply
+            # For safety, use dry-run by default
+            dry_run_flag = "--dry-run=client" if tool.dry_run else ""
+            ns_flag = f"-n {shlex.quote(tool.namespace)}" if tool.namespace else ""
+            # Use heredoc to pass YAML
+            return f"{base} apply {dry_run_flag} {ns_flag} -f - <<'EOF'\n{tool.yaml_content}\nEOF"
 
-            # Create temp file path (execution will create it)
-            temp_file = f"/tmp/kubectl-apply-{os.getpid()}.yaml"
-
-            # Build command sequence:
-            # 1. Write YAML to temp file
-            # 2. Run dry-run validation
-            # 3. If dry-run succeeds, run actual apply
-            # 4. Clean up temp file
-
-            write_cmd = f"cat > {shlex.quote(temp_file)} << 'EOF'\n{tool.yaml_content}\nEOF"
-
-            apply_base = [base, "apply", "-f", shlex.quote(temp_file)]
+        elif isinstance(tool, KubectlExec):
+            cmd = [base, "exec", shlex.quote(tool.pod_name)]
             if tool.namespace:
-                apply_base.append(f"-n {shlex.quote(tool.namespace)}")
+                cmd.append(f"-n {shlex.quote(tool.namespace)}")
+            if tool.container:
+                cmd.append(f"-c {shlex.quote(tool.container)}")
+            cmd.append("--")
+            cmd.extend([shlex.quote(arg) for arg in tool.command])
+            return " ".join(cmd)
 
-            if tool.dry_run:
-                # Run dry-run first for validation
-                dry_run_cmd = " ".join(apply_base + ["--dry-run=server"])
-                actual_apply_cmd = " ".join(apply_base)
-                cleanup_cmd = f"rm -f {shlex.quote(temp_file)}"
-
-                # Chain: write → dry-run → apply → cleanup
-                return f"{write_cmd} && echo '\n--- 📐 THE COMPASS: Dry-run validation ---' && {dry_run_cmd} && echo '\n--- Applying changes ---' && {actual_apply_cmd}; {cleanup_cmd}"
+        elif isinstance(tool, KubectlExecShell):
+            if tool.pod_name:
+                # Execute in pod
+                cmd = [base, "exec", shlex.quote(tool.pod_name)]
+                if tool.namespace:
+                    cmd.append(f"-n {shlex.quote(tool.namespace)}")
+                if tool.container:
+                    cmd.append(f"-c {shlex.quote(tool.container)}")
+                cmd.append("-- bash -c")
+                cmd.append(shlex.quote(tool.shell_script))
+                return " ".join(cmd)
             else:
-                # Skip dry-run (not recommended but supported)
-                actual_apply_cmd = " ".join(apply_base)
-                cleanup_cmd = f"rm -f {shlex.quote(temp_file)}"
-                return f"{write_cmd} && {actual_apply_cmd}; {cleanup_cmd}"
+                # Execute locally
+                return f"bash -c {shlex.quote(tool.shell_script)}"
+
+        elif isinstance(tool, RunK8sPython):
+            # Return a marker that this needs special handling (Python execution)
+            # The actual execution happens in the worker, not via shell
+            return f"__PYTHON_EXEC__:{tool.code}"
+
+        elif isinstance(tool, GitCommit):
+            # Git commit requires special handling - return marker
+            return f"__GIT_COMMIT__:{tool.repo_url}:{tool.file_path}"
+
+        elif isinstance(tool, PredictScaling):
+            # Prediction requires special handling - return marker
+            return f"__PREDICT_SCALING__:{tool.resource_type}/{tool.name}"
 
         elif isinstance(tool, ShellCommand):
             # For shell commands, add context if needed but pass command through
@@ -270,12 +218,44 @@ class SafeExecutor:
                 cmd = cmd.replace('kubectl', f'kubectl --context={shlex.quote(kube_context)}', 1)
             return cmd
 
+        # --- FILESYSTEM TOOLS (Shell equivalents) ---
+        elif isinstance(tool, ListDir):
+            cmd = ["ls"]
+            if tool.recursive:
+                cmd.append("-R")
+            cmd.append(shlex.quote(tool.path))
+            return " ".join(cmd)
+
+        elif isinstance(tool, ReadFile):
+            # Use head/tail/cat
+            # simplistic: cat file | head -n (start+max) | tail -n max
+            # But simpler: just cat if small, or head.
+            # Let's return a safe cat/head command
+            cmd = f"head -n {tool.start_line + tool.max_lines} {shlex.quote(tool.path)}"
+            if tool.start_line > 0:
+                 cmd += f" | tail -n {tool.max_lines}"
+            return cmd
+
+        elif isinstance(tool, GrepSearch):
+            cmd = ["grep", "-n", "-I"]
+            if tool.recursive:
+                cmd.append("-r")
+            if tool.case_insensitive:
+                cmd.append("-i")
+            cmd.append(shlex.quote(tool.query))
+            cmd.append(shlex.quote(tool.path))
+            return " ".join(cmd)
+
+        elif isinstance(tool, FindFile):
+            # find path -name pattern
+            return f"find {shlex.quote(tool.path)} -name {shlex.quote(tool.pattern)}"
+
         raise ValueError(f"Unknown tool type: {type(tool)}")
 
     @staticmethod
     def get_verification_command(tool: ToolType, kube_context: str = "") -> Union[str, None]:
         """Returns a read-only command to verify the effect of the tool."""
-        
+
         base = "kubectl"
         if kube_context:
             base += f" --context={shlex.quote(kube_context)}"
@@ -290,13 +270,13 @@ class SafeExecutor:
             return " ".join(cmd)
 
         elif isinstance(tool, KubectlRollout):
-             # For rollout, check status which blocks until done or timeout
-             cmd = [base, "rollout", "status", shlex.quote(tool.resource), shlex.quote(tool.name)]
-             if tool.namespace:
-                 cmd.append(f"-n {shlex.quote(tool.namespace)}")
-             # Add timeout to prevent hanging forever
-             cmd.append("--timeout=30s")
-             return " ".join(cmd)
+            # For rollout, check status which blocks until done or timeout
+            cmd = [base, "rollout", "status", shlex.quote(tool.resource), shlex.quote(tool.name)]
+            if tool.namespace:
+                cmd.append(f"-n {shlex.quote(tool.namespace)}")
+            # Add timeout to prevent hanging forever
+            cmd.append("--timeout=30s")
+            return " ".join(cmd)
 
         elif isinstance(tool, KubectlApply):
             # For apply, extract resource type and name from YAML for verification

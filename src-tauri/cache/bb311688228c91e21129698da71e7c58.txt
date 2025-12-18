@@ -1,0 +1,752 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "count": 431,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:23Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-qw64x",
+                "namespace": "kube-system",
+                "resourceVersion": "25059632",
+                "uid": "37c53723-f00e-4c4c-bc61-0c7e38bc8aa0"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:53:23Z",
+            "message": "Container image \"mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:23Z",
+                "name": "ama-metrics-989956579-qw64x.188049d2c8e098a7",
+                "namespace": "kube-system",
+                "resourceVersion": "145479",
+                "uid": "bab8e3e2-028c-4f4b-9e49-f1417b9211c7"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 431,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:23Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-qw64x",
+                "namespace": "kube-system",
+                "resourceVersion": "25059632",
+                "uid": "37c53723-f00e-4c4c-bc61-0c7e38bc8aa0"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:53:23Z",
+            "message": "Created container: prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:23Z",
+                "name": "ama-metrics-989956579-qw64x.188049d2e07ff05b",
+                "namespace": "kube-system",
+                "resourceVersion": "145480",
+                "uid": "09dfa6f1-5869-429c-a3c0-b16c529be947"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 430,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:24Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-qw64x",
+                "namespace": "kube-system",
+                "resourceVersion": "25059632",
+                "uid": "37c53723-f00e-4c4c-bc61-0c7e38bc8aa0"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:36:08Z",
+            "message": "Started container prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:24Z",
+                "name": "ama-metrics-989956579-qw64x.188049d301439eed",
+                "namespace": "kube-system",
+                "resourceVersion": "145460",
+                "uid": "c77c1337-7212-4a02-9567-bce3927641f2"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1290,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:32:37Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-qw64x",
+                "namespace": "kube-system",
+                "resourceVersion": "25059632",
+                "uid": "37c53723-f00e-4c4c-bc61-0c7e38bc8aa0"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:53:22Z",
+            "message": "Liveness probe failed: HTTP probe failed with statuscode: 503",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:32:37Z",
+                "name": "ama-metrics-989956579-qw64x.188049f2118bd5ed",
+                "namespace": "kube-system",
+                "resourceVersion": "145477",
+                "uid": "162f0099-9625-4c42-b1ae-05e0544fe292"
+            },
+            "reason": "Unhealthy",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 430,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:33:07Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-qw64x",
+                "namespace": "kube-system",
+                "resourceVersion": "25059632",
+                "uid": "37c53723-f00e-4c4c-bc61-0c7e38bc8aa0"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:53:22Z",
+            "message": "Container prometheus-collector failed liveness probe, will be restarted",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:33:07Z",
+                "name": "ama-metrics-989956579-qw64x.188049f90db05a7d",
+                "namespace": "kube-system",
+                "resourceVersion": "145478",
+                "uid": "aa8cf9d4-c3f1-470b-ab9b-b6b790fe93b3"
+            },
+            "reason": "Killing",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 431,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:33Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-wtxfm",
+                "namespace": "kube-system",
+                "resourceVersion": "25060131",
+                "uid": "e7e8d4a2-4e17-4a7f-910c-13748483ac40"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:54:14Z",
+            "message": "Container image \"mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:33Z",
+                "name": "ama-metrics-989956579-wtxfm.188049d4fb3a097d",
+                "namespace": "kube-system",
+                "resourceVersion": "145485",
+                "uid": "89e6cc34-c69c-40e3-bc9b-6bc72cc0a621"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 431,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-wtxfm",
+                "namespace": "kube-system",
+                "resourceVersion": "25060131",
+                "uid": "e7e8d4a2-4e17-4a7f-910c-13748483ac40"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:54:14Z",
+            "message": "Created container: prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:38Z",
+                "name": "ama-metrics-989956579-wtxfm.188049d635fd46cd",
+                "namespace": "kube-system",
+                "resourceVersion": "145486",
+                "uid": "e1ea7e93-3683-48b9-ad11-7dceecdfb288"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 430,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:30:38Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-wtxfm",
+                "namespace": "kube-system",
+                "resourceVersion": "25060131",
+                "uid": "e7e8d4a2-4e17-4a7f-910c-13748483ac40"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:36:59Z",
+            "message": "Started container prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:30:38Z",
+                "name": "ama-metrics-989956579-wtxfm.188049d6583f10fd",
+                "namespace": "kube-system",
+                "resourceVersion": "145467",
+                "uid": "32781c7d-250e-4507-b18c-2ea9437b3716"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1290,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:33:29Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-wtxfm",
+                "namespace": "kube-system",
+                "resourceVersion": "25060131",
+                "uid": "e7e8d4a2-4e17-4a7f-910c-13748483ac40"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:54:14Z",
+            "message": "Liveness probe failed: HTTP probe failed with statuscode: 503",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:33:29Z",
+                "name": "ama-metrics-989956579-wtxfm.188049fe01fdcada",
+                "namespace": "kube-system",
+                "resourceVersion": "145483",
+                "uid": "c8659619-3387-4f58-ab32-e459cbbd4bc8"
+            },
+            "reason": "Unhealthy",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 430,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-11T22:33:59Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-989956579-wtxfm",
+                "namespace": "kube-system",
+                "resourceVersion": "25060131",
+                "uid": "e7e8d4a2-4e17-4a7f-910c-13748483ac40"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:54:14Z",
+            "message": "Container prometheus-collector failed liveness probe, will be restarted",
+            "metadata": {
+                "creationTimestamp": "2025-12-11T22:33:59Z",
+                "name": "ama-metrics-989956579-wtxfm.18804a04fe36767d",
+                "namespace": "kube-system",
+                "resourceVersion": "145484",
+                "uid": "f58e9db9-c7e8-4665-a1c8-d78c807655ca"
+            },
+            "reason": "Killing",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1012,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-04T19:03:05Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-node-rz7mm",
+                "namespace": "kube-system",
+                "resourceVersion": "17529001",
+                "uid": "605301bc-7e8a-449d-ba09-e483f771ec7c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:55:27Z",
+            "message": "Created container: prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T19:03:05Z",
+                "name": "ama-metrics-node-rz7mm.187e1872f0bdc407",
+                "namespace": "kube-system",
+                "resourceVersion": "145492",
+                "uid": "3c623b5c-b26b-4d89-ac73-508fa0e16d30"
+            },
+            "reason": "Created",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1011,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-04T19:03:06Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-node-rz7mm",
+                "namespace": "kube-system",
+                "resourceVersion": "17529001",
+                "uid": "605301bc-7e8a-449d-ba09-e483f771ec7c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:37:57Z",
+            "message": "Started container prometheus-collector",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T19:03:06Z",
+                "name": "ama-metrics-node-rz7mm.187e1872fad5f78d",
+                "namespace": "kube-system",
+                "resourceVersion": "145474",
+                "uid": "631a9207-1b19-4694-976a-063b3f5066ef"
+            },
+            "reason": "Started",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 3033,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-04T19:19:56Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-node-rz7mm",
+                "namespace": "kube-system",
+                "resourceVersion": "17529001",
+                "uid": "605301bc-7e8a-449d-ba09-e483f771ec7c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:55:26Z",
+            "message": "Liveness probe failed: HTTP probe failed with statuscode: 503",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T19:19:56Z",
+                "name": "ama-metrics-node-rz7mm.187e195e5149360c",
+                "namespace": "kube-system",
+                "resourceVersion": "145489",
+                "uid": "9f122555-6d7d-4548-b91f-9580876ca5f7"
+            },
+            "reason": "Unhealthy",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Warning"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1011,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-04T19:20:26Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-node-rz7mm",
+                "namespace": "kube-system",
+                "resourceVersion": "17529001",
+                "uid": "605301bc-7e8a-449d-ba09-e483f771ec7c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:55:26Z",
+            "message": "Container prometheus-collector failed liveness probe, will be restarted",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T19:20:26Z",
+                "name": "ama-metrics-node-rz7mm.187e19654d8314de",
+                "namespace": "kube-system",
+                "resourceVersion": "145490",
+                "uid": "3dac3918-558c-49e3-98d3-76657b3e908a"
+            },
+            "reason": "Killing",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 1011,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-04T19:20:27Z",
+            "involvedObject": {
+                "apiVersion": "v1",
+                "fieldPath": "spec.containers{prometheus-collector}",
+                "kind": "Pod",
+                "name": "ama-metrics-node-rz7mm",
+                "namespace": "kube-system",
+                "resourceVersion": "17529001",
+                "uid": "605301bc-7e8a-449d-ba09-e483f771ec7c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:55:27Z",
+            "message": "Container image \"mcr.microsoft.com/azuremonitor/containerinsights/ciprod/prometheus-collector/images:6.24.1-main-11-14-2025-15146744\" already present on machine",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T19:20:27Z",
+                "name": "ama-metrics-node-rz7mm.187e19656481231c",
+                "namespace": "kube-system",
+                "resourceVersion": "145491",
+                "uid": "32eceeb9-7870-45e1-92b6-ae2a2e2be2b6"
+            },
+            "reason": "Pulled",
+            "reportingComponent": "kubelet",
+            "reportingInstance": "aks-default-49089664-vmss000002",
+            "source": {
+                "component": "kubelet",
+                "host": "aks-default-49089664-vmss000002"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 99,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:43Z",
+            "involvedObject": {
+                "apiVersion": "managedidentity.azure.com/v1api20230131storage",
+                "kind": "UserAssignedIdentity",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb",
+                "namespace": "taasvstst",
+                "resourceVersion": "30202521",
+                "uid": "be381f89-0613-422c-96af-0c4ff64ac205"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:26:46Z",
+            "message": "Using credential from \"taasvstst/981e1dd9-316a-4365-8a58-3eac3687f3cb\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-17T00:35:47Z",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb.18809afca1cacca5",
+                "namespace": "taasvstst",
+                "resourceVersion": "145450",
+                "uid": "10de14a5-f1ca-48cb-b740-9ac6daf32e7b"
+            },
+            "reason": "CredentialFrom",
+            "reportingComponent": "UserAssignedIdentityController",
+            "reportingInstance": "",
+            "source": {
+                "component": "UserAssignedIdentityController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 196,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:43Z",
+            "involvedObject": {
+                "apiVersion": "authorization.azure.com/v1api20220401storage",
+                "kind": "RoleAssignment",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb",
+                "namespace": "taasvstst",
+                "resourceVersion": "30196171",
+                "uid": "b5406ffa-c4c7-4502-be82-52e4bc96740c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:22:48Z",
+            "message": "Using credential from \"taasvstst/981e1dd9-316a-4365-8a58-3eac3687f3cb\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-17T00:24:58Z",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb.18809afca3a0eb1e",
+                "namespace": "taasvstst",
+                "resourceVersion": "145449",
+                "uid": "1b9b2d6a-8b92-4651-b259-472a60f83bd1"
+            },
+            "reason": "CredentialFrom",
+            "reportingComponent": "RoleAssignmentController",
+            "reportingInstance": "",
+            "source": {
+                "component": "RoleAssignmentController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 99,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:45Z",
+            "involvedObject": {
+                "apiVersion": "managedidentity.azure.com/v1api20230131storage",
+                "kind": "UserAssignedIdentity",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb",
+                "namespace": "taasvstst",
+                "resourceVersion": "30202521",
+                "uid": "be381f89-0613-422c-96af-0c4ff64ac205"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:26:47Z",
+            "message": "Successfully sent resource to Azure with ID \"/subscriptions/981e1dd9-316a-4365-8a58-3eac3687f3cb/resourceGroups/mgmt-taasvstst/providers/Microsoft.ManagedIdentity/userAssignedIdentities/management-mi\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-17T00:35:48Z",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb.18809afcf8f9da2f",
+                "namespace": "taasvstst",
+                "resourceVersion": "145451",
+                "uid": "8d3ac761-53c8-40e8-8a2d-4fb1e098aae4"
+            },
+            "reason": "BeginCreateOrUpdate",
+            "reportingComponent": "UserAssignedIdentityController",
+            "reportingInstance": "",
+            "source": {
+                "component": "UserAssignedIdentityController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 98,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:48Z",
+            "involvedObject": {
+                "apiVersion": "authorization.azure.com/v1api20220401storage",
+                "kind": "RoleAssignment",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb",
+                "namespace": "taasvstst",
+                "resourceVersion": "30196171",
+                "uid": "b5406ffa-c4c7-4502-be82-52e4bc96740c"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:22:47Z",
+            "message": "Successfully sent resource to Azure with ID \"/subscriptions/981e1dd9-316a-4365-8a58-3eac3687f3cb/providers/Microsoft.Authorization/roleAssignments/a388c051-5a9a-4bf4-95f3-527ddc9a71d7\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-17T00:25:00Z",
+                "name": "981e1dd9-316a-4365-8a58-3eac3687f3cb.18809afdc7948b60",
+                "namespace": "taasvstst",
+                "resourceVersion": "145448",
+                "uid": "0b344b23-dd40-4466-b89a-975040d8a141"
+            },
+            "reason": "BeginCreateOrUpdate",
+            "reportingComponent": "RoleAssignmentController",
+            "reportingInstance": "",
+            "source": {
+                "component": "RoleAssignmentController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 198,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:48Z",
+            "involvedObject": {
+                "apiVersion": "authorization.azure.com/v1api20220401storage",
+                "kind": "RoleAssignment",
+                "name": "acrpull-roleassignment",
+                "namespace": "taasvstst",
+                "resourceVersion": "30147586",
+                "uid": "ad6beff8-bafc-4ab5-9e10-9ed9cfd24b07"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:02:38Z",
+            "message": "Using credential from \"taasvstst/52cc7587-e72f-46b8-8e64-6e699bb07c64\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-16T23:06:41Z",
+                "name": "acrpull-roleassignment.18809afdc8e774ab",
+                "namespace": "taasvstst",
+                "resourceVersion": "145421",
+                "uid": "a4e0492f-6d95-490a-abd8-d4edae2b361c"
+            },
+            "reason": "CredentialFrom",
+            "reportingComponent": "RoleAssignmentController",
+            "reportingInstance": "",
+            "source": {
+                "component": "RoleAssignmentController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 99,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:51Z",
+            "involvedObject": {
+                "apiVersion": "authorization.azure.com/v1api20220401storage",
+                "kind": "RoleAssignment",
+                "name": "acrpull-roleassignment",
+                "namespace": "taasvstst",
+                "resourceVersion": "30147586",
+                "uid": "ad6beff8-bafc-4ab5-9e10-9ed9cfd24b07"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:02:37Z",
+            "message": "Successfully sent resource to Azure with ID \"/subscriptions/52cc7587-e72f-46b8-8e64-6e699bb07c64/providers/Microsoft.Authorization/roleAssignments/f3909d38-c8a1-484a-aad6-ebad6e901d6b\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-16T23:06:43Z",
+                "name": "acrpull-roleassignment.18809afe706cdab5",
+                "namespace": "taasvstst",
+                "resourceVersion": "145420",
+                "uid": "dbdd0797-c69b-4582-8030-3bd33c2c6868"
+            },
+            "reason": "BeginCreateOrUpdate",
+            "reportingComponent": "RoleAssignmentController",
+            "reportingInstance": "",
+            "source": {
+                "component": "RoleAssignmentController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 100,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:43Z",
+            "involvedObject": {
+                "apiVersion": "managedidentity.azure.com/v1api20230131storage",
+                "kind": "FederatedIdentityCredential",
+                "name": "fc-981e1dd9-316a-4365-8a58-3eac3687f3cb-7e91d689b1cf8cb7",
+                "namespace": "taasvstst",
+                "resourceVersion": "30128820",
+                "uid": "efd09904-af1b-4c7a-9c15-51335d1df743"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:29:05Z",
+            "message": "Using credential from \"taasvstst/981e1dd9-316a-4365-8a58-3eac3687f3cb\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-16T22:43:51Z",
+                "name": "fc-981e1dd9-316a-4365-8a58-3eac3687f3cb-7e91d689b1cf8cb7.18809afca25f5519",
+                "namespace": "taasvstst",
+                "resourceVersion": "145452",
+                "uid": "f874adc4-2355-4d26-a76f-884f6254497d"
+            },
+            "reason": "CredentialFrom",
+            "reportingComponent": "FederatedIdentityCredentialController",
+            "reportingInstance": "",
+            "source": {
+                "component": "FederatedIdentityCredentialController"
+            },
+            "type": "Normal"
+        },
+        {
+            "apiVersion": "v1",
+            "count": 100,
+            "eventTime": null,
+            "firstTimestamp": "2025-12-12T23:17:45Z",
+            "involvedObject": {
+                "apiVersion": "managedidentity.azure.com/v1api20230131storage",
+                "kind": "FederatedIdentityCredential",
+                "name": "fc-981e1dd9-316a-4365-8a58-3eac3687f3cb-7e91d689b1cf8cb7",
+                "namespace": "taasvstst",
+                "resourceVersion": "30128820",
+                "uid": "efd09904-af1b-4c7a-9c15-51335d1df743"
+            },
+            "kind": "Event",
+            "lastTimestamp": "2025-12-17T01:29:05Z",
+            "message": "Successfully sent resource to Azure with ID \"/subscriptions/981e1dd9-316a-4365-8a58-3eac3687f3cb/resourcegroups/mgmt-taasvstst/providers/Microsoft.ManagedIdentity/userAssignedIdentities/management-mi/federatedIdentityCredentials/fc-7e91d689b1cf8cb7\"",
+            "metadata": {
+                "creationTimestamp": "2025-12-16T22:43:52Z",
+                "name": "fc-981e1dd9-316a-4365-8a58-3eac3687f3cb-7e91d689b1cf8cb7.18809afd070daf64",
+                "namespace": "taasvstst",
+                "resourceVersion": "145453",
+                "uid": "7d869b4b-7e98-4ba1-aaf4-933e9fcac51e"
+            },
+            "reason": "BeginCreateOrUpdate",
+            "reportingComponent": "FederatedIdentityCredentialController",
+            "reportingInstance": "",
+            "source": {
+                "component": "FederatedIdentityCredentialController"
+            },
+            "type": "Normal"
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

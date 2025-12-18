@@ -1,0 +1,777 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T12:10:36Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "aks-command"
+                },
+                "name": "aks-command",
+                "resourceVersion": "588502",
+                "uid": "ca4edf42-afaa-48cb-9942-d10569364822"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:19:13Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "aso-system",
+                    "name": "aso-system"
+                },
+                "name": "aso-system",
+                "resourceVersion": "25546",
+                "uid": "5ae9a804-c0c7-413f-aa34-822f1b1a1ca7"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:20:01Z",
+                "labels": {
+                    "addonmanager.kubernetes.io/mode": "EnsureExists",
+                    "control-plane": "true",
+                    "kubernetes.azure.com/managedby": "aks",
+                    "kubernetes.io/metadata.name": "calico-system",
+                    "name": "calico-system",
+                    "pod-security.kubernetes.io/enforce": "privileged",
+                    "pod-security.kubernetes.io/enforce-version": "latest"
+                },
+                "name": "calico-system",
+                "ownerReferences": [
+                    {
+                        "apiVersion": "operator.tigera.io/v1",
+                        "blockOwnerDeletion": true,
+                        "controller": true,
+                        "kind": "Installation",
+                        "name": "default",
+                        "uid": "d9ddd0e4-8545-41fa-91d3-772e35e4b978"
+                    }
+                ],
+                "resourceVersion": "1630",
+                "uid": "d83e7405-89a5-4718-be2e-a9319c6814fb"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "argocd.argoproj.io/sync-wave": "1",
+                    "helm.sh/hook": "post-install,post-upgrade",
+                    "helm.sh/hook-weight": "1"
+                },
+                "creationTimestamp": "2025-12-04T23:26:25Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "capi-kubeadm-bootstrap-system"
+                },
+                "name": "capi-kubeadm-bootstrap-system",
+                "resourceVersion": "17723716",
+                "uid": "5280a80b-bbcc-4846-92ed-b321bf836825"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "argocd.argoproj.io/sync-wave": "1",
+                    "helm.sh/hook": "post-install,post-upgrade",
+                    "helm.sh/hook-weight": "1"
+                },
+                "creationTimestamp": "2025-12-04T23:26:48Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "capi-kubeadm-control-plane-system"
+                },
+                "name": "capi-kubeadm-control-plane-system",
+                "resourceVersion": "17724022",
+                "uid": "6b5d1951-a4b5-45cf-8bfd-814a070e644d"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:19:16Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "capi-operator",
+                    "name": "capi-operator"
+                },
+                "name": "capi-operator",
+                "resourceVersion": "25720",
+                "uid": "1a76633c-0f2d-447a-af4f-bda0e22d5c95"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "argocd.argoproj.io/sync-wave": "1",
+                    "helm.sh/hook": "post-install,post-upgrade",
+                    "helm.sh/hook-weight": "1"
+                },
+                "creationTimestamp": "2025-12-04T23:27:10Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "capi-system"
+                },
+                "name": "capi-system",
+                "resourceVersion": "17724345",
+                "uid": "ef169cd9-9b28-4e43-af85-22a52c244d5c"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "cert-manager",
+                    "name": "cert-manager"
+                },
+                "name": "cert-manager",
+                "resourceVersion": "23875",
+                "uid": "1c3f3846-8d07-4549-8cda-cac33f919f16"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T05:47:13Z",
+                "deletionTimestamp": "2025-11-18T08:13:29Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "cls10467025"
+                },
+                "name": "cls10467025",
+                "resourceVersion": "26423016",
+                "uid": "2cdba9b4-9bf7-40c6-a916-5036fdc24cd3"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2025-12-13T06:26:35Z",
+                        "message": "All resources successfully discovered",
+                        "reason": "ResourcesDiscovered",
+                        "status": "False",
+                        "type": "NamespaceDeletionDiscoveryFailure"
+                    },
+                    {
+                        "lastTransitionTime": "2025-11-18T08:13:34Z",
+                        "message": "All legacy kube types successfully parsed",
+                        "reason": "ParsedGroupVersions",
+                        "status": "False",
+                        "type": "NamespaceDeletionGroupVersionParsingFailure"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-13T06:26:32Z",
+                        "message": "All content successfully deleted, may be waiting on finalization",
+                        "reason": "ContentDeleted",
+                        "status": "False",
+                        "type": "NamespaceDeletionContentFailure"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-13T06:26:32Z",
+                        "message": "Some resources are remaining: roleassignments.authorization.azure.com has 1 resource instances",
+                        "reason": "SomeResourcesRemain",
+                        "status": "True",
+                        "type": "NamespaceContentRemaining"
+                    },
+                    {
+                        "lastTransitionTime": "2025-12-13T06:26:32Z",
+                        "message": "Some content in the namespace has finalizers remaining: serviceoperator.azure.com/finalizer in 1 resource instances",
+                        "reason": "SomeFinalizersRemain",
+                        "status": "True",
+                        "type": "NamespaceFinalizersRemaining"
+                    }
+                ],
+                "phase": "Terminating"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:19:32Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "default"
+                },
+                "name": "default",
+                "resourceVersion": "22",
+                "uid": "4103e2c7-f690-4adf-9c16-0b351dc4ef6c"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-19T03:28:44Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "estest"
+                },
+                "name": "estest",
+                "resourceVersion": "1246155",
+                "uid": "4c383231-e8f7-4a74-aea8-e2bbf94ce7a4"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-19T03:46:27Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "estest2"
+                },
+                "name": "estest2",
+                "resourceVersion": "1259757",
+                "uid": "30a52297-98fd-4723-a8ac-dcd99f919ed8"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-19T10:45:01Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "estest3"
+                },
+                "name": "estest3",
+                "resourceVersion": "1564982",
+                "uid": "fe2c2452-8e75-4a80-8410-89cd885ac6b9"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:16:36Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "istio-system",
+                    "name": "istio-system"
+                },
+                "name": "istio-system",
+                "resourceVersion": "23714",
+                "uid": "9c8fb5c8-3bd1-416b-8688-de5206b159d4"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:19:32Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "kube-node-lease"
+                },
+                "name": "kube-node-lease",
+                "resourceVersion": "27",
+                "uid": "bec5fbed-8a92-424c-a8a4-07b79dbe662a"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T22:19:32Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "kube-public"
+                },
+                "name": "kube-public",
+                "resourceVersion": "13",
+                "uid": "602fade6-0e4e-461e-b64c-f158d74c230d"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"labels\":{\"addonmanager.kubernetes.io/mode\":\"Reconcile\",\"control-plane\":\"true\",\"kubernetes.azure.com/managedby\":\"aks\",\"kubernetes.io/cluster-service\":\"true\"},\"name\":\"kube-system\"}}\n"
+                },
+                "creationTimestamp": "2025-11-17T22:19:31Z",
+                "labels": {
+                    "addonmanager.kubernetes.io/mode": "Reconcile",
+                    "control-plane": "true",
+                    "kubernetes.azure.com/managedby": "aks",
+                    "kubernetes.io/cluster-service": "true",
+                    "kubernetes.io/metadata.name": "kube-system"
+                },
+                "name": "kube-system",
+                "resourceVersion": "767",
+                "uid": "4dd2c6a0-cb39-4d2f-87fb-e7ae94d13801"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:16:37Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "kyverno",
+                    "name": "kyverno"
+                },
+                "name": "kyverno",
+                "resourceVersion": "23784",
+                "uid": "dd268065-d90a-4167-a4e8-a27d313c40df"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:19:15Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "opentelemetry",
+                    "name": "opentelemetry"
+                },
+                "name": "opentelemetry",
+                "resourceVersion": "25663",
+                "uid": "68bdf9e6-f6b2-4ab0-b65f-0a955193c386"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T18:09:08Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcass-steve"
+                },
+                "name": "taastestcass-steve",
+                "resourceVersion": "845064",
+                "uid": "1f033fac-4c79-40c4-8867-f8e0efc8019c"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T00:01:36Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcass15"
+                },
+                "name": "taastestcass15",
+                "resourceVersion": "58007",
+                "uid": "80ca88c7-0b4a-49b3-9794-f0901a84df82"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T00:09:51Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcass98"
+                },
+                "name": "taastestcass98",
+                "resourceVersion": "64696",
+                "uid": "8ffe0726-f0ad-4960-8c28-e54d156dbc16"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T18:11:19Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcasssteve12"
+                },
+                "name": "taastestcasssteve12",
+                "resourceVersion": "846617",
+                "uid": "dd587945-73a7-447c-a264-5335a85d8cec"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T18:31:27Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcasssteve13"
+                },
+                "name": "taastestcasssteve13",
+                "resourceVersion": "861012",
+                "uid": "5a0656a4-3415-46fb-a22a-cd3cfab92dbf"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T18:40:16Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcasssteve14"
+                },
+                "name": "taastestcasssteve14",
+                "resourceVersion": "867342",
+                "uid": "86aea20d-c319-4160-a091-79c2c3348dbb"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-18T19:03:44Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taastestcasssteve90"
+                },
+                "name": "taastestcasssteve90",
+                "resourceVersion": "884107",
+                "uid": "42566a1e-1dea-4c23-93c0-9d56c7537735"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T17:39:04Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "taasvstst"
+                },
+                "name": "taasvstst",
+                "resourceVersion": "17464474",
+                "uid": "9b15a679-7df0-443d-8fc9-80671d03237d"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:16:22Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "tetris",
+                    "name": "tetris"
+                },
+                "name": "tetris",
+                "resourceVersion": "23616",
+                "uid": "94bed9dd-b1d0-4088-b0e5-39bfe3d50d66"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"labels\":{\"addonmanager.kubernetes.io/mode\":\"Reconcile\",\"control-plane\":\"true\",\"kubernetes.azure.com/managedby\":\"aks\",\"name\":\"tigera-operator\"},\"name\":\"tigera-operator\"}}\n"
+                },
+                "creationTimestamp": "2025-11-17T22:20:12Z",
+                "labels": {
+                    "addonmanager.kubernetes.io/mode": "Reconcile",
+                    "control-plane": "true",
+                    "kubernetes.azure.com/managedby": "aks",
+                    "kubernetes.io/metadata.name": "tigera-operator",
+                    "name": "tigera-operator"
+                },
+                "name": "tigera-operator",
+                "resourceVersion": "791",
+                "uid": "ff15b91b-5d4f-412f-b98d-d9d13fb71122"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-12-04T23:33:21Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "tracevutst"
+                },
+                "name": "tracevutst",
+                "resourceVersion": "17729263",
+                "uid": "f507c163-e781-4c39-b28e-07c081c753cb"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "annotations": {
+                    "argocd.argoproj.io/sync-wave": "1",
+                    "helm.sh/hook": "post-install,post-upgrade",
+                    "helm.sh/hook-weight": "1"
+                },
+                "creationTimestamp": "2025-12-04T23:27:33Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "vcluster-infrastructure-system"
+                },
+                "name": "vcluster-infrastructure-system",
+                "resourceVersion": "17724622",
+                "uid": "730aa0d6-3eb2-4f04-ae91-909ccddfe386"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "creationTimestamp": "2025-11-17T23:16:38Z",
+                "labels": {
+                    "kubernetes.io/metadata.name": "wiz",
+                    "name": "wiz"
+                },
+                "name": "wiz",
+                "resourceVersion": "23804",
+                "uid": "7503cd2f-7ec2-46e1-ad11-936330d7c7ec"
+            },
+            "spec": {
+                "finalizers": [
+                    "kubernetes"
+                ]
+            },
+            "status": {
+                "phase": "Active"
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}

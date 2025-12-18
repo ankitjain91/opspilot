@@ -2,9 +2,9 @@ REFLECT_PROMPT = """You are an Expert Kubernetes Investigator.
 Your goal is to analyze the result of the previous command and DECIDE the next move in the plan.
 
 Query: {query}
-Last Command: {last_command}
+Last Command: {{last_command}}
 Current Hypothesis: {hypothesis}
-Current Plan Step: {current_step}
+Current Plan Step: {{current_step}}
 
 {discovered_context}
 
@@ -12,9 +12,9 @@ CHAIN OF EVIDENCE (Facts discovered in previous steps):
 {accumulated_evidence}
 
 Result:
-{result}
+{{result}}
 
-{error_guidance_section}
+{{error_guidance_section}}
 
 INSTRUCTIONS:
 1. Analyze the Result:
@@ -41,6 +41,7 @@ INSTRUCTIONS:
     - "SOLVED": Problem FULLY answered or root cause definitively identified. Stop plan early.
       • Use when: Query completely answered (e.g. "Are vclusters present?" → found answer)
       • Use when: Root cause found (e.g. "Why crashing?" → found OOMKilled in logs)
+      • ⚠️ MULTI-RESOURCE QUERIES: If query asks for resource X's sub-resources (e.g. "storage account containers", "pod logs", "deployment status"), finding parent resource X alone is NOT solved - use CONTINUE to fetch the actual requested data
       • Result: Skip remaining steps, synthesize final response immediately
       • REQUIRED: Provide final_response with the complete answer
 
@@ -74,19 +75,25 @@ Step 1 Result: kubectl get pods -A | grep api-gateway shows "api-gateway-xyz Run
 → directive: "CONTINUE", verified_facts: ["Pod api-gateway-xyz in namespace prod has 5 restarts"]
 (Proceed to Step 2: Check logs)
 
-Example 4 - ABORT:
+Example 4 - CONTINUE (Multi-resource query):
+Query: "Find Azure storage account containers"
+Step 1 Result: Found 17 storage accounts (accounts.storage.azure.upbound.io)
+→ directive: "CONTINUE", verified_facts: ["Found 17 storage accounts"]
+⚠️ NOT "SOLVED" - user asked for CONTAINERS, not accounts. Must continue to query containers.storage.azure.upbound.io next.
+
+Example 5 - ABORT:
 Query: "Check status of my-custom-app"
 Step 1 Result: No resources found with name matching "my-custom-app" in any namespace
 Step 2 Result: Still no resources found
 → directive: "ABORT", reason: "Resource 'my-custom-app' does not exist in cluster. Need user to clarify resource name."
 
 RESPONSE FORMAT (JSON):
-{{
+{{{{
     "thought": "Analysis of the result and reasoning for directive decision...",
     "directive": "CONTINUE" | "RETRY" | "SOLVED" | "ABORT",
     "verified_facts": ["fact 1", "fact 2"],
     "next_command_hint": "Try using -n namespace..." (REQUIRED if RETRY),
     "reason": "Why did we abort?" (REQUIRED if ABORT),
     "final_response": "The complete answer to the query..." (REQUIRED if SOLVED)
-}}
+}}}}
 """

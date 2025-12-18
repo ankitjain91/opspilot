@@ -45,6 +45,9 @@ class SentinelLoop:
                 w = watch.Watch()
 
                 logger.info("🛡️ Watching for Warning events...")
+                
+                # Connection successful - reset backoff
+                self._backoff = 5
 
                 # Stream events; filter for Warning type to reduce noise
                 async for event in w.stream(v1.list_event_for_all_namespaces, timeout_seconds=60):
@@ -56,8 +59,11 @@ class SentinelLoop:
                         await self.process_warning(obj)
 
             except Exception as e:
-                logger.error(f"Sentinel crash: {e}")
-                await asyncio.sleep(5)  # Backoff before restart
+                # Exponential Backoff
+                backoff_time = getattr(self, '_backoff', 5)
+                logger.error(f"Sentinel connection failed: {e}. Retrying in {backoff_time}s...")
+                await asyncio.sleep(backoff_time)
+                self._backoff = min(backoff_time * 2, 300) # Max 5 min wait
             finally:
                 # Stop watcher and close underlying aiohttp session to prevent leaks
                 try:
@@ -120,5 +126,6 @@ class SentinelLoop:
                 "severity": severity,
                 "message": alert_msg,
                 "timestamp": current_time,
-                "resource": f"{kind}/{namespace}/{obj_name}"
+                "resource": f"{kind}/{namespace}/{obj_name}",
+                "cluster": self.kube_context
             })

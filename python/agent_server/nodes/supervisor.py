@@ -24,7 +24,7 @@ from ..response_formatter import format_intelligent_response_with_llm, format_in
 from ..llm import call_llm
 from ..routing import select_model_for_query
 from ..tools import get_relevant_kb_snippets, ingest_cluster_knowledge  # KB/RAG semantic search
-from ..llm import call_llm
+from ..extraction import format_debugging_context
 
 async def update_hypotheses_with_llm(
     query: str,
@@ -126,13 +126,33 @@ Generate hypotheses now (respond with JSON array only):"""
         # Parse JSON response
         hypotheses = json.loads(response)
 
-        # Add metadata
-        for h in hypotheses:
-            if 'created_at' not in h:
-                h['created_at'] = iteration
-            h['last_updated'] = iteration
+        # Handle wrapped response: {"hypotheses": [...]} or {"data": [...]}
+        if isinstance(hypotheses, dict):
+            # Try common wrapper keys
+            for key in ['hypotheses', 'data', 'items', 'results']:
+                if key in hypotheses and isinstance(hypotheses[key], list):
+                    hypotheses = hypotheses[key]
+                    break
+            else:
+                # If dict has hypothesis-like keys, wrap it as a single-item list
+                if 'description' in hypotheses:
+                    hypotheses = [hypotheses]
 
-        return hypotheses
+        # Validate response is a list of dictionaries
+        if not isinstance(hypotheses, list):
+            print(f"[supervisor] ⚠️ Hypothesis response is not a list: {type(hypotheses)}. Returning empty.", flush=True)
+            return current_hypotheses or []
+
+        # Filter to only valid hypothesis dictionaries
+        valid_hypotheses = []
+        for h in hypotheses:
+            if isinstance(h, dict) and 'description' in h:
+                if 'created_at' not in h:
+                    h['created_at'] = iteration
+                h['last_updated'] = iteration
+                valid_hypotheses.append(h)
+
+        return valid_hypotheses
 
     except Exception as e:
         print(f"[supervisor] ⚠️ Hypothesis tracking failed: {e}. Continuing without hypotheses.", flush=True)
@@ -170,10 +190,15 @@ async def supervisor_node(state: AgentState) -> dict:
 
     events.append(emit_event("progress", {"message": f"Supervisor Reasoning (iteration {iteration})..."}))
 
-    # Planner: rewrite vague queries into 1-3 specific sub-queries to guide retrieval
+    # PARALLELIZATION: Run planner and initial KB search concurrently
+    # This saves ~2-3s latency by overlapping LLM calls with embedding search
+    import asyncio
     original_query = state.get('query', '')
-    try:
-        planner_prompt = f"""Rewrite the user's query into 1-3 specific retrieval-focused sub-queries for Kubernetes troubleshooting.
+
+    async def run_planner():
+        """Planner: rewrite vague queries into 1-3 specific sub-queries to guide retrieval"""
+        try:
+            planner_prompt = f"""Rewrite the user's query into 1-3 specific retrieval-focused sub-queries for Kubernetes troubleshooting.
 
 Original: {original_query}
 
@@ -185,22 +210,34 @@ Guidelines:
 - Include namespaces or 'all namespaces' if implied
 - Cover logs/events/status depending on the intent
 """
-        planner_json = await call_llm(
-            prompt=planner_prompt,
-            endpoint=state.get('llm_endpoint'),
-            model=state.get('llm_model'),
-            provider=state.get('llm_provider', 'ollama'),
-            temperature=0.0,
-            force_json=True,
-            api_key=state.get('api_key')
-        )
-        import json as _json
-        planner_out = _json.loads(planner_json)
-        sub_queries = planner_out.get('queries') or [original_query]
-        state['planner_queries'] = sub_queries[:3]
-        events.append(emit_event("progress", {"message": f"Planner generated {len(sub_queries[:3])} focused queries"}))
-    except Exception as _e:
-        state['planner_queries'] = [original_query]
+            planner_json = await call_llm(
+                prompt=planner_prompt,
+                endpoint=state.get('llm_endpoint'),
+                model=state.get('llm_model'),
+                provider=state.get('llm_provider', 'ollama'),
+                temperature=0.0,
+                force_json=True,
+                api_key=state.get('api_key')
+            )
+            import json as _json
+            planner_out = _json.loads(planner_json)
+            return planner_out.get('queries') or [original_query]
+        except Exception as _e:
+            return [original_query]
+
+    async def run_initial_kb_search():
+        """Initial KB search on original query while planner runs"""
+        return await get_relevant_kb_snippets(original_query, state, max_results=2)
+
+    # Run planner and initial KB search in parallel
+    planner_result, initial_kb_result = await asyncio.gather(
+        run_planner(),
+        run_initial_kb_search()
+    )
+
+    sub_queries = planner_result[:3]
+    state['planner_queries'] = sub_queries
+    events.append(emit_event("progress", {"message": f"Planner generated {len(sub_queries)} focused queries (parallel)"}))
 
     # Check for command retry loops (prevents infinite blocked command loops)
     if state.get('error') and 'Command retry loop detected' in state.get('error', ''):
@@ -329,7 +366,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
 USER QUERY: {query_safe}
 
 COMMANDS EXECUTED:
-{chr(10).join([f"- {cmd.get('command', 'N/A')}: {cmd.get('summary', 'No summary')}" for cmd in state.get('command_history', [])[-5:]])}
+{chr(10).join([f"- {cmd.get('command', 'N/A')}: {(cmd.get('output') or cmd.get('summary') or 'No output')[:200]}..." for cmd in state.get('command_history', [])[-5:]])}
 
 DISCOVERED RESOURCES:
 {json.dumps(state.get('discovered_resources', {}), indent=2)[:500]}
@@ -341,11 +378,11 @@ Respond with JSON:
 OR
 {{"should_complete": false, "reason": "what information is still missing"}}
 
-Rules:
+LLM-DRIVEN RULES:
 - Set should_complete=true ONLY if we have EXECUTED commands and gathered sufficient data
 - For "list/get" queries, we need actual command output, not just KB documentation
 - For troubleshooting, we need to verify the issue exists and identify root cause
-- confidence should be 0.7+ to complete
+- Confidence is informational only - use your reasoning to decide should_complete
 - If critical information is missing, set should_complete=false
 """
 
@@ -362,8 +399,9 @@ Rules:
 
             completion_result = json.loads(completion_check)
 
-            if completion_result.get('should_complete') and completion_result.get('confidence', 0) >= 0.7:
-                print(f"[agent-sidecar] ✅ LLM decided investigation is complete: {completion_result.get('reason')}", flush=True)
+            # LLM-DRIVEN: Trust the LLM's should_complete decision without hardcoded confidence threshold
+            if completion_result.get('should_complete'):
+                print(f"[agent-sidecar] ✅ LLM decided investigation is complete (confidence: {completion_result.get('confidence', 0):.2f}): {completion_result.get('reason')}", flush=True)
                 print(f"[agent-sidecar] 🔄 Routing to synthesizer to format results", flush=True)
 
                 # Route to synthesizer to format the final response properly
@@ -408,13 +446,26 @@ Rules:
 
     # Embeddings RAG: Multi-Query Retrieval for better coverage
     # Use planner-generated sub-queries to retrieve diverse KB patterns
+    # PARALLELIZATION: Run all sub-query KB searches concurrently
     kb_contexts = []
     sub_queries = state.get('planner_queries', [query])
 
-    for sub_q in sub_queries:
-        kb_result = await get_relevant_kb_snippets(sub_q, state, max_results=5)
-        if kb_result and kb_result.strip():
-            kb_contexts.append(f"### Query: {sub_q}\n{kb_result}")
+    # Include initial KB result from parallel run
+    if initial_kb_result and initial_kb_result.strip():
+        kb_contexts.append(f"### Query: {original_query}\n{initial_kb_result}")
+
+    # Run remaining sub-query searches in parallel (skip if same as original)
+    remaining_queries = [q for q in sub_queries if q != original_query]
+    if remaining_queries:
+        async def search_kb(sub_q):
+            result = await get_relevant_kb_snippets(sub_q, state, max_results=2)
+            if result and result.strip():
+                return f"### Query: {sub_q}\n{result}"
+            return None
+
+        # Parallel KB search for all remaining sub-queries
+        parallel_results = await asyncio.gather(*[search_kb(q) for q in remaining_queries])
+        kb_contexts.extend([r for r in parallel_results if r])
 
     # Merge all KB contexts (deduplicated by entry ID in get_relevant_kb_snippets)
     kb_context = "\n\n".join(kb_contexts) if kb_contexts else ""
@@ -497,15 +548,51 @@ Rules:
 
     base_prompt = "\n".join(dynamic_prompt_parts)
 
+    # Build critic feedback section if the Judge rejected the last plan
+    critic_feedback = state.get('critic_feedback', '')
+    if critic_feedback:
+        critic_feedback_section = f"""
+⚖️ **JUDGE FEEDBACK (Previous Plan Rejected)**:
+The Judge rejected your last plan with this feedback:
+"{critic_feedback}"
+
+**CRITICAL**: You MUST create a NEW plan that addresses this feedback. Do NOT give up - the user needs a working investigation plan.
+"""
+    else:
+        critic_feedback_section = ""
+
+    # Format debugging context (auto-extracted structured state)
+    debugging_context_str = format_debugging_context(state.get('debugging_context'))
+
+    # Format suggested commands from progressive discovery
+    suggested_commands = state.get('suggested_commands', [])
+    if suggested_commands:
+        suggested_commands_context = f"""
+🔄 **PROGRESSIVE DISCOVERY - ALTERNATIVE METHODS SUGGESTED**:
+The previous discovery method returned empty. Try these alternative approaches:
+{chr(10).join([f'- {cmd}' for cmd in suggested_commands])}
+
+**IMPORTANT**: Use these exact commands first before trying other approaches.
+Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
+"""
+    else:
+        suggested_commands_context = ""
+
     prompt = base_prompt.format(
         kb_context=escape_braces(kb_context),
         examples=escape_braces(selected_examples),
         query=escape_braces(query),
         kube_context=state['kube_context'] or 'default',
         cluster_info=escape_braces(state.get('cluster_info', 'Not available')),
-        discovered_context=escape_braces(discovered_context_str),  # <-- ADD DISCOVERED CONTEXT!
+        discovered_context=escape_braces(discovered_context_str),
         conversation_context=escape_braces(format_conversation_context(state.get('conversation_history', []))),
-        command_history=escape_braces(format_command_history(state['command_history'])),
+        command_history=escape_braces(format_command_history(
+            state['command_history'],
+            evidence_chain=state.get('accumulated_evidence', [])
+        )),
+        suggested_commands_context=escape_braces(suggested_commands_context),
+        debugging_context_str=escape_braces(debugging_context_str),
+        critic_feedback_section=escape_braces(critic_feedback_section),
         mcp_tools_desc=escape_braces(json.dumps(state.get("mcp_tools", []), indent=2)),
     )
 
@@ -579,8 +666,10 @@ Rules:
                 'next_action': 'delegate',
                 'current_plan': result['plan'],
                 'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
+                'critic_feedback': None,  # Clear feedback after processing
                 'events': events,
             }
+
         elif result['next_action'] == 'invoke_mcp':
             # Emit tool call request and STOP graph (wait for client resumption)
             tool_call = {
@@ -596,6 +685,7 @@ Rules:
                 'next_action': 'invoke_mcp',
                 'pending_tool_call': tool_call,
                 'hypotheses': hypotheses,  # LLM-generated hypotheses
+                'critic_feedback': None,  # Clear feedback after processing
                 'events': events,
             }
         elif result['next_action'] == 'create_plan':
@@ -640,6 +730,7 @@ Rules:
                 'current_hypothesis': result.get('hypothesis', state.get('current_hypothesis', '')),
                 'hypotheses': hypotheses,  # LLM-generated hypotheses
                 'active_hypothesis_id': hypotheses[0]['id'] if hypotheses and hypotheses[0]['status'] == 'active' else None,
+                'critic_feedback': None,  # Clear feedback after processing
                 'events': events,
             }
         else:
@@ -681,6 +772,7 @@ Rules:
                 'next_action': 'done',
                 'final_response': final_response,
                 'confidence_score': confidence,  # Ensured
+                'critic_feedback': None,  # Clear feedback after processing
                 'events': events,
             }
 

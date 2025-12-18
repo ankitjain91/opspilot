@@ -6,6 +6,7 @@ use portable_pty::MasterPty;
 use kube::{Client, Discovery};
 use crate::models::{ClusterStats, InitialClusterData};
 
+#[allow(dead_code)]
 pub struct ExecSession {
     pub stdin: TokioMutex<Box<dyn tokio::io::AsyncWrite + Send + Unpin>>,
 }
@@ -27,6 +28,7 @@ pub struct PortForwardSession {
 pub struct AppState {
     pub kubeconfig_path: Mutex<Option<String>>,
     pub selected_context: Mutex<Option<String>>,
+    #[allow(dead_code)]
     pub sessions: Arc<Mutex<HashMap<String, Arc<ExecSession>>>>,
     pub shell_sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
     pub port_forwards: Arc<Mutex<HashMap<String, PortForwardSession>>>,
@@ -41,6 +43,8 @@ pub struct AppState {
     pub client_cache: Arc<Mutex<Option<(std::time::Instant, String, Client)>>>,
     // Cache for initial dashboard data (15s TTL) for instant navigation
     pub initial_data_cache: Arc<Mutex<Option<(std::time::Instant, InitialClusterData)>>>,
+    // Persistent session for Claude Code
+    pub claude_session: Arc<Mutex<Option<ShellSession>>>,
     // Store vcluster proxy process ID to kill it on disconnect
     #[allow(dead_code)]
     pub vcluster_pid: Arc<Mutex<Option<u32>>>,
@@ -61,6 +65,7 @@ impl AppState {
             pod_limits_cache: Arc::new(Mutex::new(None)),
             client_cache: Arc::new(Mutex::new(None)),
             initial_data_cache: Arc::new(Mutex::new(None)),
+            claude_session: Arc::new(Mutex::new(None)),
             vcluster_pid: Arc::new(Mutex::new(None)),
         }
     }

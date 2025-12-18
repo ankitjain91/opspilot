@@ -241,7 +241,10 @@ export function LLMSettingsPanel({
             ...localConfig,
             ...def,
             // Preserve key if provider matches
-            api_key: newProvider === localConfig.provider ? localConfig.api_key : def.api_key
+            api_key: newProvider === localConfig.provider ? localConfig.api_key : def.api_key,
+            // CRITICAL FIX: Always reset executor_model when switching providers to prevent incompatible models
+            // e.g. preventing 'qwen' (Ollama) from persisting when switching to Groq
+            executor_model: null
         };
         setLocalConfig(newConfig);
         // Trigger check after state update
@@ -507,7 +510,7 @@ export function LLMSettingsPanel({
                                             <Terminal size={14} className="text-indigo-400" />
                                         </div>
                                         <div>
-                                            <div className="text-xs font-bold text-white">Use Claude Code CLI</div>
+                                            <div className="text-xs font-bold text-white">Terminal Agent (Claude Code)</div>
                                             <div className="text-[10px] text-zinc-500">Auth via terminal instead of API Key</div>
                                         </div>
                                     </div>
@@ -585,10 +588,26 @@ export function LLMSettingsPanel({
                                             type="text"
                                             value={localConfig.executor_model || ''}
                                             onChange={e => setLocalConfig({ ...localConfig, executor_model: e.target.value })}
-                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-emerald-500/50 outline-none font-mono transition-all"
+                                            className={`w-full bg-black/20 border rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 outline-none font-mono transition-all ${
+                                                // Validation warning if using local model name with cloud provider
+                                                (localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
+                                                    (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli'))
+                                                    ? 'border-amber-500/50 focus:border-amber-500'
+                                                    : 'border-white/10 focus:border-emerald-500/50'
+                                                }`}
                                             placeholder="Same as brain (Default)"
                                         />
                                     </div>
+                                    {/* Warning for mixed provider/model usage */}
+                                    {(localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
+                                        (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli')) && (
+                                            <div className="col-span-2 flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                                <AlertCircle size={12} className="text-amber-400" />
+                                                <span className="text-[10px] text-amber-200">
+                                                    Warning: Local models like '{localConfig.executor_model}' may not work with {localConfig.provider}.
+                                                </span>
+                                            </div>
+                                        )}
                                 </div>
                             )}
 
@@ -604,7 +623,7 @@ export function LLMSettingsPanel({
                                             'text-red-400'
                                         }`}>
                                         {checkingInference ? 'Testing Connection...' :
-                                            inferenceStatus?.connected ? 'Brain Connected' :
+                                            inferenceStatus?.connected ? (localConfig.provider === 'claude-code' ? 'Agent Ready' : 'Brain Connected') :
                                                 'Connection Failed'}
                                     </div>
                                     {inferenceStatus?.error && !checkingInference && (

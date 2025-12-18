@@ -1,0 +1,7 @@
+NAMESPACE                           NAME                                                              READY   STATUS      RESTARTS           AGE    IP             NODE                              NOMINATED NODE   READINESS GATES
+kube-system                         ama-metrics-989956579-qw64x                                       2/2     Running     430 (8m44s ago)    5d3h   10.244.2.164   aks-default-49089664-vmss000002   <none>           <none>
+kube-system                         ama-metrics-989956579-wtxfm                                       2/2     Running     430 (7m53s ago)    5d3h   10.244.2.195   aks-default-49089664-vmss000002   <none>           <none>
+kube-system                         ama-metrics-node-rz7mm                                            2/2     Running     1011 (6m40s ago)   12d    10.244.2.135   aks-default-49089664-vmss000002   <none>           <none>
+kube-system                         ama-metrics-operator-targets-544b65f8df-j7sxb                     2/2     Running     4 (5d3h ago)       5d3h   10.244.2.196   aks-default-49089664-vmss000002   <none>           <none>
+taasvstst                           crossplane-844b54fc95-nsmfc-x-upbound-system-x-manag-58bcc191bf   1/1     Running     9 (5d3h ago)       12d    10.244.2.129   aks-default-49089664-vmss000002   <none>           <none>
+taasvstst                           provider-terraform-6b7837f3b5b8-84798fdb97-k944z-x-u-71680e5b2c   1/1     Running     4 (5d3h ago)       5d3h   10.244.2.160   aks-default-49089664-vmss000002   <none>           <none>

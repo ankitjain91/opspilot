@@ -1,7 +1,84 @@
 
 import re
-from typing import Literal
+from typing import Literal, Set, Dict
 from .config import ROUTING_ENABLED
+
+# =============================================================================
+# ROUTING MATRIX: Defines valid transitions between nodes
+# This prevents infinite loops by enforcing a DAG-like structure
+# =============================================================================
+ROUTING_MATRIX: Dict[str, Set[str]] = {
+    'classifier': {'supervisor', 'respond', 'done'},
+    'supervisor': {'worker', 'batch_execute', 'execute_plan', 'synthesizer', 'architect', 'done'},
+    'critic': {'execute_plan', 'supervisor', 'done'},
+    'plan_executor': {'worker', 'batch_execute', 'execute_plan', 'synthesizer', 'architect', 'human_approval', 'supervisor', 'done'},
+    'worker': {'verify', 'supervisor', 'self_correction'},  # Worker goes to verify/self_correction
+    'self_correction': {'command_validator'},
+    'command_validator': {'verify', 'supervisor', 'done'},
+    'verify': {'execute', 'human_approval', 'done'},
+    'human_approval': {'execute', 'human_approval', 'done'},
+    'execute': {'reflect'},
+    'batch_execute': {'reflect'},
+    'reflect': {'execute_plan', 'supervisor', 'synthesizer', 'evidence_validator', 'done'},
+    'evidence_validator': {'worker', 'synthesizer', 'done'},
+    'synthesizer': {'supervisor', 'worker', 'questioner', 'done'},
+    'questioner': {'supervisor', 'done'},
+    'architect': {'done'},
+}
+
+# Track routing history for loop detection
+_routing_history: Dict[str, list] = {}
+
+def validate_routing(current_node: str, next_action: str, thread_id: str = "default") -> tuple[bool, str]:
+    """
+    Validate that a routing transition is allowed.
+    Returns: (is_valid, error_message)
+    """
+    # Get allowed transitions for current node
+    allowed = ROUTING_MATRIX.get(current_node, set())
+
+    # Map next_action to node name (some actions map to different node names)
+    action_to_node = {
+        'delegate': 'worker',
+        'create_plan': 'execute_plan',
+        'execute_next_step': 'execute_plan',
+        'respond': 'done',  # respond typically ends
+    }
+    target_node = action_to_node.get(next_action, next_action)
+
+    if not allowed:
+        # Unknown current node - allow but warn
+        print(f"[routing] ⚠️ Unknown current node '{current_node}' - allowing transition", flush=True)
+        return (True, "")
+
+    if target_node not in allowed and target_node != 'done':
+        error = f"Invalid transition: {current_node} → {target_node}. Allowed: {allowed}"
+        print(f"[routing] 🚫 {error}", flush=True)
+        return (False, error)
+
+    # Loop detection: Check if we've seen this exact transition recently
+    history = _routing_history.get(thread_id, [])
+    transition = f"{current_node}→{target_node}"
+
+    # Count recent occurrences of this transition
+    recent_count = sum(1 for t in history[-10:] if t == transition)
+    if recent_count >= 3:
+        error = f"Loop detected: {transition} occurred {recent_count} times in last 10 transitions"
+        print(f"[routing] 🔄 {error}", flush=True)
+        return (False, error)
+
+    # Record transition
+    history.append(transition)
+    if len(history) > 20:
+        history = history[-20:]
+    _routing_history[thread_id] = history
+
+    return (True, "")
+
+def clear_routing_history(thread_id: str = "default"):
+    """Clear routing history for a thread (call on new query)."""
+    if thread_id in _routing_history:
+        del _routing_history[thread_id]
 
 def classify_query_complexity(query: str, command_history: list) -> tuple[str, str]:
     """
@@ -142,12 +219,14 @@ def select_model_for_query(state: dict) -> tuple[str, str]:
 
     return (model, complexity)
 
-def should_continue(state: dict) -> Literal['worker', 'batch_execute', 'execute_plan', 'supervisor', 'respond', 'synthesizer', 'human_approval', 'done']:
+def should_continue(state: dict) -> Literal['worker', 'smart_executor', 'batch_execute', 'execute_plan', 'supervisor', 'respond', 'synthesizer', 'human_approval', 'verify', 'done']:
     """Determine next node based on supervisor decision."""
     next_action = state.get('next_action')
 
     if next_action == 'delegate':
         return 'worker'
+    if next_action == 'smart_executor':
+        return 'smart_executor'  # NEW: Goal-based execution with built-in retry
     if next_action == 'batch_execute':
         return 'batch_execute'
     if next_action == 'create_plan':
@@ -164,6 +243,8 @@ def should_continue(state: dict) -> Literal['worker', 'batch_execute', 'execute_
         return 'architect'     # NEW: Route to Generative IaC Node
     if next_action == 'human_approval':
         return 'human_approval'  # Route to approval flow
+    if next_action == 'verify':
+        return 'verify'        # Route from command_validator to verify node
 
     return 'done'
 

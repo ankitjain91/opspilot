@@ -154,11 +154,13 @@ pub async fn set_kube_config(
     // If switching FROM a vcluster context to a different context, disconnect first
     if let Some(ref curr_ctx) = current_context {
         if curr_ctx.starts_with("vcluster_") {
-            // Run vcluster disconnect in background (don't block on it)
-            let _ = tokio::process::Command::new("vcluster")
-                .arg("disconnect")
-                .output()
-                .await;
+            // Run vcluster disconnect in background with timeout
+            let _ = tokio::time::timeout(
+                Duration::from_secs(5), 
+                tokio::process::Command::new("vcluster")
+                    .arg("disconnect")
+                    .output()
+            ).await;
         }
     }
 
@@ -218,13 +220,21 @@ pub async fn set_kube_config(
         Kubeconfig::read().map_err(|e| format!("Cannot read default kubeconfig: {}", e))?
     };
 
-    let mut config = kube::Config::from_custom_kubeconfig(
-        kubeconfig,
-        &KubeConfigOptions {
-            context: context.clone(),
-            ..Default::default()
-        }
-    ).await.map_err(|e| format!("Invalid context '{}': {}", context_name, e))?;
+    let config_res = tokio::time::timeout(
+        Duration::from_secs(25),
+        kube::Config::from_custom_kubeconfig(
+            kubeconfig,
+            &KubeConfigOptions {
+                context: context.clone(),
+                ..Default::default()
+            }
+        )
+    ).await;
+
+    let mut config = match config_res {
+        Ok(res) => res.map_err(|e| format!("Invalid context '{}': {}", context_name, e))?,
+        Err(_) => return Err(format!("CONNECTION_TIMEOUT|{}|Authentication timed out (25s). Check your cloud credentials (e.g. az login).", context_name)),
+    };
 
     // Set aggressive timeouts for connection test
     config.connect_timeout = Some(Duration::from_secs(5));
@@ -235,7 +245,42 @@ pub async fn set_kube_config(
         config.accept_invalid_certs = true;
     }
 
-    let client = Client::try_from(config).map_err(|e| format!("Failed to create client: {}", e))?;
+
+    // Use timeout for client creation as it may trigger exec auth plugins (kubelogin)
+    // We want to catch the "Device Code" message from stderr if it fails/times out
+    println!("DEBUG: attempting Client::try_from for {}", context_name);
+    
+    // Note: Client::try_from is not async, but the underlying auth provider execution might be blocking or async. 
+    // However, kube-rs 0.85+ implies try_from might block if it runs exec. 
+    // Actually, Client::try_from IS NOT async. It returns Result<Client>.
+    // If it runs an exec plugin, it usually does so synchronously *or* lazily.
+    // If lazily, the timeout needs to be on the first request.
+    // If synchronously, we can't easily timeout a sync function in async context without spawn_blocking.
+    
+    // Let's assume it might hang. We use spawn_blocking to wrap it so we can time it out.
+    let config_clone = config.clone();
+    let client_res = tokio::time::timeout(
+        Duration::from_secs(25),
+        tokio::task::spawn_blocking(move || {
+            Client::try_from(config_clone)
+        })
+    ).await;
+
+    let client = match client_res {
+        Ok(task_res) => match task_res {
+            Ok(client_res) => client_res.map_err(|e| {
+                println!("DEBUG: Client creation error: {}", e);
+               format_connection_error(&context_name, &e.to_string())
+            })?,
+            Err(e) => return Err(format!("Spawn error: {}", e)),
+        },
+        Err(_) => {
+             // Timeout happened!
+             println!("DEBUG: Client creation timed out after 25s");
+             // Return the Azure Login Required error directly to trigger the UI
+             return Err(format!("AZURE_LOGIN_REQUIRED|{}|Azure authentication timed out (client creation). Please log in.|az login", context_name));
+        }
+    };
 
     // Verify connection with a lightweight API call (with timeout)
     let api_check = tokio::time::timeout(
@@ -244,7 +289,14 @@ pub async fn set_kube_config(
     ).await;
 
     match api_check {
-        Ok(Ok(_)) => Ok(format!("Connected to {}", context_name)),
+        Ok(Ok(_)) => {
+            // Success! Persist connection change to kubeconfig file so CLI tools (helm, vcluster) see it
+            if let Err(e) = persist_context_change(&path, &context_name) {
+                println!("Warning: Failed to persist context change to kubeconfig: {}", e);
+                // Don't fail the connections, just warn
+            }
+            Ok(format!("Connected to {}", context_name))
+        },
         Ok(Err(e)) => {
             let err_str = e.to_string();
             Err(format_connection_error(&context_name, &err_str))
@@ -268,6 +320,28 @@ fn format_connection_error(context_name: &str, err_str: &str) -> String {
         );
     }
 
+    // Azure Device Code Flow (e.g. MFA / Device Login required)
+    if err_lower.contains("devicecodecredential") || err_lower.contains("to sign in, use a web browser") {
+        // Try to extract the friendly message
+        if let Some(start_idx) = err_str.find("To sign in, use a web browser") {
+             let msg = if let Some(end_idx) = err_str[start_idx..].find(" to authenticate") {
+                 &err_str[start_idx..start_idx + end_idx]
+             } else {
+                 &err_str[start_idx..]
+             };
+             return format!(
+                 "AZURE_DEVICE_CODE|{}|{}|",
+                 context_name, msg
+             );
+        } else {
+             // Fallback: We know it's a device code issue but didn't get the URL/Code (likely timed out)
+             return format!(
+                 "AZURE_LOGIN_REQUIRED|{}|Azure authentication timed out. Please log in via terminal.|az login",
+                 context_name
+             );
+        }
+    }
+
     // Azure AD token expired or invalid
     if err_lower.contains("aadsts700082") || err_lower.contains("refresh token has expired") {
         let tenant = extract_between(err_str, "--tenant \"", "\"").unwrap_or("YOUR_TENANT_ID");
@@ -277,7 +351,6 @@ fn format_connection_error(context_name: &str, err_str: &str) -> String {
         );
     }
     
-    // ... [Other checks, kept simple for brevity or can implement full logic]
     // Default fallback
     format!(
         "UNKNOWN_ERROR|{}|Failed to connect: {}|",
@@ -335,4 +408,41 @@ pub async fn get_current_context_name(state: State<'_, AppState>, custom_path: O
     };
     
     Ok(kubeconfig.current_context.unwrap_or_else(|| "default".to_string()))
+}
+
+// Helper to persist context change to kubeconfig file
+// This ensures that external CLI tools (like vcluster, helm, kubectl) automatically use the new context
+fn persist_context_change(path: &Option<String>, context_name: &str) -> Result<(), String> {
+    // Determine path
+    let kubeconfig_path = if let Some(ref p) = path {
+        PathBuf::from(p)
+    } else {
+        match std::env::var("HOME") {
+            Ok(home) => PathBuf::from(home).join(".kube").join("config"),
+            Err(_) => return Err("Could not find HOME directory".to_string()),
+        }
+    };
+
+    // Read file
+    let content = fs::read_to_string(&kubeconfig_path)
+        .map_err(|e| format!("Failed to read kubeconfig: {}", e))?;
+
+    // Parse YAML
+    let mut config: serde_yaml::Value = serde_yaml::from_str(&content)
+        .map_err(|e| format!("Failed to parse kubeconfig: {}", e))?;
+
+    // Update current-context
+    config["current-context"] = serde_yaml::Value::String(context_name.to_string());
+
+    // Serialize
+    let new_content = serde_yaml::to_string(&config)
+        .map_err(|e| format!("Failed to serialize kubeconfig: {}", e))?;
+
+    // Write back
+    let mut file = fs::File::create(&kubeconfig_path)
+        .map_err(|e| format!("Failed to write kubeconfig: {}", e))?;
+    file.write_all(new_content.as_bytes())
+        .map_err(|e| format!("Failed to write kubeconfig: {}", e))?;
+
+    Ok(())
 }
