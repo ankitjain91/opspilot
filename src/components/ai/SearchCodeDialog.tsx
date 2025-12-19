@@ -50,7 +50,7 @@ export function SearchCodeDialog({ isOpen, onClose, onSearch, initialQuery }: Se
             // In this app, `agentOrchestrator.ts` uses `BASE_URL = 'http://localhost:8000'`.
             // I should use that or look for a helper. `ClusterChatPanel` uses `fetch`.
 
-            const res = await fetch('http://localhost:8000/local-repos-config');
+            const res = await fetch('http://localhost:8765/local-repos-config');
             if (res.ok) {
                 const data = await res.json();
                 setLocalRepos(data.local_repos || []);
@@ -64,7 +64,7 @@ export function SearchCodeDialog({ isOpen, onClose, onSearch, initialQuery }: Se
 
     const saveLocalRepos = async (repos: string[]) => {
         try {
-            await fetch('http://localhost:8000/local-repos-config', {
+            await fetch('http://localhost:8765/local-repos-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ local_repos: repos })

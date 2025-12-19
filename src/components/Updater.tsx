@@ -45,6 +45,7 @@ export function Updater({ onStateChange }: UpdaterProps) {
     const [showModal, setShowModal] = useState(false);
     const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
     const [errorMessage, setErrorMessage] = useState<string>('');
+    const [downloadProgress, setDownloadProgress] = useState(0);
 
     // Sync global state
     useEffect(() => {
@@ -58,12 +59,40 @@ export function Updater({ onStateChange }: UpdaterProps) {
         setShowModal(false);
         setState('downloading');
         setShowToast(true);
+        setDownloadProgress(0);
+
+        let downloaded = 0;
+        let total = 0;
+
         try {
-            await pendingUpdate.downloadAndInstall();
+            await pendingUpdate.downloadAndInstall((event) => {
+                console.log('[Updater] Event:', event);
+                switch (event.event) {
+                    case 'Started':
+                        total = event.data.contentLength || 0;
+                        console.log('[Updater] Started. Total:', total);
+                        if (total === 0) {
+                            setDownloadProgress(-1);
+                        } else {
+                            setDownloadProgress(1);
+                        }
+                        break;
+                    case 'Progress':
+                        downloaded += event.data.chunkLength;
+                        if (total > 0) {
+                            setDownloadProgress(Math.round((downloaded / total) * 100));
+                        }
+                        break;
+                    case 'Finished':
+                        setDownloadProgress(100);
+                        break;
+                }
+            });
             await relaunch();
         } catch (err) {
             console.error('Failed to install update:', err);
             setState('error');
+            setErrorMessage(String(err));
         }
     }, []);
 
@@ -323,7 +352,26 @@ export function Updater({ onStateChange }: UpdaterProps) {
                         </svg>
                     )}
                     <style>{`@keyframes updater-spin { to { transform: rotate(360deg); } }`}</style>
-                    {msg}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span>{state === 'downloading' ? (downloadProgress >= 0 ? `Downloading... ${downloadProgress}%` : 'Downloading update...') : msg}</span>
+                        {state === 'downloading' && downloadProgress >= 0 && (
+                            <div style={{
+                                width: '100%',
+                                height: '4px',
+                                background: 'rgba(255,255,255,0.2)',
+                                borderRadius: '2px',
+                                marginTop: '2px',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    width: `${downloadProgress}%`,
+                                    height: '100%',
+                                    background: 'white',
+                                    transition: 'width 0.2s ease-out'
+                                }} />
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </>

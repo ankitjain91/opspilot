@@ -1661,6 +1661,7 @@ class DirectAgentRequest(BaseModel):
     kube_context: str = ""
     thread_id: str = "default_session"
     llm_provider: str | None = None
+    tool_subset: str | None = None  # "full", "code_search", "k8s_only"
 
 
 @app.post("/analyze-direct")
@@ -1811,12 +1812,41 @@ You have access to the user's local source code repositories.
             command_history = []
             pending_command = None  # Track command from tool_use to pair with tool_result
 
+            # Determine mode-specific settings
+            system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
+            restricted_tools = False
+            
+            # Code Search Mode: Strict Read-Only, Local Only
+            if request.tool_subset == "code_search":
+                restricted_tools = True
+                mcp_config = None # Disable GitHub MCP entirely
+                system_prompt = """You are a specialized Code Search Agent.
+Your ONLY goal is to find relevant code in the local repositories that explains the user's issue.
+
+CRITICAL RESTRICTIONS:
+1. READ ONLY: You may NOT edit files. Use `cat` or `read` to view files.
+2. LOCAL TOOLS ONLY: Use `grep`, `find`, `ls` (via bash).
+3. NO KUBERNETES: Do not run `kubectl`, `helm`, or any cluster commands.
+4. NO EXTERNAL CALLS: Do not use git network commands.
+
+Protocol:
+1. Search for error messages or keywords from the user's query.
+2. Read the relevant files to understand the context.
+3. Suggest potential fixes based on the code logic (do NOT apply them).
+"""
+                print(f"[direct-agent] 🔒 Code Search Mode enabled (No MCP, Read-Only, No Kubectl)", flush=True)
+
+            final_answer = ""
+            command_history = []
+            pending_command = None  # Track command from tool_use to pair with tool_result
+
             async for event in backend.call_streaming_with_tools(
                 prompt=user_prompt,
-                system_prompt=DIRECT_AGENT_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 kube_context=request.kube_context,
                 temperature=0.2,
                 session_id=request.thread_id,
+                restricted_tools=restricted_tools,
                 conversation_history=conversation_history,
                 mcp_config=mcp_config
             ):

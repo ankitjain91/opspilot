@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
-import { NotificationProvider } from "./components/notifications/NotificationContext";
+import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
 
 import { Dashboard } from './components/dashboard/Dashboard';
 import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
@@ -62,6 +62,7 @@ function AppContent() {
   const [isConnected, setIsConnected] = useState(false);
   const [showAzure, setShowAzure] = useState(false);
   const { showToast } = useToast();
+  const { clearAll } = useNotifications();
 
   // Global cluster chat state
   const [showClusterChat, setShowClusterChat] = useState(false);
@@ -136,6 +137,7 @@ function AppContent() {
     if (typeof currentCtx === 'string') {
       if (prevContextRef.current && prevContextRef.current !== currentCtx) {
         showToast(`Switched context to '${currentCtx}'`, 'info');
+        clearAll(); // Clear stale notifications from previous context
       }
       prevContextRef.current = currentCtx;
     }

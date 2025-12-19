@@ -103,7 +103,8 @@ async function runDirectAgent(
     llmProvider: string,
     onProgress?: (msg: string) => void,
     onStep?: (step: AgentStep) => void,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    toolSubset?: string // "code_search", "k8s_only", etc.
 ): Promise<string> {
     const response = await fetch(`${PYTHON_AGENT_URL}/analyze-direct`, {
         method: 'POST',
@@ -115,6 +116,7 @@ async function runDirectAgent(
             query,
             kube_context: kubeContext || '',
             llm_provider: llmProvider,
+            tool_subset: toolSubset
         }),
         signal: abortSignal,
     });
@@ -189,6 +191,7 @@ async function runDirectAgent(
     return finalResponse || 'No response generated';
 }
 
+
 async function ensureAgentRunning(): Promise<boolean> {
     // First check if already running
     if (await checkPythonAgentAvailable()) {
@@ -241,7 +244,8 @@ async function runPythonAgent(
     threadId?: string,
     embeddingModel?: string,
     approvedCommand?: boolean,
-    onApprovalRequired?: (context: any) => void
+    onApprovalRequired?: (context: any) => void,
+    toolSubset?: string
 ): Promise<string> {
     // Pre-flight check: ensure the Python agent is running (auto-start if needed)
     onProgress?.('🔍 Checking agent server...');
@@ -254,7 +258,7 @@ async function runPythonAgent(
     if (llmProvider === 'claude-code' || llmProvider === 'codex-cli') {
         console.log(`[AgentOrchestrator] Using direct agent for ${llmProvider} (fast path)`);
         onProgress?.('🚀 Direct investigation...');
-        return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal);
+        return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal, toolSubset);
     }
 
     onProgress?.('🧠 Reasoning...');
@@ -557,7 +561,7 @@ export async function runAgentLoop(
     onStepCompleted?: (step: number, planSummary: string) => void,
     onStepFailed?: (step: number, error: string) => void,
     onPlanComplete?: (totalSteps: number) => void,
-    baseParams?: { thread_id?: string; approved?: boolean; onApprovalRequired?: (context: any) => void }
+    baseParams?: { thread_id?: string; approved?: boolean; onApprovalRequired?: (context: any) => void; tool_subset?: string }
 ): Promise<string> {
 
     try {
@@ -596,7 +600,8 @@ export async function runAgentLoop(
             baseParams?.thread_id,
             config.embedding_model || undefined,
             baseParams?.approved,
-            baseParams?.onApprovalRequired
+            baseParams?.onApprovalRequired,
+            baseParams?.tool_subset
         );
 
 

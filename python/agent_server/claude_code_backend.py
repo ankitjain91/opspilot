@@ -267,7 +267,8 @@ Example for respond:
         kube_context: str = None,
         session_id: str = None,
         conversation_history: List[Dict[str, str]] = None,
-        mcp_config: dict = None  # MCP server config to pass to Claude CLI
+        mcp_config: dict = None,  # MCP server config to pass to Claude CLI
+        restricted_tools: bool = False  # If True, blocks kubectl and other non-search commands
     ) -> AsyncIterator[dict]:
         """
         Stream responses from Claude Code CLI with native tool execution.
@@ -746,7 +747,8 @@ Example for respond:
     async def execute_tool(
         self,
         tool_name: str,
-        tool_input: Dict[str, Any]
+        tool_input: Dict[str, Any],
+        restricted_tools: bool = False
     ) -> str:
         """
         Execute a tool that Claude Code requested.
@@ -764,15 +766,31 @@ Example for respond:
 
         handler = tool_handlers.get(tool_name.lower())
         if handler:
+            if tool_name.lower() == 'bash':
+                return await handler(tool_input, restricted_tools)
             return await handler(tool_input)
         else:
             return f"Unknown tool: {tool_name}"
 
-    async def _handle_bash_tool(self, input_data: Dict) -> str:
+    async def _handle_bash_tool(self, input_data: Dict, restricted_tools: bool = False) -> str:
         """Execute bash command."""
         command = input_data.get('command', '')
         if not command:
             return "Error: No command provided"
+
+        # Security check for local code search mode
+        if restricted_tools:
+            # Allow only strict read-only file search commands
+            allowed_prefixes = ["grep", "find", "ls", "cat", "git grep", "fs_grep"]
+            is_allowed = any(command.strip().startswith(prefix) for prefix in allowed_prefixes)
+            
+            # Explicitly block kubectl, helm, etc.
+            if command.strip().startswith("kubectl") or not is_allowed:
+                return (
+                    f"Error: Command '{command}' is NOT allowed in Code Search mode. "
+                    "You may ONLY use: grep, find, ls, cat, git grep. "
+                    "Do NOT run kubectl commands."
+                )
 
         try:
             process = await asyncio.create_subprocess_shell(

@@ -16,8 +16,20 @@ pub struct VCluster {
 
 #[tauri::command]
 pub async fn list_vclusters() -> Result<Vec<VCluster>, String> {
+    // Check if vcluster binary exists first
+    match Command::new("vcluster").arg("--version").output() {
+        Ok(_) => {}, // Binary exists
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Err("VCLUSTER_NOT_INSTALLED".to_string());
+            }
+            // For other errors, we try to proceed or just log? 
+            // Better to fail if we can't even run version.
+            return Err(format!("Failed to execute vcluster command: {}", e));
+        }
+    }
+
     // Run "vcluster list --output json"
-    // Note: The flag might be --output or -o.
     let output = Command::new("vcluster")
         .args(["list", "--output", "json"])
         .output()
@@ -34,27 +46,12 @@ pub async fn list_vclusters() -> Result<Vec<VCluster>, String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     
-    // JSON parsing
-    // The output might be a raw array or wrapped.
-    // Let's assume standard behavior: Array of objects.
-    // Adjusting based on common CLI behavior.
-    
-    // If output is empty, return empty list
     if stdout.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    // Try parsing as simple array of generic objects first to be safe
-    // Actually, let's use a flexible struct.
-    // Based on `vcluster list -o json` output (usually a list of installed vclusters)
-    
-    // Mock implementation fallback for reliability if CLI isn't actually there in this environment
-    // But assuming it is there.
-    
-    // Let's try to parse generically
     let items: Vec<serde_json::Value> = serde_json::from_str(&stdout)
         .or_else(|_| {
-            // Fallback: If it returns an object with "items"
              let obj: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| e.to_string())?;
              if let Some(arr) = obj.get("items").and_then(|i| i.as_array()) {
                  Ok(arr.clone())
@@ -86,15 +83,16 @@ pub async fn list_vclusters() -> Result<Vec<VCluster>, String> {
 
 #[tauri::command]
 pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, AppState>) -> Result<String, String> {
-    // Variables name/namespace already cloned above if needed, or we can clone here.
-    // The previous code had duplicated logic.
     use std::thread;
     use std::time::Duration;
+    use tokio::time::sleep;
 
     let vcluster_name = name.clone();
     let vcluster_ns = namespace.clone();
     let pid_store = state.vcluster_pid.clone();
 
+    // Spawn the vcluster connect command in a separate thread because it's a long-running blocking process
+    // We captured its PID to kill it on disconnect.
     thread::spawn(move || {
         use std::fs::File;
         use std::process::Stdio;
@@ -103,6 +101,7 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
         let stdout_file = File::create("/tmp/vcluster-connect.out").unwrap_or_else(|_| File::create("/dev/null").unwrap());
         let stderr_file = File::create("/tmp/vcluster-connect.err").unwrap_or_else(|_| File::create("/dev/null").unwrap());
 
+        // We use --background-proxy=false to force it to run in foreground so we can manage the process
         if let Ok(mut child) = Command::new("vcluster")
             .args(["connect", &vcluster_name, "-n", &vcluster_ns, "--background-proxy=false"])
             .stdin(Stdio::null())
@@ -110,15 +109,12 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
             .stderr(stderr_file)
             .spawn() 
         {
-            // Store PID so we can kill it later?
-            // Note: This lock holding might be short, but process runs long.
             if let Ok(mut pid_guard) = pid_store.lock() {
                 *pid_guard = Some(child.id());
             }
 
             println!("DEBUG: vcluster connect process started with PID: {}", child.id());
 
-            // Monitor the process
             match child.wait() {
                 Ok(status) => {
                     println!("DEBUG: vcluster connect process EXITED with status: {}", status);
@@ -132,65 +128,71 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
         }
     });
 
-    // Step 2: Wait for proxy to initialize (usually takes 2-3 seconds)
-    thread::sleep(Duration::from_secs(5));
+    // Smart polling mechanism
+    // We wait up to 15 seconds for the context to appear
+    let start = std::time::Instant::now();
+    let timeout = Duration::from_secs(15);
+    let vcluster_context_prefix = format!("vcluster_{}_{}", name, namespace);
+    let mut found_context = String::new();
 
-    // Step 3: Switch to the vcluster context explicitly
-    // vcluster creates a context named "vcluster_<name>_<namespace>_<original-context>"
-    // We'll use kubectl config use-context to switch
-    let use_context_output = Command::new("kubectl")
-        .args(["config", "use-context", &format!("vcluster_{}_{}*", name, namespace)])
-        .output();
+    println!("DEBUG: Waiting for vcluster context '{}'...", vcluster_context_prefix);
 
-    // If exact match fails, try to find the context by pattern
-    match use_context_output {
-        Ok(output) if output.status.success() => {
-            Ok(format!("Connected to vcluster {} in namespace {}", name, namespace))
-        }
-        _ => {
-            // Fallback: Get all contexts and find the vcluster one
-            let contexts_output = Command::new("kubectl")
-                .args(["config", "get-contexts", "-o", "name"])
-                .output()
-                .map_err(|e| format!("Failed to get contexts: {}", e))?;
+    while start.elapsed() < timeout {
+        // Poll for contexts
+        let contexts_output = Command::new("kubectl")
+            .args(["config", "get-contexts", "-o", "name"])
+            .output();
 
-            if contexts_output.status.success() {
-                let contexts = String::from_utf8_lossy(&contexts_output.stdout);
-                let vcluster_prefix = format!("vcluster_{}_{}", name, namespace);
-
-                if let Some(context) = contexts.lines().find(|c| c.starts_with(&vcluster_prefix)) {
-                    // Switch to found context
-                    let switch_output = Command::new("kubectl")
-                        .args(["config", "use-context", context])
-                        .output()
-                        .map_err(|e| format!("Failed to switch context: {}", e))?;
-
-                    if switch_output.status.success() {
-                        // Clear all backend caches after context switch
-                        if let Ok(mut cache) = state.discovery_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.cluster_stats_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.vcluster_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.pod_limits_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; }
-                        if let Ok(mut cache) = state.initial_data_cache.try_lock() { *cache = None; }
-
-                        // Persist the new context in state so get_current_context_name returns it immediately
-                        if let Ok(mut ctx) = state.selected_context.lock() {
-                            *ctx = Some(context.to_string());
-                        }
-
-                        return Ok(format!("Connected to vcluster {} in namespace {}", name, namespace));
-                    } else {
-                        return Err(format!("Failed to switch to vcluster context: {}",
-                            String::from_utf8_lossy(&switch_output.stderr)));
-                    }
+        if let Ok(output) = contexts_output {
+            if output.status.success() {
+                let contexts = String::from_utf8_lossy(&output.stdout);
+                
+                // Look for strictly matching prefix to avoid false positives
+                if let Some(ctx) = contexts.lines().find(|c| c.starts_with(&vcluster_context_prefix)) {
+                    found_context = ctx.to_string();
+                    println!("DEBUG: Found context: {}", found_context);
+                    break;
                 }
             }
-
-            Err("vcluster proxy started but context switch failed. Try manually: kubectl config get-contexts".to_string())
         }
+        
+        // Wait 1s using async sleep to avoid blocking the runtime
+        sleep(Duration::from_millis(1000)).await;
     }
+
+    if found_context.is_empty() {
+        // Read stderr from the log file to give a hint
+        let err_log = std::fs::read_to_string("/tmp/vcluster-connect.err").unwrap_or_default();
+        return Err(format!("Timed out waiting for vcluster context. Check /tmp/vcluster-connect.err: {}", 
+            err_log.lines().last().unwrap_or("No output recorded")));
+    }
+
+    // Switch to the found context
+    println!("DEBUG: Switching to context: {}", found_context);
+    let switch_output = Command::new("kubectl")
+        .args(["config", "use-context", &found_context])
+        .output()
+        .map_err(|e| format!("Failed to execute kubectl config use-context: {}", e))?;
+
+    if !switch_output.status.success() {
+        return Err(format!("Failed to switch context: {}", String::from_utf8_lossy(&switch_output.stderr)));
+    }
+
+    // Context switch successful - clear caches
+    if let Ok(mut cache) = state.discovery_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.vcluster_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.pod_limits_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.initial_data_cache.try_lock() { *cache = None; }
+    if let Ok(mut cache) = state.client_cache.try_lock() { *cache = None; } // duplicate in original, kept for safety
+
+    // Update selected context state
+    if let Ok(mut ctx) = state.selected_context.lock() {
+        *ctx = Some(found_context.clone());
+    }
+
+    Ok(format!("Connected to vcluster {} in namespace {}", name, namespace))
 }
 
 #[tauri::command]

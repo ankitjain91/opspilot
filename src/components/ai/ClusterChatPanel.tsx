@@ -241,7 +241,7 @@ export function ClusterChatPanel({
     const [isCancelling, setIsCancelling] = useState(false);
 
     // Ref to hold sendMessage for use in callbacks defined before it
-    const sendMessageRef = useRef<(msg: string, context?: string) => void>(() => { });
+    const sendMessageRef = useRef<(msg: string, context?: string, toolSubset?: string) => void>(() => { });
 
     // Investigation chain-of-thought state (visible to user)
     const [investigationProgress, setInvestigationProgress] = useState<{
@@ -524,11 +524,11 @@ export function ClusterChatPanel({
 
         setSearchingGitHub(`group-${groupIdx}`);
 
-        const displayMessage = `Searching GitHub for: ${query}`;
-        const hiddenInstructions = `Search GitHub for code related to: ${query}\n\nUse the GitHub MCP tools to find relevant source code, recent commits, or issues.`;
+        const displayMessage = `Searching Codebase for: ${query}`;
+        const hiddenInstructions = `Search local repositories for code related to: ${query}\n\nUse restricted local search tools (grep, find) to find relevant code. Do NOT run kubectl.`;
 
-        // Trigger analysis with clean UI message + hidden instructions
-        await sendMessageRef.current(displayMessage, hiddenInstructions);
+        // Trigger analysis with clean UI message + hidden instructions + tool restrictions
+        await sendMessageRef.current(displayMessage, hiddenInstructions, "code_search");
 
         setSearchingGitHub(null);
     }, [searchDialogState, searchingGitHub]);
@@ -574,7 +574,7 @@ export function ClusterChatPanel({
 
     // ... (helper functions) ...
 
-    const sendMessage = async (message: string, hiddenContext?: string) => {
+    const sendMessage = async (message: string, hiddenContext?: string, toolSubset?: string) => {
         if (!message.trim() || llmLoading) return;
 
         // Create new abort controller for this request
@@ -1104,24 +1104,24 @@ export function ClusterChatPanel({
         }
     };
 
-    // If minimized, show just a small pill (only if not embedded)
+    // If minimized, show just a small pill (only if not embedded) - Neon Cyberpunk Style
     if (isMinimized && !embedded) {
         return createPortal(
             <div
                 onClick={onToggleMinimize}
-                className="fixed bottom-4 right-4 z-50 flex items-center gap-2.5 px-5 py-2.5 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 hover:from-violet-500 hover:via-purple-500 hover:to-fuchsia-500 rounded-2xl shadow-xl shadow-purple-500/25 cursor-pointer transition-all duration-300 group hover:scale-105 hover:shadow-purple-500/40"
+                className="fixed bottom-4 right-4 z-50 flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-[#0a0a12] via-[#0d0d18] to-[#0a0a12] border border-cyan-500/40 rounded-xl shadow-2xl shadow-cyan-500/20 cursor-pointer transition-all duration-300 group hover:scale-105 hover:shadow-cyan-500/40 hover:border-cyan-400/60 backdrop-blur-xl"
             >
                 <div className="relative">
-                    <Sparkles size={18} className="text-white" />
-                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                    <Sparkles size={18} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
+                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                 </div>
-                <span className="text-white font-semibold text-sm tracking-tight">AI Assistant</span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-violet-300 font-bold text-sm tracking-wider uppercase">AI NEXUS</span>
                 {chatHistory.length > 0 && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-medium backdrop-blur-sm">{chatHistory.filter(m => m.role === 'assistant').length}</span>
+                    <span className="text-[10px] px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold tracking-wide shadow-inner">{chatHistory.filter(m => m.role === 'assistant').length}</span>
                 )}
                 <button
                     onClick={(e) => { e.stopPropagation(); onClose?.(); }}
-                    className="ml-1 p-1 rounded-full hover:bg-white/20 text-white/70 hover:text-white transition-all opacity-70 hover:opacity-100"
+                    className="ml-1 p-1.5 rounded-lg hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 transition-all border border-transparent hover:border-rose-500/40"
                 >
                     <X size={14} />
                 </button>
@@ -1132,25 +1132,27 @@ export function ClusterChatPanel({
 
     const panelContent = (
         <div className={embedded
-            ? "flex flex-col h-full w-full bg-[#111113] border-l border-white/5 relative"
-            : `fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[480px] h-[640px]'} z-50 flex flex-col bg-gradient-to-b from-[#1a1a2e] to-[#16161a] border border-white/10 rounded-2xl shadow-2xl shadow-black/50 transition-all duration-300 overflow-hidden`
+            ? "flex flex-col h-full w-full bg-[#0a0a0f] border-l border-cyan-500/10 relative overflow-hidden"
+            : `fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[480px] h-[640px]'} z-50 flex flex-col bg-gradient-to-b from-[#0a0a12] via-[#0d0d14] to-[#0a0a0f] border border-cyan-500/20 rounded-2xl shadow-2xl shadow-cyan-500/10 transition-all duration-300 overflow-hidden`
         }>
-            {/* Decorative background effects */}
-            <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-purple-500/10 via-fuchsia-500/5 to-transparent pointer-events-none" />
-            <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+            {/* Subtle grid background */}
+            <div className="absolute inset-0 matrix-grid pointer-events-none opacity-30" />
 
-            {/* Header */}
-            <div className="relative z-50 flex items-center justify-between px-4 py-3.5 border-b border-white/10 bg-[#16161a] shrink-0 shadow-md">
+            {/* Neon glow orbs - contained within panel */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Header - Cyberpunk Style */}
+            <div className="relative z-50 flex items-center justify-between px-4 py-3.5 border-b border-cyan-500/20 bg-gradient-to-r from-[#0a0a12]/95 via-[#0d0d18]/95 to-[#0a0a12]/95 shrink-0 shadow-lg shadow-cyan-500/5 backdrop-blur-xl">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="relative shrink-0">
-                        <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-xl blur-sm opacity-60" />
-                        <div className="relative p-2 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
-                            <Sparkles size={16} className="text-white" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-violet-500 rounded-xl blur-md opacity-60" />
+                        <div className="relative p-2.5 rounded-xl bg-gradient-to-br from-cyan-600/90 to-violet-600/90 border border-cyan-400/30 shadow-lg shadow-cyan-500/30">
+                            <Sparkles size={16} className="text-white drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
                         </div>
                     </div>
                     <div className="min-w-0">
-                        <h3 className="font-semibold text-white text-sm tracking-tight truncate">AI Assistant</h3>
+                        <h3 className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-violet-300 text-sm tracking-tight truncate">AI Assistant</h3>
                         <div className="flex items-center gap-2 flex-wrap">
                             <button
                                 onClick={() => setShowSettings(true)}
@@ -1180,8 +1182,8 @@ export function ClusterChatPanel({
                     </div>
                 </div>
 
-                {/* Header Actions */}
-                <div className="flex items-center gap-1.5 bg-[#27272a] rounded-lg p-1 border border-white/20 shadow-md shrink-0 ml-2">
+                {/* Header Actions - Cyber Control Panel */}
+                <div className="flex items-center gap-1 bg-[#0a0a12]/80 rounded-lg p-1.5 border border-cyan-500/20 shadow-lg shadow-cyan-500/5 shrink-0 ml-2 backdrop-blur-xl">
                     <button
                         onClick={() => {
                             setChatHistory([]);
@@ -1201,53 +1203,53 @@ export function ClusterChatPanel({
                             setThreadId(newThreadId);
                             localStorage.setItem('agent_thread_id', newThreadId);
                         }}
-                        className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-md transition-all"
+                        className="p-2 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all border border-transparent hover:border-rose-500/30"
                         title="Clear Chat History"
                     >
                         <Trash2 size={14} />
                     </button>
                     {llmLoading && (
                         <>
-                            <div className="w-px h-3 bg-white/10 mx-0.5" />
+                            <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
                             <button
                                 onClick={cancelAnalysis}
                                 disabled={isCancelling}
-                                className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-md transition-all disabled:opacity-50"
+                                className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-all disabled:opacity-50 border border-transparent hover:border-rose-500/40"
                                 title={isCancelling ? "Stopping..." : "Stop Generation"}
                             >
                                 <StopCircle size={14} className={isCancelling ? "animate-spin" : ""} />
                             </button>
                         </>
                     )}
-                    <div className="w-px h-3 bg-white/10 mx-0.5" />
+                    <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
                     <button
                         onClick={() => setShowSettings(true)}
-                        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                        className="p-2 rounded-lg hover:bg-cyan-500/10 text-zinc-500 hover:text-cyan-400 transition-all border border-transparent hover:border-cyan-500/30"
                         title="Settings"
                     >
                         <Settings size={14} />
                     </button>
-                    <div className="w-px h-3 bg-white/10 mx-0.5" />
+                    <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
                     <button
                         onClick={onToggleMinimize}
-                        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                        className="p-2 rounded-lg hover:bg-cyan-500/10 text-zinc-500 hover:text-cyan-400 transition-all border border-transparent hover:border-cyan-500/30"
                         title="Minimize"
                     >
                         <Minus size={14} />
                     </button>
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="p-1.5 rounded-md hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                        className="p-2 rounded-lg hover:bg-violet-500/10 text-zinc-500 hover:text-violet-400 transition-all border border-transparent hover:border-violet-500/30"
                         title={isExpanded ? "Restore" : "Expand"}
                     >
                         {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                     </button>
                     <button
                         onClick={onClose}
-                        className="p-1.5 rounded-md hover:bg-red-500/20 text-zinc-300 hover:text-red-400 transition-all"
+                        className="p-2 rounded-lg hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 transition-all border border-transparent hover:border-rose-500/40"
                         title="Close"
                     >
-                        <X size={16} />
+                        <X size={14} />
                     </button>
                 </div>
             </div>
@@ -1288,13 +1290,13 @@ export function ClusterChatPanel({
                 document.body
             )}
 
-            {/* Messages */}
+            {/* Messages - Cyber Scrollable Area */}
             <div
                 ref={messagesContainerRef}
-                className={`flex-1 min-h-0 scroll-smooth overflow-y-auto px-6 py-4 space-y-6 relative z-10`}
+                className={`flex-1 min-h-0 scroll-smooth overflow-y-auto px-6 py-4 space-y-6 relative z-10 cyber-scrollbar`}
             >
                 {/* Background decorative elements that scroll with content */}
-                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-violet-500/5 to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none" />
                 {/* Loading state while checking LLM */}
                 {checkingLLM && chatHistory.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-24 px-6">
@@ -1376,17 +1378,19 @@ export function ClusterChatPanel({
                     )
                 }
 
-                {/* Normal chat welcome screen - only show when LLM is ready AND NO ERROR */}
+                {/* Normal chat welcome screen - Futuristic Style */}
                 {
                     !checkingLLM && llmStatus?.connected && !llmStatus?.error && chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-10 px-6">
-                            <div className="relative mb-6">
-                                <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-2xl blur-xl opacity-20 animate-pulse" />
-                                <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/20 to-cyan-500/20 flex items-center justify-center border border-violet-500/20 backdrop-blur-sm">
-                                    <Sparkles size={36} className="text-violet-400" />
+                            {/* Animated logo container */}
+                            <div className="relative mb-8">
+                                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-violet-500 rounded-2xl blur-2xl opacity-30 animate-pulse" />
+                                <div className="absolute inset-[-4px] rounded-2xl bg-gradient-to-r from-cyan-500 via-violet-500 to-cyan-500 opacity-60 animate-[border-flow_3s_linear_infinite]" style={{ backgroundSize: '200% 100%' }} />
+                                <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0a0a12] to-[#0d0d18] flex items-center justify-center border border-cyan-500/30 backdrop-blur-xl shadow-2xl shadow-cyan-500/20">
+                                    <Sparkles size={40} className="text-cyan-400 drop-shadow-[0_0_20px_rgba(6,182,212,0.8)]" />
                                 </div>
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Hey there! 👋</h3>
+                            <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-violet-300 mb-2 tracking-wider uppercase">SYSTEM ONLINE</h3>
                             {loadingWelcomeJoke ? (
                                 <p className="text-sm text-zinc-400 text-center mb-1 max-w-[320px] italic animate-pulse">
                                     Thinking of something funny...
@@ -1442,19 +1446,19 @@ export function ClusterChatPanel({
                                     </p>
                                 )}
                             </div>
-                            <div className="flex flex-wrap gap-2 justify-center max-w-[360px]">
+                            <div className="flex flex-wrap gap-3 justify-center max-w-[400px]">
                                 {[
-                                    { icon: '🔍', text: 'Find cluster issues' },
-                                    { icon: '🚀', text: 'Auto-Diagnose Cluster' },
-                                    { icon: '🔄', text: 'Crashlooping pods' },
-                                    { icon: '📊', text: 'Health overview' }
+                                    { icon: '🔍', text: 'SCAN ISSUES', cmd: 'Find cluster issues' },
+                                    { icon: '🚀', text: 'AUTO-DIAGNOSE', cmd: 'Perform an autonomous deep dive on the cluster health. Use the Autonomous Playbook.' },
+                                    { icon: '🔄', text: 'CRASH ANALYSIS', cmd: 'Crashlooping pods' },
+                                    { icon: '📊', text: 'HEALTH STATUS', cmd: 'Health overview' }
                                 ].map(q => (
                                     <button
                                         key={q.text}
-                                        onClick={() => sendMessage(q.text === 'Auto-Diagnose Cluster' ? 'Perform an autonomous deep dive on the cluster health. Use the Autonomous Playbook.' : q.text)}
-                                        className="px-3.5 py-2 text-xs bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white rounded-xl transition-all border border-white/5 hover:border-white/10 flex items-center gap-2"
+                                        onClick={() => sendMessage(q.cmd)}
+                                        className="px-4 py-2.5 text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 rounded-lg transition-all border border-cyan-500/30 hover:border-cyan-400/50 flex items-center gap-2 shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/20 group"
                                     >
-                                        <span>{q.icon}</span>
+                                        <span className="text-base group-hover:scale-110 transition-transform">{q.icon}</span>
                                         {q.text}
                                     </button>
                                 ))}
@@ -1509,18 +1513,19 @@ export function ClusterChatPanel({
 
                         return (
                             <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                {/* User Message */}
+                                {/* User Message - Cyberpunk Style */}
                                 {group.user && (
                                     <div className="relative pl-10 pb-6 group/user">
-                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-[0_0_12px_rgba(139,92,246,0.5)] z-10" />
-                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/30 to-transparent" />
+                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-[0_0_20px_rgba(139,92,246,0.7)] z-10 animate-pulse" />
+                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/50 via-fuchsia-500/30 to-transparent" />
 
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-1.5">
-                                                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em]">Instruction</span>
+                                                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.25em] drop-shadow-[0_0_8px_rgba(139,92,246,0.5)]">// INPUT</span>
+                                                <div className="flex-1 h-px bg-gradient-to-r from-violet-500/30 to-transparent" />
                                             </div>
-                                            <div className="inline-block max-w-[90%] bg-white/[0.03] border border-white/10 rounded-2xl px-5 py-3.5 backdrop-blur-sm shadow-xl hover:bg-white/[0.05] transition-all duration-300">
-                                                <p className="text-[15px] text-zinc-100 font-medium leading-relaxed">{group.user.content}</p>
+                                            <div className="inline-block max-w-[90%] cyber-bubble-user rounded-xl px-5 py-4 shadow-xl shadow-violet-500/10 hover:shadow-violet-500/20 transition-all duration-300 corner-brackets">
+                                                <p className="text-[15px] text-zinc-100 font-medium leading-relaxed relative z-10">{group.user.content}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1538,19 +1543,21 @@ export function ClusterChatPanel({
                                     />
                                 ) : null}
 
-                                {/* Final Answer */}
+                                {/* Final Answer - Cyberpunk Assistant Bubble */}
                                 {group.answer && (
                                     <div className="relative pl-10 pb-6 group/answer">
-                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)] z-10" />
+                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-cyan-400 to-emerald-400 shadow-[0_0_20px_rgba(6,182,212,0.7)] z-10" />
+                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-cyan-500/50 via-emerald-500/30 to-transparent" />
 
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-[0.2em]">Resolution</span>
-                                                <Sparkles size={12} className="text-emerald-400 animate-pulse" />
+                                                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.25em] drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">// OUTPUT</span>
+                                                <div className="flex-1 h-px bg-gradient-to-r from-cyan-500/30 to-transparent" />
+                                                <Sparkles size={12} className="text-cyan-400 animate-pulse drop-shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
                                             </div>
-                                            <div className="bg-[#0d1117] rounded-2xl border border-white/5 overflow-hidden shadow-2xl relative">
-                                                {/* Decorative top border */}
-                                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500/0 via-emerald-500/30 to-emerald-500/0" />
+                                            <div className="cyber-bubble-assistant rounded-xl overflow-hidden shadow-2xl shadow-cyan-500/10 relative">
+                                                {/* Animated top border */}
+                                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-500 to-transparent holo-shimmer" />
 
                                                 <div className="px-5 py-4 prose prose-invert prose-sm max-w-none">
                                                     <ReactMarkdown
@@ -1590,22 +1597,23 @@ export function ClusterChatPanel({
                     })
                 }
 
-                {/* Loading State with Cancel Button */}
+                {/* Loading State - Cyber Processing Animation */}
                 {
                     llmLoading && (
                         <div className="relative pl-10 pb-6 animate-in fade-in slide-in-from-bottom-3 duration-500">
-                            {/* Timeline dot - pulsing */}
-                            <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-violet-600 shadow-[0_0_12px_rgba(124,58,237,0.5)] animate-pulse z-10" />
-                            <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/20 to-transparent" />
+                            {/* Timeline dot - neon pulse */}
+                            <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-cyan-400 to-violet-500 shadow-[0_0_20px_rgba(6,182,212,0.8)] z-10" />
+                            <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-cyan-500/50 via-violet-500/30 to-transparent" />
 
                             <div className="ml-2">
                                 <div className="flex items-center gap-3 mb-4">
-                                    <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                        Synthesizing
-                                        <div className="flex gap-1.5">
-                                            <div className="w-1 h-3 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0s]" />
-                                            <div className="w-1 h-4 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0.2s]" />
-                                            <div className="w-1 h-3 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0.4s]" />
+                                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-3 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">
+                                        // PROCESSING
+                                        {/* Cyber typing indicator */}
+                                        <div className="cyber-typing">
+                                            <span></span>
+                                            <span></span>
+                                            <span></span>
                                         </div>
                                     </span>
 
@@ -1613,16 +1621,19 @@ export function ClusterChatPanel({
                                     <button
                                         onClick={cancelAnalysis}
                                         disabled={isCancelling}
-                                        className="ml-auto flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/30 transition-all rounded-full disabled:opacity-50 tracking-wider uppercase"
+                                        className="ml-auto flex items-center gap-2 px-4 py-2 text-[10px] font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/80 border border-rose-500/40 transition-all rounded-lg disabled:opacity-50 tracking-wider uppercase shadow-lg shadow-rose-500/10 hover:shadow-rose-500/30"
                                     >
                                         <StopCircle size={12} className={isCancelling ? "animate-spin" : ""} />
-                                        {isCancelling ? 'Stopping...' : 'Stop'}
+                                        {isCancelling ? 'ABORT' : 'TERMINATE'}
                                     </button>
                                 </div>
 
                                 {!streamingPhase && (
-                                    <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-4 backdrop-blur-sm shadow-xl animate-pulse">
-                                        <p className="text-[14px] text-zinc-300 font-medium italic">{currentActivity}...</p>
+                                    <div className="cyber-bubble-assistant rounded-xl px-5 py-4 shadow-xl shadow-cyan-500/10">
+                                        <p className="text-[14px] text-cyan-200 font-medium flex items-center gap-2">
+                                            <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                                            {currentActivity}
+                                        </p>
                                     </div>
                                 )}
 
@@ -1804,16 +1815,16 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* Suggested Actions Chips */}
+            {/* Suggested Actions Chips - Neon Style */}
             {suggestedActions.length > 0 && !llmLoading && (
                 <div className="px-4 pb-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {suggestedActions.map((action, i) => (
                         <button
                             key={i}
                             onClick={() => sendMessage(action)}
-                            className="px-3.5 py-1.5 text-xs bg-violet-500/10 border border-violet-500/30 hover:bg-violet-500/20 hover:border-violet-500/50 text-violet-300 rounded-full transition-all flex items-center gap-1.5 group"
+                            className="px-4 py-2 text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-400/50 text-cyan-300 rounded-lg transition-all flex items-center gap-2 group shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/15"
                         >
-                            <Sparkles size={10} className="text-violet-400 group-hover:animate-pulse" />
+                            <Sparkles size={10} className="text-cyan-400 group-hover:animate-pulse drop-shadow-[0_0_4px_rgba(6,182,212,0.8)]" />
                             {action}
                         </button>
                     ))}
@@ -1870,9 +1881,12 @@ export function ClusterChatPanel({
                 initialQuery={searchDialogState.query}
             />
 
-            {/* Input */}
-            <div className="relative z-20 p-4 bg-[#16161a] border-t border-white/5">
-                <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/10 rounded-full shadow-lg shadow-black/20 backdrop-blur-md focus-within:border-violet-500/30 focus-within:bg-white/10 transition-all duration-300">
+            {/* Input - Neon Cyberpunk Style */}
+            <div className="relative z-20 p-4 bg-gradient-to-t from-[#0a0a0f] to-[#0d0d14] border-t border-cyan-500/20">
+                {/* Input glow effect */}
+                <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
+
+                <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 cyber-input rounded-xl backdrop-blur-md focus-within:border-cyan-400/60 focus-within:shadow-[0_0_30px_rgba(6,182,212,0.15)] transition-all duration-300">
                     <input
                         type="text"
                         value={userInput}
@@ -1880,19 +1894,23 @@ export function ClusterChatPanel({
                         disabled={llmLoading || !llmStatus?.connected || !!llmStatus?.error}
                         placeholder={
                             (!llmStatus?.connected || !!llmStatus?.error)
-                                ? "Setup required to chat..."
-                                : "Ask about your cluster..."
+                                ? "⚠ SYSTEM OFFLINE - Setup required..."
+                                : "Enter command sequence..."
                         }
-                        className="flex-1 px-4 py-2 bg-transparent border-none text-white text-sm placeholder-zinc-500 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600"
+                        className="flex-1 px-4 py-2.5 bg-transparent border-none text-cyan-50 text-sm placeholder-cyan-700/60 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600 font-medium tracking-wide"
                     />
                     <button
                         type="submit"
                         disabled={llmLoading || !userInput.trim() || !llmStatus?.connected || !!llmStatus?.error}
-                        className="p-2.5 rounded-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:text-zinc-500 text-white transition-all duration-200 shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30 disabled:shadow-none hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
+                        className="neon-button p-3 rounded-lg text-white transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
                     >
-                        <Send size={16} className={llmLoading ? 'animate-pulse' : ''} />
+                        <Send size={16} className={`drop-shadow-[0_0_8px_rgba(6,182,212,0.8)] ${llmLoading ? 'animate-pulse' : ''}`} />
                     </button>
                 </form>
+
+                {/* Decorative corner elements */}
+                <div className="absolute bottom-2 left-2 w-3 h-3 border-l-2 border-b-2 border-cyan-500/30 rounded-bl" />
+                <div className="absolute bottom-2 right-2 w-3 h-3 border-r-2 border-b-2 border-cyan-500/30 rounded-br" />
             </div>
         </div>
     );

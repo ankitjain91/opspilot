@@ -64,7 +64,7 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
     });
 
     // Fetch vclusters for this cluster - only on host clusters, not inside vclusters
-    const { data: vclusters, isLoading: vclustersLoading } = useQuery({
+    const { data: vclusters, isLoading: vclustersLoading, error: vclusterError } = useQuery({
         queryKey: ["vclusters", currentContext],
         queryFn: async () => {
             try {
@@ -81,13 +81,22 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
                     version: vc.created || '', // Mapping created to version/age field
                     connected: false, // Context check handles connection state
                 }));
-            } catch {
+            } catch (err: any) {
+                const errorStr = String(err);
+                if (errorStr.includes("VCLUSTER_NOT_INSTALLED")) {
+                    throw new Error("VCLUSTER_NOT_INSTALLED");
+                }
+                console.warn("Failed to list vclusters", err);
                 return [];
             }
         },
         staleTime: 1000 * 60 * 2, // 2 minutes - vclusters don't change often
         // Only fetch vclusters when on host cluster, not inside a vcluster
         enabled: !!currentContext && !isInsideVcluster,
+        retry: (failureCount, error) => {
+            if (error.message === "VCLUSTER_NOT_INSTALLED") return false;
+            return failureCount < 2;
+        }
     });
 
     const formatBytes = (bytes: number) => {
@@ -126,6 +135,8 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
             </div>
         );
     }
+
+
 
     // Prepare chart data
     const podStatusData = [
@@ -386,6 +397,38 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                     </button>
                 </div>
             </div>
+
+
+            {/* missing vcluster CLI Banner */}
+            {vclusterError?.message === "VCLUSTER_NOT_INSTALLED" && !isInsideVcluster && (
+                <div className="mb-6 bg-gradient-to-br from-indigo-900/40 via-purple-900/30 to-blue-900/40 rounded-xl p-5 border border-purple-500/30 flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-indigo-500/20 text-indigo-300 shrink-0">
+                        <Box size={24} />
+                    </div>
+                    <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                            Install vcluster CLI
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-normal border border-indigo-500/30">Optional</span>
+                        </h3>
+                        <p className="text-zinc-400 text-sm mt-1 mb-3">
+                            The `vcluster` binary was not found. Install it to create and manage virtual clusters directly from this dashboard.
+                        </p>
+                        <div className="bg-black/40 rounded-lg p-3 border border-indigo-500/20 font-mono text-xs text-indigo-300 flex items-center justify-between group">
+                            <span className="truncate mr-4">curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-darwin-arm64" && sudo install -c -m 0755 vcluster /usr/local/bin</span>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText('curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-darwin-arm64" && sudo install -c -m 0755 vcluster /usr/local/bin');
+                                    if ((window as any).showToast) (window as any).showToast('Command copied to clipboard', 'success');
+                                }}
+                                className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Copy command"
+                            >
+                                <Check size={14} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* vclusters Found Banner - Show if vclusters are detected (and we are on host) */}
             {vclusters && vclusters.length > 0 && !isInsideVcluster && (
