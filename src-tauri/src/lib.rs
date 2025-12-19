@@ -41,6 +41,9 @@ use embeddings::{check_embedding_model_status, init_embedding_model};
 pub fn run() {
     Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_state = AppState::new();
             app.manage(app_state);
