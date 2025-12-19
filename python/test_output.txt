@@ -1,9 +1,0 @@
-
-================================================================================
-TEST: find eventhubs
-Using Groq (llama-3.3-70b-versatile) for supervisor, Ollama for executor
-================================================================================
-
-
-❌ EXCEPTION: All connection attempts failed
-
