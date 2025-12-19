@@ -123,10 +123,15 @@ ROUTING_ENABLED = False # Enforce Brain model for all queries
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 
 # ---- Logging Config ----
-LOG_DIR = os.environ.get("K8S_AGENT_LOG_DIR", "./logs")
-LOG_DIR = os.environ.get("K8S_AGENT_LOG_DIR", "./logs")
+# ---- Logging Config ----
+# Use user home directory for logs/cache to ensure writability in release builds
+_home = os.path.expanduser("~")
+_base_dir = os.path.join(_home, ".opspilot")
+
+LOG_DIR = os.environ.get("K8S_AGENT_LOG_DIR", os.path.join(_base_dir, "logs"))
 LOG_FILE = "agent_history.jsonl"
-CACHE_DIR = os.environ.get("K8S_AGENT_CACHE_DIR", "./cache")
+CACHE_DIR = os.environ.get("K8S_AGENT_CACHE_DIR", os.path.join(_base_dir, "cache"))
+KB_DIR = os.environ.get("K8S_AGENT_KB_DIR", os.path.join(_base_dir, "knowledge"))
 
 # ---- Typo Corrections ----
 TYPO_CORRECTIONS = {
