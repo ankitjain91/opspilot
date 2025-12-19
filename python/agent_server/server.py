@@ -437,7 +437,7 @@ async def get_models(request: ModelsRequest):
     return {"models": models}
 
 class TestRequest(BaseModel):
-    provider: Literal["groq", "openai", "ollama", "anthropic", "claude-code"]
+    provider: Literal["groq", "openai", "ollama", "anthropic", "claude-code", "codex-cli"]
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
@@ -451,9 +451,11 @@ async def test_llm_connection(request: TestRequest):
     For Claude Code: checks if CLI is installed and responsive.
     """
     try:
-        # Special handling for Claude Code - use quick CLI check instead of full LLM call
+        # Special handling for Claude Code and Codex CLI
         if request.provider == "claude-code":
             return await _test_claude_code_connection()
+        if request.provider == "codex-cli":
+            return await _test_codex_connection()
 
         # Step 1: List models (quick credential check)
         models = await list_available_models(request.provider, request.api_key, request.base_url)
@@ -559,6 +561,73 @@ async def _test_claude_code_connection():
     except Exception as e:
         return {
             "provider": "claude-code",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": str(e),
+            "completion_error": str(e),
+        }
+
+async def _test_codex_connection():
+    """Quick test for Codex CLI availability."""
+    import asyncio
+
+    try:
+        # Quick check: run 'codex --version'
+        process = await asyncio.create_subprocess_exec(
+            "codex", "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=10.0
+        )
+
+        if process.returncode == 0:
+            version_info = stdout.decode('utf-8', errors='replace').strip()
+            return {
+                "provider": "codex-cli",
+                "connected": True,
+                "models_count": 1, 
+                "completion_ok": True,
+                "error": None,
+                "completion_error": None,
+                "version": version_info,
+            }
+        else:
+            error_msg = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
+            return {
+                "provider": "codex-cli",
+                "connected": False,
+                "models_count": 0,
+                "completion_ok": False,
+                "error": error_msg,
+                "completion_error": error_msg,
+            }
+
+    except asyncio.TimeoutError:
+        return {
+            "provider": "codex-cli",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": "Codex CLI timed out (>10s)",
+            "completion_error": "CLI unresponsive",
+        }
+    except FileNotFoundError:
+        return {
+            "provider": "codex-cli",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": "Codex CLI not found. Install with: npm install -g @openai/codex-cli",
+            "completion_error": "CLI not installed",
+        }
+    except Exception as e:
+        return {
+            "provider": "codex-cli",
             "connected": False,
             "models_count": 0,
             "completion_ok": False,
@@ -1450,6 +1519,7 @@ class DirectAgentRequest(BaseModel):
     query: str
     kube_context: str = ""
     thread_id: str = "default_session"
+    llm_provider: str | None = None
 
 
 @app.post("/analyze-direct")
@@ -1465,7 +1535,17 @@ async def analyze_direct(request: DirectAgentRequest):
     Returns SSE stream with progress events and final answer.
     """
     from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT, DIRECT_AGENT_USER_PROMPT
-    from .claude_code_backend import get_claude_code_backend
+    
+    # Imports backend dynamically based on provider
+    backend = None
+    if request.llm_provider == "codex-cli":
+        from .codex_backend import get_codex_backend
+        backend = get_codex_backend()
+        print(f"[direct-agent] 🤖 Using Codex CLI backend", flush=True)
+    else:
+        from .claude_code_backend import get_claude_code_backend
+        backend = get_claude_code_backend()
+        print(f"[direct-agent] 🤖 Using Claude Code backend", flush=True)
 
     print(f"[direct-agent] 🚀 Starting direct investigation: {request.query}", flush=True)
     print(f"[direct-agent] 📋 Thread ID: {request.thread_id}", flush=True)
@@ -1558,8 +1638,8 @@ Start with targeted searches, then read specific files as needed.
 
             yield f"data: {json.dumps(emit_event('status', {'message': 'Starting investigation...', 'type': 'info'}))}\n\n"
 
-            # 3. Call Claude Code with streaming - let it use native Bash for kubectl
-            backend = get_claude_code_backend()
+            # 3. Call Backend (Claude Code or Codex) with streaming
+            # backend is already instantiated above
 
             final_answer = ""
             command_history = []

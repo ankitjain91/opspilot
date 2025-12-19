@@ -30,9 +30,10 @@ interface UnifiedDetailsProps {
     loading: boolean;
     error?: Error | null;
     onClose?: () => void; // Optional close handler if deep dive is modal
+    onNavigateResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void; // Navigate to related resource
 }
 
-export function UnifiedResourceDetails({ resource, fullObject, currentContext, loading, error, onClose }: UnifiedDetailsProps) {
+export function UnifiedResourceDetails({ resource, fullObject, currentContext, loading, error, onClose, onNavigateResource }: UnifiedDetailsProps) {
     const [activeTab, setActiveTab] = useState<'overview' | 'logs' | 'terminal' | 'events'>('overview');
     const [isRestarting, setIsRestarting] = useState(false);
     const [isScaling, setIsScaling] = useState(false);
@@ -305,6 +306,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                             currentContext={currentContext}
                             onViewLogs={() => setActiveTab('logs')}
                             onUpdate={handlePatch}
+                            onNavigateResource={onNavigateResource}
                         />
                     </div>
                 )}

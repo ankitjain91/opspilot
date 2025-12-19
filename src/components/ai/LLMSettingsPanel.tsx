@@ -1,17 +1,12 @@
 
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, Eye, EyeOff, Copy, AlertCircle, Terminal, Download, Zap, BookOpen, Brain, Network, HardDrive, RefreshCw, Server, ArrowRight, Info, ShieldCheck, Activity, Cpu, Loader2, CheckCircle2, Github } from 'lucide-react';
+import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
-import { DEFAULT_LLM_CONFIGS } from './constants';
+import { LLMConfig } from '../../types/ai';
+import { DEFAULT_LLM_CONFIG } from './constants';
 import { KBProgress } from './useSentinel';
-import openAiLogo from '../../assets/openai-logo.png';
-import anthropicLogo from '../../assets/anthropic-logo.png';
-import ollamaLogo from '../../assets/ollama-logo.png';
 
 const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
-
-type ProviderGroup = 'openai' | 'anthropic' | 'local' | 'groq';
 
 interface EmbeddingModelStatus {
     model: string;
@@ -31,121 +26,39 @@ interface KBEmbeddingsStatus {
     embedding_model_available?: boolean;
 }
 
+interface ClaudeCodeStatus {
+    connected: boolean;
+    error?: string;
+}
 
-
-const SetupGuide = ({ provider, status }: { provider: LLMProvider, status: LLMStatus | null }) => {
-    const isAgentDown = status?.error?.includes('Failed to fetch') || status?.error?.includes('NetworkError') || status?.error?.includes('Connection refused');
-    const isAuthFailed = status?.connected === false && !isAgentDown;
-
-    return (
-        <div className="mt-3 p-3 bg-zinc-900/80 rounded-lg border border-white/5 space-y-3">
-            <div className="flex items-center gap-2 text-zinc-500 border-b border-white/5 pb-2 mb-2">
-                <Info size={12} />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Setup Checklist</span>
-            </div>
-
-            {/* 1. Agent Status */}
-            <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAgentDown ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
-                <div>
-                    <div className="text-[11px] font-bold text-zinc-300">Agent Sidecar (Python)</div>
-                    <div className="text-[10px] text-zinc-500 leading-tight">
-                        {isAgentDown ? (
-                            <span className="text-red-400">
-                                ⚠️ Not Detected. Run <code>bin/agent-server</code> in your terminal.
-                            </span>
-                        ) : (
-                            "Connected and listening on localhost:8765"
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* 2. Provider Dependencies */}
-            {provider === 'ollama' && (
-                <div className="flex items-start gap-3">
-                    <div className="mt-0.5 w-2 h-2 rounded-full shrink-0 bg-zinc-500" />
-                    <div>
-                        <div className="text-[11px] font-bold text-zinc-300">Ollama Application</div>
-                        <div className="text-[10px] text-zinc-500 leading-tight">
-                            Must be installed and running. <a href="https://ollama.com" target="_blank" className="text-blue-400 hover:underline">Download here</a>.
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {(provider === 'openai' || provider === 'anthropic' || provider === 'groq') && (
-                <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAuthFailed ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                    <div>
-                        <div className="text-[11px] font-bold text-zinc-300">API Key</div>
-                        <div className="text-[10px] text-zinc-500 leading-tight">
-                            {isAuthFailed ? (
-                                <span className="text-amber-400">Invalid Key or Network Issue. Check your provider dashboard.</span>
-                            ) : "Valid format detected."}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-const ModelGuide = ({ provider }: { provider: LLMProvider }) => {
-    if (provider === 'ollama') return (
-        <div className="mb-4 text-[10px] text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
-            <span className="font-bold text-blue-300 block mb-1">Recommended Local Models:</span>
-            <ul className="list-disc pl-3 space-y-1">
-                <li><span className="text-white font-mono">llama3</span> (8B) - Good balance, fast.</li>
-                <li><span className="text-white font-mono">mistral</span> (7B) - Very efficient.</li>
-                <li><span className="text-white font-mono">mixtral</span> (8x7B) - Smarter, requires 32GB+ RAM.</li>
-            </ul>
-        </div>
-    );
-
-    return (
-        <div className="mb-4 text-[10px] text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
-            <span className="font-bold text-violet-300 block mb-1">Why two models?</span>
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <span className="font-bold text-white block mb-0.5">🧠 Brain Model</span>
-                    Used for planning, reasoning, and complex analysis. Needs high intelligence.
-                    <br /><span className="text-zinc-500 italic">e.g. GPT-4o, Claude 3.5 Sonnet</span>
-                </div>
-                <div>
-                    <span className="font-bold text-white block mb-0.5">⚡ Executor Model</span>
-                    Used for simple tasks and running commands. Needs speed and low cost.
-                    <br /><span className="text-zinc-500 italic">e.g. GPT-4o-mini, Haiku</span>
-                </div>
-            </div>
-        </div>
-    );
-};
-
+interface CodexStatus {
+    connected: boolean;
+    version?: string;
+    error?: string;
+}
 
 export function LLMSettingsPanel({
     config,
     onConfigChange,
     onClose,
-    systemSpecs,
     kbProgress
 }: {
     config: LLMConfig;
     onConfigChange: (config: LLMConfig) => void;
     onClose: () => void;
-    systemSpecs: { cpu_brand: string; total_memory: number; is_apple_silicon: boolean; } | null;
+    systemSpecs?: { cpu_brand: string; total_memory: number; is_apple_silicon: boolean; } | null;
     kbProgress?: KBProgress | null;
 }) {
     // --- STATE ---
     const [localConfig, setLocalConfig] = useState<LLMConfig>(config);
 
-    // Inference State
-    const [inferenceStatus, setInferenceStatus] = useState<LLMStatus | null>(null);
-    const [checkingInference, setCheckingInference] = useState(false);
-    const [showApiKey, setShowApiKey] = useState(false);
+    // Claude Code Status
+    const [claudeCodeStatus, setClaudeCodeStatus] = useState<ClaudeCodeStatus | null>(null);
+    const [checkingClaudeCode, setCheckingClaudeCode] = useState(false);
 
-    // UI Helpers
-    const [copiedId, setCopiedId] = useState<string | null>(null);
+    // Codex Status
+    const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+    const [checkingCodex, setCheckingCodex] = useState(false);
 
     // Embedding State
     const [embeddingMode, setEmbeddingMode] = useState<'local' | 'custom'>(
@@ -159,7 +72,6 @@ export function LLMSettingsPanel({
     // KB State
     const [kbStatus, setKbStatus] = useState<KBEmbeddingsStatus | null>(null);
     const [reindexingKb, setReindexingKb] = useState(false);
-    const [reindexingProgress, setReindexingProgress] = useState<number | null>(null);
     const [kbMessage, setKbMessage] = useState<string | null>(null);
 
     // GitHub Integration State
@@ -170,29 +82,12 @@ export function LLMSettingsPanel({
     const [githubUser, setGithubUser] = useState<string | null>(null);
     const [testingGithub, setTestingGithub] = useState(false);
 
-    // Initial Provider Logic
-    const getInitialGroup = (p: LLMProvider): ProviderGroup => {
-        if (p === 'anthropic' || p === 'claude-code') return 'anthropic';
-        if (p === 'groq') return 'groq';
-        if (p === 'ollama' || p === 'custom') return 'local';
-        return 'openai';
-    };
-    const [activeProviderGroup, setActiveProviderGroup] = useState<ProviderGroup>(getInitialGroup(config.provider));
-
     // --- ACTIONS ---
-
-    const copyToClipboard = (text: string, id: string) => {
-        navigator.clipboard.writeText(text);
-        setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 2000);
-    };
 
     const handleSave = async () => {
         const configToSave = {
             ...localConfig,
-            model: localConfig.model.trim() || DEFAULT_LLM_CONFIGS[localConfig.provider].model,
-            executor_model: localConfig.executor_model?.trim() || null,
-            // Ensure endpoint is cleared if switching to local mode
+            // provider is now managed in localConfig
             embedding_endpoint: embeddingMode === 'local' ? null : localConfig.embedding_endpoint
         };
 
@@ -200,133 +95,55 @@ export function LLMSettingsPanel({
         localStorage.setItem('opspilot-llm-config', JSON.stringify(configToSave));
 
         try {
-            await invoke('save_llm_config', {
-                config: {
-                    ...configToSave,
-                    api_key: configToSave.api_key || null,
-                    executor_model: configToSave.executor_model || null
-                }
-            });
+            await invoke('save_llm_config', { config: configToSave });
         } catch (e) {
-            console.warn('Failed to persist LLM config:', e);
+            console.warn('Failed to persist config:', e);
         }
         onClose();
     };
 
-    // --- INFERENCE LOGIC ---
+    // --- CLAUDE CODE STATUS ---
 
-    const fetchInferenceModels = async () => {
+    const checkClaudeCodeStatus = async () => {
+        setCheckingClaudeCode(true);
         try {
-            const resp = await fetch(`${AGENT_SERVER_URL}/llm/models`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    provider: localConfig.provider,
-                    api_key: localConfig.api_key,
-                    base_url: localConfig.base_url
-                })
+                body: JSON.stringify({ provider: 'claude-code' })
             });
             if (resp.ok) {
                 const data = await resp.json();
-                if (data.models?.length > 0) {
-                    setInferenceStatus(prev => prev ? { ...prev, available_models: data.models, connected: true } : null);
-                    return data.models;
-                }
+                setClaudeCodeStatus({ connected: data.connected, error: data.error });
             }
         } catch (e) {
-            console.error("Failed to fetch models", e);
+            setClaudeCodeStatus({ connected: false, error: String(e) });
         }
-        return [];
+        setCheckingClaudeCode(false);
     };
 
-    const checkInferenceConnection = async () => {
-        setCheckingInference(true);
-        setInferenceStatus(null);
-
-
-
-        // Standard Providers
+    const checkCodexStatus = async () => {
+        setCheckingCodex(true);
         try {
-            // First try pure Python check if possible (faster for keys)
-            if (['openai', 'groq', 'anthropic', 'claude-code'].includes(localConfig.provider)) {
-                const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        provider: localConfig.provider,
-                        api_key: localConfig.api_key,
-                        base_url: localConfig.base_url,
-                        model: localConfig.model
-                    })
-                });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    const models = await fetchInferenceModels();
-                    setInferenceStatus({
-                        connected: !!data.connected,
-                        provider: localConfig.provider,
-                        model: localConfig.model,
-                        available_models: models || [],
-                        error: data.error
-                    });
-                    setCheckingInference(false);
-                    return;
-                }
-            }
-
-            // Fallback to Rust/Tauri System check
-            const result = await invoke<LLMStatus>("check_llm_status", { config: localConfig });
-            if (result.connected && ['openai', 'groq', 'anthropic', 'claude-code'].includes(localConfig.provider)) {
-                const models = await fetchInferenceModels();
-                if (models.length) result.available_models = models;
-            }
-            setInferenceStatus(result);
-
-        } catch (err) {
-            setInferenceStatus({
-                connected: false,
-                provider: localConfig.provider,
-                model: localConfig.model,
-                available_models: [],
-                error: String(err)
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: 'codex-cli' })
             });
+            if (resp.ok) {
+                const data = await resp.json();
+                setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
+            }
+        } catch (e) {
+            setCodexStatus({ connected: false, error: String(e) });
         }
-        setCheckingInference(false);
+        setCheckingCodex(false);
     };
-
-    const handleProviderSelect = (group: ProviderGroup) => {
-        setActiveProviderGroup(group);
-        let newProvider: LLMProvider = 'openai';
-        if (group === 'anthropic') newProvider = 'anthropic';
-        if (group === 'groq') newProvider = 'groq';
-        if (group === 'local') newProvider = 'ollama';
-
-        const def = DEFAULT_LLM_CONFIGS[newProvider];
-        const newConfig = {
-            ...localConfig,
-            ...def,
-            // Preserve key if provider matches
-            api_key: newProvider === localConfig.provider ? localConfig.api_key : def.api_key,
-            // CRITICAL FIX: Always reset executor_model when switching providers to prevent incompatible models
-            // e.g. preventing 'qwen' (Ollama) from persisting when switching to Groq
-            executor_model: null
-        };
-        setLocalConfig(newConfig);
-        // Trigger check after state update
-        setTimeout(() => checkInferenceConnection(), 100);
-    };
-
 
     // --- EMBEDDING LOGIC ---
 
     const getEffectiveEmbeddingEndpoint = () => {
         if (embeddingMode === 'custom') return localConfig.embedding_endpoint;
-        // If mode is local, we need the Ollama URL
-        // Using 127.0.0.1 is safer than localhost for backend python requests
-        if (localConfig.provider === 'ollama') {
-            const base = localConfig.base_url || 'http://127.0.0.1:11434';
-            return base.replace('localhost', '127.0.0.1');
-        }
         return 'http://127.0.0.1:11434';
     };
 
@@ -339,8 +156,7 @@ export function LLMSettingsPanel({
 
             const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`);
             if (resp.ok) {
-                const data = await resp.json();
-                setEmbeddingStatus(data);
+                setEmbeddingStatus(await resp.json());
             }
         } catch (e) {
             console.error("Embedding status check failed", e);
@@ -388,16 +204,12 @@ export function LLMSettingsPanel({
         setDownloadingEmbedding(false);
     };
 
-
     // --- KB LOGIC ---
 
     const checkKbStatus = async () => {
         try {
-            // KB Status doesn't strictly need endpoint unless checking generation capability, but good to pass
-            // Actually, the backend check_embedding_model_available call inside kb_embeddings_status uses llm_endpoint param
             const targetEndpoint = getEffectiveEmbeddingEndpoint();
             const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
-
             const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${endpointParam}`);
             if (resp.ok) setKbStatus(await resp.json());
         } catch (e) {
@@ -407,7 +219,6 @@ export function LLMSettingsPanel({
 
     const reindexKb = async () => {
         setReindexingKb(true);
-        setReindexingProgress(0);
         setKbMessage("Starting indexing...");
 
         try {
@@ -431,7 +242,6 @@ export function LLMSettingsPanel({
                     if (line.startsWith('data: ')) {
                         try {
                             const data = JSON.parse(line.slice(6));
-                            if (data.percent) setReindexingProgress(data.percent);
                             if (data.message) setKbMessage(data.message);
                             if (data.status === 'success') setTimeout(checkKbStatus, 1000);
                         } catch { }
@@ -453,7 +263,6 @@ export function LLMSettingsPanel({
                 const data = await resp.json();
                 setGithubConfigured(data.configured);
                 setGithubRepos(data.default_repos || []);
-                // If configured, test connection to get username
                 if (data.configured) {
                     testGithubConnection();
                 }
@@ -485,11 +294,14 @@ export function LLMSettingsPanel({
         }
     };
 
-    const testGithubConnection = async () => {
+    const testGithubConnection = async (tokenToTest?: string) => {
         setTestingGithub(true);
         try {
+            const testToken = tokenToTest || (githubPat && githubPat !== 'replace' ? githubPat : undefined);
             const resp = await fetch(`${AGENT_SERVER_URL}/github-config/test`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pat_token: testToken })
             });
             if (resp.ok) {
                 const data = await resp.json();
@@ -512,16 +324,36 @@ export function LLMSettingsPanel({
     // --- EFFECTS ---
 
     useEffect(() => {
-        checkInferenceConnection();
+        checkClaudeCodeStatus();
+        checkCodexStatus();
         checkEmbeddingStatus();
         checkKbStatus();
         loadGithubConfig();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Re-check KB if embedding availability changes
     useEffect(() => {
         if (embeddingStatus?.available) checkKbStatus();
     }, [embeddingStatus?.available]);
+
+    // Auto-detect coding agent provider
+    useEffect(() => {
+        // Wait for both status checks to complete (they start as null)
+        if (!claudeCodeStatus || !codexStatus) return;
+
+        // Logic: If current provider is NOT connected, but the other ONE IS, switch to it.
+        // This helps users who only have one installed.
+        if (localConfig.provider === 'claude-code') {
+            if (!claudeCodeStatus.connected && codexStatus.connected) {
+                console.log("Auto-switching to Codex CLI (Claude not found)");
+                setLocalConfig(prev => ({ ...prev, provider: 'codex-cli' }));
+            }
+        } else if (localConfig.provider === 'codex-cli') {
+            if (!codexStatus.connected && claudeCodeStatus.connected) {
+                console.log("Auto-switching to Claude Code (Codex not found)");
+                setLocalConfig(prev => ({ ...prev, provider: 'claude-code' }));
+            }
+        }
+    }, [claudeCodeStatus?.connected, codexStatus?.connected, localConfig.provider]);
 
     // RENDER HELPERS
 
@@ -541,11 +373,11 @@ export function LLMSettingsPanel({
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <div className="p-3 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-[0_0_25px_rgba(124,58,237,0.3)] border border-white/10">
-                            <Cpu size={24} className="text-white" />
+                            <Terminal size={24} className="text-white" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-white tracking-tight">AI Configuration</h2>
-                            <p className="text-sm text-zinc-400 font-medium">Fine-tune your Agent's Brain & Memory</p>
+                            <h2 className="text-xl font-bold text-white tracking-tight">Settings</h2>
+                            <p className="text-sm text-zinc-400 font-medium">Claude Code + GitHub Integration</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2.5 rounded-full hover:bg-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110">
@@ -556,221 +388,282 @@ export function LLMSettingsPanel({
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
 
-                {/* === SECTION 1: AI BRAIN === */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden group">
+                {/* === SECTION 1: CODING AGENT === */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent pointer-events-none" />
 
-                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
-                        <div className="p-1.5 bg-violet-500/20 rounded-lg text-violet-400">
-                            <Brain size={18} />
+                    <div className="flex items-center justify-between mb-4 relative z-10">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-violet-500/20 rounded-lg text-violet-400">
+                                <Terminal size={18} />
+                            </div>
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Coding Agent</h3>
                         </div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">AI Brain (Inference)</h3>
+
+                        {/* Provider Toggle */}
+                        <div className="flex bg-black/40 rounded-lg p-1 border border-white/10">
+                            <button
+                                onClick={() => setLocalConfig({ ...localConfig, provider: 'claude-code' })}
+                                className={`px-3 py-1.5 rounded text-[10px] font-bold transition-all ${localConfig.provider === 'claude-code'
+                                    ? 'bg-violet-500/20 text-violet-300 shadow-sm border border-violet-500/30'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                Claude Code
+                            </button>
+                            <button
+                                onClick={() => setLocalConfig({ ...localConfig, provider: 'codex-cli' })}
+                                className={`px-3 py-1.5 rounded text-[10px] font-bold transition-all ${localConfig.provider === 'codex-cli'
+                                    ? 'bg-blue-500/20 text-blue-300 shadow-sm border border-blue-500/30'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                Codex CLI
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="space-y-6 relative z-10">
-                        {/* Provider Grid */}
-                        <div className="grid grid-cols-4 gap-3">
-                            {[
-                                { id: 'openai', label: 'OpenAI', icon: openAiLogo, active: activeProviderGroup === 'openai' },
-                                { id: 'anthropic', label: 'Anthropic', icon: anthropicLogo, active: activeProviderGroup === 'anthropic' },
-                                { id: 'groq', label: 'Groq', icon: null, component: <Zap size={20} className="text-orange-500" />, active: activeProviderGroup === 'groq' },
-                                { id: 'local', label: 'Local', icon: ollamaLogo, active: activeProviderGroup === 'local' },
-                            ].map(p => (
-                                <button
-                                    key={p.id}
-                                    onClick={() => handleProviderSelect(p.id as ProviderGroup)}
-                                    className={`relative p-3 rounded-xl border flex flex-col items-center gap-2 transition-all duration-300 group ${p.active
-                                        ? 'bg-violet-500/10 border-violet-500/50 shadow-[0_0_15px_rgba(139,92,246,0.15)] scale-[1.02]'
-                                        : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10 hover:scale-[1.02]'
-                                        }`}
-                                >
-                                    <div className="h-7 flex items-center justify-center opacity-80 group-hover:opacity-100 transition-opacity">
-                                        {p.icon ?
-                                            <img src={p.icon} className="w-7 h-7 object-contain" alt={p.label} /> :
-                                            p.component
-                                        }
-                                    </div>
-                                    <span className={`text-[10px] font-bold uppercase tracking-wider ${p.active ? 'text-white' : 'text-zinc-500'}`}>{p.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                    <div className="space-y-4 relative z-10">
+                        <p className="text-[11px] text-zinc-400">
+                            {localConfig.provider === 'claude-code'
+                                ? "OpsPilot uses Claude Code as its AI backbone. Authenticate via the terminal for full agent capabilities."
+                                : "OpsPilot uses the OpenAI Codex CLI for autonomous coding and troubleshooting."}
+                        </p>
 
-                        {/* Config Inputs */}
-                        <div className="space-y-4">
-                            {/* Key/URL */}
-                            <div>
-                                {activeProviderGroup !== 'local' && localConfig.provider !== 'claude-code' && (
-                                    <div className="relative group">
-                                        <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1 z-20">
-                                            API Key <ShieldCheck size={9} className="text-emerald-500" />
-                                        </label>
-                                        <input
-                                            type={showApiKey ? "text" : "password"}
-                                            value={localConfig.api_key || ''}
-                                            onChange={e => setLocalConfig({ ...localConfig, api_key: e.target.value })}
-                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-violet-500/50 outline-none transition-all font-mono"
-                                            placeholder="sk-..."
-                                        />
+                        {/* Status Display */}
+                        {localConfig.provider === 'claude-code' ? (
+                            <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingClaudeCode ? 'bg-amber-500/5 border-amber-500/20' :
+                                claudeCodeStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
+                                    'bg-red-500/5 border-red-500/20'
+                                }`}>
+                                <StatusDot ok={claudeCodeStatus?.connected} loading={checkingClaudeCode} />
+                                <div className="flex-1">
+                                    <div className={`text-xs font-bold ${checkingClaudeCode ? 'text-amber-400' :
+                                        claudeCodeStatus?.connected ? 'text-emerald-400' :
+                                            'text-red-400'
+                                        }`}>
+                                        {checkingClaudeCode ? 'Checking...' :
+                                            claudeCodeStatus?.connected ? 'Claude Code Ready' :
+                                                'Claude Code Not Available'}
+                                    </div>
+                                    {claudeCodeStatus?.error && !checkingClaudeCode && (
+                                        <div className="text-[10px] text-red-400/80 mt-1">{claudeCodeStatus.error}</div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={checkClaudeCodeStatus}
+                                    disabled={checkingClaudeCode}
+                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
+                                >
+                                    Test
+                                </button>
+                            </div>
+                        ) : (
+                            <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingCodex ? 'bg-amber-500/5 border-amber-500/20' :
+                                codexStatus?.connected ? 'bg-blue-500/5 border-blue-500/20' :
+                                    'bg-red-500/5 border-red-500/20'
+                                }`}>
+                                <StatusDot ok={codexStatus?.connected} loading={checkingCodex} />
+                                <div className="flex-1">
+                                    <div className={`text-xs font-bold ${checkingCodex ? 'text-amber-400' :
+                                        codexStatus?.connected ? 'text-blue-400' :
+                                            'text-red-400'
+                                        }`}>
+                                        {checkingCodex ? 'Checking...' :
+                                            codexStatus?.connected ? `Codex Ready (${codexStatus.version})` :
+                                                'Codex CLI Not Available'}
+                                    </div>
+                                    {codexStatus?.error && !checkingCodex && (
+                                        <div className="text-[10px] text-red-400/80 mt-1">{codexStatus.error}</div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={checkCodexStatus}
+                                    disabled={checkingCodex}
+                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
+                                >
+                                    Test
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Setup Instructions */}
+                        {((localConfig.provider === 'claude-code' && !claudeCodeStatus?.connected && !checkingClaudeCode) ||
+                            (localConfig.provider === 'codex-cli' && !codexStatus?.connected && !checkingCodex)) && (
+                                <div className="bg-zinc-900/80 rounded-lg border border-white/5 p-3 space-y-2">
+                                    <div className="flex items-center gap-2 text-zinc-500 border-b border-white/5 pb-2">
+                                        <Info size={12} />
+                                        <span className="text-[10px] font-bold uppercase tracking-wider">Setup Instructions</span>
+                                    </div>
+                                    <div className="text-[11px] text-zinc-400 space-y-2">
+                                        {localConfig.provider === 'claude-code' ? (
+                                            <>
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-violet-400 font-bold">1.</span>
+                                                    <span>Install Claude Code: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">npm install -g @anthropic-ai/claude-code</code></span>
+                                                </div>
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-violet-400 font-bold">2.</span>
+                                                    <span>Authenticate: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">claude login</code></span>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-blue-400 font-bold">1.</span>
+                                                    <span>Install Codex CLI: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">npm install -g @openai/codex-cli</code></span>
+                                                </div>
+                                                <div className="flex items-start gap-2">
+                                                    <span className="text-blue-400 font-bold">2.</span>
+                                                    <span>Authenticate: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">codex login</code></span>
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="flex items-start gap-2">
+                                            <span className={localConfig.provider === 'claude-code' ? "text-violet-400 font-bold" : "text-blue-400 font-bold"}>3.</span>
+                                            <span>Restart OpsPilot</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                    </div>
+                </div>
+
+                {/* === SECTION 2: GITHUB INTEGRATION === */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
+
+                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
+                        <div className="p-1.5 bg-purple-500/20 rounded-lg text-purple-400">
+                            <Github size={18} />
+                        </div>
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
+                        {githubConfigured && (
+                            <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                                CONNECTED
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="space-y-4 relative z-10">
+                        <p className="text-[11px] text-zinc-400">
+                            Connect GitHub to let AI search your source code when debugging K8s issues.
+                            The AI can find bugs, check recent changes, and correlate errors with code.
+                        </p>
+
+                        {/* PAT Token Input with Test Button */}
+                        <div className="relative">
+                            <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase z-20 flex items-center gap-1">
+                                {githubConfigured && !githubPat ? 'Token Saved' : 'Personal Access Token'} <ShieldCheck size={9} className="text-emerald-500" />
+                            </label>
+                            {githubConfigured && !githubPat ? (
+                                <div className="flex gap-2">
+                                    <div className="flex-1 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-xs text-emerald-300 font-mono flex items-center justify-between">
+                                        <span>••••••••••••••••••••</span>
                                         <button
-                                            onClick={() => setShowApiKey(!showApiKey)}
-                                            className="absolute right-3 top-3 text-zinc-600 hover:text-zinc-300"
+                                            onClick={() => setGithubPat('replace')}
+                                            className="text-[10px] text-purple-400 hover:text-purple-300 underline"
                                         >
-                                            {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            Replace
                                         </button>
                                     </div>
-                                )}
-                                {activeProviderGroup === 'local' && (
-                                    <div className="relative group">
-                                        <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase z-20">Ollama Base URL</label>
-                                        <input
-                                            type="text"
-                                            value={localConfig.base_url}
-                                            onChange={e => setLocalConfig({ ...localConfig, base_url: e.target.value })}
-                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-violet-500/50 outline-none font-mono"
-                                            placeholder="http://localhost:11434"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Claude Code Toggle */}
-                            {activeProviderGroup === 'anthropic' && (
-                                <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-indigo-500/20 rounded">
-                                            <Terminal size={14} className="text-indigo-400" />
-                                        </div>
-                                        <div>
-                                            <div className="text-xs font-bold text-white">Terminal Agent (Claude Code)</div>
-                                            <div className="text-[10px] text-zinc-500">Auth via terminal instead of API Key</div>
-                                        </div>
-                                    </div>
-                                    <input
-                                        type="checkbox"
-                                        checked={localConfig.provider === 'claude-code'}
-                                        onChange={e => {
-                                            const useCli = e.target.checked;
-                                            setLocalConfig(prev => ({
-                                                ...prev,
-                                                provider: useCli ? 'claude-code' : 'anthropic',
-                                                api_key: useCli ? prev.api_key : DEFAULT_LLM_CONFIGS.anthropic.api_key
-                                            }));
-                                            setTimeout(checkInferenceConnection, 100);
-                                        }}
-                                        className="accent-violet-500 w-4 h-4 rounded"
-                                    />
-                                </div>
-                            )}
-
-                            {/* Models Section */}
-                            {localConfig.provider !== 'claude-code' && (
-                                <div className="pt-2">
-                                    <ModelGuide provider={localConfig.provider} />
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        {/* Brain Model */}
-                                        <div className="space-y-1.5">
-                                            <div className="flex justify-between items-center">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Brain size={12} className="text-violet-400" />
-                                                    <label className="text-[10px] font-bold text-zinc-400 uppercase">Brain Model</label>
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        setCheckingInference(true);
-                                                        fetchInferenceModels().then(() => setCheckingInference(false));
-                                                    }}
-                                                    disabled={checkingInference}
-                                                    className="text-[10px] text-violet-400 hover:text-white flex items-center gap-1 transition-colors"
-                                                >
-                                                    <RefreshCw size={10} className={checkingInference ? "animate-spin" : ""} />
-                                                </button>
-                                            </div>
-                                            <input
-                                                list="inference-models"
-                                                type="text"
-                                                value={localConfig.model}
-                                                onChange={e => setLocalConfig({ ...localConfig, model: e.target.value })}
-                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-violet-500/50 outline-none font-mono transition-all"
-                                                placeholder="Select or type..."
-                                            />
-                                            <datalist id="inference-models">
-                                                {inferenceStatus?.available_models?.map(m => <option key={m} value={m} />)}
-                                            </datalist>
-                                        </div>
-
-                                        {/* Executor Model */}
-                                        <div className="space-y-1.5">
-                                            <div className="flex items-center gap-1.5">
-                                                <Activity size={12} className="text-emerald-400" />
-                                                <label className="text-[10px] font-bold text-zinc-400 uppercase">Executor Model</label>
-                                            </div>
-                                            <input
-                                                list="inference-models"
-                                                type="text"
-                                                value={localConfig.executor_model || ''}
-                                                onChange={e => setLocalConfig({ ...localConfig, executor_model: e.target.value })}
-                                                className={`w-full bg-black/20 border rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 outline-none font-mono transition-all ${
-                                                    // Validation warning if using local model name with cloud provider
-                                                    (localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
-                                                        (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli'))
-                                                        ? 'border-amber-500/50 focus:border-amber-500'
-                                                        : 'border-white/10 focus:border-emerald-500/50'
-                                                    }`}
-                                                placeholder="Same as brain (Default)"
-                                            />
-                                        </div>
-                                        {/* Warning for mixed provider/model usage */}
-                                        {(localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
-                                            (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli')) && (
-                                                <div className="col-span-2 flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                                                    <AlertCircle size={12} className="text-amber-400" />
-                                                    <span className="text-[10px] text-amber-200">
-                                                        Warning: Local models like '{localConfig.executor_model}' may not work with {localConfig.provider}.
-                                                    </span>
-                                                </div>
-                                            )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Connection Status */}
-                            <div>
-                                <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingInference ? 'bg-amber-500/5 border-amber-500/20' :
-                                    inferenceStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
-                                        'bg-red-500/5 border-red-500/20'
-                                    }`}>
-                                    <StatusDot ok={inferenceStatus?.connected} loading={checkingInference} />
-                                    <div className="flex-1">
-                                        <div className={`text-xs font-bold ${checkingInference ? 'text-amber-400' :
-                                            inferenceStatus?.connected ? 'text-emerald-400' :
-                                                'text-red-400'
-                                            }`}>
-                                            {checkingInference ? 'Testing Connection...' :
-                                                inferenceStatus?.connected ? (localConfig.provider === 'claude-code' ? 'Agent Ready' : 'Brain Connected') :
-                                                    'Connection Failed'}
-                                        </div>
-                                        {inferenceStatus?.error && !checkingInference && (
-                                            <div className="text-[10px] text-red-400/80 mt-1 leading-tight">{inferenceStatus.error}</div>
-                                        )}
-                                    </div>
                                     <button
-                                        onClick={checkInferenceConnection}
-                                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors"
+                                        onClick={() => testGithubConnection()}
+                                        disabled={testingGithub}
+                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-zinc-400 hover:text-white transition-colors disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
                                     >
+                                        {testingGithub ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                                         Test
                                     </button>
                                 </div>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <input
+                                            type={showGithubPat ? "text" : "password"}
+                                            value={githubPat === 'replace' ? '' : githubPat}
+                                            onChange={e => setGithubPat(e.target.value)}
+                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono transition-all"
+                                            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
+                                        />
+                                        <button
+                                            onClick={() => setShowGithubPat(!showGithubPat)}
+                                            className="absolute right-3 top-3 text-zinc-600 hover:text-zinc-300"
+                                        >
+                                            {showGithubPat ? <EyeOff size={14} /> : <Eye size={14} />}
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={() => testGithubConnection()}
+                                        disabled={testingGithub || (!githubPat || githubPat === 'replace')}
+                                        className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-xl text-xs text-purple-300 hover:text-white transition-colors disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                                    >
+                                        {testingGithub ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                                        Test
+                                    </button>
+                                </div>
+                            )}
+                        </div>
 
-                                {/* Setup Guide */}
-                                <SetupGuide provider={localConfig.provider} status={inferenceStatus} />
+                        {/* Token Creation Guide */}
+                        <div className="text-[10px] text-zinc-500 bg-white/5 px-3 py-2.5 rounded-lg space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <ShieldCheck size={10} className="text-emerald-500 shrink-0" />
+                                <span className="font-bold text-zinc-400">Use a Fine-Grained Token (read-only)</span>
                             </div>
+                            <div className="pl-4 space-y-1">
+                                <div>1. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">Create fine-grained token</a></div>
+                                <div>2. Set <code className="bg-white/10 px-1 rounded text-emerald-300">Contents</code> to Read-only</div>
+                                <div>3. Select repos or "All repositories"</div>
+                            </div>
+                        </div>
 
+                        {/* Default Repos */}
+                        <div>
+                            <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">
+                                Default Repos to Search (optional)
+                            </label>
+                            <input
+                                type="text"
+                                value={githubRepos.join(", ")}
+                                onChange={e => setGithubRepos(e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono"
+                                placeholder="myorg/auth-service, myorg/api-gateway"
+                            />
+                            <p className="text-[10px] text-zinc-600 mt-1">
+                                Comma-separated list of repos. Leave empty to search all accessible repos.
+                            </p>
+                        </div>
+
+                        {/* Connection Status & Save */}
+                        <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
+                            githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
+                                'bg-zinc-500/5 border-zinc-500/20'
+                            }`}>
+                            <StatusDot ok={githubConfigured} loading={testingGithub} />
+                            <div className="flex-1">
+                                <div className={`text-xs font-bold ${testingGithub ? 'text-amber-400' :
+                                    githubConfigured ? 'text-emerald-400' :
+                                        'text-zinc-500'
+                                    }`}>
+                                    {testingGithub ? 'Testing Connection...' :
+                                        githubConfigured ? `Connected as @${githubUser}` :
+                                            'Not Connected'}
+                                </div>
+                            </div>
+                            {githubPat && githubPat !== 'replace' && (
+                                <button
+                                    onClick={saveGithubConfig}
+                                    className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-3 py-1.5 transition-colors font-bold"
+                                >
+                                    Save Token
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
 
-                {/* === SECTION 2: MEMORY SYSTEM === */}
+                {/* === SECTION 3: MEMORY SYSTEM === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none" />
 
@@ -778,10 +671,14 @@ export function LLMSettingsPanel({
                         <div className="p-1.5 bg-cyan-500/20 rounded-lg text-cyan-400">
                             <HardDrive size={18} />
                         </div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Memory System (Embeddings)</h3>
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Memory System</h3>
                     </div>
 
                     <div className="space-y-6 relative z-10">
+                        <p className="text-[11px] text-zinc-400">
+                            Optional: Use Ollama for local embeddings to enable semantic search in the knowledge base.
+                        </p>
+
                         {/* Embedding Provider Toggle */}
                         <div className="flex gap-2 p-1 bg-black/20 rounded-xl border border-white/5">
                             <button
@@ -805,7 +702,6 @@ export function LLMSettingsPanel({
 
                         {/* Config Inputs */}
                         <div className="grid grid-cols-2 gap-4">
-                            {/* Endpoint (Custom Only) */}
                             {embeddingMode === 'custom' && (
                                 <div className="col-span-2">
                                     <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Endpoint URL</label>
@@ -819,8 +715,7 @@ export function LLMSettingsPanel({
                                 </div>
                             )}
 
-                            {/* Model Name */}
-                            <div className={embeddingMode === 'custom' ? 'col-span-2' : 'col-span-2'}>
+                            <div className="col-span-2">
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Embedding Model</label>
                                 <div className="relative">
                                     <input
@@ -836,11 +731,6 @@ export function LLMSettingsPanel({
                                             <span className={`text-[10px] font-bold ${embeddingStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
                                                 {checkingEmbedding ? 'CHECK' : downloadingEmbedding ? `${downloadProgress}%` : embeddingStatus?.available ? 'READY' : 'MISSING'}
                                             </span>
-                                            {embeddingStatus?.error && (
-                                                <div className="absolute right-0 top-full mt-2 w-48 p-2 bg-red-500/10 border border-red-500/20 rounded text-[10px] text-red-200 hidden group-hover/status:block z-50 backdrop-blur-md">
-                                                    {embeddingStatus.error}
-                                                </div>
-                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -866,18 +756,19 @@ export function LLMSettingsPanel({
                             </div>
                         )}
 
-                        {/* --- KB HEALTH --- */}
+                        {/* KB Status */}
                         <div className="pt-4 border-t border-white/5">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                     <BookOpen size={14} className="text-fuchsia-400" />
                                     <span className="text-xs font-bold text-white uppercase">Knowledge Base</span>
                                 </div>
-                                {kbStatus?.available ? 'ACTIVE' : 'OFFLINE'}
+                                <span className={`text-[10px] font-bold ${kbStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                    {kbStatus?.available ? 'ACTIVE' : 'OFFLINE'}
+                                </span>
                             </div>
                         </div>
 
-                        {/* NEW: Global CRD Loading Progress */}
                         {kbProgress ? (
                             <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-2">
                                 <div className="flex justify-between text-[10px] items-center text-blue-200">
@@ -895,9 +786,6 @@ export function LLMSettingsPanel({
                                         style={{ width: `${(kbProgress.current / kbProgress.total) * 100}%` }}
                                     />
                                 </div>
-                                <div className="text-[9px] text-blue-300/60 truncate font-mono">
-                                    Context: {kbProgress.context}
-                                </div>
                             </div>
                         ) : kbStatus?.available && (
                             <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-2">
@@ -910,15 +798,8 @@ export function LLMSettingsPanel({
                                         {kbStatus.document_count} Docs
                                     </span>
                                 </div>
-                                <div className="h-1.5 bg-emerald-900/50 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-500 w-full" />
-                                </div>
-                                <div className="text-[9px] text-emerald-300/60 truncate font-mono">
-                                    Source: {kbStatus.source}
-                                </div>
                             </div>
                         )}
-
 
                         <div className="flex items-center gap-2">
                             <div className="flex-1 bg-white/5 rounded-lg p-2 border border-white/5 flex flex-col items-center">
@@ -943,134 +824,6 @@ export function LLMSettingsPanel({
                         )}
                     </div>
                 </div>
-
-                {/* === SECTION 3: GITHUB INTEGRATION === */}
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
-
-                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
-                        <div className="p-1.5 bg-purple-500/20 rounded-lg text-purple-400">
-                            <Github size={18} />
-                        </div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
-                        {githubConfigured && (
-                            <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
-                                CONNECTED
-                            </span>
-                        )}
-                    </div>
-
-                    <div className="space-y-4 relative z-10">
-                        <p className="text-[11px] text-zinc-400">
-                            Connect GitHub to let AI search your source code when debugging K8s issues.
-                            The AI can find bugs, check recent changes, and correlate errors with code.
-                        </p>
-
-                        {/* PAT Token Input */}
-                        <div className="relative">
-                            <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase z-20 flex items-center gap-1">
-                                {githubConfigured && !githubPat ? 'Token Saved' : 'Personal Access Token'} <ShieldCheck size={9} className="text-emerald-500" />
-                            </label>
-                            {githubConfigured && !githubPat ? (
-                                <div className="w-full bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-xs text-emerald-300 font-mono flex items-center justify-between">
-                                    <span>••••••••••••••••••••</span>
-                                    <button
-                                        onClick={() => setGithubPat('replace')}
-                                        className="text-[10px] text-purple-400 hover:text-purple-300 underline"
-                                    >
-                                        Replace token
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="relative">
-                                    <input
-                                        type={showGithubPat ? "text" : "password"}
-                                        value={githubPat === 'replace' ? '' : githubPat}
-                                        onChange={e => setGithubPat(e.target.value)}
-                                        className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono transition-all"
-                                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
-                                    />
-                                    <button
-                                        onClick={() => setShowGithubPat(!showGithubPat)}
-                                        className="absolute right-3 top-3 text-zinc-600 hover:text-zinc-300"
-                                    >
-                                        {showGithubPat ? <EyeOff size={14} /> : <Eye size={14} />}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Token Creation Guide */}
-                        <div className="text-[10px] text-zinc-500 bg-white/5 px-3 py-2.5 rounded-lg space-y-1.5">
-                            <div className="flex items-center gap-2">
-                                <ShieldCheck size={10} className="text-emerald-500 shrink-0" />
-                                <span className="font-bold text-zinc-400">Use a Fine-Grained Token (read-only)</span>
-                            </div>
-                            <div className="pl-4 space-y-1">
-                                <div>1. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">Create fine-grained token →</a></div>
-                                <div>2. Set <code className="bg-white/10 px-1 rounded text-emerald-300">Contents</code> → <span className="text-emerald-400">Read-only</span></div>
-                                <div>3. Select repos or "All repositories"</div>
-                            </div>
-                            <div className="text-[9px] text-zinc-600 pt-1 border-t border-white/5">
-                                Fine-grained tokens are safer than classic tokens - they can't write to your repos.
-                            </div>
-                        </div>
-
-                        {/* Default Repos */}
-                        <div>
-                            <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">
-                                Default Repos to Search (optional)
-                            </label>
-                            <input
-                                type="text"
-                                value={githubRepos.join(", ")}
-                                onChange={e => setGithubRepos(e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
-                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono"
-                                placeholder="myorg/auth-service, myorg/api-gateway"
-                            />
-                            <p className="text-[10px] text-zinc-600 mt-1">
-                                Comma-separated list of repos. Leave empty to search all accessible repos.
-                            </p>
-                        </div>
-
-                        {/* Connection Status & Actions */}
-                        <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${
-                            testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
-                            githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
-                            'bg-zinc-500/5 border-zinc-500/20'
-                        }`}>
-                            <StatusDot ok={githubConfigured} loading={testingGithub} />
-                            <div className="flex-1">
-                                <div className={`text-xs font-bold ${
-                                    testingGithub ? 'text-amber-400' :
-                                    githubConfigured ? 'text-emerald-400' :
-                                    'text-zinc-500'
-                                }`}>
-                                    {testingGithub ? 'Testing Connection...' :
-                                     githubConfigured ? `Connected as @${githubUser}` :
-                                     'Not Connected'}
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                {githubPat && (
-                                    <button
-                                        onClick={saveGithubConfig}
-                                        className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-2 py-1 transition-colors"
-                                    >
-                                        Save
-                                    </button>
-                                )}
-                                <button
-                                    onClick={testGithubConnection}
-                                    disabled={testingGithub}
-                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
-                                >
-                                    Test
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {/* Footer Actions */}
@@ -1079,6 +832,6 @@ export function LLMSettingsPanel({
                     Save Configuration <ArrowRight size={16} />
                 </button>
             </div>
-        </div >
+        </div>
     );
 }

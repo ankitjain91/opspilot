@@ -28,9 +28,10 @@ interface DeepDiveDrawerProps {
     onCloseAll: () => void;
     onDelete: () => void;
     currentContext?: string;
+    onOpenResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void; // Navigate to related resource
 }
 
-export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onCloseAll, onDelete, currentContext }: DeepDiveDrawerProps) {
+export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onCloseAll, onDelete, currentContext, onOpenResource }: DeepDiveDrawerProps) {
     const { showToast } = useToast();
     // Track content tab per resource tab (preserves state when switching)
     const [contentTabsMap, setContentTabsMap] = useState<Record<string, string>>({});
@@ -462,6 +463,7 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                             currentContext={currentContext}
                             loading={detailsLoading}
                             error={detailsError as Error | null}
+                            onNavigateResource={onOpenResource}
                         />
                     )}
                 </div>

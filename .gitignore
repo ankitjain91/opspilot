@@ -54,7 +54,7 @@ cache/
 # Runtime Data
 src-tauri/cluster-info/
 cluster-info/
-src-tauri/resources/kb_embeddings.json
+
 src-tauri/resources/knowledge/mcp-integration.json
 src-tauri/resources/agent-server
 

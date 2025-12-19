@@ -20,7 +20,9 @@ pub enum LLMProvider {
     Anthropic,
     Custom,
     #[serde(rename = "claude-code")]
-    ClaudeCode, // Handling the hyphenated name if needed, though 'claude-code' string from JS might map here
+    ClaudeCode,
+    #[serde(rename = "codex-cli")]
+    CodexCli,
     Groq,
 }
 
@@ -258,6 +260,7 @@ pub async fn check_llm_status(config: LLMConfig) -> Result<LLMStatus, String> {
         LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => check_openai_status_internal(&config).await,
         LLMProvider::Anthropic => check_anthropic_status_internal(&config).await,
         LLMProvider::ClaudeCode => check_claude_code_status_internal().await,
+        LLMProvider::CodexCli => check_codex_status_internal().await,
     }
 }
 
@@ -370,7 +373,7 @@ pub async fn call_llm(
         LLMProvider::Ollama | LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => {
             call_openai_compatible(&config, prompt, systemPrompt, conversationHistory).await
         }
-        LLMProvider::Anthropic | LLMProvider::ClaudeCode => {
+        LLMProvider::Anthropic | LLMProvider::ClaudeCode | LLMProvider::CodexCli => {
             call_anthropic(&config, prompt, systemPrompt, conversationHistory).await
         }
     }
@@ -812,10 +815,10 @@ async fn check_claude_code_status_internal() -> Result<LLMStatus, String> {
             if output.status.success() {
                 Ok(LLMStatus {
                     connected: true,
-                    provider: "Claude Code".to_string(),
+                    provider: "claude-code".to_string(),
                     model: "claude-code".to_string(),
                     available_models: vec![
-                        "claude-code".to_string(),
+                        "claude-3-5-sonnet-20241022".to_string(),
                     ],
                     error: None,
                 })
@@ -823,7 +826,7 @@ async fn check_claude_code_status_internal() -> Result<LLMStatus, String> {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 Ok(LLMStatus {
                     connected: false,
-                    provider: "Claude Code".to_string(),
+                    provider: "claude-code".to_string(),
                     model: "claude-code".to_string(),
                     available_models: vec![],
                     error: Some(format!("Claude CLI error: {}", stderr)),
@@ -833,10 +836,50 @@ async fn check_claude_code_status_internal() -> Result<LLMStatus, String> {
         Err(_) => {
             Ok(LLMStatus {
                 connected: false,
-                provider: "Claude Code".to_string(),
+                provider: "claude-code".to_string(),
                 model: "claude-code".to_string(),
                 available_models: vec![],
                 error: Some("Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code".to_string()),
+            })
+        }
+    }
+}
+
+async fn check_codex_status_internal() -> Result<LLMStatus, String> {
+    use std::process::Command;
+
+    // Try to run 'codex --version' to check if CLI is installed
+    match Command::new("codex").arg("--version").output() {
+        Ok(output) => {
+            if output.status.success() {
+                Ok(LLMStatus {
+                    connected: true,
+                    provider: "codex-cli".to_string(),
+                    model: "codex-cli".to_string(),
+                    available_models: vec![
+                        "o1".to_string(),
+                        "gpt-4o".to_string()
+                    ],
+                    error: None,
+                })
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Ok(LLMStatus {
+                    connected: false,
+                    provider: "codex-cli".to_string(),
+                    model: "codex-cli".to_string(),
+                    available_models: vec![],
+                    error: Some(format!("Codex CLI error: {}", stderr)),
+                })
+            }
+        }
+        Err(_) => {
+            Ok(LLMStatus {
+                connected: false,
+                provider: "codex-cli".to_string(),
+                model: "codex-cli".to_string(),
+                available_models: vec![],
+                error: Some("Codex CLI not found. Install with: npm install -g @openai/codex-cli".to_string()),
             })
         }
     }

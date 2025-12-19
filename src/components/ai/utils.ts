@@ -1,5 +1,5 @@
 import { LLMConfig } from '../../types/ai';
-import { DEFAULT_LLM_CONFIGS } from './constants';
+import { DEFAULT_LLM_CONFIG } from './constants';
 
 // Helper to load LLM config from localStorage
 export function loadLLMConfig(): LLMConfig {
@@ -11,5 +11,5 @@ export function loadLLMConfig(): LLMConfig {
     } catch {
         // Ignore parse errors
     }
-    return DEFAULT_LLM_CONFIGS.ollama;
+    return DEFAULT_LLM_CONFIG;
 }

@@ -373,7 +373,8 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
                     message: e.message.unwrap_or_default(),
                     reason: e.reason.unwrap_or_default(),
                     type_: e.type_.unwrap_or_default(),
-                    age: e.last_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_else(|| e.event_time.map(|t| t.0.to_rfc3339()).unwrap_or_default()),
+                    age: e.last_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_else(|| e.event_time.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default()),
+                    last_timestamp: e.last_timestamp.map(|t| t.0.to_rfc3339()).or_else(|| e.event_time.map(|t| t.0.to_rfc3339())),
                     count: e.count.unwrap_or(1),
                 })
             } else { None }
@@ -392,9 +393,10 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
                     message: e.note.unwrap_or_default(),
                     reason: e.reason.unwrap_or_default(),
                     type_: e.type_.unwrap_or_default(),
-                    age: e.event_time.map(|t| t.0.to_rfc3339()).unwrap_or_else(||
-                        e.deprecated_last_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_default()
+                    age: e.event_time.clone().map(|t| t.0.to_rfc3339()).unwrap_or_else(||
+                        e.deprecated_last_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default()
                     ),
+                    last_timestamp: e.event_time.map(|t| t.0.to_rfc3339()).or_else(|| e.deprecated_last_timestamp.map(|t| t.0.to_rfc3339())),
                     count: e.deprecated_count.unwrap_or(e.series.as_ref().map(|s| s.count).unwrap_or(1)),
                 })
             } else { None }

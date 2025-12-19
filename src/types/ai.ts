@@ -1,13 +1,13 @@
-// LLM Provider types
-export type LLMProvider = 'ollama' | 'openai' | 'anthropic' | 'custom' | 'claude-code' | 'groq';
+// LLM Provider types - generalized
+export type LLMProvider = 'claude-code' | 'codex-cli';
 
 export interface LLMConfig {
     provider: LLMProvider;
     api_key: string | null;
     base_url: string;
-    model: string;                    // Primary "Brain" model for planning/analysis
-    executor_model?: string | null;   // Optional fast "Executor" model for CLI translation
-    embedding_model?: string | null;  // Optional embedding model
+    model: string;
+    executor_model?: string | null;
+    embedding_model?: string | null;
     embedding_endpoint?: string | null;
     temperature: number;
     max_tokens: number;
@@ -79,17 +79,4 @@ export interface ClusterEventSummary {
 export interface UnhealthyReport {
     timestamp: string;
     issues: ClusterIssue[];
-}
-
-export interface OllamaStatus {
-    ollama_running: boolean;
-    model_available: boolean;
-    model_name: string;
-    available_models: string[];
-    error: string | null;
-    // Legacy fields if needed
-    models?: string[];
-    current_model?: string;
-    gpu_available?: boolean;
-    active_model_info?: any;
 }

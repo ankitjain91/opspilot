@@ -69,8 +69,11 @@ pub struct KubeContext {
 pub struct K8sEvent {
     pub message: String,
     pub reason: String,
+    #[serde(rename = "type")]
     pub type_: String,
     pub age: String,
+    #[serde(rename = "lastTimestamp")]
+    pub last_timestamp: Option<String>,
     pub count: i32,
 }
 

@@ -202,8 +202,25 @@ export function useAgentStream(queryId: string | null) {
                     commandHistory: commandHistoryRef.current
                 };
 
+            // Progress events - show useful updates to user
+            case 'progress': {
+                const progressMsg = message || data?.message || '';
+                // Determine phase from message content
+                let phase: 'planning' | 'executing' | 'analyzing' = 'analyzing';
+                const lowerMsg = progressMsg.toLowerCase();
+                if (lowerMsg.includes('brain') || lowerMsg.includes('reasoning') || lowerMsg.includes('planner') || lowerMsg.includes('supervisor')) {
+                    phase = 'planning';
+                } else if (lowerMsg.includes('executing') || lowerMsg.includes('python') || lowerMsg.includes('running') || lowerMsg.includes('kubectl')) {
+                    phase = 'executing';
+                }
+                return {
+                    phase,
+                    message: progressMsg,
+                    commandHistory: commandHistoryRef.current
+                };
+            }
+
             // Ignore noisy internal events
-            case 'progress':
             case 'debug':
             case 'internal':
                 return null;

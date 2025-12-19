@@ -244,61 +244,116 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     const zoomIn = () => setFontSize(prev => Math.min(prev + 2, 24));
     const zoomOut = () => setFontSize(prev => Math.max(prev - 2, 8));
 
-    // Smart log analysis - uses local pattern matching (no LLM needed)
-    const analyzeLogs = () => {
-        setAnalyzing(true);
-        setAnalysisStatus("Analyzing patterns...");
+    // LLM-powered log analysis using Claude Code
+    const analyzeLogs = async () => {
+        if (logs.length === 0) {
+            showToast("No logs to analyze", "error");
+            return;
+        }
 
-        setTimeout(() => {
-            // Count issues by category
+        setAnalyzing(true);
+        setAnalysisStatus("Connecting to AI...");
+
+        try {
+            // Take last 200 lines for analysis (balance between context and token limits)
+            const logsToAnalyze = logs.slice(-200).join('\n');
+
+            const response = await fetch('http://127.0.0.1:8765/analyze-logs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream',
+                },
+                body: JSON.stringify({
+                    logs: logsToAnalyze,
+                    pod_name: resource.name,
+                    container_name: container,
+                    namespace: resource.namespace,
+                    kube_context: '', // Will use default context
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Analysis failed: ${response.status}`);
+            }
+
+            if (!response.body) {
+                throw new Error("No response body");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let analysisText = "\n--- 🤖 AI ANALYSIS ---\n\n";
+            let streamedText = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const eventData = JSON.parse(line.slice(6));
+
+                            switch (eventData.type) {
+                                case 'progress':
+                                    setAnalysisStatus(eventData.message || 'Analyzing...');
+                                    break;
+                                case 'text':
+                                    // Stream text as it arrives
+                                    streamedText += eventData.content || '';
+                                    break;
+                                case 'done':
+                                    // Final analysis received
+                                    if (eventData.analysis) {
+                                        analysisText += eventData.analysis;
+                                    } else if (streamedText) {
+                                        analysisText += streamedText;
+                                    }
+                                    break;
+                                case 'error':
+                                    throw new Error(eventData.message);
+                            }
+                        } catch (parseErr) {
+                            // Ignore parse errors for incomplete chunks
+                        }
+                    }
+                }
+            }
+
+            // Add the analysis to logs display
+            if (analysisText.length > 30) {
+                setLogs(prev => [...prev, analysisText]);
+                showToast("AI analysis complete", "success");
+            } else {
+                showToast("Analysis returned empty result", "error");
+            }
+        } catch (error: any) {
+            console.error("Log analysis failed:", error);
+            showToast(`Analysis failed: ${error.message}`, "error");
+
+            // Fallback to local pattern analysis
             const errorLines = scanResults.filter(r => r.level === 'error');
             const warnLines = scanResults.filter(r => r.level === 'warn');
 
-            // Group by pattern type
-            const patternCounts: Record<string, number> = {};
-            scanResults.forEach(r => {
-                patternCounts[r.patternName] = (patternCounts[r.patternName] || 0) + 1;
-            });
-
-            // Build analysis summary
-            let analysis = "\n--- 🤖 SMART ANALYSIS ---\n\n";
-            analysis += `## Log Summary\n`;
-            analysis += `- **Total Lines:** ${logs.length}\n`;
-            analysis += `- **Errors:** ${errorLines.length}\n`;
-            analysis += `- **Warnings:** ${warnLines.length}\n\n`;
-
-            if (Object.keys(patternCounts).length > 0) {
-                analysis += `## Detected Patterns\n`;
-                Object.entries(patternCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .forEach(([pattern, count]) => {
-                        analysis += `- **${pattern}:** ${count} occurrences\n`;
-                    });
-                analysis += "\n";
-            }
-
-            if (errorLines.length > 0) {
-                analysis += `## First Error Context\n`;
-                const firstError = errorLines[0].lineIndex;
-                const contextStart = Math.max(0, firstError - 2);
-                const contextEnd = Math.min(logs.length - 1, firstError + 2);
-                analysis += "```\n";
-                for (let i = contextStart; i <= contextEnd; i++) {
-                    const prefix = i === firstError ? ">>> " : "    ";
-                    analysis += prefix + logs[i].replace(/\x1B\[\d+m/g, '').substring(0, 150) + "\n";
-                }
-                analysis += "```\n";
-            }
+            let fallback = "\n--- 🤖 LOCAL ANALYSIS (AI unavailable) ---\n\n";
+            fallback += `## Quick Summary\n`;
+            fallback += `- **Total Lines:** ${logs.length}\n`;
+            fallback += `- **Errors Found:** ${errorLines.length}\n`;
+            fallback += `- **Warnings Found:** ${warnLines.length}\n`;
 
             if (errorLines.length === 0 && warnLines.length === 0) {
-                analysis += "✅ **No critical issues detected.** Logs appear healthy.\n";
+                fallback += "\n✅ No critical issues detected in logs.\n";
             }
 
-            setLogs(prev => [...prev, analysis]);
+            setLogs(prev => [...prev, fallback]);
+        } finally {
             setAnalyzing(false);
             setAnalysisStatus("");
-            showToast("Analysis complete", "success");
-        }, 500);
+        }
     };
 
     // --- Stream Logic ---
@@ -443,7 +498,8 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     };
 
     const renderLogLine = (line: string, index: number) => {
-        if (line.includes("--- 🤖 SMART ANALYSIS ---")) {
+        // Detect AI analysis blocks (both new AI and legacy local analysis)
+        if (line.includes("--- 🤖 AI ANALYSIS ---") || line.includes("--- 🤖 SMART ANALYSIS ---") || line.includes("--- 🤖 LOCAL ANALYSIS")) {
             return (
                 <div key={index} className="my-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                     <div className="prose prose-invert prose-sm max-w-none">
@@ -548,7 +604,7 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
 
                 <div className="flex-1" />
 
-                {/* Smart Analyze Button */}
+                {/* AI Analyze Button */}
                 <button
                     disabled={analyzing}
                     onClick={() => { analyzeLogs(); }}
@@ -558,7 +614,7 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
                         }`}
                 >
                     {analyzing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} className="text-purple-400" />}
-                    <span className="font-medium whitespace-nowrap hidden sm:inline">{analyzing ? analysisStatus : "Smart Analyze"}</span>
+                    <span className="font-medium whitespace-nowrap hidden sm:inline">{analyzing ? analysisStatus : "AI Analyze"}</span>
                 </button>
 
                 <div className="h-3 w-px bg-white/10 mx-1" />

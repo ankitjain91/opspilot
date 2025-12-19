@@ -22,6 +22,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { formatAge } from '../../../utils/time';
 import { ObjectTree } from './ObjectTree';
 import { MetricsChart } from './MetricsChart';
+import { ResourceChainCard } from './ResourceChainCard';
 
 // Helper for Copy Button
 const CopyButton = ({ value, label }: { value: string, label?: string }) => {
@@ -56,25 +57,21 @@ interface OverviewTabProps {
     currentContext?: string;
     onViewLogs: () => void;
     onUpdate: (path: string[], value: any) => Promise<void>;
+    onNavigateResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void;
 }
 
-export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, onUpdate }: OverviewTabProps) {
+export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, onUpdate, onNavigateResource }: OverviewTabProps) {
     const isPod = resource.kind.toLowerCase() === "pod";
     const isWorkload = ['deployment', 'statefulset', 'daemonset', 'replicaset', 'job'].includes(resource.kind.toLowerCase());
-
-    // Auto-expand spec if there are no "smart" cards (like containers) to show
-    const [specExpanded, setSpecExpanded] = useState(!isPod && !isWorkload);
-    // Auto-expand status for simple resources
-    const [statusExpanded, setStatusExpanded] = useState(!isPod && !isWorkload);
-
-    // Fetch Metrics (Hooks must be at top level)
-    // Fetch Metrics handled by MetricsChart now
-
-
 
     const containers = isPod
         ? (fullObject?.spec?.containers || [])
         : (isWorkload ? (fullObject?.spec?.template?.spec?.containers || []) : []);
+
+    // Auto-expand spec if there are no "smart" cards (like containers) to show
+    const [specExpanded, setSpecExpanded] = useState((!isPod && !isWorkload) || containers.length === 0);
+    // Auto-expand status for simple resources or if status looks brief
+    const [statusExpanded, setStatusExpanded] = useState(!isPod && !isWorkload);
 
     const conditions = fullObject?.status?.conditions || [];
     const metadata = fullObject?.metadata || {};
@@ -127,6 +124,15 @@ export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, 
                     </div>
                 </div>
             </section>
+
+            {/* 1.5 RESOURCE CHAIN (Relationships) */}
+            <ResourceChainCard
+                kind={resource.kind}
+                name={resource.name}
+                namespace={resource.namespace}
+                currentContext={currentContext}
+                onNavigate={onNavigateResource}
+            />
 
             {/* 2. SPEC (Configuration) */}
             <section id="spec" className="space-y-4">

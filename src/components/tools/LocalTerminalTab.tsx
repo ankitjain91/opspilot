@@ -118,7 +118,7 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
 
             // Handle user input
             term.onData(data => {
-                invoke("send_shell_input", { session_id: sessionId, data }).catch(err => {
+                invoke("send_shell_input", { sessionId: sessionId, data }).catch(err => {
                     console.error('[LocalTerminalTab] Failed to send input:', err);
                 });
             });
@@ -129,8 +129,8 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
                     try {
                         fitAddonRef.current.fit();
                         const { cols, rows } = xtermRef.current;
-                        invoke("resize_shell", { session_id: sessionId, rows, cols }).catch(() => {});
-                    } catch {}
+                        invoke("resize_shell", { sessionId: sessionId, rows, cols }).catch(() => { });
+                    } catch { }
                 }
             };
 
@@ -145,7 +145,7 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
             // Start the shell
             try {
                 console.log('[LocalTerminalTab] Starting shell...');
-                await invoke("start_local_shell", { session_id: sessionId });
+                await invoke("start_local_shell", { sessionId: sessionId });
                 console.log('[LocalTerminalTab] Shell started successfully');
 
                 if (mounted) {
@@ -162,7 +162,7 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
                         initialCommandSentRef.current = true;
                         setTimeout(() => {
                             console.log('[LocalTerminalTab] Sending initial command:', initialCommand);
-                            invoke("send_shell_input", { session_id: sessionId, data: initialCommand + '\n' }).catch(() => {});
+                            invoke("send_shell_input", { sessionId: sessionId, data: initialCommand + '\n' }).catch(() => { });
                             onCommandSent?.();
                         }, 300);
                     }
@@ -200,7 +200,7 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
 
             // Stop the shell session
             if (sessionIdRef.current) {
-                invoke("stop_local_shell", { session_id: sessionIdRef.current }).catch(() => {});
+                invoke("stop_local_shell", { sessionId: sessionIdRef.current }).catch(() => { });
             }
         };
     }, []); // Only run once on mount
@@ -212,7 +212,7 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
             initialCommandSentRef.current = true;
             setTimeout(() => {
                 console.log('[LocalTerminalTab] Sending delayed initial command:', initialCommand);
-                invoke("send_shell_input", { session_id: sessionId, data: initialCommand + '\n' }).catch(() => {});
+                invoke("send_shell_input", { sessionId: sessionId, data: initialCommand + '\n' }).catch(() => { });
                 onCommandSent?.();
             }, 100);
         }

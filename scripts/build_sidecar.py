@@ -6,12 +6,17 @@ import venv
 from pathlib import Path
 
 def main():
+    # Check for skip flag
+    if os.environ.get('SKIP_PYTHON_BUILD') == '1':
+        print("[build] SKIP_PYTHON_BUILD=1, skipping Python sidecar build")
+        return
+
     # Identify project paths
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     python_source_dir = project_root / "python"
     venv_dir = project_root / ".venv-build"
-    
+
     print(f"[build] Setting up Python build environment in {venv_dir}...")
     
     # Create venv if needed

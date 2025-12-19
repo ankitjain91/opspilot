@@ -94,11 +94,42 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
             const newTab: Tab = {
                 id: tabId,
                 resource: obj,
-                kind: activeRes?.kind || ""
+                kind: obj.kind
             };
             setTabs(prev => [...prev, newTab]);
             setActiveTabId(tabId);
         }
+    };
+
+    // Handler for navigating to a related resource from ResourceChainCard
+    const handleOpenRelatedResource = (kind: string, name: string, namespace: string, apiVersion?: string) => {
+        // Parse apiVersion (e.g., "apps/v1" -> group="apps", version="v1")
+        // Core resources have no group (e.g., "v1" -> group="", version="v1")
+        let group = '';
+        let version = 'v1';
+
+        if (apiVersion) {
+            const parts = apiVersion.split('/');
+            if (parts.length === 2) {
+                group = parts[0];  // e.g., "apps" from "apps/v1"
+                version = parts[1];
+            } else {
+                version = parts[0]; // e.g., "v1"
+            }
+        }
+
+        // Create a minimal K8sObject for the related resource
+        const relatedObj: K8sObject = {
+            id: `${namespace}-${name}-${kind}`,
+            name,
+            namespace,
+            kind,
+            status: 'Unknown', // Will be updated when details are fetched
+            age: '',
+            group,
+            version
+        };
+        handleOpenResource(relatedObj);
     };
 
     const handleCloseTab = (tabId: string | null) => {
@@ -152,6 +183,11 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
 
             // Set the new context
             await invoke("set_kube_config", { path: null, context: contextName });
+
+            // Trigger background KB preload for faster first query
+            import('../ai/agentOrchestrator').then(({ preloadKBForContext }) => {
+                preloadKBForContext(contextName);
+            });
 
             // Invalidate all queries to refetch with new context
             await qc.invalidateQueries();
@@ -211,6 +247,12 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
             setActiveRes(null);
             setSelectedNamespace("All Namespaces");
             setSearchQuery("");
+        }
+        // Trigger background KB preload on initial load and context changes
+        if (currentContext && prevContextRef.current !== currentContext) {
+            import('../ai/agentOrchestrator').then(({ preloadKBForContext }) => {
+                preloadKBForContext(currentContext);
+            });
         }
         prevContextRef.current = currentContext;
     }, [currentContext, qc]);
@@ -1046,6 +1088,7 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
                             }
                         }}
                         currentContext={currentContext}
+                        onOpenResource={handleOpenRelatedResource}
                     />
                 )
             }

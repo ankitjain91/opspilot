@@ -45,8 +45,32 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let sidecar = app.shell().sidecar("agent-server")
         .map_err(|e| format!("Failed to get sidecar: {}", e))?;
 
-    // Spawn the sidecar process
-    let (mut rx, child) = sidecar.spawn()
+    // Determine writable path for ChromaDB
+    let chroma_path = app.path().app_data_dir()
+        .map(|p| p.join("chroma_db"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("./chroma_db"));
+    
+    // Ensure the directory exists
+    if let Err(e) = std::fs::create_dir_all(&chroma_path) {
+        eprintln!("[agent-sidecar] Failed to create ChromaDB dir: {}", e);
+    }
+    
+    let chroma_path_str = chroma_path.to_string_lossy().to_string();
+    println!("[agent-sidecar] Using ChromaDB path: {}", chroma_path_str);
+
+    // Determine KB path from bundled resources
+    let kb_path = app.path().resource_dir()
+        .map(|p| p.join("knowledge"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("./knowledge"));
+    let kb_path_str = kb_path.to_string_lossy().to_string();
+    println!("[agent-sidecar] Using KB path: {}", kb_path_str);
+
+    // Spawn with environment
+    // Note: tauri_plugin_shell::Command is immutable, we must chain calls
+    let (mut rx, child) = sidecar
+        .env("CHROMADB_PERSIST_DIR", &chroma_path_str)
+        .env("K8S_AGENT_KB_DIR", &kb_path_str)
+        .spawn()
         .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
     // Store the child process

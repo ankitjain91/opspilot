@@ -44,7 +44,7 @@ interface PythonAgentRequest {
 
 import { invoke } from '@tauri-apps/api/core';
 import { formatKubectlOutput } from './kubernetesFormatter';
-import { DEFAULT_LLM_CONFIGS } from './constants';
+import { DEFAULT_LLM_CONFIG } from './constants';
 import { LLMConfig } from '../../types/ai';
 import {
     discoverClusterCapabilities,
@@ -100,6 +100,7 @@ async function checkPythonAgentAvailable(): Promise<boolean> {
 async function runDirectAgent(
     query: string,
     kubeContext: string,
+    llmProvider: string,
     onProgress?: (msg: string) => void,
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal
@@ -113,6 +114,7 @@ async function runDirectAgent(
         body: JSON.stringify({
             query,
             kube_context: kubeContext || '',
+            llm_provider: llmProvider,
         }),
         signal: abortSignal,
     });
@@ -248,11 +250,11 @@ async function runPythonAgent(
         throw new Error("❌ **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
     }
 
-    // FAST PATH: Use direct agent for Claude Code provider (single LLM call)
-    if (llmProvider === 'claude-code') {
-        console.log('[AgentOrchestrator] Using direct Claude Code agent (fast path)');
+    // FAST PATH: Use direct agent for Claude Code/Codex provider (single LLM call)
+    if (llmProvider === 'claude-code' || llmProvider === 'codex-cli') {
+        console.log(`[AgentOrchestrator] Using direct agent for ${llmProvider} (fast path)`);
         onProgress?.('🚀 Direct investigation...');
-        return await runDirectAgent(query, kubeContext, onProgress, onStep, abortSignal);
+        return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal);
     }
 
     onProgress?.('🧠 Reasoning...');
@@ -515,10 +517,8 @@ async function runPythonAgent(
 // CONFIGURATION MANAGEMENT - NO HARDCODED DEFAULTS
 // =============================================================================
 
-/**
- * Load LLM configuration from user settings
- * Falls back to DEFAULT_LLM_CONFIGS only if user hasn't configured
- */
+// Load LLM configuration from user settings
+// Falls back to DEFAULT_LLM_CONFIG (Claude Code) if user hasn't configured
 async function loadLLMConfiguration(): Promise<LLMConfig> {
     try {
         // Try to load from user settings file
@@ -531,24 +531,9 @@ async function loadLLMConfiguration(): Promise<LLMConfig> {
         console.warn('[LLM Config] Failed to load user config:', e);
     }
 
-    // Check if Ollama is available and use its default
-    try {
-        const ollamaStatus = await invoke<any>('check_ollama_status');
-        if (ollamaStatus.ollama_running && ollamaStatus.available_models?.length > 0) {
-            console.log('[LLM Config] Using Ollama with available models:', ollamaStatus.available_models);
-            return {
-                ...DEFAULT_LLM_CONFIGS.ollama,
-                model: ollamaStatus.available_models[0], // Use first available model
-                executor_model: ollamaStatus.available_models.length > 1 ? ollamaStatus.available_models[1] : null
-            };
-        }
-    } catch (e) {
-        console.warn('[LLM Config] Ollama check failed:', e);
-    }
-
-    // Last resort: use Ollama defaults but warn user
-    console.warn('[LLM Config] Using default Ollama configuration - please configure LLM settings');
-    return DEFAULT_LLM_CONFIGS.ollama;
+    // Use Claude Code default configuration
+    console.log('[LLM Config] Using default Claude Code configuration');
+    return DEFAULT_LLM_CONFIG;
 }
 
 // =============================================================================

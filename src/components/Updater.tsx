@@ -129,12 +129,12 @@ export function Updater({ onStateChange }: UpdaterProps) {
         console.log('[Updater] Component mounted, checkUpdateFn registered');
 
         // Skip auto-check in development mode
-        if (import.meta.env.DEV) {
-            console.log('[Updater] Skipping auto-check in development mode');
-            return () => {
-                checkUpdateFn = null;
-            };
-        }
+        // if (import.meta.env.DEV) {
+        //     console.log('[Updater] Skipping auto-check in development mode');
+        //     return () => {
+        //         checkUpdateFn = null;
+        //     };
+        // }
 
         // Initial check on startup (silent)
         checkUpdate(false);

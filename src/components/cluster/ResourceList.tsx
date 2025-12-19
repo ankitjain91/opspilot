@@ -200,9 +200,13 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 namespace: namespaceFilter === "All Namespaces" ? null : namespaceFilter
             }
         }),
-        staleTime: isWatching ? Infinity : 10000, // Don't consider stale if watching
-        gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
-        refetchInterval: isWatching ? false : 30000, // Disable polling when watching
+        // STREAMING MODE: We disable the initial list fetch and rely 100% on the watcher
+        // to populate the cache via events. This gives "instant" feeling (streaming)
+        // rather than "waiting" (monolithic fetch).
+        enabled: false,
+        staleTime: Infinity,
+        gcTime: 1000 * 60 * 5,
+        refetchInterval: false,
         refetchOnWindowFocus: false,
     });
 
