@@ -137,8 +137,20 @@ class ClaudeCodeBackend:
             if error_output:
                 print(f"[claude-code] stderr: {error_output[:500]}", flush=True)
 
+            # Debug: show first 1000 chars of raw output
+            print(f"[claude-code] Raw output (first 1000 chars): {output[:1000]}", flush=True)
+
             # Parse the stream-json output
             response = self._parse_stream_json_output(output)
+
+            # Debug: show parsed content
+            print(f"[claude-code] Parsed content (first 500 chars): {response.content[:500] if response.content else '(empty)'}", flush=True)
+
+            # Show any tool calls Claude made
+            if response.tool_calls:
+                print(f"[claude-code] Tool calls: {len(response.tool_calls)}", flush=True)
+                for tc in response.tool_calls[:3]:  # Show first 3
+                    print(f"[claude-code]   → {tc.get('name')}: {str(tc.get('input', {}))[:100]}", flush=True)
 
             # Extract session ID for continuation
             session_match = re.search(r'session[_-]?id["\s:]+([a-zA-Z0-9_-]+)', output, re.IGNORECASE)
