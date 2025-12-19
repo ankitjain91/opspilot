@@ -58,21 +58,37 @@ const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
 /**
  * Trigger background KB preloading for a context.
  * Call this when user switches contexts to warm the cache before they ask questions.
+ * Also updates the Sentinel to monitor the correct cluster.
  */
 export async function preloadKBForContext(kubeContext: string): Promise<void> {
     try {
-        const response = await fetch(`${PYTHON_AGENT_URL}/preload`, {
+        // Update KB preload
+        const preloadPromise = fetch(`${PYTHON_AGENT_URL}/preload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kube_context: kubeContext }),
         });
-        if (response.ok) {
-            const data = await response.json();
+
+        // Update Sentinel context (so it monitors the right cluster)
+        const sentinelPromise = fetch(`${PYTHON_AGENT_URL}/sentinel/context`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kube_context: kubeContext }),
+        });
+
+        const [preloadResponse, sentinelResponse] = await Promise.all([preloadPromise, sentinelPromise]);
+
+        if (preloadResponse.ok) {
+            const data = await preloadResponse.json();
             console.log(`[AgentOrchestrator] KB preload triggered for ${kubeContext}:`, data);
+        }
+        if (sentinelResponse.ok) {
+            const data = await sentinelResponse.json();
+            console.log(`[AgentOrchestrator] Sentinel context updated to ${kubeContext}:`, data);
         }
     } catch (e) {
         // Silently fail - preloading is best-effort
-        console.debug('[AgentOrchestrator] KB preload failed (agent may not be running):', e);
+        console.debug('[AgentOrchestrator] KB preload/Sentinel update failed (agent may not be running):', e);
     }
 }
 

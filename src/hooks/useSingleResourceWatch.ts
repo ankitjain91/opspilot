@@ -56,9 +56,9 @@ export function useSingleResourceWatch(
             console.log('[useSingleResourceWatch] Received event:', watchEvent.event_type, 'for', watchEvent.resource?.name);
 
             // Verify the update is for our resource (name must match)
+            // Note: Watch receives events for ALL resources of the kind, we filter here
             if (watchEvent.resource?.name !== target.name) {
-                console.warn('[useSingleResourceWatch] Name mismatch in watch event, ignoring:', watchEvent.resource?.name, 'vs', target.name);
-                return;
+                return; // Silently ignore events for other resources
             }
 
             if (watchEvent.event_type === "DELETED") {

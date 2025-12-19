@@ -424,6 +424,24 @@ async def preload_status(kube_context: str):
     }
 
 
+@app.post("/sentinel/context")
+async def update_sentinel_context(request: PreloadRequest):
+    """
+    Update the Sentinel's kube context to match the UI's current context.
+    Call this when the user switches clusters.
+    """
+    global global_sentinel
+    if global_sentinel:
+        old_context = global_sentinel.kube_context
+        global_sentinel.kube_context = request.kube_context
+        # Reset failure tracking when context changes
+        global_sentinel._consecutive_failures = 0
+        global_sentinel._backoff = 5
+        print(f"[Sentinel] Context updated: {old_context} -> {request.kube_context}", flush=True)
+        return {"success": True, "context": request.kube_context, "previous": old_context}
+    return {"success": False, "error": "Sentinel not running"}
+
+
 from .llm import list_available_models
 from .llm import call_llm
 

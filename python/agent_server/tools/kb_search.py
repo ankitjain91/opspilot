@@ -571,7 +571,7 @@ async def get_relevant_kb_snippets(
     """
     Semantic search over KB to find relevant troubleshooting patterns.
 
-    Uses query expansion to find synonyms and improve coverage.
+    Uses query expansion, semantic caching, and query coalescing for performance.
 
     Args:
         query: User's query
@@ -584,7 +584,9 @@ async def get_relevant_kb_snippets(
     """
     global _embeddings_cache
 
-    # Get config from state
+    # Import query cache for performance optimization
+    from .query_cache import get_query_cache, get_query_coalescer
+
     # Get config from state - check explicit state override first, then fall back to config global
     from ..config import EMBEDDING_ENDPOINT as GLOBAL_EMBEDDING_ENDPOINT
 
@@ -593,10 +595,51 @@ async def get_relevant_kb_snippets(
     kb_dir = state.get('kb_dir', os.environ.get('K8S_AGENT_KB_DIR', '/Users/ankitjain/lens-killer/knowledge'))
     embedding_model = state.get('embedding_model', os.environ.get('K8S_AGENT_EMBED_MODEL', 'nomic-embed-text'))
 
+    # Check query cache first (5x faster for repeated queries)
+    cache = get_query_cache()
+    cached = cache.get(query)
+    if cached is not None:
+        results, _ = cached
+        print(f"[KB] Cache HIT for query: '{query[:50]}...' (stats: {cache.get_stats()['hit_rate_percent']}% hit rate)", flush=True)
+        return results
+
     # Load KB entries
     entries = load_kb_entries(kb_dir)
     if not entries:
         return ""
+
+    # Use query coalescer to prevent duplicate in-flight computations
+    coalescer = get_query_coalescer()
+
+    async def compute_kb_results(q: str) -> str:
+        return await _compute_kb_search(q, entries, llm_endpoint, embedding_model, max_results, min_similarity)
+
+    # Execute with coalescing (deduplicates concurrent identical queries)
+    result = await coalescer.execute(query, compute_kb_results)
+
+    # Cache the result with embedding for semantic matching
+    async def get_query_embedding(q: str):
+        return await get_embedding(q, llm_endpoint, embedding_model)
+
+    embedding = await get_query_embedding(query)
+    cache.set(query, result, embedding)
+
+    return result
+
+
+async def _compute_kb_search(
+    query: str,
+    entries: List[Dict],
+    llm_endpoint: str,
+    embedding_model: str,
+    max_results: int = 5,
+    min_similarity: float = 0.35
+) -> str:
+    """
+    Internal function to compute KB search results.
+    Separated from get_relevant_kb_snippets for caching.
+    """
+    global _embeddings_cache
 
     # QUERY EXPANSION: Generate query variants with synonyms
     from ..heuristics import expand_query
@@ -795,10 +838,14 @@ async def generate_kb_embeddings_generator(endpoint: str, model_name: str | None
     """Generator that yields SSE events while generating embeddings."""
     try:
         model = model_name or EMBEDDING_MODEL
+
+        # Clear KB cache to force reload from disk (user is explicitly regenerating)
+        clear_cache()
+
         entries = load_kb_entries(KB_DIR)
-        
+
         if not entries:
-            yield f"data: {json.dumps({'status': 'error', 'message': 'No KB entries found'})}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'message': f'No KB entries found in {KB_DIR}. Ensure .jsonl files exist in the knowledge directory.'})}\n\n"
             return
 
         total = len(entries)

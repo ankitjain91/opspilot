@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, Save, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Save, AlertCircle, Loader2, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { useQueryClient } from '@tanstack/react-query';
 import { K8sObject } from '../../../types/k8s';
 
 interface YamlEditorModalProps {
     isOpen: boolean;
     onClose: () => void;
     resource: K8sObject;
+    currentContext?: string;
     onSuccess?: () => void;
 }
 
-export function YamlEditorModal({ isOpen, onClose, resource, onSuccess }: YamlEditorModalProps) {
+export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onSuccess }: YamlEditorModalProps) {
     const [yamlContent, setYamlContent] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const qc = useQueryClient();
 
     // Fetch YAML content when modal opens
     useEffect(() => {
@@ -48,17 +52,35 @@ export function YamlEditorModal({ isOpen, onClose, resource, onSuccess }: YamlEd
     const handleSave = async () => {
         setIsSaving(true);
         setError(null);
+        setSaveSuccess(false);
         try {
-            await invoke('apply_yaml', {
-                namespace: resource.namespace === '-' ? 'default' : resource.namespace,
+            // apply_yaml now returns the updated YAML directly
+            const updatedYaml = await invoke<string>('apply_yaml', {
+                namespace: resource.namespace === '-' ? '' : resource.namespace,
                 kind: resource.kind,
                 name: resource.name,
                 yamlContent: yamlContent
             });
 
+            // Immediately update the cache with server response
+            const queryKey = ["resource_details", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name];
+            qc.setQueryData(queryKey, updatedYaml);
+
+            // Update local content with server response
+            setYamlContent(updatedYaml);
+
+            // Invalidate list queries so resource list updates
+            qc.invalidateQueries({ queryKey: ["list_resources"] });
+
+            // Show success state briefly
+            setSaveSuccess(true);
             (window as any).showToast?.(`Applied changes to ${resource.kind}/${resource.name}`, 'success');
-            onSuccess?.();
-            onClose();
+
+            // Close after brief delay to show success
+            setTimeout(() => {
+                onSuccess?.();
+                onClose();
+            }, 500);
         } catch (err: any) {
             setError(`Failed to apply changes: ${err.toString()}`);
         } finally {
@@ -86,14 +108,23 @@ export function YamlEditorModal({ isOpen, onClose, resource, onSuccess }: YamlEd
                         )}
                         <button
                             onClick={handleSave}
-                            disabled={isSaving || isLoading}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${isSaving
+                            disabled={isSaving || isLoading || saveSuccess}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                                saveSuccess
+                                    ? 'bg-emerald-500 text-white'
+                                    : isSaving
                                     ? 'bg-emerald-500/50 text-white cursor-wait'
                                     : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                                 }`}
                         >
-                            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                            {isSaving ? 'Applying...' : 'Save & Apply'}
+                            {saveSuccess ? (
+                                <Check size={14} />
+                            ) : isSaving ? (
+                                <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                                <Save size={14} />
+                            )}
+                            {saveSuccess ? 'Applied!' : isSaving ? 'Applying...' : 'Save & Apply'}
                         </button>
                         <button
                             onClick={onClose}

@@ -318,6 +318,30 @@ export function LLMSettingsPanel({
         }
     };
 
+    const handleDisconnectGithub = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pat_token: null,
+                    default_repos: [],
+                    search_all_repos: true
+                })
+            });
+            if (resp.ok) {
+                setGithubConfigured(false);
+                setGithubUser(null);
+                setGithubPat('');
+                setGithubRepos([]);
+                setAvailableRepos([]);
+                setSelectedGroup('');
+            }
+        } catch (e) {
+            console.error("Failed to disconnect GitHub:", e);
+        }
+    };
+
     const testGithubConnection = async (tokenToTest?: string) => {
         setTestingGithub(true);
         try {
@@ -597,38 +621,14 @@ export function LLMSettingsPanel({
                     </div>
                 </div>
 
-                {/* === SECTION 2: CODE SEARCH === */}
+                {/* === SECTION 2: CODE SEARCH - Hidden for now === */}
+                {/* GitHub config section hidden - can be re-enabled later
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
-
-                    {/* Connection Status & Save */}
-                    <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
-                        githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
-                            'bg-zinc-500/5 border-zinc-500/20'
-                        }`}>
-                        <StatusDot ok={githubConfigured} loading={testingGithub} />
-                        <div className="flex-1">
-                            <div className={`text-xs font-bold ${testingGithub ? 'text-amber-400' :
-                                githubConfigured ? 'text-emerald-400' :
-                                    'text-zinc-500'
-                                }`}>
-                                {testingGithub ? 'Testing Connection...' :
-                                    githubConfigured ? `Connected as @${githubUser}` :
-                                        'Not Connected'}
-                            </div>
-                        </div>
-                        {githubPat && githubPat !== 'replace' && (
-                            <button
-                                onClick={saveGithubConfig}
-                                className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-3 py-1.5 transition-colors font-bold"
-                            >
-                                Save Token
-                            </button>
-                        )}
-                    </div>
+                    ...
                 </div>
+                */}
 
-                {/* === SECTION 3: MEMORY SYSTEM === */}
+                {/* === SECTION 2: MEMORY SYSTEM === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none" />
 

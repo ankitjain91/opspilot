@@ -438,24 +438,27 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
 
                 {/* Content Area */}
                 <div className="flex-1 overflow-hidden relative">
-                    {activeContentTab === 'yaml' ? (
-                        <div className="h-full p-0 bg-[#0f0f12]">
-                            <YamlTab resource={resource} currentContext={currentContext} />
-                        </div>
-                    ) : activeContentTab === 'chat' ? (
-                        <div className="h-full p-0 bg-[#16161a]">
-                            <ClusterChatPanel
-                                embedded={true}
-                                resourceContext={{
-                                    kind: resource.kind,
-                                    name: resource.name,
-                                    namespace: resource.namespace
-                                }}
-                                currentContext={currentContext}
-                                onClose={() => setActiveContentTab('overview')}
-                            />
-                        </div>
-                    ) : (
+                    {/* YAML Tab */}
+                    <div className={`h-full p-0 bg-[#0f0f12] ${activeContentTab === 'yaml' ? '' : 'hidden'}`}>
+                        <YamlTab resource={resource} currentContext={currentContext} />
+                    </div>
+
+                    {/* Chat Tab - Keep mounted to preserve in-flight requests */}
+                    <div className={`h-full p-0 bg-[#16161a] ${activeContentTab === 'chat' ? '' : 'hidden'}`}>
+                        <ClusterChatPanel
+                            embedded={true}
+                            resourceContext={{
+                                kind: resource.kind,
+                                name: resource.name,
+                                namespace: resource.namespace
+                            }}
+                            currentContext={currentContext}
+                            onClose={() => setActiveContentTab('overview')}
+                        />
+                    </div>
+
+                    {/* Overview Tab */}
+                    <div className={`h-full ${activeContentTab === 'overview' ? '' : 'hidden'}`}>
                         <UnifiedResourceDetails
                             key={resource.id || `${resource.kind}-${resource.name}`}
                             resource={resource}
@@ -465,7 +468,7 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                             error={detailsError as Error | null}
                             onNavigateResource={onOpenResource}
                         />
-                    )}
+                    </div>
                 </div>
 
                 {/* Keyboard hints footer */}

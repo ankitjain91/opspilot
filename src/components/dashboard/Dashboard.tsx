@@ -14,7 +14,9 @@ import {
     FileCog,
     Filter,
     FolderOpen,
+    GitBranch,
     HardDrive,
+    Info,
     LayoutDashboard,
     Loader2,
     LogOutIcon,
@@ -29,7 +31,11 @@ import {
     Shield,
     Terminal as TerminalIcon,
     X,
-    Download
+    Download,
+    CheckCircle2,
+    XCircle,
+    Clock,
+    AlertTriangle
 } from 'lucide-react';
 
 import { NavResource, NavGroup, K8sObject, InitialClusterData } from '../../types/k8s';
@@ -46,8 +52,12 @@ import { DeleteConfirmationModal } from '../shared/DeleteConfirmationModal';
 import Loading from '../Loading';
 import { useUpdaterState, installPendingUpdate, checkForUpdatesManually } from '../Updater';
 import { NotificationCenter } from '../notifications/NotificationCenter';
+import { useKeyboardShortcuts, KeyboardShortcut } from '../../hooks/useKeyboardShortcuts';
+import { KeyboardShortcutsModal } from '../shared/KeyboardShortcutsModal';
 
 // Define PersistQueryClientProvider in App, so queryClient is available via hook
+
+import { SentinelStatus } from '../ai/useSentinel';
 
 interface DashboardProps {
     onDisconnect: () => void;
@@ -56,9 +66,10 @@ interface DashboardProps {
     onOpenAzure?: () => void;
     showClusterChat?: boolean;
     onToggleClusterChat?: () => void;
+    sentinelStatus?: SentinelStatus;
 }
 
-export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggleClusterChat }: DashboardProps) {
+export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggleClusterChat, sentinelStatus }: DashboardProps) {
     const [activeRes, setActiveRes] = useState<NavResource | null>(null);
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -83,7 +94,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     const [sidebarSearchQuery, setSidebarSearchQuery] = useState(""); // Sidebar search
     const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false); // Command Palette State
     const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
+    const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false); // Keyboard shortcuts help
     const qc = useQueryClient();
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
     const selectedObj = tabs.find(t => t.id === activeTabId)?.resource || null;
 
@@ -261,21 +274,77 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         prevContextRef.current = currentContext;
     }, [currentContext, qc]);
 
-    // Keyboard Shortcut for Command Palette & Terminal
-    useEffect(() => {
-        const down = (e: KeyboardEvent) => {
-            if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                setIsCmdPaletteOpen((open) => !open);
-            }
-            if (e.key === "`" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                setIsTerminalOpen((open) => !open);
-            }
-        };
-        document.addEventListener("keydown", down);
-        return () => document.removeEventListener("keydown", down);
-    }, []);
+    // Define all keyboard shortcuts
+    const keyboardShortcuts: KeyboardShortcut[] = useMemo(() => [
+        // Navigation
+        {
+            key: 'k',
+            modifiers: ['cmd'],
+            description: 'Open command palette',
+            category: 'Navigation',
+            action: () => setIsCmdPaletteOpen(open => !open),
+            global: true
+        },
+        {
+            key: 'f',
+            modifiers: ['cmd'],
+            description: 'Focus search / filter',
+            category: 'Navigation',
+            action: () => searchInputRef.current?.focus(),
+            global: true
+        },
+        {
+            key: 'Escape',
+            modifiers: [],
+            description: 'Close modal / panel',
+            category: 'Navigation',
+            action: () => {
+                if (isShortcutsModalOpen) setIsShortcutsModalOpen(false);
+                else if (isCmdPaletteOpen) setIsCmdPaletteOpen(false);
+                else if (activeTabId) setActiveTabId(null);
+            },
+            global: true
+        },
+        {
+            key: '/',
+            modifiers: ['cmd'],
+            description: 'Show keyboard shortcuts',
+            category: 'Navigation',
+            action: () => setIsShortcutsModalOpen(open => !open),
+            global: true
+        },
+
+        // Tools
+        {
+            key: '`',
+            modifiers: ['cmd'],
+            description: 'Toggle terminal',
+            category: 'Tools',
+            action: () => setIsTerminalOpen(open => !open),
+            global: true
+        },
+        {
+            key: 'j',
+            modifiers: ['cmd'],
+            description: 'Toggle AI assistant',
+            category: 'Tools',
+            action: () => onToggleClusterChat?.(),
+            global: true
+        },
+
+        // Actions
+        {
+            key: 'r',
+            modifiers: ['cmd'],
+            description: 'Refresh current view',
+            category: 'Actions',
+            action: () => qc.invalidateQueries(),
+            global: true
+        },
+    ], [isShortcutsModalOpen, isCmdPaletteOpen, activeTabId, onToggleClusterChat, qc]);
+
+    // Register keyboard shortcuts
+    useKeyboardShortcuts(keyboardShortcuts);
 
     // Listen for event to open terminal with Claude Code
     const [pendingClaudeCommand, setPendingClaudeCommand] = useState(false);
@@ -552,6 +621,38 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         initialData: initialData?.namespaces?.sort(),
     });
 
+    // 2.1 Fetch Argo CD Applications (if present in cluster)
+    const { data: argoApps } = useQuery({
+        queryKey: ["argo_applications", currentContext],
+        queryFn: async () => {
+            try {
+                const apps = await invoke<K8sObject[]>("list_resources", {
+                    req: { group: "argoproj.io", version: "v1alpha1", kind: "Application", namespace: null }
+                });
+                return apps;
+            } catch {
+                // Argo CD not installed or no permissions - return empty
+                return [];
+            }
+        },
+        staleTime: 30000,
+        retry: false, // Don't retry if Argo CD isn't installed
+    });
+
+    // Helper to extract Argo app health/sync status from raw_json
+    const getArgoAppStatus = (app: K8sObject) => {
+        try {
+            if (!app.raw_json) return { health: 'Unknown', sync: 'Unknown' };
+            const parsed = JSON.parse(app.raw_json);
+            return {
+                health: parsed?.status?.health?.status || 'Unknown',
+                sync: parsed?.status?.sync?.status || 'Unknown'
+            };
+        } catch {
+            return { health: 'Unknown', sync: 'Unknown' };
+        }
+    };
+
     // 2.5 Background Prefetching
     useEffect(() => {
         if (!navStructure || !currentContext) return;
@@ -689,9 +790,14 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
 
             {/* Sidebar */}
             <aside
-                className="fixed top-0 bottom-0 left-0 z-30 flex flex-col glass-panel border-r border-white/5 transition-all duration-300 ease-in-out"
+                className="fixed top-0 bottom-0 left-0 z-30 flex flex-col glass-panel border-r border-white/5"
                 style={{ width: sidebarWidth }}
             >
+                {/* Sidebar Resize Handle */}
+                <div
+                    className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500/50 transition-colors z-40"
+                    onMouseDown={() => setIsResizingSidebar(true)}
+                />
                 {/* Sidebar Header */}
                 <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-white/5 backdrop-blur-sm">
                     <div className="flex items-center gap-3 overflow-hidden">
@@ -814,6 +920,66 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     <span>Helm Releases</span>
                                 </div>
                             </button>
+                        </div>
+                    )}
+
+                    {/* Argo CD Applications Section - Only show if apps exist */}
+                    {argoApps && argoApps.length > 0 && (!sidebarSearchQuery || "argo".includes(sidebarSearchQuery.toLowerCase()) || "application".includes(sidebarSearchQuery.toLowerCase()) || "gitops".includes(sidebarSearchQuery.toLowerCase())) && (
+                        <div className="mb-2">
+                            <div className="flex items-center justify-between px-2 py-1.5 mb-1">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded">
+                                        <GitBranch size={14} className="text-orange-400" />
+                                    </div>
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Argo CD</span>
+                                </div>
+                                <span className="text-[10px] text-zinc-600 bg-zinc-800/50 px-1.5 py-0.5 rounded-full">{argoApps.length}</span>
+                            </div>
+                            <div className="space-y-0.5 max-h-48 overflow-y-auto custom-scrollbar">
+                                {argoApps.map((app) => {
+                                    const status = getArgoAppStatus(app);
+                                    const isActive = activeRes?.kind === "Application" && activeRes?.title === app.name;
+                                    const healthColor = status.health === 'Healthy' ? 'text-emerald-400' :
+                                        status.health === 'Degraded' ? 'text-red-400' :
+                                        status.health === 'Progressing' ? 'text-blue-400' :
+                                        status.health === 'Suspended' ? 'text-amber-400' : 'text-zinc-500';
+                                    const syncColor = status.sync === 'Synced' ? 'text-emerald-400' :
+                                        status.sync === 'OutOfSync' ? 'text-amber-400' : 'text-zinc-500';
+                                    const HealthIcon = status.health === 'Healthy' ? CheckCircle2 :
+                                        status.health === 'Degraded' ? XCircle :
+                                        status.health === 'Progressing' ? Clock :
+                                        status.health === 'Suspended' ? AlertTriangle : AlertCircle;
+
+                                    return (
+                                        <button
+                                            key={app.id || app.name}
+                                            onClick={() => {
+                                                handleOpenResource(app);
+                                            }}
+                                            className={`w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-md transition-all group ${
+                                                isActive
+                                                    ? "bg-gradient-to-r from-orange-600/80 to-red-600/80 text-white shadow-md shadow-orange-500/20"
+                                                    : "text-zinc-400 hover:text-white hover:bg-white/5"
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <HealthIcon size={14} className={isActive ? "text-white" : healthColor} />
+                                                <span className="truncate font-medium">{app.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                <span className={`text-[10px] ${isActive ? "text-white/80" : syncColor}`}>
+                                                    {status.sync === 'Synced' ? '✓' : status.sync === 'OutOfSync' ? '⟳' : '?'}
+                                                </span>
+                                                {app.namespace && app.namespace !== '-' && (
+                                                    <span className={`text-[9px] px-1 py-0.5 rounded ${isActive ? "bg-white/20 text-white" : "bg-zinc-800 text-zinc-500"}`}>
+                                                        {app.namespace}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
 
@@ -966,7 +1132,10 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
             {/* Main Content */}
             <main
                 className="flex-1 flex flex-col min-w-0 bg-[#09090b] relative transition-all duration-300 ease-in-out"
-                style={{ marginLeft: sidebarWidth }}
+                style={{
+                    marginLeft: sidebarWidth,
+                    paddingBottom: isTerminalOpen ? terminalHeight : 0
+                }}
             >
                 {/* Sticky vcluster Banner */}
                 {isInsideVcluster && vclusterInfo && (
@@ -1018,12 +1187,62 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                             </div>
 
                             <div className="flex items-center gap-3">
+                                {/* Sentinel Status - Compact indicator with info popover */}
+                                <div className="relative group/sentinel">
+                                    <div
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all cursor-help ${
+                                            sentinelStatus === 'connected'
+                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                : sentinelStatus === 'connecting'
+                                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50'
+                                        }`}
+                                    >
+                                        <Shield size={12} className={sentinelStatus === 'connecting' ? 'animate-pulse' : ''} />
+                                        <span className="hidden sm:inline">
+                                            {sentinelStatus === 'connected' ? 'Sentinel' : sentinelStatus === 'connecting' ? 'Connecting' : 'Offline'}
+                                        </span>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${
+                                            sentinelStatus === 'connected' ? 'bg-emerald-400' :
+                                            sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
+                                            'bg-zinc-600'
+                                        }`} />
+                                        <Info size={10} className="opacity-50 group-hover/sentinel:opacity-100 transition-opacity" />
+                                    </div>
+                                    {/* Info Popover */}
+                                    <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover/sentinel:opacity-100 group-hover/sentinel:visible transition-all duration-200 z-50">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Shield size={14} className="text-emerald-400" />
+                                            <span className="text-xs font-bold text-white">Sentinel Watchdog</span>
+                                        </div>
+                                        <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                            {sentinelStatus === 'connected'
+                                                ? 'Actively monitoring Kubernetes events. You\'ll be notified of pod crashes, OOM kills, scheduling failures, and other cluster issues automatically.'
+                                                : sentinelStatus === 'connecting'
+                                                ? 'Connecting to the Kubernetes event stream...'
+                                                : 'Not connected. Sentinel monitors Warning events from your cluster and alerts you to issues proactively.'}
+                                        </p>
+                                        <div className={`mt-2 text-[10px] flex items-center gap-1.5 ${
+                                            sentinelStatus === 'connected' ? 'text-emerald-400' :
+                                            sentinelStatus === 'connecting' ? 'text-amber-400' :
+                                            'text-zinc-500'
+                                        }`}>
+                                            <div className={`w-1.5 h-1.5 rounded-full ${
+                                                sentinelStatus === 'connected' ? 'bg-emerald-400' :
+                                                sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
+                                                'bg-zinc-600'
+                                            }`} />
+                                            {sentinelStatus === 'connected' ? 'Active' : sentinelStatus === 'connecting' ? 'Connecting...' : 'Offline'}
+                                        </div>
+                                    </div>
+                                </div>
                                 <NotificationCenter />
                                 <div className="relative group">
                                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
                                         <Search size={14} />
                                     </div>
                                     <input
+                                        ref={searchInputRef}
                                         type="text"
                                         placeholder="Filter resources..."
                                         value={searchQuery}
@@ -1121,6 +1340,13 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     }
                 }}
                 resourceName={resourceToDelete?.name || ""}
+            />
+
+            {/* Keyboard Shortcuts Help Modal */}
+            <KeyboardShortcutsModal
+                isOpen={isShortcutsModalOpen}
+                onClose={() => setIsShortcutsModalOpen(false)}
+                shortcuts={keyboardShortcuts}
             />
 
             {/* Context Switcher Dropdown */}

@@ -114,10 +114,10 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
         if (isScaling) return;
         const current = spec.replicas ?? 1;
         const newReplicas = Math.max(0, current + limit);
-        const apiVersion = resource.group ? `${resource.group}/${resource.version}` : resource.version;
 
+        // Optimistic update - show new replicas immediately
+        setOptimisticReplicas(newReplicas);
         setIsScaling(true);
-        // const toastId = showToast(`Scaling to ${newReplicas} replicas...`, 'loading', 0); // Removed to use UI spinner
 
         try {
             await invoke("scale_resource", {
@@ -127,14 +127,17 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                 replicas: newReplicas
             });
 
-            setOptimisticReplicas(newReplicas);
+            // Invalidate list queries so the resource list updates immediately
+            qc.invalidateQueries({ queryKey: ["list_resources"] });
+
             showToast(`Scaled to ${newReplicas} replicas`, 'success');
         } catch (e) {
+            // Revert optimistic update on failure
+            setOptimisticReplicas(current);
             console.error("Scale failed", e);
             showToast(`Scale failed: ${String(e)}`, 'error');
         } finally {
             setIsScaling(false);
-            // dismissToast(toastId);
         }
     };
 
@@ -154,6 +157,9 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                     spec: { template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": now } } } }
                 }
             });
+
+            // Invalidate queries so list updates show restarting pods
+            qc.invalidateQueries({ queryKey: ["list_resources"] });
 
             dismissToast(toastId);
             showToast('Restart initiated successfully', 'success');

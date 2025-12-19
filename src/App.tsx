@@ -12,6 +12,8 @@ import {
   Cloud,
   AlertCircle,
   RefreshCw,
+  Loader2,
+  Sparkles,
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
 import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
@@ -67,6 +69,10 @@ function AppContent() {
   // Global cluster chat state
   const [showClusterChat, setShowClusterChat] = useState(false);
   const [isClusterChatMinimized, setIsClusterChatMinimized] = useState(false);
+  // Track if AI is processing in background (when panel is closed but still working)
+  const [isAIProcessing, setIsAIProcessing] = useState(false);
+  // Track if chat panel has been mounted (to enable background processing)
+  const [chatPanelMounted, setChatPanelMounted] = useState(false);
 
   // Handler for proactive investigations
   // Handler for proactive investigations
@@ -79,7 +85,7 @@ function AppContent() {
   }, []);
 
   // Start Sentinel listener with auto-investigate handler
-  const { kbProgress } = useSentinel(handleAutoInvestigate);
+  const { kbProgress, sentinelStatus } = useSentinel(handleAutoInvestigate);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -345,12 +351,13 @@ function AppContent() {
           setShowClusterChat(!showClusterChat);
           setIsClusterChatMinimized(false);
         }}
+        sentinelStatus={sentinelStatus}
       />
       <PortForwardList currentContext={globalCurrentContext} />
 
 
-      {/* Global Cluster Chat Panel */}
-      {showClusterChat && (
+      {/* Global Cluster Chat Panel - Always mounted to enable background processing */}
+      {(showClusterChat || chatPanelMounted) && (
         <ClusterChatPanel
           onClose={() => setShowClusterChat(false)}
           isMinimized={isClusterChatMinimized}
@@ -359,7 +366,26 @@ function AppContent() {
           initialPrompt={initialPrompt}
           onPromptHandled={() => setInitialPrompt(null)}
           kbProgress={kbProgress}
+          isHidden={!showClusterChat}
+          onProcessingChange={(processing) => {
+            setIsAIProcessing(processing);
+            if (processing) setChatPanelMounted(true); // Keep mounted while processing
+          }}
         />
+      )}
+
+      {/* Background processing indicator - shows when chat is closed but AI is working */}
+      {!showClusterChat && isAIProcessing && (
+        <div
+          onClick={() => setShowClusterChat(true)}
+          className="fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-violet-500/20 to-cyan-500/20 border border-violet-500/40 rounded-xl shadow-lg cursor-pointer transition-all duration-300 group hover:scale-105 hover:border-violet-400/60 backdrop-blur-xl"
+        >
+          <div className="relative">
+            <Loader2 size={18} className="text-violet-400 animate-spin" />
+          </div>
+          <span className="text-sm font-medium text-zinc-200">AI processing...</span>
+          <Sparkles size={14} className="text-cyan-400" />
+        </div>
       )}
 
     </>

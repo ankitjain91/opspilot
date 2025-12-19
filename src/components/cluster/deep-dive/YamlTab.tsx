@@ -189,18 +189,24 @@ export function YamlTab({ resource, currentContext }: { resource: K8sObject, cur
         try {
             // Use empty string for cluster-scoped resources (namespace is "-")
             const ns = resource.namespace === "-" ? "" : resource.namespace;
-            await invoke("apply_yaml", {
+
+            // apply_yaml returns the updated YAML directly from the server
+            const updatedYaml = await invoke<string>("apply_yaml", {
                 namespace: ns,
                 kind: resource.kind,
                 name: resource.name,
                 yamlContent: content
             });
 
-            // Invalidate queries to refresh data
-            qc.invalidateQueries({ queryKey: ["resources"] });
-            qc.invalidateQueries({ queryKey: ["resource_details"] });
+            // Immediately update the cache with the server response - instant UI update!
+            const queryKey = ["resource_details", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name];
+            qc.setQueryData(queryKey, updatedYaml);
+
+            // Update local editor content with server response (includes server-side changes like resourceVersion)
+            setContent(updatedYaml);
+
+            // Also invalidate list queries so the resource list updates
             qc.invalidateQueries({ queryKey: ["list_resources"] });
-            qc.invalidateQueries({ queryKey: ["discovery"] }); // In case CRDs changed
 
             // Show success feedback
             setSaveSuccess(true);

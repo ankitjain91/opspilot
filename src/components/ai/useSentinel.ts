@@ -10,10 +10,13 @@ export interface KBProgress {
     context: string;
 }
 
+export type SentinelStatus = 'connected' | 'connecting' | 'disconnected';
+
 export function useSentinel(onInvestigate?: (prompt: string) => void) {
     const { showToast } = useToast();
     const { addNotification } = useNotifications();
     const [kbProgress, setKBProgress] = useState<KBProgress | null>(null);
+    const [sentinelStatus, setSentinelStatus] = useState<SentinelStatus>('connecting');
     const progressThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastProgressRef = useRef<KBProgress | null>(null);
     const onInvestigateRef = useRef(onInvestigate);
@@ -27,7 +30,13 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
         // Note: In production we might need a dynamic URL, but 8765 is the fixed sidecar port
         const eventSource = new EventSource('http://localhost:8765/events');
 
+        eventSource.onopen = () => {
+            setSentinelStatus('connected');
+        };
+
         eventSource.onmessage = (event) => {
+            // Any message means we're connected
+            setSentinelStatus('connected');
             try {
                 const data = JSON.parse(event.data);
                 if (data.type === 'alert') {
@@ -97,6 +106,8 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
             // SSE often disconnects on reload/sleep, silent reconnect logic is built-in to browser
             // but we log here for debugging
             console.debug("Sentinel SSE connection lost/retry", err);
+            // EventSource will auto-reconnect, mark as connecting
+            setSentinelStatus(eventSource.readyState === EventSource.CLOSED ? 'disconnected' : 'connecting');
         };
 
         return () => {
@@ -108,5 +119,5 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
         };
     }, [showToast, addNotification]); // Removed onInvestigate from dependency
 
-    return { kbProgress };
+    return { kbProgress, sentinelStatus };
 }

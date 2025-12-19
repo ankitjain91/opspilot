@@ -128,7 +128,9 @@ export function ClusterChatPanel({
     resourceContext,
     initialPrompt,
     onPromptHandled,
-    kbProgress
+    kbProgress,
+    isHidden = false,
+    onProcessingChange
 }: {
     onClose?: () => void,
     isMinimized?: boolean,
@@ -138,7 +140,11 @@ export function ClusterChatPanel({
     resourceContext?: { kind: string; name: string; namespace: string },
     initialPrompt?: string | null,
     onPromptHandled?: () => void,
-    kbProgress?: KBProgress | null
+    kbProgress?: KBProgress | null,
+    /** When true, the panel is mounted but invisible (for background processing) */
+    isHidden?: boolean,
+    /** Callback when processing state changes (for background tracking) */
+    onProcessingChange?: (isProcessing: boolean) => void
 }) {
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -178,6 +184,11 @@ export function ClusterChatPanel({
     const [llmLoading, setLlmLoading] = useState(false);
     const [currentActivity, setCurrentActivity] = useState("Analyzing cluster data...");
     const [isExpanded, setIsExpanded] = useState(false);
+
+    // Notify parent of processing state changes (for background processing)
+    useEffect(() => {
+        onProcessingChange?.(llmLoading);
+    }, [llmLoading, onProcessingChange]);
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig);
     const [llmStatus, setLlmStatus] = useState<LLMStatus | null>(null);
     const [checkingLLM, setCheckingLLM] = useState(true);
@@ -457,7 +468,7 @@ export function ClusterChatPanel({
             const response = await invoke<string>('llm_chat', {
                 messages: [{
                     role: 'user',
-                    content: 'Generate ONE short, funny dad joke about Kubernetes, containers, DevOps, or programming. Just the joke itself, no introduction or explanation. Keep it under 100 characters. Include one relevant emoji. Be creative and different each time!'
+                    content: 'Generate ONE short, funny dad joke specifically about Kubernetes, Docker, Helm, or Cloud Native engineering. Just the joke itself, no introduction. Keep it under 100 characters. Include one relevant emoji. Be creative and avoid common ones!'
                 }],
                 config: llmConfig,
                 systemPrompt: 'You are a witty DevOps engineer who loves dad jokes. Respond with ONLY the joke, nothing else. Never repeat the same joke twice.',
@@ -474,6 +485,22 @@ export function ClusterChatPanel({
                 "What's a pod's favorite dance? The crash loop shuffle! 💃",
                 "Why did the container go to therapy? It had too many issues with its parent image! 🐳",
                 "What do you call a Kubernetes cluster with trust issues? A secret manager! 🤫",
+                "Why did the developer go broke? Because he used up all his cache! 💸",
+                "How do you comfort a JavaScript bug? You console it!  console.log('hugs') 🫂",
+                "Why did the SRE cross the road? To get to the other availability zone! 🛣️",
+                "What's a pirate's favorite Kubernetes resource? A Deplooyyyyyment! 🏴‍☠️",
+                "Why was the computer cold? It left its Windows open! 🥶",
+                "Why did the functions stop calling each other? Because they had constant arguments! 😠",
+                "What is a cloud engineer's favorite song? 'Killing Me Softly with His Ping' 🎶",
+                "Why don't bachelors like Git? They are afraid to commit! 💍",
+                "What do you call a networking diagram that implies everything is fine? A lie-agram! 🤥",
+                "Why did the database administrator leave his wife? She had one-to-many relationships! 💔",
+                "How does a Kubernetes pod introduce itself? 'I'm just a small piece of a bigger deployment!' 👋",
+                "Why was the web server shy? It couldn't find its host header! 😳",
+                "What did the router say to the doctor? 'It hurts when IP!' 🩺",
+                "Why do Java developers wear glasses? Because they don't C#! 👓",
+                "What's a Linux user's favorite game? sudo ku! 🧩",
+                "Why did the edge server break up with the core server? There was too much latency in the relationship! ⏱️"
             ];
             setWelcomeJoke(fallbacks[Math.floor(Math.random() * fallbacks.length)]);
         }
@@ -1104,24 +1131,30 @@ export function ClusterChatPanel({
         }
     };
 
-    // If minimized, show just a small pill (only if not embedded) - Neon Cyberpunk Style
+    // If hidden (for background processing), don't render any visible UI
+    // The component stays mounted to continue processing
+    if (isHidden) {
+        return null;
+    }
+
+    // If minimized, show just a small pill (only if not embedded) - Elegant Apple Style
     if (isMinimized && !embedded) {
         return createPortal(
             <div
                 onClick={onToggleMinimize}
-                className="fixed bottom-4 right-4 z-50 flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-[#0a0a12] via-[#0d0d18] to-[#0a0a12] border border-cyan-500/40 rounded-xl shadow-2xl shadow-cyan-500/20 cursor-pointer transition-all duration-300 group hover:scale-105 hover:shadow-cyan-500/40 hover:border-cyan-400/60 backdrop-blur-xl"
+                className="fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-2.5 bg-zinc-900/80 border border-white/10 rounded-2xl shadow-xl cursor-pointer transition-all duration-200 group hover:bg-zinc-800/80 hover:border-white/15 backdrop-blur-2xl"
             >
                 <div className="relative">
-                    <Sparkles size={18} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
-                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                    <Sparkles size={16} className="text-indigo-400" />
+                    <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
                 </div>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-violet-300 font-bold text-sm tracking-wider uppercase">AI NEXUS</span>
+                <span className="text-zinc-200 font-medium text-sm">AI Assistant</span>
                 {chatHistory.length > 0 && (
-                    <span className="text-[10px] px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold tracking-wide shadow-inner">{chatHistory.filter(m => m.role === 'assistant').length}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-zinc-400 font-medium">{chatHistory.filter(m => m.role === 'assistant').length}</span>
                 )}
                 <button
                     onClick={(e) => { e.stopPropagation(); onClose?.(); }}
-                    className="ml-1 p-1.5 rounded-lg hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 transition-all border border-transparent hover:border-rose-500/40"
+                    className="ml-1 p-1.5 rounded-lg hover:bg-white/10 text-zinc-500 hover:text-zinc-300 transition-all"
                 >
                     <X size={14} />
                 </button>
@@ -1132,49 +1165,42 @@ export function ClusterChatPanel({
 
     const panelContent = (
         <div className={embedded
-            ? "flex flex-col h-full w-full bg-[#0a0a0f] border-l border-cyan-500/10 relative overflow-hidden"
-            : `fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[480px] h-[640px]'} z-50 flex flex-col bg-gradient-to-b from-[#0a0a12] via-[#0d0d14] to-[#0a0a0f] border border-cyan-500/20 rounded-2xl shadow-2xl shadow-cyan-500/10 transition-all duration-300 overflow-hidden`
+            ? "flex flex-col h-full w-full bg-zinc-950 border-l border-white/5 relative overflow-hidden"
+            : `fixed ${isExpanded ? 'inset-4' : 'bottom-4 right-4 w-[480px] h-[640px]'} z-50 flex flex-col bg-zinc-900/95 border border-white/10 rounded-2xl shadow-2xl transition-all duration-300 overflow-hidden backdrop-blur-2xl`
         }>
-            {/* Subtle grid background */}
-            <div className="absolute inset-0 matrix-grid pointer-events-none opacity-30" />
+            {/* Subtle gradient background */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
 
-            {/* Neon glow orbs - contained within panel */}
-            <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl pointer-events-none" />
-
-            {/* Header - Cyberpunk Style */}
-            <div className="relative z-50 flex items-center justify-between px-4 py-3.5 border-b border-cyan-500/20 bg-gradient-to-r from-[#0a0a12]/95 via-[#0d0d18]/95 to-[#0a0a12]/95 shrink-0 shadow-lg shadow-cyan-500/5 backdrop-blur-xl">
+            {/* Header - Elegant Apple Style */}
+            <div className="relative z-50 flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/[0.02] shrink-0 backdrop-blur-xl">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="relative shrink-0">
-                        <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-violet-500 rounded-xl blur-md opacity-60" />
-                        <div className="relative p-2.5 rounded-xl bg-gradient-to-br from-cyan-600/90 to-violet-600/90 border border-cyan-400/30 shadow-lg shadow-cyan-500/30">
-                            <Sparkles size={16} className="text-white drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                        <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
+                            <Sparkles size={14} className="text-white" />
                         </div>
                     </div>
                     <div className="min-w-0">
-                        <h3 className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-violet-300 text-sm tracking-tight truncate">AI Assistant</h3>
+                        <h3 className="font-semibold text-zinc-100 text-sm tracking-tight truncate">AI Assistant</h3>
                         <div className="flex items-center gap-2 flex-wrap">
                             <button
                                 onClick={() => setShowSettings(true)}
-                                className="text-[10px] text-zinc-400 hover:text-zinc-300 flex items-center gap-1.5 transition-colors group"
+                                className="text-[10px] text-zinc-500 hover:text-zinc-400 flex items-center gap-1.5 transition-colors group"
                             >
-                                <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-400 shadow-sm shadow-red-400/50'}`} />
+                                <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
                                 <span className="truncate">{llmConfig.provider === 'codex-cli' ? 'Codex (OpenAI)' : 'Claude Code'}</span>
-                                <span className="text-zinc-500">•</span>
-                                <span className="text-zinc-500 group-hover:text-zinc-400 truncate">{llmConfig.model.split(':')[0]}</span>
-                                <ChevronDown size={10} className="text-zinc-500 shrink-0" />
+                                <ChevronDown size={10} className="text-zinc-600 shrink-0" />
                             </button>
                             {extendedMode && (
                                 <span
-                                    className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300"
+                                    className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300"
                                     title={`Extended mode • Checks: ${extendedMode.preferred_checks?.join(', ') || 'broader coverage'}${extendedMode.prefer_mcp_tools ? ' • Prefers MCP tools' : ''}`}
                                 >
                                     Extended
                                 </span>
                             )}
                             {currentContext && (
-                                <span className="text-[10px] text-cyan-400/80 flex items-center gap-1 truncate max-w-[150px]" title={`Kubernetes Context: ${currentContext}`}>
-                                    <span className="text-zinc-500">→</span>
+                                <span className="text-[10px] text-zinc-400 flex items-center gap-1 truncate max-w-[150px]" title={`Kubernetes Context: ${currentContext}`}>
+                                    <span className="text-zinc-600">→</span>
                                     <span className="truncate">{currentContext}</span>
                                 </span>
                             )}
@@ -1182,8 +1208,8 @@ export function ClusterChatPanel({
                     </div>
                 </div>
 
-                {/* Header Actions - Cyber Control Panel */}
-                <div className="flex items-center gap-1 bg-[#0a0a12]/80 rounded-lg p-1.5 border border-cyan-500/20 shadow-lg shadow-cyan-500/5 shrink-0 ml-2 backdrop-blur-xl">
+                {/* Header Actions */}
+                <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/10 shrink-0 ml-2">
                     <button
                         onClick={() => {
                             setChatHistory([]);
@@ -1210,43 +1236,43 @@ export function ClusterChatPanel({
                     </button>
                     {llmLoading && (
                         <>
-                            <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
+                            <div className="w-px h-4 bg-white/10 mx-0.5" />
                             <button
                                 onClick={cancelAnalysis}
                                 disabled={isCancelling}
-                                className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-all disabled:opacity-50 border border-transparent hover:border-rose-500/40"
+                                className="p-2 text-rose-400 hover:text-rose-300 hover:bg-white/5 rounded-lg transition-all disabled:opacity-50"
                                 title={isCancelling ? "Stopping..." : "Stop Generation"}
                             >
                                 <StopCircle size={14} className={isCancelling ? "animate-spin" : ""} />
                             </button>
                         </>
                     )}
-                    <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
+                    <div className="w-px h-4 bg-white/10 mx-0.5" />
                     <button
                         onClick={() => setShowSettings(true)}
-                        className="p-2 rounded-lg hover:bg-cyan-500/10 text-zinc-500 hover:text-cyan-400 transition-all border border-transparent hover:border-cyan-500/30"
+                        className="p-2 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
                         title="Settings"
                     >
                         <Settings size={14} />
                     </button>
-                    <div className="w-px h-4 bg-cyan-500/20 mx-0.5" />
+                    <div className="w-px h-4 bg-white/10 mx-0.5" />
                     <button
                         onClick={onToggleMinimize}
-                        className="p-2 rounded-lg hover:bg-cyan-500/10 text-zinc-500 hover:text-cyan-400 transition-all border border-transparent hover:border-cyan-500/30"
+                        className="p-2 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
                         title="Minimize"
                     >
                         <Minus size={14} />
                     </button>
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="p-2 rounded-lg hover:bg-violet-500/10 text-zinc-500 hover:text-violet-400 transition-all border border-transparent hover:border-violet-500/30"
+                        className="p-2 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
                         title={isExpanded ? "Restore" : "Expand"}
                     >
                         {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                     </button>
                     <button
                         onClick={onClose}
-                        className="p-2 rounded-lg hover:bg-rose-500/20 text-zinc-500 hover:text-rose-400 transition-all border border-transparent hover:border-rose-500/40"
+                        className="p-2 rounded-lg hover:bg-rose-500/10 text-zinc-500 hover:text-rose-400 transition-all"
                         title="Close"
                     >
                         <X size={14} />
@@ -1267,9 +1293,8 @@ export function ClusterChatPanel({
                             className="relative w-full max-w-2xl max-h-[90vh] bg-gradient-to-br from-[#1a1a2e] via-[#16161a] to-[#1a1a2e] rounded-3xl shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 duration-300"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            {/* Decorative gradient orbs */}
-                            <div className="absolute -top-24 -right-24 w-48 h-48 bg-violet-500/30 rounded-full blur-3xl pointer-events-none" />
-                            <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
+                            {/* Subtle gradient overlay */}
+                            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
 
                             {/* Content */}
                             <div className="relative z-10 overflow-y-auto max-h-[90vh]">
@@ -1290,27 +1315,23 @@ export function ClusterChatPanel({
                 document.body
             )}
 
-            {/* Messages - Cyber Scrollable Area */}
+            {/* Messages - Elegant Scrollable Area */}
             <div
                 ref={messagesContainerRef}
-                className={`flex-1 min-h-0 scroll-smooth overflow-y-auto px-6 py-4 space-y-6 relative z-10 cyber-scrollbar`}
+                className={`flex-1 min-h-0 scroll-smooth overflow-y-auto px-5 py-4 space-y-5 relative z-10`}
             >
-                {/* Background decorative elements that scroll with content */}
-                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none" />
                 {/* Loading state while checking LLM */}
                 {checkingLLM && chatHistory.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-24 px-6">
-                        <div className="relative mb-8">
-                            <div className="absolute inset-0 bg-violet-500/30 blur-xl rounded-full animate-pulse" />
-                            <div className="relative w-16 h-16 border-4 border-violet-500/30 border-t-violet-400 rounded-full animate-spin" />
+                        <div className="relative mb-6">
+                            <div className="w-12 h-12 border-2 border-zinc-700 border-t-indigo-400 rounded-full animate-spin" />
                             <div className="absolute inset-0 flex items-center justify-center">
-                                <Sparkles size={20} className="text-violet-200 animate-pulse" />
+                                <Sparkles size={16} className="text-indigo-400" />
                             </div>
                         </div>
-                        <h3 className="text-lg font-semibold text-white mb-2 animate-pulse">Initializing AI...</h3>
-                        <p className="text-sm text-zinc-400 text-center max-w-xs">
-                            Checking connection and model status. <br />
-                            <span className="text-xs text-zinc-500 mt-2 block opacity-80">(This may take a moment if downloading)</span>
+                        <h3 className="text-base font-medium text-zinc-200 mb-2">Initializing AI...</h3>
+                        <p className="text-sm text-zinc-500 text-center max-w-xs">
+                            Checking connection and model status.
                         </p>
                     </div>
                 )}
@@ -1321,47 +1342,46 @@ export function ClusterChatPanel({
                     !checkingLLM && (!llmStatus?.connected || !!llmStatus?.error) && chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 px-6 max-w-lg mx-auto w-full">
                             <div className="relative mb-6">
-                                <div className="absolute inset-0 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-2xl blur-xl opacity-20" />
-                                <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center border border-violet-500/20 backdrop-blur-sm">
-                                    <Terminal size={36} className="text-violet-400" />
+                                <div className="w-16 h-16 rounded-2xl bg-zinc-800 flex items-center justify-center border border-white/10">
+                                    <Terminal size={28} className="text-zinc-400" />
                                 </div>
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">
-                                {llmConfig.provider === 'codex-cli' ? 'Codex Agent Setup Required' : 'Claude Code Setup Required'}
+                            <h3 className="text-lg font-semibold text-zinc-100 mb-2">
+                                {llmConfig.provider === 'codex-cli' ? 'Codex Setup Required' : 'Claude Code Setup Required'}
                             </h3>
-                            <p className="text-sm text-zinc-400 text-center mb-4 max-w-[320px]">
+                            <p className="text-sm text-zinc-500 text-center mb-4 max-w-[320px]">
                                 {llmStatus?.error || (llmConfig.provider === 'codex-cli'
-                                    ? 'OpsPilot uses Codex (via OpenAI) for AI investigations. Please set it up to continue.'
-                                    : 'OpsPilot uses Claude Code for AI investigations. Please set it up to continue.')}
+                                    ? 'OpsPilot uses Codex (via OpenAI) for AI investigations.'
+                                    : 'OpsPilot uses Claude Code for AI investigations.')}
                             </p>
                             <div className="w-full bg-zinc-900/50 rounded-xl border border-white/10 p-4 mb-4 text-left space-y-2">
                                 {llmConfig.provider === 'codex-cli' ? (
                                     <>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">1.</span>
-                                            <span>Install: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">npm install -g @openai/codex-cli</code></span>
+                                            <span className="text-zinc-500 font-medium">1.</span>
+                                            <span>Install: <code className="bg-white/10 px-1.5 py-0.5 rounded text-zinc-300">npm install -g @openai/codex-cli</code></span>
                                         </div>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">2.</span>
-                                            <span>Login: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">codex login</code></span>
+                                            <span className="text-zinc-500 font-medium">2.</span>
+                                            <span>Login: <code className="bg-white/10 px-1.5 py-0.5 rounded text-zinc-300">codex login</code></span>
                                         </div>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">3.</span>
+                                            <span className="text-zinc-500 font-medium">3.</span>
                                             <span>Restart OpsPilot</span>
                                         </div>
                                     </>
                                 ) : (
                                     <>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">1.</span>
-                                            <span>Install: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">npm install -g @anthropic-ai/claude-code</code></span>
+                                            <span className="text-zinc-500 font-medium">1.</span>
+                                            <span>Install: <code className="bg-white/10 px-1.5 py-0.5 rounded text-zinc-300">npm install -g @anthropic-ai/claude-code</code></span>
                                         </div>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">2.</span>
-                                            <span>Login: <code className="bg-white/10 px-1.5 py-0.5 rounded text-emerald-300">claude login</code></span>
+                                            <span className="text-zinc-500 font-medium">2.</span>
+                                            <span>Login: <code className="bg-white/10 px-1.5 py-0.5 rounded text-zinc-300">claude login</code></span>
                                         </div>
                                         <div className="text-[11px] text-zinc-400 flex items-start gap-2">
-                                            <span className="text-violet-400 font-bold">3.</span>
+                                            <span className="text-zinc-500 font-medium">3.</span>
                                             <span>Restart OpsPilot</span>
                                         </div>
                                     </>
@@ -1369,62 +1389,62 @@ export function ClusterChatPanel({
                             </div>
                             <button
                                 onClick={checkLLMStatus}
-                                className="group px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold text-sm transition-all duration-300 flex items-center gap-2 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 hover:scale-105"
+                                className="px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-medium text-sm transition-all flex items-center gap-2"
                             >
-                                <RefreshCw size={16} className="group-hover:rotate-180 transition-transform duration-500" />
+                                <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
                                 Check Again
                             </button>
                         </div>
                     )
                 }
 
-                {/* Normal chat welcome screen - Futuristic Style */}
+                {/* Normal chat welcome screen - Clean Style */}
                 {
                     !checkingLLM && llmStatus?.connected && !llmStatus?.error && chatHistory.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-10 px-6">
-                            {/* Animated logo container */}
-                            <div className="relative mb-8">
-                                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-violet-500 rounded-2xl blur-2xl opacity-30 animate-pulse" />
-                                <div className="absolute inset-[-4px] rounded-2xl bg-gradient-to-r from-cyan-500 via-violet-500 to-cyan-500 opacity-60 animate-[border-flow_3s_linear_infinite]" style={{ backgroundSize: '200% 100%' }} />
-                                <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-[#0a0a12] to-[#0d0d18] flex items-center justify-center border border-cyan-500/30 backdrop-blur-xl shadow-2xl shadow-cyan-500/20">
-                                    <Sparkles size={40} className="text-cyan-400 drop-shadow-[0_0_20px_rgba(6,182,212,0.8)]" />
+                            {/* Logo container */}
+                            <div className="relative mb-6">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                    <Sparkles size={28} className="text-white" />
                                 </div>
                             </div>
-                            <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-violet-300 mb-2 tracking-wider uppercase">SYSTEM ONLINE</h3>
+                            <h3 className="text-xl font-semibold text-zinc-100 mb-2">AI Assistant Ready</h3>
                             {loadingWelcomeJoke ? (
-                                <p className="text-sm text-zinc-400 text-center mb-1 max-w-[320px] italic animate-pulse">
-                                    Thinking of something funny...
+                                <p className="text-sm text-zinc-500 text-center mb-1 max-w-[320px] italic">
+                                    Thinking...
                                 </p>
                             ) : welcomeJoke ? (
                                 <div className="flex items-center gap-2 mb-1">
-                                    <p className="text-sm text-zinc-300 text-center max-w-[320px] italic">
+                                    <p className="text-sm text-zinc-400 text-center max-w-[320px] italic">
                                         {welcomeJoke}
                                     </p>
                                     <button
                                         onClick={fetchNewWelcomeJoke}
-                                        className="p-1.5 text-zinc-500 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-all"
+                                        className="p-1.5 text-zinc-600 hover:text-zinc-400 hover:bg-white/5 rounded-lg transition-all"
                                         title="Get another joke"
                                     >
                                         <RefreshCw size={14} />
                                     </button>
                                 </div>
                             ) : (
-                                <p className="text-sm text-zinc-400 text-center mb-1 max-w-[300px]">
+                                <p className="text-sm text-zinc-500 text-center mb-1 max-w-[300px]">
                                     Ask me anything about your cluster's health, resources, or issues.
                                 </p>
                             )}
-                            <p className="text-xs text-zinc-500 text-center mt-2 max-w-[300px]">What can I help you debug today?</p>
+                            <p className="text-xs text-zinc-600 text-center mt-2 max-w-[300px]">What can I help you debug today?</p>
                             <div className="flex flex-col items-center gap-1 mb-6">
                                 <p className="text-xs text-zinc-500 flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-                                    {llmStatus.provider === 'codex-cli' ? 'Codex (OpenAI)' : llmStatus.provider} • {llmStatus.provider === 'codex-cli' ? 'o1-preview' : (llmStatus.model || llmConfig.model).split(':')[0]}
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                    {llmStatus.provider === 'codex-cli' ? 'Codex (OpenAI) • o1-preview' :
+                                     llmStatus.provider === 'claude-code' ? 'Claude Code' :
+                                     `${llmStatus.provider} • ${(llmStatus.model || llmConfig.model).split(':')[0]}`}
                                 </p>
                                 {/* Embedding model status indicator */}
                                 {embeddingStatus && (
-                                    <p className={`text - [10px] flex items - center gap - 1.5 ${embeddingStatus === 'loading' ? 'text-amber-400' :
+                                    <p className={`text-[10px] flex items-center gap-1.5 ${embeddingStatus === 'loading' ? 'text-amber-400' :
                                         embeddingStatus === 'ready' ? 'text-zinc-500' :
                                             'text-red-400'
-                                        } `}>
+                                        }`}>
                                         {embeddingStatus === 'loading' && (
                                             <>
                                                 <Loader2 size={10} className="animate-spin" />
@@ -1433,7 +1453,7 @@ export function ClusterChatPanel({
                                         )}
                                         {embeddingStatus === 'ready' && (
                                             <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/50" />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
                                                 Knowledge base ready
                                             </>
                                         )}
@@ -1446,19 +1466,19 @@ export function ClusterChatPanel({
                                     </p>
                                 )}
                             </div>
-                            <div className="flex flex-wrap gap-3 justify-center max-w-[400px]">
+                            <div className="flex flex-wrap gap-2 justify-center max-w-[400px]">
                                 {[
-                                    { icon: '🔍', text: 'SCAN ISSUES', cmd: 'Find cluster issues' },
-                                    { icon: '🚀', text: 'AUTO-DIAGNOSE', cmd: 'Perform an autonomous deep dive on the cluster health. Use the Autonomous Playbook.' },
-                                    { icon: '🔄', text: 'CRASH ANALYSIS', cmd: 'Crashlooping pods' },
-                                    { icon: '📊', text: 'HEALTH STATUS', cmd: 'Health overview' }
+                                    { icon: '🔍', text: 'Scan Issues', cmd: 'Find cluster issues' },
+                                    { icon: '🚀', text: 'Auto-Diagnose', cmd: 'Perform an autonomous deep dive on the cluster health. Use the Autonomous Playbook.' },
+                                    { icon: '🔄', text: 'Crash Analysis', cmd: 'Crashlooping pods' },
+                                    { icon: '📊', text: 'Health Status', cmd: 'Health overview' }
                                 ].map(q => (
                                     <button
                                         key={q.text}
                                         onClick={() => sendMessage(q.cmd)}
-                                        className="px-4 py-2.5 text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 rounded-lg transition-all border border-cyan-500/30 hover:border-cyan-400/50 flex items-center gap-2 shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/20 group"
+                                        className="px-3 py-2 text-[11px] font-medium bg-white/5 hover:bg-white/10 text-zinc-300 rounded-lg transition-all border border-white/10 hover:border-white/15 flex items-center gap-2"
                                     >
-                                        <span className="text-base group-hover:scale-110 transition-transform">{q.icon}</span>
+                                        <span className="text-sm">{q.icon}</span>
                                         {q.text}
                                     </button>
                                 ))}
@@ -1513,19 +1533,18 @@ export function ClusterChatPanel({
 
                         return (
                             <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                {/* User Message - Cyberpunk Style */}
+                                {/* User Message */}
                                 {group.user && (
-                                    <div className="relative pl-10 pb-6 group/user">
-                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-[0_0_20px_rgba(139,92,246,0.7)] z-10 animate-pulse" />
-                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/50 via-fuchsia-500/30 to-transparent" />
+                                    <div className="relative pl-8 pb-4 group/user">
+                                        <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-indigo-500 z-10" />
+                                        <div className="absolute left-[5px] top-5 bottom-0 w-px bg-zinc-800" />
 
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-1.5">
-                                                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.25em] drop-shadow-[0_0_8px_rgba(139,92,246,0.5)]">// INPUT</span>
-                                                <div className="flex-1 h-px bg-gradient-to-r from-violet-500/30 to-transparent" />
+                                                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">You</span>
                                             </div>
-                                            <div className="inline-block max-w-[90%] cyber-bubble-user rounded-xl px-5 py-4 shadow-xl shadow-violet-500/10 hover:shadow-violet-500/20 transition-all duration-300 corner-brackets">
-                                                <p className="text-[15px] text-zinc-100 font-medium leading-relaxed relative z-10">{group.user.content}</p>
+                                            <div className="inline-block max-w-[90%] bg-indigo-500/15 border border-indigo-500/20 rounded-2xl rounded-bl-md px-4 py-3">
+                                                <p className="text-[14px] text-zinc-200 leading-relaxed">{group.user.content}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1543,21 +1562,18 @@ export function ClusterChatPanel({
                                     />
                                 ) : null}
 
-                                {/* Final Answer - Cyberpunk Assistant Bubble */}
+                                {/* Final Answer - Elegant Assistant Bubble */}
                                 {group.answer && (
-                                    <div className="relative pl-10 pb-6 group/answer">
-                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-cyan-400 to-emerald-400 shadow-[0_0_20px_rgba(6,182,212,0.7)] z-10" />
-                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-cyan-500/50 via-emerald-500/30 to-transparent" />
+                                    <div className="relative pl-8 pb-4 group/answer">
+                                        <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-emerald-500 z-10" />
+                                        <div className="absolute left-[5px] top-5 bottom-0 w-px bg-zinc-800" />
 
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.25em] drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">// OUTPUT</span>
-                                                <div className="flex-1 h-px bg-gradient-to-r from-cyan-500/30 to-transparent" />
-                                                <Sparkles size={12} className="text-cyan-400 animate-pulse drop-shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
+                                                <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">AI Assistant</span>
+                                                <Sparkles size={10} className="text-zinc-600" />
                                             </div>
-                                            <div className="cyber-bubble-assistant rounded-xl overflow-hidden shadow-2xl shadow-cyan-500/10 relative">
-                                                {/* Animated top border */}
-                                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-cyan-500 to-transparent holo-shimmer" />
+                                            <div className="bg-white/[0.03] border border-white/5 rounded-2xl rounded-tl-md overflow-hidden">
 
                                                 <div className="px-5 py-4 prose prose-invert prose-sm max-w-none">
                                                     <ReactMarkdown
@@ -1579,7 +1595,7 @@ export function ClusterChatPanel({
                                                             h1: ({ children }) => <h1 className="text-lg font-bold text-white mt-6 mb-4 flex items-center gap-3 border-b border-white/10 pb-3">{children}</h1>,
                                                             h2: ({ children }) => <h2 className="text-base font-bold text-emerald-300 mt-6 mb-3 flex items-center gap-2.5"><span className="w-2 h-2 rounded bg-emerald-400" />{children}</h2>,
                                                             h3: ({ children }) => <h3 className="text-sm font-bold text-zinc-200 mt-5 mb-2.5 uppercase tracking-widest">{children}</h3>,
-                                                            blockquote: ({ children }) => <blockquote className="border-l-4 border-violet-500/30 bg-violet-500/5 pl-4 py-2 pr-2 my-4 italic text-zinc-400 rounded-r-lg">{children}</blockquote>,
+                                                            blockquote: ({ children }) => <blockquote className="border-l-4 border-indigo-500/30 bg-indigo-500/5 pl-4 py-2 pr-2 my-4 italic text-zinc-400 rounded-r-lg">{children}</blockquote>,
                                                         }}
                                                     >
                                                         {fixMarkdownHeaders(group.answer.content)}
@@ -1597,41 +1613,39 @@ export function ClusterChatPanel({
                     })
                 }
 
-                {/* Loading State - Cyber Processing Animation */}
+                {/* Loading State - Elegant Processing Animation */}
                 {
                     llmLoading && (
-                        <div className="relative pl-10 pb-6 animate-in fade-in slide-in-from-bottom-3 duration-500">
-                            {/* Timeline dot - neon pulse */}
-                            <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-cyan-400 to-violet-500 shadow-[0_0_20px_rgba(6,182,212,0.8)] z-10" />
-                            <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-cyan-500/50 via-violet-500/30 to-transparent" />
+                        <div className="relative pl-8 pb-4 animate-in fade-in slide-in-from-bottom-3 duration-300">
+                            <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full bg-indigo-500 z-10 animate-pulse" />
+                            <div className="absolute left-[5px] top-5 bottom-0 w-px bg-zinc-800" />
 
                             <div className="ml-2">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-[0.25em] flex items-center gap-3 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]">
-                                        // PROCESSING
-                                        {/* Cyber typing indicator */}
-                                        <div className="cyber-typing">
-                                            <span></span>
-                                            <span></span>
-                                            <span></span>
-                                        </div>
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+                                        Processing
+                                        <span className="flex gap-1">
+                                            <span className="w-1 h-1 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                            <span className="w-1 h-1 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                            <span className="w-1 h-1 bg-zinc-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                                        </span>
                                     </span>
 
                                     {/* Action button - Stop Generation */}
                                     <button
                                         onClick={cancelAnalysis}
                                         disabled={isCancelling}
-                                        className="ml-auto flex items-center gap-2 px-4 py-2 text-[10px] font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/80 border border-rose-500/40 transition-all rounded-lg disabled:opacity-50 tracking-wider uppercase shadow-lg shadow-rose-500/10 hover:shadow-rose-500/30"
+                                        className="ml-auto flex items-center gap-2 px-3 py-1.5 text-[10px] font-medium text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 transition-all rounded-lg disabled:opacity-50"
                                     >
                                         <StopCircle size={12} className={isCancelling ? "animate-spin" : ""} />
-                                        {isCancelling ? 'ABORT' : 'TERMINATE'}
+                                        {isCancelling ? 'Stopping...' : 'Stop'}
                                     </button>
                                 </div>
 
                                 {!streamingPhase && (
-                                    <div className="cyber-bubble-assistant rounded-xl px-5 py-4 shadow-xl shadow-cyan-500/10">
-                                        <p className="text-[14px] text-cyan-200 font-medium flex items-center gap-2">
-                                            <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                                    <div className="bg-white/[0.03] border border-white/5 rounded-2xl rounded-tl-md px-4 py-3">
+                                        <p className="text-[13px] text-zinc-400 flex items-center gap-2">
+                                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
                                             {currentActivity}
                                         </p>
                                     </div>
@@ -1698,9 +1712,9 @@ export function ClusterChatPanel({
                 <div className="px-4 pb-3 bg-[#16161a] border-t border-white/5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {extendedMode && (
-                            <div className="rounded-lg p-3 border bg-violet-500/10 border-violet-500/30">
+                            <div className="rounded-lg p-3 border bg-indigo-500/10 border-indigo-500/30">
                                 <div className="text-[10px] font-medium text-zinc-300 mb-1">Mode</div>
-                                <div className="text-[11px] text-violet-300">Extended Investigation</div>
+                                <div className="text-[11px] text-indigo-300">Extended Investigation</div>
                                 {(extendedMode.preferred_checks && extendedMode.preferred_checks.length > 0) && (
                                     <div className="text-[11px] text-zinc-300 mt-1">Checks: {extendedMode.preferred_checks.join(', ')}</div>
                                 )}
@@ -1722,7 +1736,7 @@ export function ClusterChatPanel({
                                     {!goalVerification.met && (
                                         <button
                                             onClick={() => sendMessage('[EXTEND] Please extend investigation: collect missing signals (nodes/pods/events/resource-usage), try MCP tools if available, broaden command diversity, and re-evaluate hypotheses.')}
-                                            className="px-3 py-1.5 text-[11px] rounded-md bg-violet-600/20 border border-violet-500/40 hover:bg-violet-600/30 text-violet-200 transition-all"
+                                            className="px-3 py-1.5 text-[11px] rounded-md bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/30 text-indigo-200 transition-all"
                                         >
                                             Extend investigation
                                         </button>
@@ -1739,7 +1753,7 @@ export function ClusterChatPanel({
                                 <div className="text-[10px] font-medium text-zinc-300 mb-2">Phases</div>
                                 <div className="flex flex-wrap gap-1">
                                     {phaseTimeline.map((p, idx) => (
-                                        <span key={idx} className="px-2 py-1 text-[10px] rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300">{p.name}</span>
+                                        <span key={idx} className="px-2 py-1 text-[10px] rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">{p.name}</span>
                                     ))}
                                 </div>
                             </div>
@@ -1799,12 +1813,12 @@ export function ClusterChatPanel({
                             <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3">
                                 <div className="text-[10px] font-medium text-zinc-300 mb-2">Hints</div>
                                 <ul className="space-y-1">
-                                    {agentHints.map((h, i) => (<li key={i} className="text-[11px] text-cyan-300">{h}</li>))}
+                                    {agentHints.map((h, i) => (<li key={i} className="text-[11px] text-indigo-300">{h}</li>))}
                                 </ul>
                                 <div className="mt-2">
                                     <button
                                         onClick={() => sendMessage('[EXTEND] Apply hint and extend: act on emitted hint, expand coverage, use alternate tools, and reassess hypotheses.')}
-                                        className="px-3 py-1.5 text-[11px] rounded-md bg-cyan-600/20 border border-cyan-500/40 hover:bg-cyan-600/30 text-cyan-200 transition-all"
+                                        className="px-3 py-1.5 text-[11px] rounded-md bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/30 text-indigo-200 transition-all"
                                     >
                                         Apply hint and extend
                                     </button>
@@ -1815,16 +1829,16 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* Suggested Actions Chips - Neon Style */}
+            {/* Suggested Actions */}
             {suggestedActions.length > 0 && !llmLoading && (
                 <div className="px-4 pb-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {suggestedActions.map((action, i) => (
                         <button
                             key={i}
                             onClick={() => sendMessage(action)}
-                            className="px-4 py-2 text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-400/50 text-cyan-300 rounded-lg transition-all flex items-center gap-2 group shadow-lg shadow-cyan-500/5 hover:shadow-cyan-500/15"
+                            className="px-3 py-1.5 text-[11px] font-medium bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/15 text-zinc-300 rounded-lg transition-all flex items-center gap-1.5"
                         >
-                            <Sparkles size={10} className="text-cyan-400 group-hover:animate-pulse drop-shadow-[0_0_4px_rgba(6,182,212,0.8)]" />
+                            <Sparkles size={10} className="text-zinc-500" />
                             {action}
                         </button>
                     ))}
@@ -1881,12 +1895,9 @@ export function ClusterChatPanel({
                 initialQuery={searchDialogState.query}
             />
 
-            {/* Input - Neon Cyberpunk Style */}
-            <div className="relative z-20 p-4 bg-gradient-to-t from-[#0a0a0f] to-[#0d0d14] border-t border-cyan-500/20">
-                {/* Input glow effect */}
-                <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
-
-                <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1.5 cyber-input rounded-xl backdrop-blur-md focus-within:border-cyan-400/60 focus-within:shadow-[0_0_30px_rgba(6,182,212,0.15)] transition-all duration-300">
+            {/* Input - Elegant Apple Style */}
+            <div className="relative z-20 p-4 bg-zinc-950/50 border-t border-white/5">
+                <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1 bg-white/5 border border-white/10 rounded-xl focus-within:border-white/20 focus-within:bg-white/[0.07] transition-all duration-200">
                     <input
                         type="text"
                         value={userInput}
@@ -1894,23 +1905,19 @@ export function ClusterChatPanel({
                         disabled={llmLoading || !llmStatus?.connected || !!llmStatus?.error}
                         placeholder={
                             (!llmStatus?.connected || !!llmStatus?.error)
-                                ? "⚠ SYSTEM OFFLINE - Setup required..."
-                                : "Enter command sequence..."
+                                ? "Setup required..."
+                                : "Ask anything..."
                         }
-                        className="flex-1 px-4 py-2.5 bg-transparent border-none text-cyan-50 text-sm placeholder-cyan-700/60 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600 font-medium tracking-wide"
+                        className="flex-1 px-4 py-2.5 bg-transparent border-none text-zinc-100 text-sm placeholder-zinc-600 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600"
                     />
                     <button
                         type="submit"
                         disabled={llmLoading || !userInput.trim() || !llmStatus?.connected || !!llmStatus?.error}
-                        className="neon-button p-3 rounded-lg text-white transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0"
+                        className="p-2.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-zinc-700 flex-shrink-0"
                     >
-                        <Send size={16} className={`drop-shadow-[0_0_8px_rgba(6,182,212,0.8)] ${llmLoading ? 'animate-pulse' : ''}`} />
+                        <Send size={14} className={llmLoading ? 'animate-pulse' : ''} />
                     </button>
                 </form>
-
-                {/* Decorative corner elements */}
-                <div className="absolute bottom-2 left-2 w-3 h-3 border-l-2 border-b-2 border-cyan-500/30 rounded-bl" />
-                <div className="absolute bottom-2 right-2 w-3 h-3 border-r-2 border-b-2 border-cyan-500/30 rounded-br" />
             </div>
         </div>
     );

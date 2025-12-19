@@ -412,7 +412,7 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
 }
 
 #[tauri::command]
-pub async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String, name: String, yaml_content: String) -> Result<ResourceSummary, String> {
+pub async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: String, name: String, yaml_content: String) -> Result<String, String> {
     let client = create_client(state).await?;
     let mut data: serde_json::Value = serde_yaml::from_str(&yaml_content).map_err(|e| format!("Invalid YAML: {}", e))?;
 
@@ -447,9 +447,17 @@ pub async fn apply_yaml(state: State<'_, AppState>, namespace: String, kind: Str
     let pp = PatchParams::apply("opspilot-yamleditor").force();
     let patched = api.patch(&name, &pp, &Patch::Apply(&obj)).await.map_err(|e| e.to_string())?;
 
-    let summary = to_summary(patched, &kind, &group, &version, false);
+    // Convert patched object back to YAML for immediate UI update
+    let mut patched_json = serde_json::to_value(&patched).map_err(|e| e.to_string())?;
+    // Remove managedFields from response for cleaner YAML
+    if let Some(metadata) = patched_json.get_mut("metadata") {
+        if let Some(obj) = metadata.as_object_mut() {
+            obj.remove("managedFields");
+        }
+    }
+    let yaml_result = serde_yaml::to_string(&patched_json).map_err(|e| e.to_string())?;
 
-    Ok(summary)
+    Ok(yaml_result)
 }
 
 #[tauri::command]
