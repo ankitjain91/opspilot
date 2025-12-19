@@ -526,9 +526,12 @@ async def _test_claude_code_connection():
     import asyncio
 
     try:
+        config = load_opspilot_config()
+        claude_bin = config.get("claude_cli_path", "claude")
+
         # Quick check: run 'claude --version' with short timeout
         process = await asyncio.create_subprocess_exec(
-            "claude", "--version",
+            claude_bin, "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -721,6 +724,7 @@ class GitHubConfigRequest(BaseModel):
     pat_token: str | None = None
     default_repos: list[str] = []
     search_all_repos: bool = True  # When True, search all accessible repos instead of specific ones
+    claude_cli_path: str | None = None
 
 
 @app.get("/github-config")
@@ -730,7 +734,8 @@ async def get_github_config():
     return {
         "configured": bool(config.get("github_pat")),
         "default_repos": config.get("github_repos", []),
-        "search_all_repos": config.get("github_search_all_repos", True)  # Default to True
+        "search_all_repos": config.get("github_search_all_repos", True),
+        "claude_cli_path": config.get("claude_cli_path", "claude")
     }
 
 
@@ -747,6 +752,10 @@ async def set_github_config(request: GitHubConfigRequest):
 
     config["github_repos"] = request.default_repos
     config["github_search_all_repos"] = request.search_all_repos
+    
+    if request.claude_cli_path:
+        config["claude_cli_path"] = request.claude_cli_path
+        
     save_opspilot_config(config)
 
     # Write MCP config for Claude Code

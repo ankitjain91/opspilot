@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useToast } from '../ui/Toast';
 import { useNotifications } from '../notifications/NotificationContext';
+import { getAgentServerUrl } from '../../utils/config';
 
 export interface KBProgress {
     current: number;
@@ -28,7 +29,7 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
     useEffect(() => {
         // Connect to the global events stream
         // Note: In production we might need a dynamic URL, but 8765 is the fixed sidecar port
-        const eventSource = new EventSource('http://localhost:8765/events');
+        const eventSource = new EventSource(`${getAgentServerUrl()}/events`);
 
         eventSource.onopen = () => {
             setSentinelStatus('connected');

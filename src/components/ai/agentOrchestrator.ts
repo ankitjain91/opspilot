@@ -53,7 +53,7 @@ import {
     createAIInvestigationPlan
 } from './aiDrivenUtils';
 
-const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
+import { getAgentServerUrl } from '../../utils/config';
 
 /**
  * Trigger background KB preloading for a context.
@@ -63,14 +63,14 @@ const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
 export async function preloadKBForContext(kubeContext: string): Promise<void> {
     try {
         // Update KB preload
-        const preloadPromise = fetch(`${PYTHON_AGENT_URL}/preload`, {
+        const preloadPromise = fetch(`${getAgentServerUrl()}/preload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kube_context: kubeContext }),
         });
 
         // Update Sentinel context (so it monitors the right cluster)
-        const sentinelPromise = fetch(`${PYTHON_AGENT_URL}/sentinel/context`, {
+        const sentinelPromise = fetch(`${getAgentServerUrl()}/sentinel/context`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kube_context: kubeContext }),
@@ -97,7 +97,7 @@ async function checkPythonAgentAvailable(): Promise<boolean> {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 1000);
 
-        const response = await fetch(`${PYTHON_AGENT_URL}/health`, {
+        const response = await fetch(`${getAgentServerUrl()}/health`, {
             method: 'GET',
             signal: controller.signal,
         });
@@ -122,7 +122,7 @@ async function runDirectAgent(
     abortSignal?: AbortSignal,
     toolSubset?: string // "code_search", "k8s_only", etc.
 ): Promise<string> {
-    const response = await fetch(`${PYTHON_AGENT_URL}/analyze-direct`, {
+    const response = await fetch(`${getAgentServerUrl()}/analyze-direct`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -307,7 +307,7 @@ async function runPythonAgent(
         };
 
         try {
-            const response = await fetch(`${PYTHON_AGENT_URL}/analyze`, {
+            const response = await fetch(`${getAgentServerUrl()}/analyze`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

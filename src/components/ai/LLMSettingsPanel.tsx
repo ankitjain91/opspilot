@@ -4,9 +4,10 @@ import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowR
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
+import { getAgentServerUrl, setAgentServerUrl } from '../../utils/config';
 import { KBProgress } from './useSentinel';
 
-const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
+const AGENT_SERVER_URL = getAgentServerUrl();
 
 interface EmbeddingModelStatus {
     model: string;
@@ -98,6 +99,11 @@ export function LLMSettingsPanel({
     const [searchAllRepos, setSearchAllRepos] = useState(true); // ON by default - search all accessible repos
     const [githubConfigLoaded, setGithubConfigLoaded] = useState(false); // Track if initial load is complete
 
+    // Agent Config State
+    const [agentUrl, setAgentUrl] = useState(getAgentServerUrl());
+    const [claudeCliPath, setClaudeCliPath] = useState('claude');
+    const [showAgentSettings, setShowAgentSettings] = useState(false);
+
     // Derived State
     const filteredRepos = availableRepos.filter(repo =>
         repo.toLowerCase().includes(repoSearch.toLowerCase())
@@ -111,6 +117,9 @@ export function LLMSettingsPanel({
             // provider is now managed in localConfig
             embedding_endpoint: embeddingMode === 'local' ? null : localConfig.embedding_endpoint
         };
+
+        // Persist Agent URL
+        setAgentServerUrl(agentUrl);
 
         onConfigChange(configToSave);
         localStorage.setItem('opspilot-llm-config', JSON.stringify(configToSave));
@@ -285,6 +294,7 @@ export function LLMSettingsPanel({
                 setGithubConfigured(data.configured);
                 setGithubRepos(data.default_repos || []);
                 setSearchAllRepos(data.search_all_repos !== false);  // Default to true if not set
+                setClaudeCliPath(data.claude_cli_path || 'claude');
                 setGithubConfigLoaded(true);  // Mark as loaded to enable auto-save
                 if (data.configured) {
                     testGithubConnection();
@@ -303,7 +313,8 @@ export function LLMSettingsPanel({
                 body: JSON.stringify({
                     pat_token: githubPat || null,
                     default_repos: githubRepos,
-                    search_all_repos: searchAllRepos
+                    search_all_repos: searchAllRepos,
+                    claude_cli_path: claudeCliPath
                 })
             });
             if (resp.ok) {
@@ -433,7 +444,8 @@ export function LLMSettingsPanel({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         default_repos: githubRepos,
-                        search_all_repos: searchAllRepos
+                        search_all_repos: searchAllRepos,
+                        claude_cli_path: claudeCliPath
                     })
                 });
             } catch (e) {
@@ -442,7 +454,7 @@ export function LLMSettingsPanel({
         }, 500);  // Debounce saves by 500ms
 
         return () => clearTimeout(saveTimeout);
-    }, [githubRepos, searchAllRepos, githubConfigLoaded, githubConfigured]);
+    }, [githubRepos, searchAllRepos, claudeCliPath, githubConfigLoaded, githubConfigured]);
 
     // Auto-detect coding agent provider logic removed
 
@@ -476,9 +488,55 @@ export function LLMSettingsPanel({
                         <X size={20} />
                     </button>
                 </div>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+
+                {/* === SECTION 0: AGENT CONNECTION === */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent pointer-events-none" />
+
+                    <div className="flex items-center justify-between mb-0 relative z-10 cursor-pointer" onClick={() => setShowAgentSettings(!showAgentSettings)}>
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-indigo-500/20 rounded-lg text-indigo-400">
+                                <Network size={18} />
+                            </div>
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Agent Connection</h3>
+                        </div>
+                        <button className="text-zinc-500 hover:text-white transition-colors">
+                            {showAgentSettings ? "Hide" : "Show"}
+                        </button>
+                    </div>
+
+                    {showAgentSettings && (
+                        <div className="mt-5 space-y-4 relative z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+                             <div>
+                                <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Agent Server URL</label>
+                                <input
+                                    type="text"
+                                    value={agentUrl}
+                                    onChange={e => setAgentUrl(e.target.value)}
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
+                                    placeholder="http://127.0.0.1:8765"
+                                />
+                                <p className="text-[10px] text-zinc-500 mt-1">If connecting from another machine, enter the IP of the host (e.g., http://192.168.1.5:8765).</p>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Claude CLI Path</label>
+                                <input
+                                    type="text"
+                                    value={claudeCliPath}
+                                    onChange={e => setClaudeCliPath(e.target.value)}
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
+                                    placeholder="claude"
+                                />
+                                <p className="text-[10px] text-zinc-500 mt-1">Absolute path to 'claude' executable. Default: 'claude' (uses system PATH).</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {/* === SECTION 1: CODING AGENT === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
@@ -791,12 +849,12 @@ export function LLMSettingsPanel({
                 </div>
             </div >
 
-            {/* Footer Actions */}
-            <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-3xl">
-                <button onClick={handleSave} className="w-full py-3 bg-white text-black text-xs font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2">
-                    Save Configuration <ArrowRight size={16} />
-                </button>
-            </div>
+            {/* Footer Actions */ }
+    <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-3xl">
+        <button onClick={handleSave} className="w-full py-3 bg-white text-black text-xs font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2">
+            Save Configuration <ArrowRight size={16} />
+        </button>
+    </div>
         </div >
     );
 }
