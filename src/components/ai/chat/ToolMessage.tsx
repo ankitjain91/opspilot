@@ -8,11 +8,18 @@ import { PythonCodeBlock } from './PythonCodeBlock';
 interface ToolMessageProps {
     toolName?: string;
     command?: string;
-    content: string;
+    content: string | unknown[] | unknown; // MCP tool results can be arrays or objects
     isLatest?: boolean;
 }
 
-export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, content, isLatest }) => {
+export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, content: rawContent, isLatest }) => {
+    // Normalize content to string (MCP tool results can be arrays)
+    const content = typeof rawContent === 'string'
+        ? rawContent
+        : Array.isArray(rawContent)
+            ? rawContent.map(item => typeof item === 'string' ? item : item?.text || JSON.stringify(item)).join('\n')
+            : String(rawContent || '');
+
     // Check if it's a Python command
     const isPython = command?.trim().startsWith("python:");
     const pythonCode = isPython ? command?.replace(/^python:\s*/, '') : '';
