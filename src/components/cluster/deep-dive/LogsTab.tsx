@@ -590,15 +590,34 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
 
                 {/* Download Logs */}
                 <button
-                    onClick={() => {
-                        const blob = new Blob([logs.join('\n')], { type: 'text/plain' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${resource.name}-${container}-logs.txt`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        showToast("Logs downloaded", "success");
+                    onClick={async () => {
+                        try {
+                            const { save } = await import('@tauri-apps/plugin-dialog');
+                            const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+
+                            const path = await save({
+                                defaultPath: `${resource.name}-${container}-logs.txt`,
+                                filters: [{
+                                    name: 'Log File',
+                                    extensions: ['txt']
+                                }]
+                            });
+
+                            if (path) {
+                                await writeTextFile(path, logs.join('\n'));
+                                showToast("Logs saved successfully", "success");
+                            }
+                        } catch (err) {
+                            console.error("Native save failed, falling back to browser download:", err);
+                            // Fallback
+                            const blob = new Blob([logs.join('\n')], { type: 'text/plain' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${resource.name}-${container}-logs.txt`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        }
                     }}
                     className="p-1.5 rounded text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
                     title="Download Logs"

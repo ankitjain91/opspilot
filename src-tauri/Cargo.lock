@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "opspilot"
-version = "0.2.29"
+version = "0.2.34"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -3022,6 +3022,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-process",
  "tauri-plugin-shell",
  "tauri-plugin-updater",
