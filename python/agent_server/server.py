@@ -61,6 +61,7 @@ SESSION_MAX_TURNS = 50  # Hard limit on conversation turns before suggesting res
 # Background Sentinel (Lazy init)
 from .sentinel import SentinelLoop
 global_sentinel = None
+global_sentinel_task = None
 
 # --- Session Management Helpers ---
 def get_session_state(thread_id: str) -> dict | None:
@@ -345,10 +346,10 @@ async def lifespan(app: FastAPI):
 
     # Initialize Sentinel with broadcaster for K8s event monitoring
     global global_sentinel
-    sentinel_task = None
+    global global_sentinel_task
     try:
         global_sentinel = SentinelLoop(kube_context=None, broadcaster=broadcaster)
-        sentinel_task = asyncio.create_task(global_sentinel.start())
+        global_sentinel_task = asyncio.create_task(global_sentinel.start())
         print("[Sentinel] Started successfully", flush=True)
     except Exception as e:
         print(f"[Sentinel] Failed to start (cluster may be unavailable): {e}", flush=True)
@@ -359,10 +360,10 @@ async def lifespan(app: FastAPI):
     print("K8s Agent Server shutting down...")
     if global_sentinel:
         await global_sentinel.stop()
-    if sentinel_task:
-        sentinel_task.cancel()
+    if global_sentinel_task:
+        global_sentinel_task.cancel()
         try:
-            await sentinel_task
+            await global_sentinel_task
         except asyncio.CancelledError:
             pass
 
@@ -431,14 +432,34 @@ async def update_sentinel_context(request: PreloadRequest):
     Call this when the user switches clusters.
     """
     global global_sentinel
+    global global_sentinel_task
+    
     if global_sentinel:
         old_context = global_sentinel.kube_context
+        # Check if context actually changed
+        if old_context == request.kube_context:
+            return {"success": True, "context": request.kube_context, "previous": old_context, "restarted": False}
+
+        # Update context
         global_sentinel.kube_context = request.kube_context
         # Reset failure tracking when context changes
         global_sentinel._consecutive_failures = 0
         global_sentinel._backoff = 5
-        print(f"[Sentinel] Context updated: {old_context} -> {request.kube_context}", flush=True)
-        return {"success": True, "context": request.kube_context, "previous": old_context}
+        
+        # Restart the background task to pick up new context immediately
+        print(f"[Sentinel] Context updated: {old_context} -> {request.kube_context}. Restarting loop...", flush=True)
+        
+        if global_sentinel_task:
+            global_sentinel_task.cancel()
+            try:
+                await global_sentinel_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Start new task
+        global_sentinel_task = asyncio.create_task(global_sentinel.start())
+        
+        return {"success": True, "context": request.kube_context, "previous": old_context, "restarted": True}
     return {"success": False, "error": "Sentinel not running"}
 
 
@@ -521,14 +542,55 @@ async def test_llm_connection(request: TestRequest):
         }
 
 
+# --- CLI Discovery Helper ---
+def find_executable_path(exe_name: str) -> str | None:
+    """Find executable in PATH or common locations."""
+    import shutil
+    import os
+    
+    # 1. Check system PATH first
+    path = shutil.which(exe_name)
+    if path: return path
+    
+    # 2. Check common locations
+    common_dirs = [
+        os.path.expanduser("~/.npm-global/bin"),
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/.cargo/bin"),
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        # Windows specific
+        os.path.expanduser("~\\AppData\\Roaming\\npm"),
+    ]
+    
+    for d in common_dirs:
+        # Check standard name
+        p = os.path.join(d, exe_name)
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+            
+        # Check .cmd/.exe (Windows)
+        if sys.platform == "win32":
+            for ext in [".cmd", ".exe", ".ps1"]:
+                p_win = p + ext
+                if os.path.exists(p_win):
+                    return p_win
+            
+    return None
+
 async def _test_claude_code_connection():
     """Quick test for Claude Code CLI availability."""
     import asyncio
 
     try:
         config = load_opspilot_config()
-        claude_bin = config.get("claude_cli_path", "claude")
-
+        # Prefer manually configured path, else auto-discover
+        claude_bin = config.get("claude_cli_path")
+        if not claude_bin or claude_bin == "claude":
+             claude_bin = find_executable_path("claude") or "claude"
+             
         # Quick check: run 'claude --version' with short timeout
         process = await asyncio.create_subprocess_exec(
             claude_bin, "--version",
@@ -597,8 +659,10 @@ async def _test_codex_connection():
 
     try:
         # Quick check: run 'codex --version'
+        codex_bin = find_executable_path("codex") or "codex"
+        
         process = await asyncio.create_subprocess_exec(
-            "codex", "--version",
+            codex_bin, "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -2284,6 +2348,41 @@ def kill_process_on_port(port: int) -> bool:
 
     return False
 
+def print_access_urls(port):
+    """Print available access URLs for the agent."""
+    import socket
+    
+    print("\n" + "="*50)
+    print(f"🚀 OpsPilot Agent Server Running on Port {port}")
+    print("="*50)
+    print(f"Local:   http://127.0.0.1:{port}")
+    
+    try:
+        # Get all network interfaces
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        # Try to find other IPs (this is a simple heuristic)
+        # For a more robust solution, we'd iterate over interfaces,
+        # but this usually catches the main LAN IP.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # doesn't even have to be reachable
+            s.connect(('10.255.255.255', 1))
+            IP = s.getsockname()[0]
+        except Exception:
+            IP = '127.0.0.1'
+        finally:
+            s.close()
+            
+        if IP != '127.0.0.1':
+            print(f"Network: http://{IP}:{port}")
+            print(f"\nTo connect from another machine, set 'Agent Server URL' to:")
+            print(f"http://{IP}:{port}")
+    except Exception as e:
+        print(f"Could not determine network IP: {e}")
+        
+    print("="*50 + "\n")
+
 if __name__ == "__main__":
     import uvicorn
     import time
@@ -2296,5 +2395,7 @@ if __name__ == "__main__":
         # Give the OS time to release the port
         time.sleep(1.0)
     
+    print_access_urls(PORT)
+
     # Run server
     uvicorn.run(app, host="0.0.0.0", port=PORT)

@@ -9,7 +9,7 @@ import {
     ChevronDown
 } from 'lucide-react';
 
-import Loading from '../../components/Loading'; // Will need to fix this import path if Loading is moved
+import Loading from '../../components/Loading';
 import { StatusBadge } from '../shared/StatusBadge';
 import { ResourceContextMenu } from '../shared/ResourceContextMenu';
 import { DeleteConfirmationModal } from '../shared/DeleteConfirmationModal';
@@ -91,7 +91,7 @@ const getIaCStatus = (rawJson: string): { status: 'Reconciling' | 'Reconciled' |
         }
         // Also check if status is Unknown (common ASO pattern during reconciliation)
         if (ready?.status === 'Unknown') {
-            return { status: 'Reconciling', reason: ready.reason || 'Reconciling', message: ready.message };
+            return { status: 'Reconciling', reason: ready?.reason || 'Reconciling', message: ready.message };
         }
 
         // If we have conditions but can't determine status
@@ -143,14 +143,124 @@ interface ResourceListProps {
     currentContext?: string;
 }
 
+// --- Column Definitions ---
+type ColumnId = 'name' | 'namespace' | 'ready' | 'status' | 'restarts' | 'cpu' | 'memory' | 'node' | 'age' | 'sync' | 'type' | 'message' | 'count' | 'actions';
+
+interface ColumnDef {
+    id: ColumnId;
+    label: string;
+    width: number; // Initial width in pixels or 'fr' approximation
+    minWidth: number;
+    sortKey?: string;
+}
+
+const COLUMN_CONFIGS: Record<string, ColumnDef[]> = {
+    'Pod': [
+        { id: 'name', label: 'Name', width: 280, minWidth: 150, sortKey: 'name' },
+        { id: 'namespace', label: 'Namespace', width: 180, minWidth: 100, sortKey: 'namespace' },
+        { id: 'ready', label: 'Ready', width: 80, minWidth: 60, sortKey: 'ready' },
+        { id: 'status', label: 'Status', width: 120, minWidth: 80, sortKey: 'status' },
+        { id: 'restarts', label: 'Restarts', width: 80, minWidth: 60, sortKey: 'restarts' },
+        { id: 'cpu', label: 'CPU', width: 80, minWidth: 60, sortKey: 'cpu' },
+        { id: 'memory', label: 'Memory', width: 80, minWidth: 60, sortKey: 'memory' },
+        { id: 'node', label: 'Node', width: 140, minWidth: 100, sortKey: 'node' },
+        { id: 'age', label: 'Age', width: 80, minWidth: 60, sortKey: 'age' },
+        { id: 'actions', label: '', width: 40, minWidth: 40 }
+    ],
+    'Node': [
+        { id: 'name', label: 'Name', width: 280, minWidth: 150, sortKey: 'name' },
+        { id: 'status', label: 'Status', width: 120, minWidth: 80, sortKey: 'status' },
+        { id: 'cpu', label: 'CPU', width: 100, minWidth: 60, sortKey: 'cpu' },
+        { id: 'memory', label: 'Memory', width: 100, minWidth: 60, sortKey: 'memory' },
+        { id: 'age', label: 'Age', width: 100, minWidth: 60, sortKey: 'age' },
+        { id: 'actions', label: '', width: 40, minWidth: 40 }
+    ],
+    'Event': [
+        { id: 'name', label: 'Reason', width: 200, minWidth: 100, sortKey: 'name' },
+        { id: 'type', label: 'Type', width: 100, minWidth: 80, sortKey: 'type' },
+        { id: 'message', label: 'Message', width: 400, minWidth: 200, sortKey: 'message' },
+        { id: 'count', label: 'Count', width: 80, minWidth: 60, sortKey: 'count' },
+        { id: 'age', label: 'Last Prior', width: 120, minWidth: 80, sortKey: 'age' },
+        { id: 'actions', label: '', width: 40, minWidth: 40 }
+    ],
+    // Default for others
+    'default': [
+        { id: 'name', label: 'Name', width: 300, minWidth: 150, sortKey: 'name' },
+        { id: 'namespace', label: 'Namespace', width: 200, minWidth: 100, sortKey: 'namespace' },
+        { id: 'status', label: 'Status', width: 120, minWidth: 80, sortKey: 'status' },
+        { id: 'age', label: 'Age', width: 100, minWidth: 60, sortKey: 'age' },
+        { id: 'actions', label: '', width: 40, minWidth: 40 }
+    ]
+};
+
+// Add IaC specific config
+const IAC_CONFIG: ColumnDef[] = [
+    { id: 'name', label: 'Name', width: 280, minWidth: 150, sortKey: 'name' },
+    { id: 'namespace', label: 'Namespace', width: 180, minWidth: 100, sortKey: 'namespace' },
+    { id: 'sync', label: 'Sync', width: 100, minWidth: 80, sortKey: 'sync' },
+    { id: 'status', label: 'Status', width: 120, minWidth: 80, sortKey: 'status' },
+    { id: 'age', label: 'Age', width: 100, minWidth: 60, sortKey: 'age' },
+    { id: 'actions', label: '', width: 40, minWidth: 40 }
+];
+
+
 export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQuery, currentContext }: ResourceListProps) {
-    // Defensive guard: ensure resourceType is valid
     if (!resourceType || !resourceType.kind) {
         return <div className="h-full flex items-center justify-center"><Loading size={24} label="Loading" /></div>;
     }
 
     const qc = useQueryClient();
+    const kindLower = (resourceType.kind || '').toLowerCase();
+    const isPod = kindLower === 'pod';
+    const isNode = kindLower === 'node';
+    const _isIaC = isIaCResource(resourceType.group);
+    const isEvent = kindLower === 'event';
 
+    // --- Column State Management ---
+    const getInitialColumns = (): ColumnDef[] => {
+        if (_isIaC) return JSON.parse(JSON.stringify(IAC_CONFIG));
+        if (isPod) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Pod']));
+        if (isNode) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Node']));
+        if (isEvent) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Event']));
+        return JSON.parse(JSON.stringify(COLUMN_CONFIGS['default']));
+    };
+
+    const [columns, setColumns] = useState<ColumnDef[]>(getInitialColumns);
+
+    // Load saved widths from localStorage
+    useEffect(() => {
+        const key = `col-widths-${resourceType.kind}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            try {
+                const savedWidths = JSON.parse(saved);
+                const defaults = getInitialColumns();
+                // Merge saved widths into default structure (handles schema changes)
+                const merged = defaults.map(c => {
+                    const found = savedWidths.find((s: ColumnDef) => s.id === c.id);
+                    return found ? { ...c, width: found.width } : c;
+                });
+                setColumns(merged);
+            } catch (e) {
+                console.error("Failed to parse saved column widths", e);
+                setColumns(getInitialColumns());
+            }
+        } else {
+            setColumns(getInitialColumns());
+        }
+    }, [resourceType.kind]);
+
+    // Save widths when they change
+    const saveColumns = (cols: ColumnDef[]) => {
+        const key = `col-widths-${resourceType.kind}`;
+        localStorage.setItem(key, JSON.stringify(cols));
+    };
+
+    const handleResizeEnd = () => {
+        saveColumns(columns);
+    };
+
+    // --- Data Fetching ---
     // Delete modal state
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [resourceToDelete, setResourceToDelete] = useState<K8sObject | null>(null);
@@ -172,7 +282,6 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         setDeletingResources(prev => new Set(prev).add(resourceId));
         setDeleteModalOpen(false);
 
-        // Show immediate feedback that deletion is in progress
         (window as any).showToast?.(`Deleting ${resourceKind} '${resourceName}'...`, 'info');
 
         try {
@@ -185,9 +294,7 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 },
                 name: resourceToDelete.name
             });
-            // Show success feedback
             (window as any).showToast?.(`${resourceKind} '${resourceName}' deleted successfully`, 'success');
-            // Trigger an immediate refetch to show the Terminating status
             setTimeout(() => refetch(), 500);
         } catch (err) {
             (window as any).showToast?.(`Failed to delete ${resourceKind} '${resourceName}': ${err}`, 'error');
@@ -201,11 +308,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         setResourceToDelete(null);
     };
 
-    // Enable real-time watching via Kubernetes watch API
     const watchNamespace = namespaceFilter === "All Namespaces" ? null : namespaceFilter;
     const { isWatching, syncComplete } = useResourceWatch(resourceType, watchNamespace, currentContext, true);
-
-    // Live age ticker - updates every second for real-time age display
     useLiveAge(1000);
 
     const { data: resources, isLoading: isListLoading, isError, error, isFetching, refetch } = useQuery({
@@ -218,8 +322,6 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 namespace: namespaceFilter === "All Namespaces" ? null : namespaceFilter
             }
         }),
-        // HYBRID MODE: We enable the initial list fetch to get immediate data.
-        // The watch stream will then "top off" and keep it live.
         enabled: true,
         staleTime: 30000,
         gcTime: 1000 * 60 * 5,
@@ -227,22 +329,13 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         refetchOnWindowFocus: false,
     });
 
-    // Listen for global reloads and refetch
     useEffect(() => {
-        const handler = () => {
-            refetch();
-        };
+        const handler = () => refetch();
         window.addEventListener("lenskiller:reload", handler);
         return () => window.removeEventListener("lenskiller:reload", handler);
     }, [refetch]);
 
-    const kindLower = (resourceType.kind || '').toLowerCase();
-    const isPod = kindLower === 'pod';
-    const isNode = kindLower === 'node';
-    const isIaC = isIaCResource(resourceType.group);
-    const isEvent = kindLower === 'event';
 
-    // Fetch metrics for pods and nodes
     const { data: metricsData } = useQuery({
         queryKey: ["list_metrics", currentContext, resourceType.kind || "", namespaceFilter],
         queryFn: async () => {
@@ -252,11 +345,7 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     namespace: isPod ? (namespaceFilter === "All Namespaces" ? null : namespaceFilter) : null
                 });
             } catch (e: any) {
-                // Silently ignore 404s (metrics server likely not installed)
-                const errStr = String(e);
-                if (!errStr.includes("404")) {
-                    console.warn("Metrics not available:", e);
-                }
+                if (!String(e).includes("404")) console.warn("Metrics not available:", e);
                 return [];
             }
         },
@@ -283,13 +372,11 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
             return nsMatch && searchMatch;
         });
 
-        // Apply sorting
         if (sortConfig) {
             filtered = [...filtered].sort((a, b) => {
                 let aVal: any = a[sortConfig.key as keyof K8sObject];
                 let bVal: any = b[sortConfig.key as keyof K8sObject];
 
-                // Special handling for different data types
                 if (sortConfig.key === 'age') {
                     aVal = new Date(a.age).getTime();
                     bVal = new Date(b.age).getTime();
@@ -297,13 +384,11 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     aVal = a.restarts ?? 0;
                     bVal = b.restarts ?? 0;
                 } else if (sortConfig.key === 'ready') {
-                    // Parse ready string like "1/1" to compare
                     const [aReady, aTotal] = (a.ready || '0/0').split('/').map(Number);
                     const [bReady, bTotal] = (b.ready || '0/0').split('/').map(Number);
                     aVal = aTotal > 0 ? aReady / aTotal : 0;
                     bVal = bTotal > 0 ? bReady / bTotal : 0;
                 } else if (sortConfig.key === 'cpu' || sortConfig.key === 'memory') {
-                    // For nodes, namespace is "-" in resource list but "" in metrics
                     const aNs = a.namespace === '-' ? '' : (a.namespace || '');
                     const bNs = b.namespace === '-' ? '' : (b.namespace || '');
                     const aMetrics = metricsMap.get(`${aNs}/${a.name}`);
@@ -311,7 +396,6 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     aVal = sortConfig.key === 'cpu' ? (aMetrics?.cpu_nano ?? 0) : (aMetrics?.memory_bytes ?? 0);
                     bVal = sortConfig.key === 'cpu' ? (bMetrics?.cpu_nano ?? 0) : (bMetrics?.memory_bytes ?? 0);
                 } else if (sortConfig.key === 'sync') {
-                    // Sort IaC sync status: Failed first, then Reconciling, then Unknown, then Reconciled
                     const statusOrder = { 'Failed': 0, 'Reconciling': 1, 'Unknown': 2, 'Reconciled': 3 };
                     const aStatus = getIaCStatus(a.raw_json).status;
                     const bStatus = getIaCStatus(b.raw_json).status;
@@ -319,105 +403,115 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     bVal = statusOrder[bStatus];
                 }
 
-                // String comparison for text fields
                 if (typeof aVal === 'string' && typeof bVal === 'string') {
-                    return sortConfig.direction === 'asc'
-                        ? aVal.localeCompare(bVal)
-                        : bVal.localeCompare(aVal);
+                    return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
                 }
-
-                // Numeric comparison
-                if (sortConfig.direction === 'asc') {
-                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-                } else {
-                    return bVal < aVal ? -1 : bVal > aVal ? 1 : 0;
-                }
+                if (sortConfig.direction === 'asc') return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                return bVal < aVal ? -1 : bVal > aVal ? 1 : 0;
             });
         }
-
         return filtered;
     }, [resources, namespaceFilter, searchQuery, sortConfig, metricsMap]);
 
     const handleSort = (key: string) => {
         setSortConfig(current => {
-            if (!current || current.key !== key) {
-                return { key, direction: 'asc' };
-            }
-            if (current.direction === 'asc') {
-                return { key, direction: 'desc' };
-            }
-            return null; // Reset sorting
+            if (!current || current.key !== key) return { key, direction: 'asc' };
+            if (current.direction === 'asc') return { key, direction: 'desc' };
+            return null;
         });
     };
 
-    const SortableHeader = ({ label, sortKey }: { label: string; sortKey: string }) => {
-        const isActive = sortConfig?.key === sortKey;
-        const direction = sortConfig?.direction;
+    // Dynamic Grid Style
+    const gridStyle = {
+        display: 'grid',
+        gridTemplateColumns: columns.map(c => `${c.width}px`).join(' '),
+        gap: '0px'
+    };
+
+    // Resizer Component
+    const Resizer = ({ index }: { index: number }) => {
+        const [isResizing, setIsResizing] = useState(false);
+
+        useEffect(() => {
+            if (!isResizing) return;
+
+            const onMouseMove = (e: MouseEvent) => {
+                setColumns(cols => {
+                    const newCols = [...cols];
+                    const col = newCols[index];
+                    const newWidth = col.width + e.movementX;
+                    if (newWidth >= col.minWidth) {
+                        col.width = newWidth;
+                    }
+                    return newCols;
+                });
+            };
+
+            const onMouseUp = () => {
+                setIsResizing(false);
+                handleResizeEnd();
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            return () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            };
+        }, [isResizing, index]);
+
         return (
             <div
-                onClick={() => handleSort(sortKey)}
-                className="flex items-center gap-1 cursor-pointer hover:text-cyan-400 transition-all select-none"
+                className="w-1 hover:bg-cyan-500/50 cursor-col-resize absolute right-0 top-0 bottom-0 z-20 flex justify-center group"
+                onMouseDown={() => setIsResizing(true)}
             >
-                <span>{label}</span>
-                <div className="flex flex-col">
-                    <ChevronDown
-                        size={10}
-                        className={`-mb-1 ${isActive && direction === 'asc' ? 'text-cyan-400' : 'text-gray-700'}`}
-                        style={{ transform: 'rotate(180deg)' }}
-                    />
-                    <ChevronDown
-                        size={10}
-                        className={`${isActive && direction === 'desc' ? 'text-cyan-400' : 'text-gray-700'}`}
-                    />
-                </div>
+                <div className={`w-0.5 h-full ${isResizing ? 'bg-cyan-500' : 'bg-transparent group-hover:bg-cyan-500/30'}`} />
             </div>
         );
     };
 
-    // Show loading state
-    // Guard: don't render anything until resources are loaded
-    if (!resources) {
-        return <Loading fullScreen size={32} />;
-    }
 
-    // Show error ONLY if we have no data at all
-    if (!resources) {
+    const SortableHeader = ({ col, index }: { col: ColumnDef; index: number }) => {
+        const isActive = sortConfig?.key === col.sortKey;
+        const direction = sortConfig?.direction;
+
         return (
-            <div className="h-full flex flex-col items-center justify-center text-center">
-                <div className="bg-red-500/10 p-8 rounded-xl border border-red-500/30 max-w-md backdrop-blur-sm shadow-lg shadow-red-500/10">
-                    <AlertCircle size={40} className="text-red-400 mx-auto mb-4" />
-                    <h3 className="text-base font-bold text-white mb-2">No Data Available</h3>
-                    <p className="text-gray-400 text-sm">
-                        {isError ? `Error: ${error}` : "Loading resources..."}
-                    </p>
+            <div className={`relative flex items-center h-full px-3 border-r border-transparent ${col.id !== 'actions' ? 'border-zinc-800/50' : ''}`}>
+                <div
+                    onClick={() => col.sortKey && handleSort(col.sortKey)}
+                    className={`flex items-center gap-1 flex-1 truncate ${col.sortKey ? 'cursor-pointer hover:text-cyan-400 select-none' : ''}`}
+                >
+                    <span className="truncate">{col.label}</span>
+                    {col.sortKey && (
+                        <div className="flex flex-col">
+                            <ChevronDown size={10} className={`-mb-1 ${isActive && direction === 'asc' ? 'text-cyan-400' : 'text-gray-700'}`} style={{ transform: 'rotate(180deg)' }} />
+                            <ChevronDown size={10} className={`${isActive && direction === 'desc' ? 'text-cyan-400' : 'text-gray-700'}`} />
+                        </div>
+                    )}
                 </div>
+                {/* Resizer handle (except on last column) */}
+                {index < columns.length - 1 && <Resizer index={index} />}
             </div>
         );
-    }
+    };
+
+    if (!resources && !isListLoading && isError) return <div className="p-8 text-center text-red-400">Error: {error ? String(error) : 'Unknown error'}</div>;
 
     return (
         <div className="h-full flex flex-col bg-[#09090b]">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-zinc-900/30 backdrop-blur-md text-xs sticky top-0 z-10">
+            {/* Header Status Bar */}
+            <div className="flex items-center justify-between px-6 py-2 border-b border-white/5 bg-zinc-900/30 backdrop-blur-md text-xs sticky top-0 z-10 shrink-0">
                 <div className="flex items-center gap-2 text-zinc-500">
                     <span className="uppercase tracking-wider font-semibold">{resourceType.kind}</span>
                     {isListLoading && !syncComplete ? (
-                        <span className="flex items-center gap-1 text-cyan-400">
-                            <Loading size={12} label="Loading" />
-                        </span>
-                    ) : isError ? (
-                        <span className="flex items-center gap-1 text-red-400">
-                            <AlertCircle size={12} /> Failed
-                        </span>
+                        <span className="flex items-center gap-1 text-cyan-400"><Loading size={12} label="Loading" /></span>
                     ) : isWatching ? (
-                        <span className="flex items-center gap-1 text-emerald-400" title="Real-time updates via Kubernetes watch API">
-                            <div className="relative">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                <div className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping opacity-75" />
-                            </div>
-                            <Activity size={12} className="ml-0.5" />
-                            Real-time
-                        </span>
+                        <span className="flex items-center gap-1 text-emerald-400"><Activity size={12} /> Real-time</span>
                     ) : (
                         <span className={`flex items-center gap-1 ${isFetching ? 'text-cyan-400' : 'text-zinc-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full ${isFetching ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-500'}`} />
@@ -425,177 +519,100 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                         </span>
                     )}
                 </div>
+                <div className="text-[10px] text-zinc-600">
+                    {filteredResources.length} items
+                </div>
             </div>
-            {isPod ? (
-                <div className="grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
-                    <SortableHeader label="Name" sortKey="name" />
-                    <SortableHeader label="Namespace" sortKey="namespace" />
-                    <SortableHeader label="Ready" sortKey="ready" />
-                    <SortableHeader label="Status" sortKey="status" />
-                    <SortableHeader label="Restarts" sortKey="restarts" />
-                    <SortableHeader label="CPU" sortKey="cpu" />
-                    <SortableHeader label="Memory" sortKey="memory" />
-                    <SortableHeader label="Node" sortKey="node" />
-                    <SortableHeader label="Age" sortKey="age" />
-                    <div />
-                </div>
-            ) : isNode ? (
-                <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
-                    <SortableHeader label="Name" sortKey="name" />
-                    <SortableHeader label="Status" sortKey="status" />
-                    <SortableHeader label="CPU" sortKey="cpu" />
-                    <SortableHeader label="Memory" sortKey="memory" />
-                    <SortableHeader label="Age" sortKey="age" />
-                    <div />
-                </div>
-            ) : isIaC ? (
-                <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
-                    <SortableHeader label="Name" sortKey="name" />
-                    <SortableHeader label="Namespace" sortKey="namespace" />
-                    <SortableHeader label="Sync" sortKey="sync" />
-                    <SortableHeader label="Status" sortKey="status" />
-                    <SortableHeader label="Age" sortKey="age" />
-                    <div />
-                </div>
-            ) : isEvent ? (
-                <div className="grid grid-cols-[1.5fr_1fr_2.5fr_0.8fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
-                    <SortableHeader label="Reason" sortKey="name" /> {/* Events have 'name' but we usually care about Reason/Message */}
-                    <SortableHeader label="Type" sortKey="type" />
-                    <SortableHeader label="Message" sortKey="message" />
-                    <SortableHeader label="Count" sortKey="count" />
-                    <SortableHeader label="Last Prior" sortKey="age" />
-                    <div />
-                </div>
-            ) : (
-                <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm">
-                    <SortableHeader label="Name" sortKey="name" />
-                    <SortableHeader label="Namespace" sortKey="namespace" />
-                    <SortableHeader label="Status" sortKey="status" />
-                    <SortableHeader label="Age" sortKey="age" />
-                    <div />
-                </div>
-            )}
+
+            {/* Table Header */}
+            <div
+                className="bg-zinc-900/50 border-b border-white/5 text-xs uppercase text-zinc-500 font-semibold tracking-wider shrink-0 backdrop-blur-sm overflow-hidden"
+                style={gridStyle}
+            >
+                {columns.map((col, idx) => (
+                    <SortableHeader key={col.id} col={col} index={idx} />
+                ))}
+            </div>
 
             {/* List */}
-            <div className="flex-1">
-                {isListLoading ? (
+            <div className="flex-1 overflow-auto">
+                {isListLoading && !resources ? (
                     <div className="p-4 space-y-2">
-                        {Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="h-10 bg-white/5 rounded animate-pulse" />
-                        ))}
+                        {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-10 bg-white/5 rounded animate-pulse" />)}
                     </div>
                 ) : filteredResources.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-zinc-500">
-                        <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
-                            <Layers size={32} className="opacity-40 text-zinc-400" />
-                        </div>
-                        <p className="text-base font-medium text-zinc-300">No resources found</p>
-                        <p className="text-sm opacity-60 mt-2">
-                            {searchQuery ? `No matches for "${searchQuery}"` : `There are no ${resourceType.kind}s in ${namespaceFilter}`}
-                        </p>
+                        <Layers size={32} className="opacity-40 text-zinc-400 mb-4" />
+                        <p>No resources found</p>
                     </div>
                 ) : (
                     <Virtuoso
                         style={{ height: "100%" }}
                         data={filteredResources}
                         itemContent={(_, obj) => {
-                            // For nodes, namespace is "-" in resource list but "" in metrics
                             const metricsNs = obj.namespace === '-' ? '' : (obj.namespace || '');
                             const metrics = metricsMap.get(`${metricsNs}/${obj.name}`);
                             const isResourceDeleting = deletingResources.has(obj.id);
-                            return isPod ? (
-                                <div
-                                    onClick={() => onSelect(obj)}
-                                    className={`grid grid-cols-[2fr_1.5fr_0.8fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_40px] gap-3 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
-                                >
-                                    <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
-                                    <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
-                                    <div className="text-cyan-400 font-mono text-xs font-semibold">{obj.ready || '0/0'}</div>
-                                    <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
-                                    <div className="text-yellow-400 font-mono text-xs font-semibold">{obj.restarts ?? 0}</div>
-                                    <div className="text-emerald-400 font-mono text-[10px] font-semibold">{formatCpu(metrics?.cpu_nano)}</div>
-                                    <div className="text-orange-400 font-mono text-[10px] font-semibold">{formatMemory(metrics?.memory_bytes)}</div>
-                                    <div className="text-zinc-500 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>
-                                    <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
-                                    <ResourceContextMenu
-                                        resource={obj}
-                                        onViewDetails={() => onSelect(obj)}
-                                        onDelete={() => handleDeleteRequest(obj)}
-                                        isPod={true}
-                                        disabled={isResourceDeleting || obj.status === 'Terminating'}
-                                    />
-                                </div>
-                            ) : isNode ? (
-                                <div
-                                    onClick={() => onSelect(obj)}
-                                    className={`grid grid-cols-[2fr_1fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
-                                >
-                                    <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
-                                    <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
-                                    <div className="text-emerald-400 font-mono text-xs font-semibold">{formatCpu(metrics?.cpu_nano)}</div>
-                                    <div className="text-orange-400 font-mono text-xs font-semibold">{formatMemory(metrics?.memory_bytes)}</div>
-                                    <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
-                                    <ResourceContextMenu
-                                        resource={obj}
-                                        onViewDetails={() => onSelect(obj)}
-                                        onDelete={() => handleDeleteRequest(obj)}
-                                        disabled={isResourceDeleting || obj.status === 'Terminating'}
-                                    />
-                                </div>
-                            ) : isIaC ? (
-                                (() => {
-                                    const iacStatus = getIaCStatus(obj.raw_json);
-                                    return (
-                                        <div
-                                            onClick={() => onSelect(obj)}
-                                            className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
-                                        >
-                                            <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
-                                            <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
-                                            <div><IaCStatusBadge status={iacStatus.status} reason={iacStatus.reason} message={iacStatus.message} /></div>
-                                            <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
-                                            <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
+
+                            // Determine cell content based on column
+                            const renderCell = (col: ColumnDef) => {
+                                switch (col.id) {
+                                    case 'name':
+                                        return <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={isEvent ? (obj as any).reason : obj.name}>{isEvent ? (obj as any).reason || obj.name : obj.name}</div>;
+                                    case 'namespace':
+                                        return <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>;
+                                    case 'ready':
+                                        return <div className="text-cyan-400 font-mono text-xs font-semibold">{obj.ready || '0/0'}</div>;
+                                    case 'status':
+                                        return <StatusBadge status={obj.status} isDeleting={isResourceDeleting} />;
+                                    case 'restarts':
+                                        return <div className="text-yellow-400 font-mono text-xs font-semibold">{obj.restarts ?? 0}</div>;
+                                    case 'cpu':
+                                        return <div className="text-emerald-400 font-mono text-[10px] font-semibold">{formatCpu(metrics?.cpu_nano)}</div>;
+                                    case 'memory':
+                                        return <div className="text-orange-400 font-mono text-[10px] font-semibold">{formatMemory(metrics?.memory_bytes)}</div>;
+                                    case 'node':
+                                        return <div className="text-zinc-500 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>;
+                                    case 'age':
+                                        return <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>;
+                                    case 'sync':
+                                        const iacStatus = getIaCStatus(obj.raw_json);
+                                        return <IaCStatusBadge status={iacStatus.status} reason={iacStatus.reason} message={iacStatus.message} />;
+                                    case 'type':
+                                        return <div className={`${(obj as any).type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{(obj as any).type || 'Normal'}</div>;
+                                    case 'message':
+                                        return <div className="text-zinc-600 truncate" title={(obj as any).message}>{(obj as any).message || '-'}</div>;
+                                    case 'count':
+                                        return <div className="text-zinc-500 font-mono text-xs">{(obj as any).count || 1}</div>;
+                                    case 'actions':
+                                        return (
                                             <ResourceContextMenu
                                                 resource={obj}
                                                 onViewDetails={() => onSelect(obj)}
                                                 onDelete={() => handleDeleteRequest(obj)}
+                                                isPod={isPod}
                                                 disabled={isResourceDeleting || obj.status === 'Terminating'}
                                             />
+                                        );
+                                    default:
+                                        return null;
+                                }
+                            };
+
+                            return (
+                                <div
+                                    onClick={() => onSelect(obj)}
+                                    style={gridStyle}
+                                    className={`
+                                        gap-0 border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group text-sm min-h-[44px]
+                                        ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}
+                                    `}
+                                >
+                                    {columns.map(col => (
+                                        <div key={col.id} className="px-3 truncate overflow-hidden">
+                                            {renderCell(col)}
                                         </div>
-                                    );
-                                })()
-                            ) : isEvent ? (
-                                <div
-                                    onClick={() => onSelect(obj)}
-                                    className={`grid grid-cols-[1.5fr_1fr_2.5fr_0.8fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
-                                >
-                                    <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{(obj as any).reason || obj.name}</div>
-                                    <div className={`${(obj as any).type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{(obj as any).type || 'Normal'}</div>
-                                    <div className="text-zinc-600 truncate" title={(obj as any).message}>{(obj as any).message || '-'}</div>
-                                    <div className="text-zinc-500 font-mono text-xs">{(obj as any).count || 1}</div>
-                                    <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
-                                    <ResourceContextMenu
-                                        resource={obj}
-                                        onViewDetails={() => onSelect(obj)}
-                                        onDelete={() => handleDeleteRequest(obj)}
-                                        disabled={isResourceDeleting}
-                                    />
-                                </div>
-                            ) : (
-                                <div
-                                    onClick={() => onSelect(obj)}
-                                    className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_40px] gap-4 px-6 py-3 text-sm border-b border-white/5 cursor-pointer transition-all items-center hover:bg-white/5 group ${isResourceDeleting || obj.status === 'Terminating' ? 'opacity-60' : ''}`}
-                                >
-                                    <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
-                                    <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>
-                                    <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
-                                    <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
-                                    <ResourceContextMenu
-                                        resource={obj}
-                                        onViewDetails={() => onSelect(obj)}
-                                        onDelete={() => handleDeleteRequest(obj)}
-                                        disabled={isResourceDeleting || obj.status === 'Terminating'}
-                                    />
+                                    ))}
                                 </div>
                             );
                         }}
@@ -603,7 +620,6 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 )}
             </div>
 
-            {/* Delete Confirmation Modal */}
             <DeleteConfirmationModal
                 isOpen={deleteModalOpen}
                 onClose={() => { setDeleteModalOpen(false); setResourceToDelete(null); }}

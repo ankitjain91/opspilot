@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useToast } from '../../ui/Toast';
 import { K8sObject } from '../../../types/k8s';
+import { getAgentServerUrl } from '../../../utils/config';
 
 // --- Smart Log Analysis Constants & Types ---
 
@@ -294,8 +295,9 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
         try {
             // Take last 200 lines for analysis (balance between context and token limits)
             const logsToAnalyze = logs.slice(-200).join('\n');
+            const agentUrl = getAgentServerUrl();
 
-            const response = await fetch('http://127.0.0.1:8765/analyze-logs', {
+            const response = await fetch(`${agentUrl}/analyze-logs`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

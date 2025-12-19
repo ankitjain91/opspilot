@@ -518,7 +518,7 @@ export function LLMSettingsPanel({
                                     className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
                                     placeholder="http://127.0.0.1:8765"
                                 />
-                                <p className="text-[10px] text-zinc-500 mt-1">If connecting from another machine, enter the IP of the host (e.g., http://192.168.1.5:8765).</p>
+                                <p className="text-[10px] text-zinc-500 mt-1">Check the backend terminal output for the <strong>Network URL</strong> (e.g., http://192.168.1.5:8765).</p>
                             </div>
 
                             <div>
