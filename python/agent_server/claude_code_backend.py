@@ -406,8 +406,17 @@ Example for respond:
                             thinking = delta.get('thinking', '')
                             yield {'type': 'thinking', 'content': thinking}
 
+                    elif event_type == 'user':
+                        # User message - could contain tool_result from Claude Code execution
+                        content = event.get('message', {}).get('content', [])
+                        for block in content:
+                            if block.get('type') == 'tool_result':
+                                # Tool execution completed
+                                result = block.get('content', '')
+                                yield {'type': 'tool_result', 'output': result, 'tool': current_tool}
+
                     elif event_type == 'tool_result':
-                        # Tool execution result from Claude Code
+                        # Legacy: Tool execution result (direct format)
                         result = event.get('result', '')
                         yield {'type': 'tool_result', 'output': result, 'tool': current_tool}
 
