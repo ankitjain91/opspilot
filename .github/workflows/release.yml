@@ -137,8 +137,9 @@ jobs:
       - name: Rename artifacts (Linux)
         if: matrix.platform == 'ubuntu-latest'
         run: |
-          mv src-tauri/target/release/bundle/deb/*.deb OpsPilot_Linux_x64_${{ github.ref_name }}.deb
-          mv src-tauri/target/release/bundle/appimage/*.AppImage OpsPilot_Linux_x64_${{ github.ref_name }}.AppImage
+          mv src-tauri/target/release/bundle/deb/*.deb opspilot_linux_x64_${{ github.ref_name }}.deb
+          mv src-tauri/target/release/bundle/rpm/*.rpm opspilot_linux_x64_${{ github.ref_name }}.rpm
+          mv src-tauri/target/release/bundle/appimage/*.AppImage opspilot_linux_x64_${{ github.ref_name }}.AppImage
 
       - name: Rename artifacts (Windows)
         if: matrix.platform == 'windows-latest'

@@ -354,8 +354,13 @@ async def test_llm_connection(request: TestRequest):
 
     For Groq/OpenAI: attempts to list models and perform a tiny completion.
     For Ollama: checks /api/tags and performs a tiny generate.
+    For Claude Code: checks if CLI is installed and responsive.
     """
     try:
+        # Special handling for Claude Code - use quick CLI check instead of full LLM call
+        if request.provider == "claude-code":
+            return await _test_claude_code_connection()
+
         # Step 1: List models (quick credential check)
         models = await list_available_models(request.provider, request.api_key, request.base_url)
         connected = len(models) > 0
@@ -392,6 +397,74 @@ async def test_llm_connection(request: TestRequest):
     except Exception as e:
         return {
             "provider": request.provider,
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": str(e),
+            "completion_error": str(e),
+        }
+
+
+async def _test_claude_code_connection():
+    """Quick test for Claude Code CLI availability."""
+    import asyncio
+
+    try:
+        # Quick check: run 'claude --version' with short timeout
+        process = await asyncio.create_subprocess_exec(
+            "claude", "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=10.0  # 10 second timeout for version check
+        )
+
+        if process.returncode == 0:
+            version_info = stdout.decode('utf-8', errors='replace').strip()
+            return {
+                "provider": "claude-code",
+                "connected": True,
+                "models_count": 2,  # Claude Code supports multiple models
+                "completion_ok": True,
+                "error": None,
+                "completion_error": None,
+                "version": version_info,
+            }
+        else:
+            error_msg = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
+            return {
+                "provider": "claude-code",
+                "connected": False,
+                "models_count": 0,
+                "completion_ok": False,
+                "error": error_msg,
+                "completion_error": error_msg,
+            }
+
+    except asyncio.TimeoutError:
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": "Claude Code CLI timed out (>10s)",
+            "completion_error": "CLI unresponsive",
+        }
+    except FileNotFoundError:
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code",
+            "completion_error": "CLI not installed",
+        }
+    except Exception as e:
+        return {
+            "provider": "claude-code",
             "connected": False,
             "models_count": 0,
             "completion_ok": False,

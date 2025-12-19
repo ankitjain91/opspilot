@@ -7,13 +7,12 @@ from typing import Optional, Dict, Any, List
 
 class SmartLLMClient:
     """Resilient LLM Client with automatic provider fallback."""
-    
+
     def __init__(self):
         self.openai_api_key = os.environ.get("OPENAI_API_KEY")
         self.groq_api_key = os.environ.get("GROQ_API_KEY")
         self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
-        
-        # Track provider status to avoid retrying dead providers repeatedly in a loop
+
         # Track provider status to avoid retrying dead providers repeatedly in a loop
         # Default to True (optimistic) - we only mark False if a call actually fails.
         # This is critical for dynamic API keys where env var might be missing but UI passes a key.
@@ -21,7 +20,8 @@ class SmartLLMClient:
             "ollama": True,
             "groq": True,
             "openai": True,
-            "anthropic": True
+            "anthropic": True,
+            "claude-code": True  # Claude Code CLI backend
         }
 
     async def call(self, prompt: str, endpoint: str, model: str, provider: str = "ollama", temperature: float = 0.3, force_json: bool = True, api_key: str | None = None) -> str:
@@ -59,7 +59,16 @@ class SmartLLMClient:
                      print(f"DEBUG: Skipping OpenAI - Key: {bool(effective_key)}, Health: {self.provider_health['openai']}", flush=True)
                      print(f"DEBUG: Skipping OpenAI - Key: {bool(effective_key)}, Health: {self.provider_health['openai']}", flush=True)
             
-            elif provider == "anthropic" or provider == "claude-code":
+            elif provider == "claude-code":
+                # Claude Code CLI backend - uses local claude CLI, no API key needed
+                if self.provider_health.get("claude-code", True):
+                    result = await self._call_claude_code(prompt, temperature, force_json)
+                    self.provider_health["claude-code"] = True
+                    return result
+                else:
+                    print(f"DEBUG: Skipping Claude Code - Health: {self.provider_health.get('claude-code')}", flush=True)
+
+            elif provider == "anthropic":
                  effective_key = api_key or self.anthropic_api_key
                  if effective_key and self.provider_health.get("anthropic", True):
                      result = await self._call_anthropic(prompt, model, temperature, force_json, effective_key)
@@ -241,6 +250,25 @@ class SmartLLMClient:
             result = response.json()
             return result['content'][0]['text']
 
+    async def _call_claude_code(self, prompt: str, temperature: float, force_json: bool) -> str:
+        """
+        Call Claude Code CLI backend.
+
+        This uses the local `claude` CLI tool instead of API calls.
+        Useful for development and when you have Claude Code installed locally.
+        """
+        try:
+            from .claude_code_backend import call_claude_code
+            print(f"DEBUG: Calling Claude Code CLI | JSON: {force_json}", flush=True)
+            return await call_claude_code(
+                prompt=prompt,
+                force_json=force_json,
+                temperature=temperature
+            )
+        except ImportError:
+            raise Exception("Claude Code backend module not available")
+        except Exception as e:
+            raise Exception(f"Claude Code CLI Error: {str(e)}")
 
     async def list_models(self, provider: str, api_key: str | None = None, base_url: str | None = None) -> List[str]:
 
