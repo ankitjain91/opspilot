@@ -66,6 +66,19 @@ pub struct KubeContext {
 }
 
 #[derive(Serialize)]
+pub struct K8sEventSource {
+    pub component: Option<String>,
+    pub host: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct K8sEventMetadata {
+    pub name: Option<String>,
+    pub namespace: Option<String>,
+    pub uid: Option<String>,
+}
+
+#[derive(Serialize)]
 pub struct K8sEvent {
     pub message: String,
     pub reason: String,
@@ -74,7 +87,13 @@ pub struct K8sEvent {
     pub age: String,
     #[serde(rename = "lastTimestamp")]
     pub last_timestamp: Option<String>,
+    #[serde(rename = "firstTimestamp")]
+    pub first_timestamp: Option<String>,
+    #[serde(rename = "eventTime")]
+    pub event_time: Option<String>,
     pub count: i32,
+    pub source: Option<K8sEventSource>,
+    pub metadata: Option<K8sEventMetadata>,
 }
 
 #[derive(Serialize, Clone)]

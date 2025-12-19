@@ -31,11 +31,7 @@ import {
     Shield,
     Terminal as TerminalIcon,
     X,
-    Download,
-    CheckCircle2,
-    XCircle,
-    Clock,
-    AlertTriangle
+    Download
 } from 'lucide-react';
 
 import { NavResource, NavGroup, K8sObject, InitialClusterData } from '../../types/k8s';
@@ -45,6 +41,7 @@ import { SidebarGroup, SidebarSection } from '../layout/Sidebar';
 import { LocalTerminalTab } from '../tools/LocalTerminalTab';
 import { AzurePage } from '../azure/AzurePage';
 import { HelmReleases } from '../tools/HelmReleases';
+import { ArgoApplications } from '../tools/ArgoApplications';
 import { ResourceList } from '../cluster/ResourceList';
 import { ClusterCockpit } from './ClusterCockpit';
 import { DeepDiveDrawer } from '../cluster/DeepDiveDrawer';
@@ -639,20 +636,6 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         retry: false, // Don't retry if Argo CD isn't installed
     });
 
-    // Helper to extract Argo app health/sync status from raw_json
-    const getArgoAppStatus = (app: K8sObject) => {
-        try {
-            if (!app.raw_json) return { health: 'Unknown', sync: 'Unknown' };
-            const parsed = JSON.parse(app.raw_json);
-            return {
-                health: parsed?.status?.health?.status || 'Unknown',
-                sync: parsed?.status?.sync?.status || 'Unknown'
-            };
-        } catch {
-            return { health: 'Unknown', sync: 'Unknown' };
-        }
-    };
-
     // 2.5 Background Prefetching
     useEffect(() => {
         if (!navStructure || !currentContext) return;
@@ -923,63 +906,25 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                         </div>
                     )}
 
-                    {/* Argo CD Applications Section - Only show if apps exist */}
+                    {/* Argo CD Applications Button - Only show if apps exist */}
                     {argoApps && argoApps.length > 0 && (!sidebarSearchQuery || "argo".includes(sidebarSearchQuery.toLowerCase()) || "application".includes(sidebarSearchQuery.toLowerCase()) || "gitops".includes(sidebarSearchQuery.toLowerCase())) && (
-                        <div className="mb-2">
-                            <div className="flex items-center justify-between px-2 py-1.5 mb-1">
-                                <div className="flex items-center gap-2">
-                                    <div className="p-1 bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded">
-                                        <GitBranch size={14} className="text-orange-400" />
-                                    </div>
-                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Argo CD</span>
+                        <div className="mb-1">
+                            <button
+                                onClick={() => {
+                                    setActiveRes({ kind: "ArgoApplications", group: "argoproj.io", version: "v1alpha1", namespaced: false, title: "Applications" });
+                                    setActiveTabId(null);
+                                    setSearchQuery("");
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "ArgoApplications" ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <GitBranch size={18} className={activeRes?.kind === "ArgoApplications" ? "text-white" : "text-orange-400 group-hover:text-orange-300"} />
+                                    <span>Argo CD</span>
                                 </div>
-                                <span className="text-[10px] text-zinc-600 bg-zinc-800/50 px-1.5 py-0.5 rounded-full">{argoApps.length}</span>
-                            </div>
-                            <div className="space-y-0.5 max-h-48 overflow-y-auto custom-scrollbar">
-                                {argoApps.map((app) => {
-                                    const status = getArgoAppStatus(app);
-                                    const isActive = activeRes?.kind === "Application" && activeRes?.title === app.name;
-                                    const healthColor = status.health === 'Healthy' ? 'text-emerald-400' :
-                                        status.health === 'Degraded' ? 'text-red-400' :
-                                        status.health === 'Progressing' ? 'text-blue-400' :
-                                        status.health === 'Suspended' ? 'text-amber-400' : 'text-zinc-500';
-                                    const syncColor = status.sync === 'Synced' ? 'text-emerald-400' :
-                                        status.sync === 'OutOfSync' ? 'text-amber-400' : 'text-zinc-500';
-                                    const HealthIcon = status.health === 'Healthy' ? CheckCircle2 :
-                                        status.health === 'Degraded' ? XCircle :
-                                        status.health === 'Progressing' ? Clock :
-                                        status.health === 'Suspended' ? AlertTriangle : AlertCircle;
-
-                                    return (
-                                        <button
-                                            key={app.id || app.name}
-                                            onClick={() => {
-                                                handleOpenResource(app);
-                                            }}
-                                            className={`w-full flex items-center justify-between px-2.5 py-2 text-xs rounded-md transition-all group ${
-                                                isActive
-                                                    ? "bg-gradient-to-r from-orange-600/80 to-red-600/80 text-white shadow-md shadow-orange-500/20"
-                                                    : "text-zinc-400 hover:text-white hover:bg-white/5"
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <HealthIcon size={14} className={isActive ? "text-white" : healthColor} />
-                                                <span className="truncate font-medium">{app.name}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 shrink-0">
-                                                <span className={`text-[10px] ${isActive ? "text-white/80" : syncColor}`}>
-                                                    {status.sync === 'Synced' ? '✓' : status.sync === 'OutOfSync' ? '⟳' : '?'}
-                                                </span>
-                                                {app.namespace && app.namespace !== '-' && (
-                                                    <span className={`text-[9px] px-1 py-0.5 rounded ${isActive ? "bg-white/20 text-white" : "bg-zinc-800 text-zinc-500"}`}>
-                                                        {app.namespace}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeRes?.kind === "ArgoApplications" ? "bg-white/20 text-white" : "bg-zinc-800/50 text-zinc-500"}`}>
+                                    {argoApps.length}
+                                </span>
+                            </button>
                         </div>
                     )}
 
@@ -1174,6 +1119,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
 
                 {activeRes?.kind === "HelmReleases" ? (
                     <HelmReleases currentContext={currentContext} />
+                ) : activeRes?.kind === "ArgoApplications" ? (
+                    <ArgoApplications currentContext={currentContext} onOpenResource={handleOpenResource} />
                 ) : (
                     <>
                         {/* Header */}

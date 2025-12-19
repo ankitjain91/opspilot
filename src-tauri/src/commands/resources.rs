@@ -6,7 +6,7 @@ use kube::{
     Discovery,
 };
 use crate::state::AppState;
-use crate::models::{ResourceRequest, ResourceSummary, ResourceWatchEvent, K8sEvent};
+use crate::models::{ResourceRequest, ResourceSummary, ResourceWatchEvent, K8sEvent, K8sEventSource, K8sEventMetadata};
 use crate::client::create_client;
 use crate::commands::discovery::get_cached_discovery;
 use futures::{StreamExt, TryStreamExt};
@@ -370,13 +370,25 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
             let ns_match = involved.namespace.as_deref().map_or(true, |ns| ns == namespace);
             let uid_match = uid.as_ref().map_or(false, |u| involved.uid.as_deref() == Some(u.as_str()));
             if (name_match && ns_match) || uid_match {
+                let metadata = e.metadata.clone();
                 Some(K8sEvent {
                     message: e.message.unwrap_or_default(),
                     reason: e.reason.unwrap_or_default(),
                     type_: e.type_.unwrap_or_default(),
                     age: e.last_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_else(|| e.event_time.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default()),
-                    last_timestamp: e.last_timestamp.map(|t| t.0.to_rfc3339()).or_else(|| e.event_time.map(|t| t.0.to_rfc3339())),
+                    last_timestamp: e.last_timestamp.clone().map(|t| t.0.to_rfc3339()),
+                    first_timestamp: e.first_timestamp.clone().map(|t| t.0.to_rfc3339()),
+                    event_time: e.event_time.clone().map(|t| t.0.to_rfc3339()),
                     count: e.count.unwrap_or(1),
+                    source: e.source.clone().map(|s| K8sEventSource {
+                        component: s.component,
+                        host: s.host,
+                    }),
+                    metadata: Some(K8sEventMetadata {
+                        name: metadata.name,
+                        namespace: metadata.namespace,
+                        uid: metadata.uid,
+                    }),
                 })
             } else { None }
         }).collect::<Vec<_>>(),
@@ -390,6 +402,7 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
             let ns_match = regarding.as_ref().and_then(|r| r.namespace.as_ref()).map_or(true, |ns| ns == &namespace);
             let uid_match = if let (Some(r), Some(wanted)) = (regarding, uid.as_ref()) { r.uid.as_deref() == Some(wanted.as_str()) } else { false };
             if (name_match && ns_match) || uid_match {
+                let metadata = e.metadata.clone();
                 Some(K8sEvent {
                     message: e.note.unwrap_or_default(),
                     reason: e.reason.unwrap_or_default(),
@@ -397,8 +410,19 @@ pub async fn list_events(state: State<'_, AppState>, namespace: String, name: St
                     age: e.event_time.clone().map(|t| t.0.to_rfc3339()).unwrap_or_else(||
                         e.deprecated_last_timestamp.clone().map(|t| t.0.to_rfc3339()).unwrap_or_default()
                     ),
-                    last_timestamp: e.event_time.map(|t| t.0.to_rfc3339()).or_else(|| e.deprecated_last_timestamp.map(|t| t.0.to_rfc3339())),
+                    last_timestamp: e.deprecated_last_timestamp.clone().map(|t| t.0.to_rfc3339()),
+                    first_timestamp: e.deprecated_first_timestamp.clone().map(|t| t.0.to_rfc3339()),
+                    event_time: e.event_time.clone().map(|t| t.0.to_rfc3339()),
                     count: e.deprecated_count.unwrap_or(e.series.as_ref().map(|s| s.count).unwrap_or(1)),
+                    source: e.deprecated_source.clone().map(|s| K8sEventSource {
+                        component: s.component,
+                        host: s.host,
+                    }),
+                    metadata: Some(K8sEventMetadata {
+                        name: metadata.name,
+                        namespace: metadata.namespace,
+                        uid: metadata.uid,
+                    }),
                 })
             } else { None }
         }).collect::<Vec<_>>(),

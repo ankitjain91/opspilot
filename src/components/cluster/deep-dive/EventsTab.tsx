@@ -60,11 +60,15 @@ export function EventsTab({ resource }: EventsTabProps) {
             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800">
                 {sortedEvents.map((e: any, i: number) => {
                     const isWarning = e.type === 'Warning';
-                    const timestamp = e.lastTimestamp || e.eventTime;
+                    const timestamp = e.lastTimestamp || e.eventTime || e.age;
+                    const reason = e.reason || 'Event';
+                    const message = e.message || '-';
+                    const source = e.source?.component || '-';
+                    const count = typeof e.count === 'number' ? e.count : 1;
 
                     return (
                         <div
-                            key={i}
+                            key={e.metadata?.uid || `event-${i}`}
                             onClick={() => setSelectedEvent(e)}
                             className={`grid grid-cols-[40px_140px_1fr_120px_60px_100px] gap-4 px-4 py-3 border-b border-white/5 items-center text-xs hover:bg-white/5 cursor-pointer transition-colors ${selectedEvent === e ? 'bg-white/5' : ''}`}
                         >
@@ -74,17 +78,17 @@ export function EventsTab({ resource }: EventsTabProps) {
                                     <CheckCircle2 size={14} className="text-emerald-400/50" />
                                 }
                             </div>
-                            <div className={`font-medium ${isWarning ? 'text-red-300' : 'text-zinc-300'}`}>
-                                {e.reason}
+                            <div className={`font-medium truncate ${isWarning ? 'text-red-300' : 'text-zinc-300'}`} title={reason}>
+                                {reason}
                             </div>
-                            <div className="text-zinc-400 truncate" title={e.message}>
-                                {e.message}
+                            <div className="text-zinc-400 truncate" title={message}>
+                                {message}
                             </div>
-                            <div className="text-zinc-500 truncate" title={e.source?.component}>
-                                {e.source?.component || '-'}
+                            <div className="text-zinc-500 truncate" title={source}>
+                                {source}
                             </div>
-                            <div className="text-zinc-500 font-mono">
-                                {e.count > 1 ? `×${e.count}` : '-'}
+                            <div className="text-zinc-500 font-mono text-center">
+                                {count > 1 ? `×${count}` : '-'}
                             </div>
                             <div className="text-right text-zinc-500 text-[11px] font-mono">
                                 {timestamp ? formatAge(timestamp) : '-'}

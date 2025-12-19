@@ -60,6 +60,15 @@ pub async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStat
 
 #[tauri::command]
 pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCockpitData, String> {
+    // Check cache first (15 second TTL)
+    if let Ok(cache) = state.cockpit_cache.try_lock() {
+        if let Some((timestamp, cached_data)) = &*cache {
+            if timestamp.elapsed().as_secs() < 15 {
+                return Ok(cached_data.clone());
+            }
+        }
+    }
+
     let client = create_client(state.clone()).await?;
 
     let nodes_api: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
@@ -266,7 +275,7 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
     let warning_count = unhealthy_deps.len() + (nodes_items.len() - healthy_nodes); // Simple heuristic
     let critical_count = pods_breakdown.failed;
 
-    Ok(ClusterCockpitData {
+    let data = ClusterCockpitData {
         total_nodes: nodes_items.len(),
         healthy_nodes,
         total_pods: pods_items.len(),
@@ -287,5 +296,12 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
         warning_count,
         critical_count,
         metrics_available,
-    })
+    };
+
+    // Update cache
+    if let Ok(mut cache) = state.cockpit_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), data.clone()));
+    }
+
+    Ok(data)
 }

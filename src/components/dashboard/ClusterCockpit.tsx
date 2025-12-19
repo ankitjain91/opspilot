@@ -42,6 +42,27 @@ interface PlatformConfig {
     pullCommand: string;
 }
 
+// Helper component for AI investigation action
+function InvestigateAction({ query, label }: { query: string, label: string }) {
+    const handleInvestigate = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('opspilot:investigate', {
+            detail: { prompt: query }
+        }));
+    };
+
+    return (
+        <button
+            onClick={handleInvestigate}
+            className="ml-2 p-1 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all group relative"
+            title={`Investigate ${label} with AI`}
+        >
+            <Sparkles size={12} className="animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-cyan-400 rounded-full animate-ping opacity-75" />
+        </button>
+    );
+}
+
 // Cluster Cockpit Dashboard - Airplane cockpit style view
 export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[], currentContext?: string }) {
     const qc = useQueryClient();
@@ -710,42 +731,49 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
                                     <Server size={12} className="text-red-400" />
                                     <span className="text-xs text-red-300">{healthMetrics.unhealthyNodes} node{healthMetrics.unhealthyNodes > 1 ? 's' : ''} not ready</span>
+                                    <InvestigateAction query="Investigate why nodes are not ready in this cluster and suggest fixes." label="Nodes" />
                                 </div>
                             )}
                             {healthMetrics.failedPods > 0 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
                                     <Layers size={12} className="text-red-400" />
                                     <span className="text-xs text-red-300">{healthMetrics.failedPods} pod{healthMetrics.failedPods > 1 ? 's' : ''} failed</span>
+                                    <InvestigateAction query="Find all failed pods in the cluster and analyze their status or logs to find the root cause." label="Failed Pods" />
                                 </div>
                             )}
                             {healthMetrics.pendingPods > 0 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
                                     <Layers size={12} className="text-yellow-400" />
                                     <span className="text-xs text-yellow-300">{healthMetrics.pendingPods} pod{healthMetrics.pendingPods > 1 ? 's' : ''} pending</span>
+                                    <InvestigateAction query="Investigate why pods are stuck in Pending state. Check for resource constraints or scheduling issues." label="Pending Pods" />
                                 </div>
                             )}
                             {healthMetrics.crashingPods > 0 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30">
                                     <Layers size={12} className="text-orange-400" />
                                     <span className="text-xs text-orange-300">{healthMetrics.crashingPods} pod{healthMetrics.crashingPods > 1 ? 's' : ''} unknown state</span>
+                                    <InvestigateAction query="Identify pods in Unknown or CrashLoopBackOff state and analyze the cause." label="Crashing Pods" />
                                 </div>
                             )}
                             {healthMetrics.unhealthyDeployments > 0 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
                                     <Package size={12} className="text-yellow-400" />
                                     <span className="text-xs text-yellow-300">{healthMetrics.unhealthyDeployments} deployment{healthMetrics.unhealthyDeployments > 1 ? 's' : ''} degraded</span>
+                                    <InvestigateAction query="Analyze degraded deployments and explain why they are not reaching desired replicas." label="Deployments" />
                                 </div>
                             )}
                             {healthMetrics.cpuPct > 90 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
                                     <Cpu size={12} className="text-red-400" />
                                     <span className="text-xs text-red-300">CPU at {healthMetrics.cpuPct.toFixed(0)}% - critical</span>
+                                    <InvestigateAction query="Identify which pods or nodes are consuming the most CPU and suggest optimization." label="CPU Usage" />
                                 </div>
                             )}
                             {healthMetrics.memPct > 90 && (
                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
                                     <HardDrive size={12} className="text-red-400" />
                                     <span className="text-xs text-red-300">Memory at {healthMetrics.memPct.toFixed(0)}% - critical</span>
+                                    <InvestigateAction query="Identify which pods or nodes are consuming the most Memory and suggest optimization." label="Memory Usage" />
                                 </div>
                             )}
                         </div>

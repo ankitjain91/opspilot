@@ -18,6 +18,24 @@ import { useResourceWatch } from '../../hooks/useResourceWatch';
 import { useLiveAge, formatAge } from '../../utils/time';
 import { NavResource, K8sObject, ResourceMetrics } from '../../types/k8s';
 
+// Utility for formatting CPU in cores or millicores
+const formatCpu = (nano: number | undefined) => {
+    if (nano === undefined) return '-';
+    if (nano >= 1_000_000_000) {
+        return `${(nano / 1_000_000_000).toFixed(2)} cores`;
+    }
+    return `${(nano / 1_000_000).toFixed(0)}m`;
+};
+
+// Utility for formatting memory in KiB, MiB, GiB etc
+const formatMemory = (bytes: number | undefined) => {
+    if (bytes === undefined || bytes === 0) return '-';
+    const k = 1024;
+    const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+};
+
 // Helper to detect IaC resources (Crossplane, Terraform, etc.)
 const isIaCResource = (group: string): boolean => {
     if (!group) return false;
@@ -495,8 +513,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                     <div className="text-cyan-400 font-mono text-xs font-semibold">{obj.ready || '0/0'}</div>
                                     <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
                                     <div className="text-yellow-400 font-mono text-xs font-semibold">{obj.restarts ?? 0}</div>
-                                    <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
-                                    <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
+                                    <div className="text-emerald-400 font-mono text-[10px] font-semibold">{formatCpu(metrics?.cpu_nano)}</div>
+                                    <div className="text-orange-400 font-mono text-[10px] font-semibold">{formatMemory(metrics?.memory_bytes)}</div>
                                     <div className="text-zinc-500 truncate text-xs" title={obj.node}>{obj.node || '-'}</div>
                                     <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                                     <ResourceContextMenu
@@ -514,8 +532,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                 >
                                     <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={obj.name}>{obj.name}</div>
                                     <div><StatusBadge status={obj.status} isDeleting={isResourceDeleting} /></div>
-                                    <div className="text-emerald-400 font-mono text-xs font-semibold">{metrics?.cpu || '-'}</div>
-                                    <div className="text-orange-400 font-mono text-xs font-semibold">{metrics?.memory || '-'}</div>
+                                    <div className="text-emerald-400 font-mono text-xs font-semibold">{formatCpu(metrics?.cpu_nano)}</div>
+                                    <div className="text-orange-400 font-mono text-xs font-semibold">{formatMemory(metrics?.memory_bytes)}</div>
                                     <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>
                                     <ResourceContextMenu
                                         resource={obj}

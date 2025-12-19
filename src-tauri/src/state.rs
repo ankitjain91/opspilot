@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 use portable_pty::MasterPty;
 use kube::{Client, Discovery};
-use crate::models::{ClusterStats, InitialClusterData};
+use crate::models::{ClusterStats, InitialClusterData, ClusterCockpitData};
 
 #[allow(dead_code)]
 pub struct ExecSession {
@@ -43,6 +43,7 @@ pub struct AppState {
     pub client_cache: Arc<Mutex<Option<(std::time::Instant, String, Client)>>>,
     // Cache for initial dashboard data (15s TTL) for instant navigation
     pub initial_data_cache: Arc<Mutex<Option<(std::time::Instant, InitialClusterData)>>>,
+    pub cockpit_cache: Arc<Mutex<Option<(std::time::Instant, ClusterCockpitData)>>>,
     // Persistent session for Claude Code
     pub claude_session: Arc<Mutex<Option<ShellSession>>>,
     // Store vcluster proxy process ID to kill it on disconnect
@@ -65,6 +66,7 @@ impl AppState {
             pod_limits_cache: Arc::new(Mutex::new(None)),
             client_cache: Arc::new(Mutex::new(None)),
             initial_data_cache: Arc::new(Mutex::new(None)),
+            cockpit_cache: Arc::new(Mutex::new(None)),
             claude_session: Arc::new(Mutex::new(None)),
             vcluster_pid: Arc::new(Mutex::new(None)),
         }
