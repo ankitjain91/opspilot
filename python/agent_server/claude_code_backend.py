@@ -84,9 +84,6 @@ class ClaudeCodeBackend:
         # Build the command
         cmd = ["claude", "-p"]  # -p for print mode (non-interactive)
 
-        # Add verbose for debugging
-        cmd.append("--verbose")
-
         # Add output format for structured parsing
         cmd.extend(["--output-format", "stream-json"])
 
@@ -108,9 +105,6 @@ class ClaudeCodeBackend:
         # Add the prompt
         cmd.append(full_prompt)
 
-        # Log prompt length for debugging
-        print(f"[claude-code] Executing: claude -p --output-format stream-json (prompt: {len(full_prompt)} chars)", flush=True)
-
         try:
             # Run claude CLI as subprocess
             process = await asyncio.create_subprocess_exec(
@@ -121,8 +115,6 @@ class ClaudeCodeBackend:
                 # Don't inherit stdin to prevent waiting for input
                 stdin=asyncio.subprocess.DEVNULL
             )
-
-            print(f"[claude-code] Process started (PID: {process.pid}), waiting for response...", flush=True)
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),

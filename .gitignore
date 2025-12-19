@@ -40,6 +40,7 @@ src-tauri/gen/schemas/
 python/build/
 python/dist/
 *.spec
+python/test_*.py
 
 # AI Model Cache
 src-tauri/.fastembed_cache/

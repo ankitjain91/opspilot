@@ -33,6 +33,96 @@ interface KBEmbeddingsStatus {
 
 
 
+const SetupGuide = ({ provider, status }: { provider: LLMProvider, status: LLMStatus | null }) => {
+    const isAgentDown = status?.error?.includes('Failed to fetch') || status?.error?.includes('NetworkError') || status?.error?.includes('Connection refused');
+    const isAuthFailed = status?.connected === false && !isAgentDown;
+
+    return (
+        <div className="mt-3 p-3 bg-zinc-900/80 rounded-lg border border-white/5 space-y-3">
+            <div className="flex items-center gap-2 text-zinc-500 border-b border-white/5 pb-2 mb-2">
+                <Info size={12} />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Setup Checklist</span>
+            </div>
+
+            {/* 1. Agent Status */}
+            <div className="flex items-start gap-3">
+                <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAgentDown ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+                <div>
+                    <div className="text-[11px] font-bold text-zinc-300">Agent Sidecar (Python)</div>
+                    <div className="text-[10px] text-zinc-500 leading-tight">
+                        {isAgentDown ? (
+                            <span className="text-red-400">
+                                ⚠️ Not Detected. Run <code>bin/agent-server</code> in your terminal.
+                            </span>
+                        ) : (
+                            "Connected and listening on localhost:8765"
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* 2. Provider Dependencies */}
+            {provider === 'ollama' && (
+                <div className="flex items-start gap-3">
+                    <div className="mt-0.5 w-2 h-2 rounded-full shrink-0 bg-zinc-500" />
+                    <div>
+                        <div className="text-[11px] font-bold text-zinc-300">Ollama Application</div>
+                        <div className="text-[10px] text-zinc-500 leading-tight">
+                            Must be installed and running. <a href="https://ollama.com" target="_blank" className="text-blue-400 hover:underline">Download here</a>.
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {(provider === 'openai' || provider === 'anthropic' || provider === 'groq') && (
+                <div className="flex items-start gap-3">
+                    <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isAuthFailed ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                    <div>
+                        <div className="text-[11px] font-bold text-zinc-300">API Key</div>
+                        <div className="text-[10px] text-zinc-500 leading-tight">
+                            {isAuthFailed ? (
+                                <span className="text-amber-400">Invalid Key or Network Issue. Check your provider dashboard.</span>
+                            ) : "Valid format detected."}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ModelGuide = ({ provider }: { provider: LLMProvider }) => {
+    if (provider === 'ollama') return (
+        <div className="mb-4 text-[10px] text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
+            <span className="font-bold text-blue-300 block mb-1">Recommended Local Models:</span>
+            <ul className="list-disc pl-3 space-y-1">
+                <li><span className="text-white font-mono">llama3</span> (8B) - Good balance, fast.</li>
+                <li><span className="text-white font-mono">mistral</span> (7B) - Very efficient.</li>
+                <li><span className="text-white font-mono">mixtral</span> (8x7B) - Smarter, requires 32GB+ RAM.</li>
+            </ul>
+        </div>
+    );
+
+    return (
+        <div className="mb-4 text-[10px] text-zinc-400 bg-white/5 p-3 rounded-lg border border-white/5">
+            <span className="font-bold text-violet-300 block mb-1">Why two models?</span>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <span className="font-bold text-white block mb-0.5">🧠 Brain Model</span>
+                    Used for planning, reasoning, and complex analysis. Needs high intelligence.
+                    <br /><span className="text-zinc-500 italic">e.g. GPT-4o, Claude 3.5 Sonnet</span>
+                </div>
+                <div>
+                    <span className="font-bold text-white block mb-0.5">⚡ Executor Model</span>
+                    Used for simple tasks and running commands. Needs speed and low cost.
+                    <br /><span className="text-zinc-500 italic">e.g. GPT-4o-mini, Haiku</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 export function LLMSettingsPanel({
     config,
     onConfigChange,
@@ -500,109 +590,106 @@ export function LLMSettingsPanel({
 
                             {/* Models Section */}
                             {localConfig.provider !== 'claude-code' && (
-                                <div className="grid grid-cols-2 gap-4 pt-2">
-                                    {/* Brain Model */}
-                                    <div className="space-y-1.5">
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5">
-                                                <Brain size={12} className="text-violet-400" />
-                                                <label className="text-[10px] font-bold text-zinc-400 uppercase">Brain Model</label>
-                                                <div className="group/brain-info relative inline-block">
-                                                    <Info size={10} className="text-zinc-600 cursor-help" />
-                                                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 p-2 bg-black border border-white/10 rounded text-[10px] text-zinc-400 hidden group-hover/brain-info:block z-[9999] pointer-events-none shadow-lg">
-                                                        Primary model for complex reasoning, planning, and analysis.
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    setCheckingInference(true);
-                                                    fetchInferenceModels().then(() => setCheckingInference(false));
-                                                }}
-                                                disabled={checkingInference}
-                                                className="text-[10px] text-violet-400 hover:text-white flex items-center gap-1 transition-colors"
-                                            >
-                                                <RefreshCw size={10} className={checkingInference ? "animate-spin" : ""} />
-                                            </button>
-                                        </div>
-                                        <input
-                                            list="inference-models"
-                                            type="text"
-                                            value={localConfig.model}
-                                            onChange={e => setLocalConfig({ ...localConfig, model: e.target.value })}
-                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-violet-500/50 outline-none font-mono transition-all"
-                                            placeholder="Select or type..."
-                                        />
-                                        <datalist id="inference-models">
-                                            {inferenceStatus?.available_models?.map(m => <option key={m} value={m} />)}
-                                        </datalist>
-                                    </div>
+                                <div className="pt-2">
+                                    <ModelGuide provider={localConfig.provider} />
 
-                                    {/* Executor Model */}
-                                    <div className="space-y-1.5">
-                                        <div className="flex items-center gap-1.5">
-                                            <Activity size={12} className="text-emerald-400" />
-                                            <label className="text-[10px] font-bold text-zinc-400 uppercase">Executor Model</label>
-                                            <div className="group/exec-info relative inline-block">
-                                                <Info size={10} className="text-zinc-600 cursor-help" />
-                                                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 p-2 bg-black border border-white/10 rounded text-[10px] text-zinc-400 hidden group-hover/exec-info:block z-[9999] pointer-events-none shadow-lg">
-                                                    Faster, cheaper model for simple tasks like executing specific CLI commands.
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {/* Brain Model */}
+                                        <div className="space-y-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Brain size={12} className="text-violet-400" />
+                                                    <label className="text-[10px] font-bold text-zinc-400 uppercase">Brain Model</label>
                                                 </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setCheckingInference(true);
+                                                        fetchInferenceModels().then(() => setCheckingInference(false));
+                                                    }}
+                                                    disabled={checkingInference}
+                                                    className="text-[10px] text-violet-400 hover:text-white flex items-center gap-1 transition-colors"
+                                                >
+                                                    <RefreshCw size={10} className={checkingInference ? "animate-spin" : ""} />
+                                                </button>
                                             </div>
+                                            <input
+                                                list="inference-models"
+                                                type="text"
+                                                value={localConfig.model}
+                                                onChange={e => setLocalConfig({ ...localConfig, model: e.target.value })}
+                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-violet-500/50 outline-none font-mono transition-all"
+                                                placeholder="Select or type..."
+                                            />
+                                            <datalist id="inference-models">
+                                                {inferenceStatus?.available_models?.map(m => <option key={m} value={m} />)}
+                                            </datalist>
                                         </div>
-                                        <input
-                                            list="inference-models"
-                                            type="text"
-                                            value={localConfig.executor_model || ''}
-                                            onChange={e => setLocalConfig({ ...localConfig, executor_model: e.target.value })}
-                                            className={`w-full bg-black/20 border rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 outline-none font-mono transition-all ${
-                                                // Validation warning if using local model name with cloud provider
-                                                (localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
-                                                    (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli'))
-                                                    ? 'border-amber-500/50 focus:border-amber-500'
-                                                    : 'border-white/10 focus:border-emerald-500/50'
-                                                }`}
-                                            placeholder="Same as brain (Default)"
-                                        />
-                                    </div>
-                                    {/* Warning for mixed provider/model usage */}
-                                    {(localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
-                                        (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli')) && (
-                                            <div className="col-span-2 flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                                                <AlertCircle size={12} className="text-amber-400" />
-                                                <span className="text-[10px] text-amber-200">
-                                                    Warning: Local models like '{localConfig.executor_model}' may not work with {localConfig.provider}.
-                                                </span>
+
+                                        {/* Executor Model */}
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <Activity size={12} className="text-emerald-400" />
+                                                <label className="text-[10px] font-bold text-zinc-400 uppercase">Executor Model</label>
                                             </div>
-                                        )}
+                                            <input
+                                                list="inference-models"
+                                                type="text"
+                                                value={localConfig.executor_model || ''}
+                                                onChange={e => setLocalConfig({ ...localConfig, executor_model: e.target.value })}
+                                                className={`w-full bg-black/20 border rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 outline-none font-mono transition-all ${
+                                                    // Validation warning if using local model name with cloud provider
+                                                    (localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
+                                                        (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli'))
+                                                        ? 'border-amber-500/50 focus:border-amber-500'
+                                                        : 'border-white/10 focus:border-emerald-500/50'
+                                                    }`}
+                                                placeholder="Same as brain (Default)"
+                                            />
+                                        </div>
+                                        {/* Warning for mixed provider/model usage */}
+                                        {(localConfig.provider === 'groq' || localConfig.provider === 'openai') &&
+                                            (localConfig.executor_model?.includes('qwen') || localConfig.executor_model?.includes('k8s-cli')) && (
+                                                <div className="col-span-2 flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                                    <AlertCircle size={12} className="text-amber-400" />
+                                                    <span className="text-[10px] text-amber-200">
+                                                        Warning: Local models like '{localConfig.executor_model}' may not work with {localConfig.provider}.
+                                                    </span>
+                                                </div>
+                                            )}
+                                    </div>
                                 </div>
                             )}
 
                             {/* Connection Status */}
-                            <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingInference ? 'bg-amber-500/5 border-amber-500/20' :
-                                inferenceStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
-                                    'bg-red-500/5 border-red-500/20'
-                                }`}>
-                                <StatusDot ok={inferenceStatus?.connected} loading={checkingInference} />
-                                <div className="flex-1">
-                                    <div className={`text-xs font-bold ${checkingInference ? 'text-amber-400' :
-                                        inferenceStatus?.connected ? 'text-emerald-400' :
-                                            'text-red-400'
-                                        }`}>
-                                        {checkingInference ? 'Testing Connection...' :
-                                            inferenceStatus?.connected ? (localConfig.provider === 'claude-code' ? 'Agent Ready' : 'Brain Connected') :
-                                                'Connection Failed'}
+                            <div>
+                                <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingInference ? 'bg-amber-500/5 border-amber-500/20' :
+                                    inferenceStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
+                                        'bg-red-500/5 border-red-500/20'
+                                    }`}>
+                                    <StatusDot ok={inferenceStatus?.connected} loading={checkingInference} />
+                                    <div className="flex-1">
+                                        <div className={`text-xs font-bold ${checkingInference ? 'text-amber-400' :
+                                            inferenceStatus?.connected ? 'text-emerald-400' :
+                                                'text-red-400'
+                                            }`}>
+                                            {checkingInference ? 'Testing Connection...' :
+                                                inferenceStatus?.connected ? (localConfig.provider === 'claude-code' ? 'Agent Ready' : 'Brain Connected') :
+                                                    'Connection Failed'}
+                                        </div>
+                                        {inferenceStatus?.error && !checkingInference && (
+                                            <div className="text-[10px] text-red-400/80 mt-1 leading-tight">{inferenceStatus.error}</div>
+                                        )}
                                     </div>
-                                    {inferenceStatus?.error && !checkingInference && (
-                                        <div className="text-[10px] text-red-400/80 mt-1 leading-tight">{inferenceStatus.error}</div>
-                                    )}
+                                    <button
+                                        onClick={checkInferenceConnection}
+                                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors"
+                                    >
+                                        Test
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={checkInferenceConnection}
-                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors"
-                                >
-                                    Test
-                                </button>
+
+                                {/* Setup Guide */}
+                                <SetupGuide provider={localConfig.provider} status={inferenceStatus} />
                             </div>
 
                         </div>
