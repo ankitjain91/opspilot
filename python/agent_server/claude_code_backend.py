@@ -65,7 +65,7 @@ class ClaudeCodeBackend:
         force_json: bool = False,
         temperature: float = 0.3,
         continue_session: bool = False,
-        timeout: float = 120.0
+        timeout: float = 90.0
     ) -> str:
         """
         Call Claude Code CLI with prompt and return response.
@@ -83,6 +83,9 @@ class ClaudeCodeBackend:
         """
         # Build the command
         cmd = ["claude", "-p"]  # -p for print mode (non-interactive)
+
+        # Add verbose for debugging
+        cmd.append("--verbose")
 
         # Add output format for structured parsing
         cmd.extend(["--output-format", "stream-json"])
@@ -105,7 +108,8 @@ class ClaudeCodeBackend:
         # Add the prompt
         cmd.append(full_prompt)
 
-        print(f"[claude-code] Executing: claude -p --output-format stream-json ...", flush=True)
+        # Log prompt length for debugging
+        print(f"[claude-code] Executing: claude -p --output-format stream-json (prompt: {len(full_prompt)} chars)", flush=True)
 
         try:
             # Run claude CLI as subprocess
@@ -113,13 +117,19 @@ class ClaudeCodeBackend:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.working_dir
+                cwd=self.working_dir,
+                # Don't inherit stdin to prevent waiting for input
+                stdin=asyncio.subprocess.DEVNULL
             )
+
+            print(f"[claude-code] Process started (PID: {process.pid}), waiting for response...", flush=True)
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=timeout
             )
+
+            print(f"[claude-code] Process completed (exit: {process.returncode}, stdout: {len(stdout)} bytes)", flush=True)
 
             output = stdout.decode('utf-8', errors='replace')
             error_output = stderr.decode('utf-8', errors='replace')

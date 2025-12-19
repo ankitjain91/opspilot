@@ -102,11 +102,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "OpsPilot ${{ github.ref_name }}"
-          updaterJsonKeepUniversal: true
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
       - name: Compress binary (macOS)
@@ -241,8 +236,9 @@ jobs:
             OpsPilot_universal.app.tar.gz
             OpsPilot_macOS_*.dmg
             OpsPilot_Windows_*.exe
-            OpsPilot_Linux_*.deb
-            OpsPilot_Linux_*.AppImage
+            opspilot_linux_*.deb
+            opspilot_linux_*.rpm
+            opspilot_linux_*.AppImage
             latest.json
           append_body: true
           body: |

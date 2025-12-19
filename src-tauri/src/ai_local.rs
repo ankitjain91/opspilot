@@ -256,7 +256,8 @@ pub async fn check_llm_status(config: LLMConfig) -> Result<LLMStatus, String> {
     match config.provider {
         LLMProvider::Ollama => check_ollama_status_internal(&config).await,
         LLMProvider::OpenAI | LLMProvider::Custom | LLMProvider::Groq => check_openai_status_internal(&config).await,
-        LLMProvider::Anthropic | LLMProvider::ClaudeCode => check_anthropic_status_internal(&config).await,
+        LLMProvider::Anthropic => check_anthropic_status_internal(&config).await,
+        LLMProvider::ClaudeCode => check_claude_code_status_internal().await,
     }
 }
 
@@ -796,6 +797,46 @@ async fn check_anthropic_status_internal(config: &LLMConfig) -> Result<LLMStatus
                 model: config.model.clone(),
                 available_models: vec![],
                 error: Some(format!("Connection failed: {}", e)),
+            })
+        }
+    }
+}
+
+/// Check Claude Code CLI availability - no API key required
+async fn check_claude_code_status_internal() -> Result<LLMStatus, String> {
+    use std::process::Command;
+
+    // Try to run 'claude --version' to check if CLI is installed
+    match Command::new("claude").arg("--version").output() {
+        Ok(output) => {
+            if output.status.success() {
+                Ok(LLMStatus {
+                    connected: true,
+                    provider: "Claude Code".to_string(),
+                    model: "claude-code".to_string(),
+                    available_models: vec![
+                        "claude-code".to_string(),
+                    ],
+                    error: None,
+                })
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Ok(LLMStatus {
+                    connected: false,
+                    provider: "Claude Code".to_string(),
+                    model: "claude-code".to_string(),
+                    available_models: vec![],
+                    error: Some(format!("Claude CLI error: {}", stderr)),
+                })
+            }
+        }
+        Err(_) => {
+            Ok(LLMStatus {
+                connected: false,
+                provider: "Claude Code".to_string(),
+                model: "claude-code".to_string(),
+                available_models: vec![],
+                error: Some("Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code".to_string()),
             })
         }
     }
