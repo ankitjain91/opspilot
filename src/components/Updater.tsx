@@ -44,6 +44,7 @@ export function Updater({ onStateChange }: UpdaterProps) {
     const [showToast, setShowToast] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [updateInfo, setUpdateInfo] = useState<{ version: string; body: string } | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string>('');
 
     // Sync global state
     useEffect(() => {
@@ -74,6 +75,7 @@ export function Updater({ onStateChange }: UpdaterProps) {
     const checkUpdate = useCallback(async (isManual = false) => {
         console.log('[Updater] Starting update check, manual:', isManual);
         setState('checking');
+        setErrorMessage(''); // Clear previous error message
         if (isManual) setShowToast(true);
 
         try {
@@ -100,8 +102,12 @@ export function Updater({ onStateChange }: UpdaterProps) {
                     setShowToast(false);
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('[Updater] Failed to check for updates:', error);
+            // Store the actual error message
+            const msg = error?.message || error?.toString() || 'Unknown error';
+            setErrorMessage(msg);
+
             pendingUpdate = null;
             if (isManual) {
                 setState('error');
