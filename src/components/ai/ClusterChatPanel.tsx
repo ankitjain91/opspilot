@@ -763,6 +763,67 @@ export function ClusterChatPanel({
                                     setChatHistory(prev => [...prev, { role: 'assistant', content: `Extended mode: prioritizing ${Array.isArray(maybe.preferred_checks) ? maybe.preferred_checks.join(', ') : 'broader coverage'}${maybe.prefer_mcp_tools ? ' + MCP tools' : ''}` }]);
                                     return;
                                 }
+                                case 'command_selected': {
+                                    // Command is about to be executed - add to history as "running"
+                                    const cmd = maybe.command || '';
+                                    if (cmd) {
+                                        const cmdExecution: CommandExecution = {
+                                            command: cmd,
+                                            status: 'running',
+                                            output: '',
+                                            summary: 'Executing...',
+                                            timestamp: Date.now()
+                                        };
+                                        commandHistoryRef.current.push(cmdExecution);
+                                        setStreamingPhase(prev => prev ? {
+                                            ...prev,
+                                            phase: 'executing',
+                                            message: 'Running kubectl commands...',
+                                            currentStep: cmd,
+                                            commandHistory: [...commandHistoryRef.current]
+                                        } : null);
+                                    }
+                                    return;
+                                }
+                                case 'command_output': {
+                                    // Command execution completed - update existing or add new
+                                    const cmd = maybe.command || '';
+                                    const output = maybe.output || '';
+
+                                    // Find matching running command and update it
+                                    const existingIdx = commandHistoryRef.current.findIndex(
+                                        c => c.command === cmd && c.status === 'running'
+                                    );
+
+                                    if (existingIdx !== -1) {
+                                        // Update existing running command
+                                        commandHistoryRef.current[existingIdx] = {
+                                            ...commandHistoryRef.current[existingIdx],
+                                            status: 'success',
+                                            output: output,
+                                            summary: generateCommandSummary(cmd, output)
+                                        };
+                                    } else {
+                                        // Add as new completed command (we may have missed the command_selected event)
+                                        const cmdExecution: CommandExecution = {
+                                            command: cmd,
+                                            status: 'success',
+                                            output: output,
+                                            summary: generateCommandSummary(cmd, output),
+                                            timestamp: Date.now()
+                                        };
+                                        commandHistoryRef.current.push(cmdExecution);
+                                    }
+
+                                    setStreamingPhase(prev => prev ? {
+                                        ...prev,
+                                        phase: 'executing',
+                                        message: 'Running kubectl commands...',
+                                        currentStep: cmd,
+                                        commandHistory: [...commandHistoryRef.current]
+                                    } : null);
+                                    return;
+                                }
                                 default: {
                                     // fall through to normal handling
                                 }
