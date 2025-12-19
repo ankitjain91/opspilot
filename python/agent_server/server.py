@@ -1762,14 +1762,17 @@ Repos to search: {repos_str}
             # backend is already instantiated above
 
             # Build MCP config for GitHub if configured
+            # Format must be: {"mcpServers": {"name": {...}}}
             mcp_config = None
             if opspilot_config.get("github_pat"):
                 mcp_config = {
-                    "github": {
-                        "command": "npx",
-                        "args": ["-y", "@modelcontextprotocol/server-github"],
-                        "env": {
-                            "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
+                    "mcpServers": {
+                        "github": {
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-github"],
+                            "env": {
+                                "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
+                            }
                         }
                     }
                 }
