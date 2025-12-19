@@ -266,7 +266,8 @@ Example for respond:
         temperature: float = 0.2,
         kube_context: str = None,
         session_id: str = None,
-        conversation_history: List[Dict[str, str]] = None
+        conversation_history: List[Dict[str, str]] = None,
+        mcp_config: dict = None  # MCP server config to pass to Claude CLI
     ) -> AsyncIterator[dict]:
         """
         Stream responses from Claude Code CLI with native tool execution.
@@ -304,6 +305,12 @@ Example for respond:
             "--disallowedTools", "Write",
             "--disallowedTools", "NotebookEdit",
         ]
+
+        # Add MCP server config if provided
+        if mcp_config:
+            mcp_json = json.dumps(mcp_config)
+            cmd.extend(["--mcp-config", mcp_json])
+            print(f"[claude-code-streaming] 🔌 MCP config added: {list(mcp_config.keys())}", flush=True)
 
         # Continue session if session_id provided
         if session_id and self.session_id:

@@ -1729,20 +1729,26 @@ async def analyze_direct(request: DirectAgentRequest):
                 github_context = f"""
 ## GitHub Code Access (via MCP)
 
-You have access to the user's GitHub repositories. When investigating K8s issues,
+You have access to the user's GitHub repositories via MCP tools. When investigating K8s issues,
 you can search for related source code to find bugs, check recent changes, and
 correlate errors with application code.
 
-Available MCP tools:
-- `github__search_code` - Find code patterns (errors, exceptions, config keys)
-- `github__get_file_contents` - Read specific source files
-- `github__list_commits` - Check recent changes that might have caused issues
-- `github__search_issues` - Find related bug reports or discussions
+**IMPORTANT: You MUST use these MCP tools for GitHub operations. DO NOT use Bash/curl for GitHub API calls.**
 
-Default repos to search: {repos_str}
+Available MCP tools (use these exact names):
+- `mcp__github__search_code` - Search for code patterns across repos (errors, exceptions, config keys)
+- `mcp__github__get_file_contents` - Read specific source files (owner, repo, path required)
+- `mcp__github__list_commits` - Check recent changes that might have caused issues
+- `mcp__github__search_issues` - Find related bug reports or discussions
+- `mcp__github__search_repositories` - Find repositories by name/topic
 
-Use these tools when errors point to application issues (NPE, config errors, etc).
-Start with targeted searches, then read specific files as needed.
+Repos to search: {repos_str}
+
+**When to use GitHub tools:**
+- Error messages mention class/function names → search_code for that pattern
+- Need to understand CRD/operator logic → get_file_contents for controller code
+- Suspect recent changes caused issue → list_commits to find changes
+- Looking for known issues → search_issues for similar problems
 
 ---
 
@@ -1755,6 +1761,19 @@ Start with targeted searches, then read specific files as needed.
             # 3. Call Backend (Claude Code or Codex) with streaming
             # backend is already instantiated above
 
+            # Build MCP config for GitHub if configured
+            mcp_config = None
+            if opspilot_config.get("github_pat"):
+                mcp_config = {
+                    "github": {
+                        "command": "npx",
+                        "args": ["-y", "@modelcontextprotocol/server-github"],
+                        "env": {
+                            "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
+                        }
+                    }
+                }
+
             final_answer = ""
             command_history = []
             pending_command = None  # Track command from tool_use to pair with tool_result
@@ -1765,7 +1784,8 @@ Start with targeted searches, then read specific files as needed.
                 kube_context=request.kube_context,
                 temperature=0.2,
                 session_id=request.thread_id,
-                conversation_history=conversation_history
+                conversation_history=conversation_history,
+                mcp_config=mcp_config
             ):
                 event_type = event.get('type')
 
