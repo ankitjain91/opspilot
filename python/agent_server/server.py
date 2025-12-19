@@ -674,8 +674,10 @@ def write_mcp_config(github_pat: str | None):
 
     if github_pat:
         # Add GitHub MCP server
+        # Use npx.cmd on Windows, npx elsewhere
+        npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
         config["mcpServers"]["github"] = {
-            "command": "npx",
+            "command": npx_cmd,
             "args": ["-y", "@modelcontextprotocol/server-github"],
             "env": {
                 "GITHUB_PERSONAL_ACCESS_TOKEN": github_pat
@@ -1763,12 +1765,14 @@ Repos to search: {repos_str}
 
             # Build MCP config for GitHub if configured
             # Format must be: {"mcpServers": {"name": {...}}}
+            # Use npx.cmd on Windows, npx elsewhere
             mcp_config = None
             if opspilot_config.get("github_pat"):
+                npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
                 mcp_config = {
                     "mcpServers": {
                         "github": {
-                            "command": "npx",
+                            "command": npx_cmd,
                             "args": ["-y", "@modelcontextprotocol/server-github"],
                             "env": {
                                 "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
