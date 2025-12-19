@@ -485,9 +485,7 @@ export function LLMSettingsPanel({
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2.5 rounded-full hover:bg-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110">
-                        <X size={20} />
                     </button>
-                </div>
                 </div>
             </div>
 
@@ -511,7 +509,7 @@ export function LLMSettingsPanel({
 
                     {showAgentSettings && (
                         <div className="mt-5 space-y-4 relative z-10 animate-in fade-in slide-in-from-top-2 duration-200">
-                             <div>
+                            <div>
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Agent Server URL</label>
                                 <input
                                     type="text"
@@ -849,12 +847,12 @@ export function LLMSettingsPanel({
                 </div>
             </div >
 
-            {/* Footer Actions */ }
-    <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-3xl">
-        <button onClick={handleSave} className="w-full py-3 bg-white text-black text-xs font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2">
-            Save Configuration <ArrowRight size={16} />
-        </button>
-    </div>
+            {/* Footer Actions */}
+            <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-3xl">
+                <button onClick={handleSave} className="w-full py-3 bg-white text-black text-xs font-bold rounded-xl hover:bg-zinc-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2">
+                    Save Configuration <ArrowRight size={16} />
+                </button>
+            </div>
         </div >
     );
 }
