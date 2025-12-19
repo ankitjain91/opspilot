@@ -49,7 +49,9 @@ agent = create_k8s_agent(checkpointer=checkpointer)
 #   last_updated: timestamp,
 #   conversation_turns: int
 # }
+import threading
 session_store = {}
+session_lock = threading.Lock()  # Thread-safe access to session_store
 
 # Session configuration
 SESSION_MAX_HISTORY = 20  # Keep last N command history entries (recency window)
@@ -66,75 +68,75 @@ def get_session_state(thread_id: str) -> dict | None:
     Retrieve session state for a thread_id.
     Returns None if session doesn't exist or has expired.
     Applies recency windowing to command_history.
+    Thread-safe: uses session_lock.
     """
     import time
-    from datetime import datetime, timedelta
 
-    if thread_id not in session_store:
-        return None
+    with session_lock:
+        if thread_id not in session_store:
+            return None
 
-    session = session_store[thread_id]
-    last_updated = session.get('last_updated', 0)
+        session = session_store[thread_id]
+        last_updated = session.get('last_updated', 0)
 
-    # Check if session has expired
-    age_minutes = (time.time() - last_updated) / 60
-    if age_minutes > SESSION_MAX_AGE_MINUTES:
-        # Session expired, starting fresh
-        del session_store[thread_id]
-        return None
+        # Check if session has expired
+        age_minutes = (time.time() - last_updated) / 60
+        if age_minutes > SESSION_MAX_AGE_MINUTES:
+            # Session expired, starting fresh
+            del session_store[thread_id]
+            return None
 
-    # Apply recency window to command_history
-    command_history = session.get('command_history', [])
-    if len(command_history) > SESSION_MAX_HISTORY:
-        # Keep only the most recent entries
-        command_history = command_history[-SESSION_MAX_HISTORY:]
-        # Applied recency window to command history
+        # Apply recency window to command_history
+        command_history = session.get('command_history', [])
+        if len(command_history) > SESSION_MAX_HISTORY:
+            # Keep only the most recent entries
+            command_history = command_history[-SESSION_MAX_HISTORY:]
 
-    # LLM-DRIVEN FIX: accumulated_evidence is query-specific
-    # Return it but let the caller decide whether to use it based on query matching
-    return {
-        'command_history': command_history,
-        'conversation_history': session.get('conversation_history', []),
-        'discovered_resources': session.get('discovered_resources'),
-        'accumulated_evidence': session.get('accumulated_evidence', []),
-        'last_query': session.get('last_query', ''),
-        'conversation_turns': session.get('conversation_turns', 0)
-    }
+        # Return a copy to avoid external mutation
+        return {
+            'command_history': list(command_history),
+            'conversation_history': list(session.get('conversation_history', [])),
+            'discovered_resources': session.get('discovered_resources'),
+            'accumulated_evidence': list(session.get('accumulated_evidence', [])),
+            'last_query': session.get('last_query', ''),
+            'conversation_turns': session.get('conversation_turns', 0)
+        }
 
 def update_session_state(thread_id: str, state: dict):
     """
     Update session state after a query completes.
     Stores command_history, discovered_resources, accumulated_evidence.
+    Thread-safe: uses session_lock.
     """
     import time
 
-    # Get current turn count
-    existing = session_store.get(thread_id, {})
-    turns = existing.get('conversation_turns', 0) + 1
+    with session_lock:
+        # Get current turn count
+        existing = session_store.get(thread_id, {})
+        turns = existing.get('conversation_turns', 0) + 1
 
-    # Warn if approaching max turns
-    if turns >= SESSION_MAX_TURNS:
-        print(f"[Session] ⚠️ Thread {thread_id} has {turns} turns. Consider resetting for optimal performance.", flush=True)
+        # Warn if approaching max turns
+        if turns >= SESSION_MAX_TURNS:
+            print(f"[Session] ⚠️ Thread {thread_id} has {turns} turns. Consider resetting for optimal performance.", flush=True)
 
-    # LLM-DRIVEN FIX: Persist accumulated_evidence for query retries
-    # It will be cleared when a new different query starts
-    session_store[thread_id] = {
-        'command_history': state.get('command_history', []),
-        'conversation_history': state.get('conversation_history', []),
-        'discovered_resources': state.get('discovered_resources'),
-        'accumulated_evidence': state.get('accumulated_evidence', []),
-        'last_query': state.get('query', ''),
-        'last_updated': time.time(),
-        'conversation_turns': turns
-    }
-
-    # Session updated silently (verbose logging disabled)
+        # LLM-DRIVEN FIX: Persist accumulated_evidence for query retries
+        # It will be cleared when a new different query starts
+        session_store[thread_id] = {
+            'command_history': list(state.get('command_history', [])),
+            'conversation_history': list(state.get('conversation_history', [])),
+            'discovered_resources': state.get('discovered_resources'),
+            'accumulated_evidence': list(state.get('accumulated_evidence', [])),
+            'last_query': state.get('query', ''),
+            'last_updated': time.time(),
+            'conversation_turns': turns
+        }
 
 def clear_session(thread_id: str):
-    """Clear session state for a thread_id."""
-    if thread_id in session_store:
-        del session_store[thread_id]
-        print(f"[Session] Cleared thread {thread_id}", flush=True)
+    """Clear session state for a thread_id. Thread-safe: uses session_lock."""
+    with session_lock:
+        if thread_id in session_store:
+            del session_store[thread_id]
+            print(f"[Session] Cleared thread {thread_id}", flush=True)
 
 # --- Helpers for phase tracking, hypothesis visibility, coverage checks ---
 def compute_coverage_snapshot(state: dict) -> dict:
@@ -730,9 +732,29 @@ async def set_github_config(request: GitHubConfigRequest):
     save_opspilot_config(config)
 
     # Write MCP config for Claude Code
-    write_mcp_config(config.get("github_pat"))
+    # write_mcp_config(config.get("github_pat")) # DISABLED in favor of local search
 
     return {"status": "ok", "configured": bool(config.get("github_pat"))}
+
+
+class LocalReposConfigRequest(BaseModel):
+    local_repos: list[str]
+
+
+@app.get("/local-repos-config")
+async def get_local_repos_config():
+    """Get configured local repositories."""
+    config = load_opspilot_config()
+    return {"local_repos": config.get("local_repos", [])}
+
+
+@app.post("/local-repos-config")
+async def set_local_repos_config(request: LocalReposConfigRequest):
+    """Set configured local repositories."""
+    config = load_opspilot_config()
+    config["local_repos"] = request.local_repos
+    save_opspilot_config(config)
+    return {"status": "ok", "local_repos": request.local_repos}
 
 
 @app.post("/github-config/test")
@@ -1726,42 +1748,43 @@ async def analyze_direct(request: DirectAgentRequest):
 
 {user_prompt}"""
 
-            # Inject GitHub context if configured (MCP server available)
+            # Inject Local Repos context if configured
             opspilot_config = load_opspilot_config()
-            if opspilot_config.get("github_pat"):
-                github_repos = opspilot_config.get("github_repos", [])
-                repos_str = ", ".join(github_repos) if github_repos else "(all accessible repos)"
+            local_repos = opspilot_config.get("local_repos", [])
+            github_pat = opspilot_config.get("github_pat")  # Keep checking for PAT just in case we need it later
+
+            if local_repos:
+                repos_str = "\n".join([f"- `{path}`" for path in local_repos])
                 github_context = f"""
-## GitHub Code Access (via MCP)
+## Local Codebase Access
+You have access to the user's local source code repositories.
+**Configured Repositories:**
+{repos_str}
 
-You have access to the user's GitHub repositories via MCP tools. When investigating K8s issues,
-you can search for related source code to find bugs, check recent changes, and
-correlate errors with application code.
+**Tools to use:**
+- `fs_grep`: To search for patterns (e.g., error messages, variable names).
+- `fs_read_file`: To read file contents.
+- `fs_list_dir`: To list files in a directory.
+- `run_command`: For advanced `find` or `grep` combinations if `fs_grep` is insufficient.
 
-**IMPORTANT: You MUST use these MCP tools for GitHub operations. DO NOT use Bash/curl for GitHub API calls.**
+**CODE INVESTIGATION PROTOCOL (LOCAL):**
+1. **STACK TRACE FIRST**: If you see a file path in a stack trace that matches one of the local repos (or looks relative to them), IMMEDIATELY read that file using `fs_read_file`.
+   - e.g. `at com.app.Main.java:42` -> Find `Main.java` in the local repos.
+   - You may need to use `run_command` with `find <repo> -name Main.java` first if the full path is unknown.
 
-Available MCP tools (use these exact names):
-- `mcp__github__search_code` - Search for code patterns across repos (errors, exceptions, config keys)
-- `mcp__github__get_file_contents` - Read specific source files (owner, repo, path required)
-- `mcp__github__list_commits` - Check recent changes that might have caused issues
-- `mcp__github__search_issues` - Find related bug reports or discussions
-- `mcp__github__search_repositories` - Find repositories by name/topic
+2. **EXACT STRINGS**: Use `fs_grep` or `grep -r` to find exact error messages.
+   - e.g. `grep -r "Connection refused" /path/to/repo`
 
-Repos to search: {repos_str}
-
-**When to use GitHub tools:**
-- Error messages mention class/function names → search_code for that pattern
-- Need to understand CRD/operator logic → get_file_contents for controller code
-- Suspect recent changes caused issue → list_commits to find changes
-- Looking for known issues → search_issues for similar problems
-
----
-
+3. **IGNORE MCP**: Do NOT use `mcp__github__*` tools. Use local filesystem tools.
 """
                 user_prompt = github_context + user_prompt
-                print(f"[direct-agent] 🔗 GitHub MCP context injected (repos: {repos_str})", flush=True)
+                print(f"[direct-agent] 🔗 Local Repos context injected", flush=True)
 
-            yield f"data: {json.dumps(emit_event('status', {'message': 'Starting investigation...', 'type': 'info'}))}\n\n"
+            elif github_pat: # Fallback to GitHub MCP if no local repos but PAT exists (legacy)
+                 # ... (Existing GitHub Logic kept commented out or significantly reduced to avoid confusion)
+                 pass
+
+            yield f"data: {json.dumps(emit_event('status', {'message': 'Starting investigation...', 'type': 'info'}))}\\n\\n"
 
             # 3. Call Backend (Claude Code or Codex) with streaming
             # backend is already instantiated above

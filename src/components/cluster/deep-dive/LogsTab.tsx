@@ -768,8 +768,21 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
 
             {/* Main Content Area */}
             <div className="flex-1 overflow-hidden flex flex-col relative">
+                {/* AI Analyzing Banner */}
+                {analyzing && (
+                    <div className="m-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-center gap-3 animate-pulse">
+                        <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400">
+                            <Loader2 size={18} className="animate-spin" />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider">Claude AI Analysis</h3>
+                            <p className="text-xs text-purple-200/70 mt-0.5">Scanning logs for errors and patterns...</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* AI Summary Banner */}
-                {lastAnalysis && (
+                {lastAnalysis && !analyzing && (
                     <div className="m-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl animate-in slide-in-from-top-2 duration-300 relative group overflow-hidden shrink-0">
                         <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button

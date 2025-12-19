@@ -420,25 +420,8 @@ export function LLMSettingsPanel({
         return () => clearTimeout(saveTimeout);
     }, [githubRepos, searchAllRepos, githubConfigLoaded, githubConfigured]);
 
-    // Auto-detect coding agent provider
-    useEffect(() => {
-        // Wait for both status checks to complete (they start as null)
-        if (!claudeCodeStatus || !codexStatus) return;
+    // Auto-detect coding agent provider logic removed
 
-        // Logic: If current provider is NOT connected, but the other ONE IS, switch to it.
-        // This helps users who only have one installed.
-        if (localConfig.provider === 'claude-code') {
-            if (!claudeCodeStatus.connected && codexStatus.connected) {
-                console.log("Auto-switching to Codex CLI (Claude not found)");
-                setLocalConfig(prev => ({ ...prev, provider: 'codex-cli' }));
-            }
-        } else if (localConfig.provider === 'codex-cli') {
-            if (!codexStatus.connected && claudeCodeStatus.connected) {
-                console.log("Auto-switching to Claude Code (Codex not found)");
-                setLocalConfig(prev => ({ ...prev, provider: 'claude-code' }));
-            }
-        }
-    }, [claudeCodeStatus?.connected, codexStatus?.connected, localConfig.provider]);
 
     // RENDER HELPERS
 
@@ -614,284 +597,34 @@ export function LLMSettingsPanel({
                     </div>
                 </div>
 
-                {/* === SECTION 2: GITHUB INTEGRATION === */}
+                {/* === SECTION 2: CODE SEARCH === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
 
-                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
-                        <div className="p-1.5 bg-purple-500/20 rounded-lg text-purple-400">
-                            <Github size={18} />
+                    {/* Connection Status & Save */}
+                    <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
+                        githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
+                            'bg-zinc-500/5 border-zinc-500/20'
+                        }`}>
+                        <StatusDot ok={githubConfigured} loading={testingGithub} />
+                        <div className="flex-1">
+                            <div className={`text-xs font-bold ${testingGithub ? 'text-amber-400' :
+                                githubConfigured ? 'text-emerald-400' :
+                                    'text-zinc-500'
+                                }`}>
+                                {testingGithub ? 'Testing Connection...' :
+                                    githubConfigured ? `Connected as @${githubUser}` :
+                                        'Not Connected'}
+                            </div>
                         </div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
-                        {githubConfigured && (
-                            <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
-                                CONNECTED
-                            </span>
+                        {githubPat && githubPat !== 'replace' && (
+                            <button
+                                onClick={saveGithubConfig}
+                                className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-3 py-1.5 transition-colors font-bold"
+                            >
+                                Save Token
+                            </button>
                         )}
-                    </div>
-
-                    <div className="space-y-4 relative z-10">
-                        <p className="text-[11px] text-zinc-400">
-                            Connect GitHub to let AI search your source code when debugging K8s issues.
-                            The AI can find bugs, check recent changes, and correlate errors with code.
-                        </p>
-
-                        {/* PAT Token Input with Test Button */}
-                        <div className="relative">
-                            <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase z-20 flex items-center gap-1">
-                                {githubConfigured && !githubPat ? 'Token Saved' : 'Personal Access Token'} <ShieldCheck size={9} className="text-emerald-500" />
-                            </label>
-                            {githubConfigured && !githubPat ? (
-                                <div className="flex gap-2">
-                                    <div className="flex-1 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-xs text-emerald-300 font-mono flex items-center justify-between">
-                                        <span>••••••••••••••••••••</span>
-                                        <button
-                                            onClick={() => setGithubPat('replace')}
-                                            className="text-[10px] text-purple-400 hover:text-purple-300 underline"
-                                        >
-                                            Replace
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={() => testGithubConnection()}
-                                        disabled={testingGithub}
-                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-zinc-400 hover:text-white transition-colors disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
-                                    >
-                                        {testingGithub ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                                        Test
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="flex gap-2">
-                                    <div className="relative flex-1">
-                                        <input
-                                            type={showGithubPat ? "text" : "password"}
-                                            value={githubPat === 'replace' ? '' : githubPat}
-                                            onChange={e => setGithubPat(e.target.value)}
-                                            className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono transition-all"
-                                            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
-                                        />
-                                        <button
-                                            onClick={() => setShowGithubPat(!showGithubPat)}
-                                            className="absolute right-3 top-3 text-zinc-600 hover:text-zinc-300"
-                                        >
-                                            {showGithubPat ? <EyeOff size={14} /> : <Eye size={14} />}
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={() => testGithubConnection()}
-                                        disabled={testingGithub || (!githubPat || githubPat === 'replace')}
-                                        className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-xl text-xs text-purple-300 hover:text-white transition-colors disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
-                                    >
-                                        {testingGithub ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                                        Test
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Token Creation Guide */}
-                        <div className="text-[10px] text-zinc-500 bg-white/5 px-3 py-2.5 rounded-lg space-y-1.5">
-                            <div className="flex items-center gap-2">
-                                <ShieldCheck size={10} className="text-emerald-500 shrink-0" />
-                                <span className="font-bold text-zinc-400">Use a Fine-Grained Token (read-only)</span>
-                            </div>
-                            <div className="pl-4 space-y-1">
-                                <div>1. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">Create fine-grained token</a></div>
-                                <div>2. Set <code className="bg-white/10 px-1 rounded text-emerald-300">Contents</code> to Read-only</div>
-                                <div>3. Select repos or "All repositories"</div>
-                            </div>
-                        </div>
-
-                        {/* Improved Org/Repo Selection UI */}
-                        {githubConfigured && (
-                            <div className="space-y-4 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-500">
-                                {/* Search All Repos Toggle */}
-                                <div className="flex items-center justify-between p-3 bg-purple-500/5 border border-purple-500/20 rounded-xl">
-                                    <div className="flex-1">
-                                        <div className="text-xs font-bold text-white flex items-center gap-2">
-                                            <Search size={14} className="text-purple-400" />
-                                            Search all accessible repositories
-                                        </div>
-                                        <p className="text-[10px] text-zinc-500 mt-1">
-                                            When enabled, the AI will search across all repos your token can access.
-                                            Disable to limit scope for faster searches in large accounts.
-                                        </p>
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const newValue = !searchAllRepos;
-                                            setSearchAllRepos(newValue);
-                                            if (newValue) {
-                                                // Clear selected repos when enabling "search all"
-                                                setGithubRepos([]);
-                                            }
-                                            // Auto-save is handled by useEffect
-                                        }}
-                                        className={`relative w-11 h-6 rounded-full transition-colors ${searchAllRepos ? 'bg-purple-500' : 'bg-zinc-700'
-                                            }`}
-                                    >
-                                        <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${searchAllRepos ? 'translate-x-5' : 'translate-x-0'
-                                            }`} />
-                                    </button>
-                                </div>
-
-                                {/* Group Selection - Only show when NOT searching all repos */}
-                                {!searchAllRepos && (
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
-                                        Organization / User
-                                        {loadingGroups && <Loader2 size={10} className="animate-spin text-purple-400" />}
-                                    </label>
-                                    <div className="grid grid-cols-1 gap-2">
-                                        <select
-                                            value={selectedGroup}
-                                            onChange={(e) => setSelectedGroup(e.target.value)}
-                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-purple-500/50 appearance-none transition-all cursor-pointer"
-                                        >
-                                            <option value="" disabled>Select an account or organization</option>
-                                            {githubGroups.map(group => (
-                                                <option key={group.id} value={group.id}>
-                                                    {group.name} {group.type === 'org' ? '(Org)' : '(Personal)'}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                                )}
-
-                                {/* Repo Selection - Only show when NOT searching all repos */}
-                                {!searchAllRepos && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
-                                            Repositories to Search
-                                            {loadingRepos && <Loader2 size={10} className="animate-spin text-purple-400" />}
-                                        </label>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    const newRepos = [...new Set([...githubRepos, ...availableRepos])];
-                                                    setGithubRepos(newRepos);
-                                                }}
-                                                className="text-[9px] text-purple-400 hover:text-purple-300 font-bold uppercase tracking-tighter"
-                                            >
-                                                Add All
-                                            </button>
-                                            <button
-                                                onClick={() => setGithubRepos([])}
-                                                className="text-[9px] text-zinc-500 hover:text-zinc-400 font-bold uppercase tracking-tighter"
-                                            >
-                                                Clear
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Selected Repos Tags */}
-                                    {githubRepos.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 mb-2">
-                                            {githubRepos.map(repo => (
-                                                <div key={repo} className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg px-2 py-1 text-[10px] text-purple-300 group/tag">
-                                                    <span className="max-w-[120px] truncate">{repo.split('/')[1] || repo}</span>
-                                                    <button
-                                                        onClick={() => setGithubRepos(githubRepos.filter(r => r !== repo))}
-                                                        className="text-purple-500 hover:text-purple-300 transition-colors"
-                                                    >
-                                                        <X size={10} />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Repo Search/List */}
-                                    <div className="relative mb-2">
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
-                                            <Search size={12} />
-                                        </div>
-                                        <input
-                                            type="text"
-                                            placeholder="Search repositories..."
-                                            value={repoSearch}
-                                            onChange={(e) => setRepoSearch(e.target.value)}
-                                            className="w-full bg-black/40 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 transition-all"
-                                        />
-                                        {repoSearch && (
-                                            <button
-                                                onClick={() => setRepoSearch('')}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <div className="relative max-h-48 overflow-y-auto custom-scrollbar bg-black/40 border border-white/10 rounded-xl p-1.5 space-y-1">
-                                        {filteredRepos.length === 0 && !loadingRepos ? (
-                                            <div className="py-8 text-center text-zinc-600 text-[10px]">
-                                                {repoSearch ? 'No repositories match your search.' : 'No repositories found for this account.'}
-                                            </div>
-                                        ) : (
-                                            filteredRepos.map(repo => {
-                                                const isSelected = githubRepos.includes(repo);
-                                                return (
-                                                    <button
-                                                        key={repo}
-                                                        onClick={() => {
-                                                            if (isSelected) {
-                                                                setGithubRepos(githubRepos.filter(r => r !== repo));
-                                                            } else {
-                                                                setGithubRepos([...githubRepos, repo]);
-                                                            }
-                                                        }}
-                                                        className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left transition-all ${isSelected
-                                                            ? 'bg-purple-500/20 text-purple-200'
-                                                            : 'hover:bg-white/5 text-zinc-400 hover:text-zinc-200'
-                                                            }`}
-                                                    >
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-purple-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'bg-transparent'}`} />
-                                                            <span className="text-[11px] truncate font-medium">{repo}</span>
-                                                        </div>
-                                                        {isSelected && <Check size={12} className="text-purple-400 shrink-0" />}
-                                                    </button>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                    <p className="text-[9px] text-zinc-500 italic mt-1 px-1">
-                                        Select specific repositories to limit search scope and improve speed.
-                                    </p>
-                                </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Connection Status & Save */}
-                        <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
-                            githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
-                                'bg-zinc-500/5 border-zinc-500/20'
-                            }`}>
-                            <StatusDot ok={githubConfigured} loading={testingGithub} />
-                            <div className="flex-1">
-                                <div className={`text-xs font-bold ${testingGithub ? 'text-amber-400' :
-                                    githubConfigured ? 'text-emerald-400' :
-                                        'text-zinc-500'
-                                    }`}>
-                                    {testingGithub ? 'Testing Connection...' :
-                                        githubConfigured ? `Connected as @${githubUser}` :
-                                            'Not Connected'}
-                                </div>
-                            </div>
-                            {githubPat && githubPat !== 'replace' && (
-                                <button
-                                    onClick={saveGithubConfig}
-                                    className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-3 py-1.5 transition-colors font-bold"
-                                >
-                                    Save Token
-                                </button>
-                            )}
-                        </div>
                     </div>
                 </div>
 
@@ -1056,7 +789,7 @@ export function LLMSettingsPanel({
                         )}
                     </div>
                 </div>
-            </div>
+            </div >
 
             {/* Footer Actions */}
             <div className="p-6 border-t border-white/5 bg-black/20 backdrop-blur-3xl">
@@ -1064,6 +797,6 @@ export function LLMSettingsPanel({
                     Save Configuration <ArrowRight size={16} />
                 </button>
             </div>
-        </div>
+        </div >
     );
 }

@@ -55,20 +55,21 @@ export function useSingleResourceWatch(
             const watchEvent = event.payload;
             console.log('[useSingleResourceWatch] Received event:', watchEvent.event_type, 'for', watchEvent.resource?.name);
 
+            // Verify the update is for our resource (name must match)
+            if (watchEvent.resource?.name !== target.name) {
+                console.warn('[useSingleResourceWatch] Name mismatch in watch event, ignoring:', watchEvent.resource?.name, 'vs', target.name);
+                return;
+            }
+
             if (watchEvent.event_type === "DELETED") {
-                // Resource was deleted, invalidate cache to trigger refetch (which will fail and show error)
-                console.log('[useSingleResourceWatch] Resource deleted, invalidating cache');
-                qc.invalidateQueries({ queryKey });
+                // Resource was deleted - set cache to null to indicate deletion
+                // Don't invalidate as that triggers a refetch which causes flicker
+                console.log('[useSingleResourceWatch] Resource deleted, marking cache as deleted');
+                qc.setQueryData(queryKey, null);
                 return;
             }
 
             if ((watchEvent.event_type === "MODIFIED" || watchEvent.event_type === "ADDED")) {
-                // Verify the update is for our resource (name must match)
-                if (watchEvent.resource?.name !== target.name) {
-                    console.warn('[useSingleResourceWatch] Name mismatch in watch event, ignoring:', watchEvent.resource?.name, 'vs', target.name);
-                    return;
-                }
-
                 // Only update if we have raw_json data
                 if (!watchEvent.resource.raw_json) {
                     console.warn('[useSingleResourceWatch] No raw_json in event, skipping update');
@@ -76,8 +77,16 @@ export function useSingleResourceWatch(
                 }
 
                 // Update the details cache with the new full JSON
+                // Use functional update to preserve existing data if new data is incomplete
                 console.log('[useSingleResourceWatch] Updating cache with new data, length:', watchEvent.resource.raw_json.length);
-                qc.setQueryData(queryKey, watchEvent.resource.raw_json);
+                qc.setQueryData(queryKey, (oldData: string | undefined) => {
+                    // Only update if new data is valid (not empty)
+                    if (watchEvent.resource.raw_json && watchEvent.resource.raw_json.length > 2) {
+                        return watchEvent.resource.raw_json;
+                    }
+                    console.warn('[useSingleResourceWatch] New data seems empty, keeping old data');
+                    return oldData;
+                });
             }
         });
 

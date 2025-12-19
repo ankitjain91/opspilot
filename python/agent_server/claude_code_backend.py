@@ -352,19 +352,20 @@ Example for respond:
         print(f"[claude-code-streaming] 🚀 Starting agentic call with native tools", flush=True)
         print(f"[claude-code-streaming] 📝 Prompt: {prompt[:200]}...", flush=True)
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            stdin=asyncio.subprocess.DEVNULL,
-            cwd=self.working_dir,
-            env=env
-        )
-
-        final_text = ""
-        current_tool = None
-
+        process = None
         try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
+                cwd=self.working_dir,
+                env=env
+            )
+
+            final_text = ""
+            current_tool = None
+
             async for line in process.stdout:
                 line_str = line.decode('utf-8', errors='replace').strip()
                 if not line_str:
@@ -451,11 +452,25 @@ Example for respond:
                     yield {'type': 'error', 'message': stderr_text}
 
         except asyncio.CancelledError:
-            process.kill()
+            if process:
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
             raise
         except Exception as e:
             print(f"[claude-code-streaming] ❌ Error: {e}", flush=True)
             yield {'type': 'error', 'message': str(e)}
+        finally:
+            # Ensure process is cleaned up
+            if process and process.returncode is None:
+                try:
+                    process.kill()
+                    await process.wait()
+                    print(f"[claude-code-streaming] 🧹 Cleaned up subprocess", flush=True)
+                except Exception:
+                    pass
 
     def _parse_stream_json_output(self, output: str) -> ClaudeCodeResponse:
         """

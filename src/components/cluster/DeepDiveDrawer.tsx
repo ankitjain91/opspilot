@@ -174,19 +174,19 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
         hasFullObject: !!fullObject
     });
 
-    // Live Watch - temporarily disabled to debug data disappearing issue
-    // TODO: Re-enable once the cache invalidation issue is resolved
-    // useSingleResourceWatch(
-    //     resource ? {
-    //         group: resource.group,
-    //         version: resource.version,
-    //         kind: resource.kind,
-    //         namespace: resource.namespace !== "-" ? resource.namespace : null,
-    //         name: resource.name
-    //     } : null,
-    //     currentContext,
-    //     !!resource // enabled
-    // );
+    // Live Watch - re-enabled with improved cache handling
+    // The hook now uses functional updates and prevents empty data from overwriting valid data
+    useSingleResourceWatch(
+        resource ? {
+            group: resource.group,
+            version: resource.version,
+            kind: resource.kind,
+            namespace: resource.namespace !== "-" ? resource.namespace : null,
+            name: resource.name
+        } : null,
+        currentContext,
+        !!resource // enabled
+    );
 
     const handleDelete = () => {
         setShowDeleteModal(true);

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -17,6 +17,7 @@ import { fixMarkdownHeaders } from '../../utils/markdown';
 import { stripAnsi } from '../../utils/ansi';
 import { loadLLMConfig } from './utils';
 import { LLMSettingsPanel } from './LLMSettingsPanel';
+import { SearchCodeDialog } from './SearchCodeDialog';
 import {
     executeTool, VALID_TOOLS, registerMcpTools, isValidTool, listRegisteredMcpTools
 } from './tools';
@@ -256,6 +257,12 @@ export function ClusterChatPanel({
     // Welcome joke fetched from LLM
     const [welcomeJoke, setWelcomeJoke] = useState<string | null>(null);
     const [loadingWelcomeJoke, setLoadingWelcomeJoke] = useState(false);
+    const [searchingGitHub, setSearchingGitHub] = useState<string | null>(null);
+    const [searchDialogState, setSearchDialogState] = useState<{ isOpen: boolean; query: string; groupIdx: number | null }>({
+        isOpen: false,
+        query: "",
+        groupIdx: null
+    });
 
     // Hardware Specs
     const [systemSpecs, setSystemSpecs] = useState<{ cpu_brand: string; total_memory: number; is_apple_silicon: boolean; } | null>(null);
@@ -284,7 +291,7 @@ export function ClusterChatPanel({
 
     // GitHub integration state
     const [githubConfigured, setGithubConfigured] = useState<boolean>(false);
-    const [searchingGitHub, setSearchingGitHub] = useState<string | null>(null); // group ID being searched
+
 
     // Helper to generate human-readable command summaries
     const generateCommandSummary = (command: string, output: string): string => {
@@ -474,15 +481,10 @@ export function ClusterChatPanel({
     }, [llmConfig, loadingWelcomeJoke, threadId]);
 
     // Search GitHub for code related to the issue
-    const searchGitHub = useCallback(async (userQuery: string, answerContent: string, groupIdx: number) => {
-        if (searchingGitHub) return;
-
-        setSearchingGitHub(`group-${groupIdx}`);
-
-        // Extract key terms from the answer for a focused search
+    const initSearchGitHub = useCallback((userQuery: string, answerContent: string, groupIdx: number) => {
+        // Extract key terms for initial suggestion
         const extractKeyTerms = (text: string): string[] => {
             const terms: string[] = [];
-            // Look for error names, pod names, service names, exceptions
             const patterns = [
                 /(?:error|exception|failed|crash)[\w\s]*?[:]\s*([^\n.]+)/gi,
                 /pod[s]?\s+([a-z0-9-]+)/gi,
@@ -499,27 +501,37 @@ export function ClusterChatPanel({
                     else if (match[0]) terms.push(match[0].trim());
                 }
             }
-            return [...new Set(terms)].slice(0, 5); // Dedupe and limit
+            return [...new Set(terms)].slice(0, 5);
         };
 
         const keyTerms = extractKeyTerms(answerContent);
-        const searchContext = keyTerms.length > 0
-            ? `Based on this K8s issue investigation, search GitHub for code that might be related:\n\nKey findings: ${keyTerms.join(', ')}\n\nOriginal question: ${userQuery.slice(0, 200)}`
-            : `Search GitHub for code related to: ${userQuery.slice(0, 300)}`;
+        const initialQuery = keyTerms.length > 0
+            ? `${keyTerms.join(', ')}`
+            : userQuery.slice(0, 100);
 
+        setSearchDialogState({
+            isOpen: true,
+            query: initialQuery,
+            groupIdx
+        });
+    }, []);
 
-        // UX: Show a clean message in the UI, but send detailed instructions to the agent
-        const displayMessage = keyTerms.length > 0
-            ? `Search GitHub for code related to: ${keyTerms.join(', ')}`
-            : "Search GitHub for related code";
+    const executeSearchGitHub = useCallback(async (query: string) => {
+        const { groupIdx } = searchDialogState;
+        setSearchDialogState(prev => ({ ...prev, isOpen: false }));
 
-        const hiddenInstructions = `${searchContext}\n\nUse the GitHub MCP tools to search for relevant source code, recent commits, or issues that might explain this problem.`;
+        if (groupIdx === null || searchingGitHub) return;
 
-        setSearchingGitHub(null);
+        setSearchingGitHub(`group-${groupIdx}`);
+
+        const displayMessage = `Searching GitHub for: ${query}`;
+        const hiddenInstructions = `Search GitHub for code related to: ${query}\n\nUse the GitHub MCP tools to find relevant source code, recent commits, or issues.`;
 
         // Trigger analysis with clean UI message + hidden instructions
-        sendMessageRef.current(displayMessage, hiddenInstructions);
-    }, [searchingGitHub]);
+        await sendMessageRef.current(displayMessage, hiddenInstructions);
+
+        setSearchingGitHub(null);
+    }, [searchDialogState, searchingGitHub]);
 
     // ... (scrollToBottom, etc.) ...
 
@@ -1831,33 +1843,32 @@ export function ClusterChatPanel({
                 return (
                     <div className="px-4 py-2 bg-[#16161a] border-t border-white/5 flex items-center justify-center gap-2">
                         <button
-                            onClick={() => githubConfigured
-                                ? searchGitHub(lastInteraction.user?.content || '', lastInteraction.answer?.content || '', groupedHistory.indexOf(lastInteraction))
-                                : setShowSettings(true)
-                            }
+                            onClick={() => initSearchGitHub(lastInteraction.user?.content || '', lastInteraction.answer?.content || '', groupedHistory.indexOf(lastInteraction))}
                             disabled={searchingGitHub !== null}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-full transition-all disabled:opacity-50 ${githubConfigured
-                                ? 'text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/50'
-                                : 'text-zinc-400 hover:text-zinc-300 bg-white/5 hover:bg-white/10 border border-dashed border-zinc-600 hover:border-zinc-500'
-                                }`}
-                            title={githubConfigured ? "Search GitHub for code related to this issue" : "Connect GitHub to search your code"}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-full transition-all disabled:opacity-50 text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/50`}
+                            title="Search local code repositories for context"
                         >
                             {searchingGitHub !== null ? (
                                 <Loader2 size={12} className="animate-spin" />
                             ) : (
-                                <Github size={12} />
+                                <Search size={12} />
                             )}
                             <span>
-                                {searchingGitHub !== null
-                                    ? 'Searching GitHub...'
-                                    : githubConfigured
-                                        ? 'Search Code'
-                                        : 'Connect GitHub'}
+                                {searchingGitHub !== null ? 'Searching Code...' : 'Search Code...'}
                             </span>
                         </button>
                     </div>
                 );
             })()}
+
+            {/* Search Dialog */}
+            {/* Search Dialog */}
+            <SearchCodeDialog
+                isOpen={searchDialogState.isOpen}
+                onClose={() => setSearchDialogState(prev => ({ ...prev, isOpen: false }))}
+                onSearch={executeSearchGitHub}
+                initialQuery={searchDialogState.query}
+            />
 
             {/* Input */}
             <div className="relative z-20 p-4 bg-[#16161a] border-t border-white/5">
