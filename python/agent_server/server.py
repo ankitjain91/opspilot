@@ -1,5 +1,21 @@
 
 import os
+import sys
+
+# MACOS RELEASE FIX: Prepend common paths to ensure subprocesses (kubectl) works in bundled app
+if sys.platform == 'darwin':
+    paths = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ]
+    current_path = os.environ.get("PATH", "")
+    new_path = ":".join(paths) + ":" + current_path
+    os.environ["PATH"] = new_path
+    print(f"[config] Updated PATH for macOS: {new_path[:50]}...", flush=True)
 import json
 import httpx
 import asyncio
@@ -278,22 +294,63 @@ class GlobalBroadcaster:
 broadcaster = GlobalBroadcaster()
 
 
+# --- Background preloading ---
+_preload_tasks: dict[str, asyncio.Task] = {}  # context -> task
+_preload_status: dict[str, str] = {}  # context -> status ("loading", "ready", "error")
+
+
+async def _background_preload_kb(kube_context: str):
+    """Background task to preload KB for a context."""
+    global _preload_status
+    try:
+        _preload_status[kube_context] = "loading"
+        print(f"[KB] 🔄 Background preloading KB for context '{kube_context}'...", flush=True)
+
+        from .tools import ingest_cluster_knowledge
+
+        # Create minimal state for ingestion
+        state = {"kube_context": kube_context}
+        await ingest_cluster_knowledge(state, force_refresh=False)
+
+        _preload_status[kube_context] = "ready"
+        print(f"[KB] ✅ Background preload complete for context '{kube_context}'", flush=True)
+    except Exception as e:
+        _preload_status[kube_context] = f"error: {e}"
+        print(f"[KB] ❌ Background preload failed for '{kube_context}': {e}", flush=True)
+
+
+def trigger_background_preload(kube_context: str) -> bool:
+    """Trigger background KB preload for a context. Returns True if started."""
+    global _preload_tasks
+
+    # Already loading or done?
+    if kube_context in _preload_tasks:
+        task = _preload_tasks[kube_context]
+        if not task.done():
+            return False  # Already loading
+
+    # Start new preload task
+    task = asyncio.create_task(_background_preload_kb(kube_context))
+    _preload_tasks[kube_context] = task
+    return True
+
+
 # --- startup ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     print("K8s Agent Server starting...")
 
-    # Initialize Sentinel with broadcaster (DISABLED for testing - Azure auth expired)
+    # Initialize Sentinel with broadcaster for K8s event monitoring
     global global_sentinel
-    global_sentinel = None  # SentinelLoop(kube_context=None, broadcaster=broadcaster)
-
-    sentinel_task = None  # asyncio.create_task(global_sentinel.start())
-
-    # TODO: Background task for multi-context CRD pre-warming
-    # Currently disabled - CRD loading is instant without kubectl explain
-    # Future: Pre-load CRDs for all kubectl contexts for zero-latency context switching
-    prewarm_task = None
+    sentinel_task = None
+    try:
+        global_sentinel = SentinelLoop(kube_context=None, broadcaster=broadcaster)
+        sentinel_task = asyncio.create_task(global_sentinel.start())
+        print("[Sentinel] Started successfully", flush=True)
+    except Exception as e:
+        print(f"[Sentinel] Failed to start (cluster may be unavailable): {e}", flush=True)
+        global_sentinel = None
 
     yield
 
@@ -306,6 +363,11 @@ async def lifespan(app: FastAPI):
             await sentinel_task
         except asyncio.CancelledError:
             pass
+
+    # Cancel any pending preload tasks
+    for task in _preload_tasks.values():
+        if not task.done():
+            task.cancel()
 
 app = FastAPI(
     title="K8s Troubleshooting Agent",
@@ -326,6 +388,38 @@ app.add_middleware(
 async def events_stream():
     """Global event stream for background alerts (Sentinel)."""
     return EventSourceResponse(broadcaster.subscribe())
+
+
+class PreloadRequest(BaseModel):
+    kube_context: str
+
+
+@app.post("/preload")
+async def preload_context(request: PreloadRequest):
+    """
+    Trigger background KB preloading for a context.
+    Call this when user switches contexts to warm the cache.
+    """
+    started = trigger_background_preload(request.kube_context)
+    status = _preload_status.get(request.kube_context, "pending")
+    return {
+        "context": request.kube_context,
+        "started": started,
+        "status": status
+    }
+
+
+@app.get("/preload/status/{kube_context}")
+async def preload_status(kube_context: str):
+    """Check preload status for a context."""
+    status = _preload_status.get(kube_context, "not_started")
+    task = _preload_tasks.get(kube_context)
+    is_loading = task and not task.done() if task else False
+    return {
+        "context": kube_context,
+        "status": status,
+        "is_loading": is_loading
+    }
 
 
 from .llm import list_available_models
@@ -471,6 +565,145 @@ async def _test_claude_code_connection():
             "error": str(e),
             "completion_error": str(e),
         }
+
+# --- OpsPilot Config Management (GitHub, MCP, etc.) ---
+
+OPSPILOT_CONFIG_PATH = os.path.expanduser("~/.opspilot/config.json")
+
+def load_opspilot_config() -> dict:
+    """Load OpsPilot config from ~/.opspilot/config.json"""
+    if os.path.exists(OPSPILOT_CONFIG_PATH):
+        try:
+            with open(OPSPILOT_CONFIG_PATH) as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[config] Failed to load config: {e}", flush=True)
+    return {}
+
+def save_opspilot_config(config: dict):
+    """Save OpsPilot config to ~/.opspilot/config.json"""
+    os.makedirs(os.path.dirname(OPSPILOT_CONFIG_PATH), exist_ok=True)
+    with open(OPSPILOT_CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=2)
+    print(f"[config] Saved config to {OPSPILOT_CONFIG_PATH}", flush=True)
+
+def write_mcp_config(github_pat: str | None):
+    """Write MCP server config for Claude Code to use GitHub integration."""
+    mcp_config_path = os.path.expanduser("~/.claude/mcp.json")
+
+    # Load existing config or start fresh
+    config = {"mcpServers": {}}
+    if os.path.exists(mcp_config_path):
+        try:
+            with open(mcp_config_path) as f:
+                config = json.load(f)
+                if "mcpServers" not in config:
+                    config["mcpServers"] = {}
+        except Exception:
+            config = {"mcpServers": {}}
+
+    if github_pat:
+        # Add GitHub MCP server
+        config["mcpServers"]["github"] = {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {
+                "GITHUB_PERSONAL_ACCESS_TOKEN": github_pat
+            }
+        }
+        print(f"[MCP] Added GitHub MCP server to config", flush=True)
+    else:
+        # Remove GitHub MCP if PAT cleared
+        if "github" in config["mcpServers"]:
+            del config["mcpServers"]["github"]
+            print(f"[MCP] Removed GitHub MCP server from config", flush=True)
+
+    # Write config
+    os.makedirs(os.path.dirname(mcp_config_path), exist_ok=True)
+    with open(mcp_config_path, 'w') as f:
+        json.dump(config, f, indent=2)
+    print(f"[MCP] Updated config at {mcp_config_path}", flush=True)
+
+
+class GitHubConfigRequest(BaseModel):
+    pat_token: str | None = None
+    default_repos: list[str] = []
+
+
+@app.get("/github-config")
+async def get_github_config():
+    """Get GitHub integration config (without exposing the PAT)."""
+    config = load_opspilot_config()
+    return {
+        "configured": bool(config.get("github_pat")),
+        "default_repos": config.get("github_repos", [])
+    }
+
+
+@app.post("/github-config")
+async def set_github_config(request: GitHubConfigRequest):
+    """Set GitHub PAT and default repos."""
+    config = load_opspilot_config()
+
+    if request.pat_token:
+        config["github_pat"] = request.pat_token
+    elif request.pat_token == "":
+        # Empty string means clear the PAT
+        config.pop("github_pat", None)
+
+    config["github_repos"] = request.default_repos
+    save_opspilot_config(config)
+
+    # Write MCP config for Claude Code
+    write_mcp_config(config.get("github_pat"))
+
+    return {"status": "ok", "configured": bool(config.get("github_pat"))}
+
+
+@app.post("/github-config/test")
+async def test_github_connection():
+    """Test GitHub PAT is valid by calling GitHub API."""
+    config = load_opspilot_config()
+    pat = config.get("github_pat")
+
+    if not pat:
+        return {"connected": False, "error": "No PAT configured", "user": None}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {pat}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            if resp.status_code == 200:
+                user = resp.json()
+                return {
+                    "connected": True,
+                    "user": user.get("login"),
+                    "error": None
+                }
+            elif resp.status_code == 401:
+                return {
+                    "connected": False,
+                    "user": None,
+                    "error": "Invalid or expired token"
+                }
+            else:
+                return {
+                    "connected": False,
+                    "user": None,
+                    "error": f"GitHub API error: {resp.status_code}"
+                }
+    except Exception as e:
+        return {
+            "connected": False,
+            "user": None,
+            "error": f"Connection failed: {str(e)}"
+        }
+
 
 class AgentRequest(BaseModel):
     """Request to run the agent."""
@@ -789,6 +1022,8 @@ async def analyze(request: AgentRequest):
             "user_hint": request.user_hint,
             "skip_current_step": request.skip_current_step,
             "pause_after_step": request.pause_after_step,
+            # Claude Code fast path
+            "embedded_tool_call": None,
         }
         
         # Keys that should be persisted across turns and NOT overwritten with None
@@ -1144,7 +1379,9 @@ async def analyze(request: AgentRequest):
                 yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': suggested_next_steps}))}\n\n"
 
             except Exception as e:
+                import traceback
                 print(f"❌ Error in event_generator: {e}", flush=True)
+                print(f"❌ Full traceback:\n{traceback.format_exc()}", flush=True)
                 # Ensure we yield a final error event if something crashed
                 yield f"data: {json.dumps(emit_event('status', {'message': f'Internal Error: {str(e)}', 'type': 'error'}))}\n\n"
 
@@ -1199,9 +1436,490 @@ async def analyze(request: AgentRequest):
             pass
 
         return StreamingResponse(
-            iter([f"data: {json.dumps(emit_event('error', {'message': f'Server Error: {str(e)}'}))}\n\n"]),  
+            iter([f"data: {json.dumps(emit_event('error', {'message': f'Server Error: {str(e)}'}))}\n\n"]),
             media_type="text/event-stream"
         )
+
+
+# =============================================================================
+# DIRECT AGENT ENDPOINT - Single Claude Code call (fast path)
+# =============================================================================
+
+class DirectAgentRequest(BaseModel):
+    """Request for direct Claude Code agent."""
+    query: str
+    kube_context: str = ""
+    thread_id: str = "default_session"
+
+
+@app.post("/analyze-direct")
+async def analyze_direct(request: DirectAgentRequest):
+    """
+    Direct Claude Code agent - handles entire investigation in ONE call.
+
+    This bypasses the complex LangGraph and lets Claude Code handle:
+    - Tool execution (kubectl via Bash)
+    - Reasoning and reflection
+    - Final answer generation
+
+    Returns SSE stream with progress events and final answer.
+    """
+    from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT, DIRECT_AGENT_USER_PROMPT
+    from .claude_code_backend import get_claude_code_backend
+
+    print(f"[direct-agent] 🚀 Starting direct investigation: {request.query}", flush=True)
+    print(f"[direct-agent] 📋 Thread ID: {request.thread_id}", flush=True)
+
+    # Load conversation history from session for context continuity
+    session_state = get_session_state(request.thread_id)
+    conversation_history = []
+    if session_state:
+        conversation_history = session_state.get('conversation_history', [])
+        print(f"[direct-agent] 📚 Loaded {len(conversation_history)} messages from session history", flush=True)
+
+    async def event_generator():
+        try:
+            # 1. Get cluster info
+            cluster_info = await get_cluster_recon(request.kube_context)
+
+            # 2. Fetch relevant KB context (CRDs, troubleshooting patterns)
+            # This saves tokens by providing pre-computed knowledge instead of Claude discovering it
+            kb_context = ""
+            try:
+                from .tools.kb_search import get_relevant_kb_snippets, ingest_cluster_knowledge
+
+                # Build minimal state for KB search
+                kb_state = {
+                    'kube_context': request.kube_context or 'default',
+                    'query': request.query
+                }
+
+                # First ensure CRDs are ingested (cached after first call)
+                await ingest_cluster_knowledge(kb_state)
+
+                # Search for relevant KB entries based on query
+                kb_context = await get_relevant_kb_snippets(
+                    query=request.query,
+                    state=kb_state,
+                    max_results=3,  # Top 3 most relevant entries
+                    min_similarity=0.3
+                )
+
+                if kb_context:
+                    print(f"[direct-agent] 📚 Found relevant KB context ({len(kb_context)} chars)", flush=True)
+
+            except Exception as kb_err:
+                print(f"[direct-agent] ⚠️ KB search skipped: {kb_err}", flush=True)
+
+            # 3. Build the prompt with KB context
+            user_prompt = DIRECT_AGENT_USER_PROMPT.format(
+                kube_context=request.kube_context or "default",
+                cluster_info=cluster_info or "(cluster info unavailable)",
+                query=request.query
+            )
+
+            # Inject KB context if available (prepend to prompt)
+            if kb_context:
+                user_prompt = f"""## Pre-computed Knowledge (use this to save time)
+{kb_context}
+
+---
+
+{user_prompt}"""
+
+            # Inject GitHub context if configured (MCP server available)
+            opspilot_config = load_opspilot_config()
+            if opspilot_config.get("github_pat"):
+                github_repos = opspilot_config.get("github_repos", [])
+                repos_str = ", ".join(github_repos) if github_repos else "(all accessible repos)"
+                github_context = f"""
+## GitHub Code Access (via MCP)
+
+You have access to the user's GitHub repositories. When investigating K8s issues,
+you can search for related source code to find bugs, check recent changes, and
+correlate errors with application code.
+
+Available MCP tools:
+- `search_code` - Find code patterns (errors, exceptions, config keys)
+- `get_file_contents` - Read specific source files
+- `list_commits` - Check recent changes that might have caused issues
+- `search_issues` - Find related bug reports or discussions
+
+Default repos to search: {repos_str}
+
+Use these tools when errors point to application issues (NPE, config errors, etc).
+Start with targeted searches, then read specific files as needed.
+
+---
+
+"""
+                user_prompt = github_context + user_prompt
+                print(f"[direct-agent] 🔗 GitHub MCP context injected (repos: {repos_str})", flush=True)
+
+            yield f"data: {json.dumps(emit_event('status', {'message': 'Starting investigation...', 'type': 'info'}))}\n\n"
+
+            # 3. Call Claude Code with streaming - let it use native Bash for kubectl
+            backend = get_claude_code_backend()
+
+            final_answer = ""
+            command_history = []
+            pending_command = None  # Track command from tool_use to pair with tool_result
+
+            async for event in backend.call_streaming_with_tools(
+                prompt=user_prompt,
+                system_prompt=DIRECT_AGENT_SYSTEM_PROMPT,
+                kube_context=request.kube_context,
+                temperature=0.2,
+                session_id=request.thread_id,
+                conversation_history=conversation_history
+            ):
+                event_type = event.get('type')
+
+                if event_type == 'thinking':
+                    # Claude is reasoning - emit as SUPERVISOR step for UI
+                    thinking_text = event.get('content', 'Thinking...')
+                    yield f"data: {json.dumps(emit_event('thinking', {'content': thinking_text}))}\n\n"
+
+                elif event_type == 'tool_use':
+                    # Claude is using a tool (Bash, Read, etc.)
+                    tool_name = event.get('tool', 'tool')
+                    tool_input = event.get('input', {})
+
+                    # Extract actual command from Bash tool
+                    # IMPORTANT: pending_command MUST match the command sent in command_selected
+                    # so the frontend can pair command_selected with command_output
+                    if tool_name == 'Bash':
+                        cmd = tool_input.get('command', '')
+                        pending_command = cmd  # Save for pairing with result
+                        yield f"data: {json.dumps(emit_event('command_selected', {'command': cmd}))}\n\n"
+                    elif tool_name == 'Read':
+                        file_path = tool_input.get('file_path', '')
+                        pending_command = f"Reading {file_path}"  # Must match command_selected
+                        yield f"data: {json.dumps(emit_event('command_selected', {'command': pending_command}))}\n\n"
+                    elif tool_name == 'Grep':
+                        pattern = tool_input.get('pattern', '')
+                        pending_command = f"Searching for {pattern}"  # Must match command_selected
+                        yield f"data: {json.dumps(emit_event('command_selected', {'command': pending_command}))}\n\n"
+                    else:
+                        pending_command = f"Using {tool_name}"  # Must match command_selected
+                        yield f"data: {json.dumps(emit_event('command_selected', {'command': pending_command}))}\n\n"
+
+                elif event_type == 'tool_result':
+                    # Tool execution completed - use pending_command for the actual command
+                    output = event.get('output', '')
+                    # Use the pending command if available, otherwise fall back to tool name
+                    actual_command = pending_command or event.get('tool', 'command')
+
+                    command_history.append({
+                        'command': actual_command,
+                        'output': output[:500] if output else '',
+                        'error': None
+                    })
+
+                    # Emit command_output with actual command for UI to display
+                    yield f"data: {json.dumps(emit_event('command_output', {'command': actual_command, 'output': output[:2000] if output else '(no output)'}))}\n\n"
+
+                    # Clear pending command
+                    pending_command = None
+
+                elif event_type == 'text':
+                    # Streaming text
+                    final_answer += event.get('content', '')
+
+                elif event_type == 'done':
+                    # Final result from Claude Code
+                    final_text = event.get('final_text', '')
+                    if final_text:
+                        final_answer = final_text
+
+                elif event_type == 'error':
+                    yield f"data: {json.dumps(emit_event('error', {'message': event.get('message', 'Unknown error')}))}\n\n"
+
+            # 4. Return final answer and save session
+            if final_answer:
+                print(f"[direct-agent] ✅ Investigation complete ({len(final_answer)} chars)", flush=True)
+
+                # Save conversation history for context continuity
+                # Add user query and assistant response to history
+                new_history = conversation_history.copy()
+                new_history.append({"role": "user", "content": request.query})
+                new_history.append({"role": "assistant", "content": final_answer[:2000]})  # Truncate to save tokens
+
+                # Update session state for next query
+                update_session_state(request.thread_id, {
+                    'conversation_history': new_history,
+                    'command_history': command_history,
+                })
+                print(f"[direct-agent] 💾 Saved session with {len(new_history)} messages", flush=True)
+
+                yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': []}))}\n\n"
+            else:
+                yield f"data: {json.dumps(emit_event('error', {'message': 'No response generated'}))}\n\n"
+
+        except Exception as e:
+            import traceback
+            print(f"[direct-agent] ❌ Error: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            yield f"data: {json.dumps(emit_event('error', {'message': f'Investigation failed: {str(e)}'}))}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# =============================================================================
+# RESOURCE CHAIN API - For UI resource traversal
+# =============================================================================
+
+class ResourceChainRequest(BaseModel):
+    """Request for resource chain traversal."""
+    kind: str  # Pod, Deployment, Service, etc.
+    name: str
+    namespace: str
+    kube_context: str = ""
+    include_events: bool = True
+
+
+class ResourceRef(BaseModel):
+    """Reference to a K8s resource."""
+    kind: str
+    name: str
+    namespace: str = ""
+    api_version: str = ""
+
+
+class ResourceChainResponse(BaseModel):
+    """Response with resource chain."""
+    root: ResourceRef
+    owners: list[ResourceRef] = []
+    children: list[ResourceRef] = []
+    related: list[ResourceRef] = []
+    events: list[dict] = []
+    summary: str = ""
+
+
+@app.post("/resource-chain", response_model=ResourceChainResponse)
+async def get_resource_chain(request: ResourceChainRequest):
+    """
+    Get the complete resource chain for a K8s resource.
+
+    This endpoint allows the UI to:
+    1. Click on a Pod → See its owners (ReplicaSet, Deployment)
+    2. Click on a Deployment → See its owned resources (RS, Pods)
+    3. See related ConfigMaps, Secrets, PVCs
+    4. See warning events across the chain
+
+    Example:
+    POST /resource-chain
+    {
+        "kind": "Pod",
+        "name": "myapp-abc123",
+        "namespace": "default",
+        "kube_context": "my-cluster"
+    }
+    """
+    from kubernetes import client, config
+    from .tools.resource_chain import build_resource_chain
+
+    print(f"[resource-chain] 🔗 Building chain for {request.kind}/{request.name} in {request.namespace}", flush=True)
+
+    try:
+        # Load kubeconfig for the specified context
+        context = request.kube_context if request.kube_context else None
+        config.load_kube_config(context=context)
+
+        v1 = client.CoreV1Api()
+        apps_v1 = client.AppsV1Api()
+
+        # Build the resource chain
+        chain = build_resource_chain(
+            v1=v1,
+            apps_v1=apps_v1,
+            kind=request.kind,
+            name=request.name,
+            namespace=request.namespace,
+            include_events=request.include_events
+        )
+
+        print(f"[resource-chain] ✅ Found {len(chain.owners)} owners, {len(chain.children)} children, {len(chain.related)} related", flush=True)
+
+        # Convert to response model
+        return ResourceChainResponse(
+            root=ResourceRef(
+                kind=chain.root.kind,
+                name=chain.root.name,
+                namespace=chain.root.namespace,
+                api_version=chain.root.api_version
+            ),
+            owners=[
+                ResourceRef(kind=o.kind, name=o.name, namespace=o.namespace, api_version=o.api_version)
+                for o in chain.owners
+            ],
+            children=[
+                ResourceRef(kind=c.kind, name=c.name, namespace=c.namespace, api_version=c.api_version)
+                for c in chain.children
+            ],
+            related=[
+                ResourceRef(kind=r.kind, name=r.name, namespace=r.namespace, api_version=r.api_version)
+                for r in chain.related
+            ],
+            events=chain.events,
+            summary=chain.summary()
+        )
+
+    except Exception as e:
+        import traceback
+        print(f"[resource-chain] ❌ Error: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        # Return empty chain on error
+        return ResourceChainResponse(
+            root=ResourceRef(kind=request.kind, name=request.name, namespace=request.namespace),
+            summary=f"Error building resource chain: {str(e)}"
+        )
+
+
+@app.get("/resource-chain/{namespace}/{kind}/{name}")
+async def get_resource_chain_simple(namespace: str, kind: str, name: str, context: str = ""):
+    """
+    Simple GET endpoint for resource chain (easier for UI links).
+
+    Example: GET /resource-chain/default/Pod/myapp-abc123
+    """
+    from kubernetes import client, config
+    from .tools.resource_chain import build_resource_chain
+
+    print(f"[resource-chain] 🔗 GET chain for {kind}/{name} in {namespace}", flush=True)
+
+    try:
+        config.load_kube_config(context=context if context else None)
+
+        v1 = client.CoreV1Api()
+        apps_v1 = client.AppsV1Api()
+
+        chain = build_resource_chain(
+            v1=v1,
+            apps_v1=apps_v1,
+            kind=kind,
+            name=name,
+            namespace=namespace,
+            include_events=True
+        )
+
+        return {
+            "root": chain.root.to_dict(),
+            "owners": [o.to_dict() for o in chain.owners],
+            "children": [c.to_dict() for c in chain.children],
+            "related": [r.to_dict() for r in chain.related],
+            "events": chain.events,
+            "summary": chain.summary()
+        }
+
+    except Exception as e:
+        return {"error": str(e), "root": {"kind": kind, "name": name, "namespace": namespace}}
+
+
+# =============================================================================
+# LOG ANALYSIS API - LLM-powered log analysis
+# =============================================================================
+
+class LogAnalysisRequest(BaseModel):
+    """Request for LLM-based log analysis."""
+    logs: str  # Raw log text (last N lines)
+    pod_name: str = ""
+    container_name: str = ""
+    namespace: str = ""
+    kube_context: str = ""
+
+
+@app.post("/analyze-logs")
+async def analyze_logs(request: LogAnalysisRequest):
+    """
+    Analyze logs using LLM (Claude Code or other configured provider).
+
+    Returns SSE stream with analysis progress and final result.
+    """
+    from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT
+    from .claude_code_backend import get_claude_code_backend
+
+    print(f"[log-analysis] 🔍 Analyzing logs for {request.pod_name}/{request.container_name}", flush=True)
+
+    async def event_generator():
+        try:
+            # Build a focused log analysis prompt
+            log_analysis_prompt = f"""Analyze these Kubernetes pod logs and provide insights.
+
+## Context
+- **Pod:** {request.pod_name}
+- **Container:** {request.container_name}
+- **Namespace:** {request.namespace}
+
+## Logs (last lines)
+```
+{request.logs[:15000]}
+```
+
+## Your Task
+1. **Identify Issues**: Find errors, warnings, exceptions, crashes, or unusual patterns
+2. **Root Cause**: If there are errors, explain the likely root cause
+3. **Health Assessment**: Is this pod healthy? Any concerning patterns?
+4. **Recommendations**: What should be done to fix any issues?
+
+Be concise and actionable. Format your response in markdown with clear sections."""
+
+            log_analysis_system = """You are a Kubernetes log analysis expert. Analyze the provided logs and give clear, actionable insights.
+
+Focus on:
+- Error messages and stack traces
+- Warning patterns that indicate problems
+- Connection issues, timeouts, crashes
+- Resource problems (OOM, disk, CPU)
+- Application-specific errors
+
+Be direct and helpful. Don't just list what you see - explain what it means and what to do about it."""
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 Analyzing logs...'})}\n\n"
+
+            backend = get_claude_code_backend()
+            final_analysis = ""
+
+            async for event in backend.call_streaming_with_tools(
+                prompt=log_analysis_prompt,
+                system_prompt=log_analysis_system,
+                kube_context=request.kube_context,
+                temperature=0.3
+            ):
+                event_type = event.get('type')
+
+                if event_type == 'thinking':
+                    thinking = event.get('content', '')[:100]
+                    yield f"data: {json.dumps({'type': 'progress', 'message': f'🧠 {thinking}'})}\n\n"
+
+                elif event_type == 'text':
+                    text = event.get('content', '')
+                    final_analysis += text
+                    # Stream text chunks for real-time display
+                    yield f"data: {json.dumps({'type': 'text', 'content': text})}\n\n"
+
+                elif event_type == 'done':
+                    final_text = event.get('final_text', '')
+                    if final_text:
+                        final_analysis = final_text
+
+                elif event_type == 'error':
+                    yield f"data: {json.dumps({'type': 'error', 'message': event.get('message', 'Analysis failed')})}\n\n"
+
+            # Send final result
+            if final_analysis:
+                yield f"data: {json.dumps({'type': 'done', 'analysis': final_analysis})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No analysis generated'})}\n\n"
+
+        except Exception as e:
+            import traceback
+            print(f"[log-analysis] ❌ Error: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Analysis failed: {str(e)}'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 def kill_process_on_port(port: int) -> bool:
     """Kill any process using the specified port. Returns True if a process was killed."""

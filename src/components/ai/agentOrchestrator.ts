@@ -55,6 +55,27 @@ import {
 
 const PYTHON_AGENT_URL = 'http://127.0.0.1:8765';
 
+/**
+ * Trigger background KB preloading for a context.
+ * Call this when user switches contexts to warm the cache before they ask questions.
+ */
+export async function preloadKBForContext(kubeContext: string): Promise<void> {
+    try {
+        const response = await fetch(`${PYTHON_AGENT_URL}/preload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kube_context: kubeContext }),
+        });
+        if (response.ok) {
+            const data = await response.json();
+            console.log(`[AgentOrchestrator] KB preload triggered for ${kubeContext}:`, data);
+        }
+    } catch (e) {
+        // Silently fail - preloading is best-effort
+        console.debug('[AgentOrchestrator] KB preload failed (agent may not be running):', e);
+    }
+}
+
 async function checkPythonAgentAvailable(): Promise<boolean> {
     try {
         const controller = new AbortController();
@@ -70,6 +91,100 @@ async function checkPythonAgentAvailable(): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+/**
+ * Direct Claude Code agent - bypasses LangGraph for faster responses.
+ * Uses single Claude Code call with tool execution.
+ */
+async function runDirectAgent(
+    query: string,
+    kubeContext: string,
+    onProgress?: (msg: string) => void,
+    onStep?: (step: AgentStep) => void,
+    abortSignal?: AbortSignal
+): Promise<string> {
+    const response = await fetch(`${PYTHON_AGENT_URL}/analyze-direct`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({
+            query,
+            kube_context: kubeContext || '',
+        }),
+        signal: abortSignal,
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Direct agent error (${response.status}): ${text}`);
+    }
+
+    if (!response.body) throw new Error("No response body received");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let finalResponse = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                try {
+                    const eventData = JSON.parse(line.slice(6));
+
+                    switch (eventData.type) {
+                        case 'progress':
+                            onProgress?.(eventData.message);
+                            break;
+                        case 'thinking':
+                            // Claude is reasoning - emit as SUPERVISOR step
+                            onStep?.({
+                                role: 'SUPERVISOR',
+                                content: eventData.content || 'Thinking...'
+                            });
+                            break;
+                        case 'command_selected':
+                            // Command about to run - emit with empty output to show "Running" state
+                            onStep?.({
+                                role: 'SCOUT',
+                                content: JSON.stringify({
+                                    command: eventData.command,
+                                    output: ''  // Empty output signals "executing" to UI
+                                })
+                            });
+                            break;
+                        case 'command_output':
+                            // Command completed - emit with actual output
+                            onStep?.({
+                                role: 'SCOUT',
+                                content: JSON.stringify({
+                                    command: eventData.command,
+                                    output: eventData.output
+                                })
+                            });
+                            break;
+                        case 'done':
+                            finalResponse = eventData.final_response || '';
+                            break;
+                        case 'error':
+                            throw new Error(eventData.message);
+                    }
+                } catch (e) {
+                    // Ignore parse errors for malformed lines
+                }
+            }
+        }
+    }
+
+    return finalResponse || 'No response generated';
 }
 
 async function ensureAgentRunning(): Promise<boolean> {
@@ -131,6 +246,13 @@ async function runPythonAgent(
     const isAvailable = await ensureAgentRunning();
     if (!isAvailable) {
         throw new Error("❌ **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
+    }
+
+    // FAST PATH: Use direct agent for Claude Code provider (single LLM call)
+    if (llmProvider === 'claude-code') {
+        console.log('[AgentOrchestrator] Using direct Claude Code agent (fast path)');
+        onProgress?.('🚀 Direct investigation...');
+        return await runDirectAgent(query, kubeContext, onProgress, onStep, abortSignal);
     }
 
     onProgress?.('🧠 Reasoning...');

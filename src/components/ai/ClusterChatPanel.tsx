@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -154,7 +154,7 @@ export function ClusterChatPanel({
 
     // Unique storage key for resource-specific chats
     const storageKey = resourceContext
-        ? `ops - pilot - chat - ${resourceContext.namespace} -${resourceContext.kind} -${resourceContext.name} `
+        ? `ops-pilot-chat-${resourceContext.namespace}-${resourceContext.kind}-${resourceContext.name}`
         : 'ops-pilot-chat-history';
 
     const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant' | 'tool' | 'claude-code', content: string, toolName?: string, command?: string, isActivity?: boolean, isStreaming?: boolean }>>(() => {
@@ -239,6 +239,9 @@ export function ClusterChatPanel({
     const abortControllerRef = useRef<AbortController | null>(null);
     const [isCancelling, setIsCancelling] = useState(false);
 
+    // Ref to hold sendMessage for use in callbacks defined before it
+    const sendMessageRef = useRef<(msg: string) => void>(() => {});
+
     // Investigation chain-of-thought state (visible to user)
     const [investigationProgress, setInvestigationProgress] = useState<{
         iteration: number;
@@ -279,11 +282,34 @@ export function ClusterChatPanel({
     const [autoExtendEnabled, setAutoExtendEnabled] = useState<boolean>(true);
     const [extendedMode, setExtendedMode] = useState<{ preferred_checks?: string[]; prefer_mcp_tools?: boolean } | null>(null);
 
+    // GitHub integration state
+    const [githubConfigured, setGithubConfigured] = useState<boolean>(false);
+    const [searchingGitHub, setSearchingGitHub] = useState<string | null>(null); // group ID being searched
+
     // Check LLM status and fetch MCP tools on mount
     useEffect(() => {
         checkLLMStatus();
         fetchMcpTools();
     }, [llmConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Check GitHub configuration on mount and when settings close
+    useEffect(() => {
+        const checkGithubConfig = async () => {
+            try {
+                const resp = await fetch('http://127.0.0.1:8008/github-config');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    setGithubConfigured(data.configured === true);
+                }
+            } catch {
+                setGithubConfigured(false);
+            }
+        };
+        // Re-check when settings panel closes (showSettings goes from true to false)
+        if (!showSettings) {
+            checkGithubConfig();
+        }
+    }, [showSettings]);
 
     // Initialize embedding model and listen for status events
     // ... (Embedding useEffect unchanged)
@@ -336,6 +362,49 @@ export function ClusterChatPanel({
         }
         setLoadingWelcomeJoke(false);
     }, [llmConfig, loadingWelcomeJoke, threadId]);
+
+    // Search GitHub for code related to the issue
+    const searchGitHub = useCallback(async (userQuery: string, answerContent: string, groupIdx: number) => {
+        if (searchingGitHub) return;
+
+        setSearchingGitHub(`group-${groupIdx}`);
+
+        // Extract key terms from the answer for a focused search
+        const extractKeyTerms = (text: string): string[] => {
+            const terms: string[] = [];
+            // Look for error names, pod names, service names, exceptions
+            const patterns = [
+                /(?:error|exception|failed|crash)[\w\s]*?[:]\s*([^\n.]+)/gi,
+                /pod[s]?\s+([a-z0-9-]+)/gi,
+                /service[s]?\s+([a-z0-9-]+)/gi,
+                /deployment[s]?\s+([a-z0-9-]+)/gi,
+                /container[s]?\s+([a-z0-9-]+)/gi,
+                /image[s]?\s+([a-z0-9.:/-]+)/gi,
+                /(?:NullPointer|OutOfMemory|Connection|Timeout|Auth)\w*Exception/gi,
+            ];
+            for (const pattern of patterns) {
+                const matches = text.matchAll(pattern);
+                for (const match of matches) {
+                    if (match[1]) terms.push(match[1].trim());
+                    else if (match[0]) terms.push(match[0].trim());
+                }
+            }
+            return [...new Set(terms)].slice(0, 5); // Dedupe and limit
+        };
+
+        const keyTerms = extractKeyTerms(answerContent);
+        const searchContext = keyTerms.length > 0
+            ? `Based on this K8s issue investigation, search GitHub for code that might be related:\n\nKey findings: ${keyTerms.join(', ')}\n\nOriginal question: ${userQuery.slice(0, 200)}`
+            : `Search GitHub for code related to: ${userQuery.slice(0, 300)}`;
+
+        // Add a new user message to trigger a GitHub search
+        const searchMessage = `🔍 **Search GitHub for related code**\n\n${searchContext}\n\nUse the GitHub MCP tools to search for relevant source code, recent commits, or issues that might explain this problem.`;
+
+        setSearchingGitHub(null);
+
+        // Trigger analysis with the search message
+        sendMessageRef.current(searchMessage);
+    }, [searchingGitHub]);
 
     // Auto-scroll to bottom when chat updates
     const scrollToBottom = () => {
@@ -699,11 +768,11 @@ export function ClusterChatPanel({
             const controller = new AbortController();
             abortControllerRef.current = controller;
 
-            // Convert RECENT chat history to agent context (only last 3 messages for follow-up context)
-            // Each new question starts mostly fresh - don't carry over old investigations
+            // Convert chat history to agent context for conversation continuity
+            // Pass last 10 messages to maintain good context across app restarts
             const contextHistory: AgentStep[] = chatHistory
                 .filter(m => m.role === 'user' || m.role === 'assistant')
-                .slice(-3) // Only last 3 messages for minimal context
+                .slice(-10) // Last 10 messages for good context continuity
                 .map(m => ({
                     role: m.role === 'user' ? 'USER' as const :
                         m.role === 'tool' ? 'SCOUT' as const :
@@ -1099,6 +1168,9 @@ export function ClusterChatPanel({
             setTimeout(() => setStreamingPhase(null), 3000);
         }
     };
+
+    // Keep ref updated so searchGitHub can call it
+    sendMessageRef.current = sendMessage;
 
     // Handle User Approval/Denial
     const handleApproval = async (approved: boolean) => {
@@ -1878,6 +1950,46 @@ export function ClusterChatPanel({
                     ))}
                 </div>
             )}
+
+            {/* GitHub Code Search Action Bar - shows when there's a completed answer */}
+            {(() => {
+                // Find the last completed interaction with an answer
+                const lastInteraction = [...groupedHistory].reverse().find(
+                    g => g.type === 'interaction' && g.answer && !g.answer.isStreaming
+                );
+                if (!lastInteraction || llmLoading) return null;
+
+                return (
+                    <div className="px-4 py-2 bg-[#16161a] border-t border-white/5 flex items-center justify-center gap-2">
+                        <button
+                            onClick={() => githubConfigured
+                                ? searchGitHub(lastInteraction.user?.content || '', lastInteraction.answer?.content || '', groupedHistory.indexOf(lastInteraction))
+                                : setShowSettings(true)
+                            }
+                            disabled={searchingGitHub !== null}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-full transition-all disabled:opacity-50 ${
+                                githubConfigured
+                                    ? 'text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/50'
+                                    : 'text-zinc-400 hover:text-zinc-300 bg-white/5 hover:bg-white/10 border border-dashed border-zinc-600 hover:border-zinc-500'
+                            }`}
+                            title={githubConfigured ? "Search GitHub for code related to this issue" : "Connect GitHub to search your code"}
+                        >
+                            {searchingGitHub !== null ? (
+                                <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                                <Github size={12} />
+                            )}
+                            <span>
+                                {searchingGitHub !== null
+                                    ? 'Searching GitHub...'
+                                    : githubConfigured
+                                        ? 'Find related code'
+                                        : 'Connect GitHub to search code'}
+                            </span>
+                        </button>
+                    </div>
+                );
+            })()}
 
             {/* Input */}
             <div className="relative z-20 p-4 bg-[#16161a] border-t border-white/5">

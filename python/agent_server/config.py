@@ -76,17 +76,23 @@ MAX_OUTPUT_LENGTH = 8000
 
 # ---- Embeddings RAG config ----
 def _find_kb_dir() -> str:
-    """Find the knowledge directory in various possible locations."""
+    """Find the knowledge directory in various possible locations.
+
+    Priority:
+    1. K8S_AGENT_KB_DIR environment variable (set by Tauri for bundled app)
+    2. Development locations (relative to source)
+    3. User home directory fallback (~/.opspilot/knowledge)
+    """
     env_dir = os.environ.get("K8S_AGENT_KB_DIR")
     if env_dir and os.path.isdir(env_dir):
+        print(f"[KB] Using KB from env var: {env_dir}", flush=True)
         return env_dir
 
-    # Try multiple locations relative to script or CWD
+    # Try multiple locations relative to script or CWD (development mode)
     candidates = [
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "knowledge")), # /python/../knowledge
         os.path.abspath(os.path.join(os.getcwd(), "knowledge")), # cwd/knowledge
         os.path.abspath(os.path.join(os.getcwd(), "..", "knowledge")), # If cwd is src-tauri, go up one level
-        "/tmp/knowledge",
     ]
 
     for path in candidates:
@@ -94,7 +100,10 @@ def _find_kb_dir() -> str:
             print(f"[KB] Found knowledge directory: {path}", flush=True)
             return path
 
-    return os.path.join(os.getcwd(), "knowledge")
+    # Fallback to user home directory (will be empty but won't crash)
+    fallback = os.path.join(os.path.expanduser("~"), ".opspilot", "knowledge")
+    print(f"[KB] ⚠️ No bundled KB found, using fallback: {fallback}", flush=True)
+    return fallback
 
 KB_DIR = _find_kb_dir()
 EMBEDDING_MODEL = os.environ.get("K8S_AGENT_EMBED_MODEL", "nomic-embed-text")
@@ -123,7 +132,6 @@ ROUTING_ENABLED = False # Enforce Brain model for all queries
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.7"))
 
 # ---- Logging Config ----
-# ---- Logging Config ----
 # Use user home directory for logs/cache to ensure writability in release builds
 _home = os.path.expanduser("~")
 _base_dir = os.path.join(_home, ".opspilot")
@@ -131,7 +139,7 @@ _base_dir = os.path.join(_home, ".opspilot")
 LOG_DIR = os.environ.get("K8S_AGENT_LOG_DIR", os.path.join(_base_dir, "logs"))
 LOG_FILE = "agent_history.jsonl"
 CACHE_DIR = os.environ.get("K8S_AGENT_CACHE_DIR", os.path.join(_base_dir, "cache"))
-KB_DIR = os.environ.get("K8S_AGENT_KB_DIR", os.path.join(_base_dir, "knowledge"))
+# Note: KB_DIR is already set above by _find_kb_dir() which respects K8S_AGENT_KB_DIR env var
 
 # ---- Typo Corrections ----
 TYPO_CORRECTIONS = {

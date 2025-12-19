@@ -26,7 +26,10 @@
     "externalBin": [
       "binaries/agent-server"
     ],
-    "resources": [],
+    "resources": [
+      "../knowledge/*.jsonl",
+      "resources/kb_embeddings.json"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

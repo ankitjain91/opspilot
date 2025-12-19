@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { Settings, X, Check, Eye, EyeOff, Copy, AlertCircle, Terminal, Download, Zap, BookOpen, Brain, Network, HardDrive, RefreshCw, Server, ArrowRight, Info, ShieldCheck, Activity, Cpu, Loader2, CheckCircle2 } from 'lucide-react';
+import { Settings, X, Check, Eye, EyeOff, Copy, AlertCircle, Terminal, Download, Zap, BookOpen, Brain, Network, HardDrive, RefreshCw, Server, ArrowRight, Info, ShieldCheck, Activity, Cpu, Loader2, CheckCircle2, Github } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus, LLMProvider } from '../../types/ai';
 import { DEFAULT_LLM_CONFIGS } from './constants';
@@ -161,6 +161,14 @@ export function LLMSettingsPanel({
     const [reindexingKb, setReindexingKb] = useState(false);
     const [reindexingProgress, setReindexingProgress] = useState<number | null>(null);
     const [kbMessage, setKbMessage] = useState<string | null>(null);
+
+    // GitHub Integration State
+    const [githubPat, setGithubPat] = useState<string>('');
+    const [showGithubPat, setShowGithubPat] = useState(false);
+    const [githubRepos, setGithubRepos] = useState<string[]>([]);
+    const [githubConfigured, setGithubConfigured] = useState(false);
+    const [githubUser, setGithubUser] = useState<string | null>(null);
+    const [testingGithub, setTestingGithub] = useState(false);
 
     // Initial Provider Logic
     const getInitialGroup = (p: LLMProvider): ProviderGroup => {
@@ -436,12 +444,78 @@ export function LLMSettingsPanel({
         setReindexingKb(false);
     };
 
+    // --- GITHUB LOGIC ---
+
+    const loadGithubConfig = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubConfigured(data.configured);
+                setGithubRepos(data.default_repos || []);
+                // If configured, test connection to get username
+                if (data.configured) {
+                    testGithubConnection();
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub config:", e);
+        }
+    };
+
+    const saveGithubConfig = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pat_token: githubPat || null,
+                    default_repos: githubRepos
+                })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubConfigured(data.configured);
+                if (data.configured) {
+                    testGithubConnection();
+                }
+            }
+        } catch (e) {
+            console.error("Failed to save GitHub config:", e);
+        }
+    };
+
+    const testGithubConnection = async () => {
+        setTestingGithub(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config/test`, {
+                method: 'POST'
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.connected) {
+                    setGithubConfigured(true);
+                    setGithubUser(data.user);
+                } else {
+                    setGithubConfigured(false);
+                    setGithubUser(null);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to test GitHub:", e);
+            setGithubConfigured(false);
+            setGithubUser(null);
+        }
+        setTestingGithub(false);
+    };
+
     // --- EFFECTS ---
 
     useEffect(() => {
         checkInferenceConnection();
         checkEmbeddingStatus();
         checkKbStatus();
+        loadGithubConfig();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Re-check KB if embedding availability changes
@@ -867,6 +941,134 @@ export function LLMSettingsPanel({
                         {kbMessage && (
                             <div className="text-[10px] text-center text-zinc-500 animate-pulse mt-2">{kbMessage}</div>
                         )}
+                    </div>
+                </div>
+
+                {/* === SECTION 3: GITHUB INTEGRATION === */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent pointer-events-none" />
+
+                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
+                        <div className="p-1.5 bg-purple-500/20 rounded-lg text-purple-400">
+                            <Github size={18} />
+                        </div>
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
+                        {githubConfigured && (
+                            <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                                CONNECTED
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="space-y-4 relative z-10">
+                        <p className="text-[11px] text-zinc-400">
+                            Connect GitHub to let AI search your source code when debugging K8s issues.
+                            The AI can find bugs, check recent changes, and correlate errors with code.
+                        </p>
+
+                        {/* PAT Token Input */}
+                        <div className="relative">
+                            <label className="absolute -top-2 left-2 px-1 bg-[#18181b] text-[10px] font-bold text-zinc-500 uppercase z-20 flex items-center gap-1">
+                                {githubConfigured && !githubPat ? 'Token Saved' : 'Personal Access Token'} <ShieldCheck size={9} className="text-emerald-500" />
+                            </label>
+                            {githubConfigured && !githubPat ? (
+                                <div className="w-full bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 text-xs text-emerald-300 font-mono flex items-center justify-between">
+                                    <span>••••••••••••••••••••</span>
+                                    <button
+                                        onClick={() => setGithubPat('replace')}
+                                        className="text-[10px] text-purple-400 hover:text-purple-300 underline"
+                                    >
+                                        Replace token
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="relative">
+                                    <input
+                                        type={showGithubPat ? "text" : "password"}
+                                        value={githubPat === 'replace' ? '' : githubPat}
+                                        onChange={e => setGithubPat(e.target.value)}
+                                        className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono transition-all"
+                                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
+                                    />
+                                    <button
+                                        onClick={() => setShowGithubPat(!showGithubPat)}
+                                        className="absolute right-3 top-3 text-zinc-600 hover:text-zinc-300"
+                                    >
+                                        {showGithubPat ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Token Creation Guide */}
+                        <div className="text-[10px] text-zinc-500 bg-white/5 px-3 py-2.5 rounded-lg space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <ShieldCheck size={10} className="text-emerald-500 shrink-0" />
+                                <span className="font-bold text-zinc-400">Use a Fine-Grained Token (read-only)</span>
+                            </div>
+                            <div className="pl-4 space-y-1">
+                                <div>1. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">Create fine-grained token →</a></div>
+                                <div>2. Set <code className="bg-white/10 px-1 rounded text-emerald-300">Contents</code> → <span className="text-emerald-400">Read-only</span></div>
+                                <div>3. Select repos or "All repositories"</div>
+                            </div>
+                            <div className="text-[9px] text-zinc-600 pt-1 border-t border-white/5">
+                                Fine-grained tokens are safer than classic tokens - they can't write to your repos.
+                            </div>
+                        </div>
+
+                        {/* Default Repos */}
+                        <div>
+                            <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">
+                                Default Repos to Search (optional)
+                            </label>
+                            <input
+                                type="text"
+                                value={githubRepos.join(", ")}
+                                onChange={e => setGithubRepos(e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
+                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono"
+                                placeholder="myorg/auth-service, myorg/api-gateway"
+                            />
+                            <p className="text-[10px] text-zinc-600 mt-1">
+                                Comma-separated list of repos. Leave empty to search all accessible repos.
+                            </p>
+                        </div>
+
+                        {/* Connection Status & Actions */}
+                        <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${
+                            testingGithub ? 'bg-amber-500/5 border-amber-500/20' :
+                            githubConfigured ? 'bg-emerald-500/5 border-emerald-500/20' :
+                            'bg-zinc-500/5 border-zinc-500/20'
+                        }`}>
+                            <StatusDot ok={githubConfigured} loading={testingGithub} />
+                            <div className="flex-1">
+                                <div className={`text-xs font-bold ${
+                                    testingGithub ? 'text-amber-400' :
+                                    githubConfigured ? 'text-emerald-400' :
+                                    'text-zinc-500'
+                                }`}>
+                                    {testingGithub ? 'Testing Connection...' :
+                                     githubConfigured ? `Connected as @${githubUser}` :
+                                     'Not Connected'}
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                {githubPat && (
+                                    <button
+                                        onClick={saveGithubConfig}
+                                        className="text-[10px] bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded px-2 py-1 transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                )}
+                                <button
+                                    onClick={testGithubConnection}
+                                    disabled={testingGithub}
+                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
+                                >
+                                    Test
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
