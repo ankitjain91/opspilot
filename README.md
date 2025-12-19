@@ -1,193 +1,214 @@
-# OpsPilot (formerly Lens Killer)
+# OpsPilot
 
-**OpsPilot** is an intelligent, next-generation Kubernetes management platform designed to replace legacy tools like Lens. It combines a high-performance Rust/Tauri frontend with a powerful local AI Agent to provide deep insights, automated troubleshooting, and context-aware management of your clusters.
+**OpsPilot** is an intelligent Kubernetes management platform powered by **Claude Code**. It combines a high-performance Rust/Tauri frontend with Anthropic's Claude to provide autonomous troubleshooting, deep cluster insights, and GitHub code search integration.
 
-![OpsPilot Screenshot](docs/screenshots/overview.png) *[Placeholder for screenshot]*
+![OpsPilot Screenshot](docs/screenshots/overview.png)
 
 ## 🚀 Key Features
 
-*   **⚡ Blazing Fast UI**: Built with **Tauri** (Rust) and **React**, offering near-native performance and low memory footprint compared to Electron-based alternatives.
-*   **🤖 AI-Powered Sidecar**: A sophisticated **Python-based Agent** (using LangGraph) that runs locally. It acts as a "Supervisor" and "Scout", autonomously investigating cluster issues, analyzing logs, and suggesting fixes.
-*   **🧠 Context-Aware Deep Dive**: Open any resource (Pod, Deployment, etc.) in a dedicated "Deep Dive Drawer" where the AI is fully immersed in that specific context (logs, events, YAML).
-*   **🌐 vCluster Integration**: seamless support for creating and managing virtual clusters (vClusters) directly from the UI.
-*   **🔌 MCP Support**: Full support for the **Model Context Protocol (MCP)**, allowing you to extend the agent's capabilities with external tools (GitHub, Git, Postgres, etc.).
-*   **🔒 Privacy-First**: Designed for local LLMs (Ollama) with support for Azure OpenAI/Anthropic. Your data stays on your machine unless you choose cloud providers.
-*   **🛡️ Read-Only Mode**: Safety protocols to prevent accidental modifications during AI investigations.
+### 🤖 Claude Code Integration
+OpsPilot uses **Claude Code** as its AI backbone - the same powerful coding agent from Anthropic. This means:
+- **Autonomous Investigation**: Claude runs kubectl commands, analyzes logs, and follows diagnostic chains automatically
+- **Read-Only Safety**: All cluster operations are read-only by default (no accidental deletes!)
+- **Streaming UI**: Watch Claude think and execute in real-time with a transparent command log
 
-## 🆕 New in v0.2.4
-*   **Hardened vCluster Connection**: Improved process monitoring and fallback logic for reliable connectivity.
-*   **MCP Tool Visualization**: AI Chat now explicitly shows external tool execution (e.g. GitHub, Postgres) in the conversation stream.
-*   **Refactored Settings**: Streamlined AI provider configuration UI.
+### 🔗 GitHub MCP Integration (NEW!)
+Connect your GitHub repos to let Claude search your source code when debugging K8s issues:
+- **Search for error patterns** in your codebase
+- **Read source files** to understand the code causing errors
+- **Check recent commits** to correlate issues with deployments
+- **Find related GitHub issues** for known bugs
+
+Just add your GitHub Personal Access Token in Settings → GitHub Integration.
+
+### ⚡ Performance
+- **Tauri/Rust** frontend - near-native speed, low memory
+- **Direct Kubernetes API** - no kubectl overhead for UI operations
+- **Conversation persistence** - continue debugging across app restarts
+
+### 🧠 Context-Aware Deep Dive
+Open any resource (Pod, Deployment, Service) in the **Deep Dive Drawer**:
+- AI is automatically locked to that specific resource
+- Ask "why is this crashing?" - Claude knows which pod you mean
+- View logs, events, YAML all in one place
+
+### 🌐 vCluster Support
+Create and manage virtual clusters directly from the UI.
+
+### 🔒 Privacy & Safety
+- **Read-only mode**: Claude cannot delete, apply, or edit resources
+- **Local history**: Conversation stored in your browser only
+- **Fine-grained GitHub tokens**: Read-only access to your repos
+
+## 🆕 What's New in v0.2.37
+
+- **GitHub MCP Integration**: Search your source code from the chat
+- **"Find Related Code" Button**: One-click GitHub search after any investigation
+- **Conversation Persistence**: Chat history survives app restarts (10 messages context)
+- **Improved Settings UX**: Better token management UI
 
 ## 🏗️ Architecture
 
-OpsPilot uses a hybrid architecture:
-
-1.  **Frontend (Tauri/Rust)**: Handles the UI, window management, and direct Kubernetes API interactions via `kube-rs`.
-2.  **AI Sidecar (Python)**: A dedicated Python process (`agent_server.py`) that hosts the LangGraph agent. It exposes a local API for the frontend to communicate with.
-    *   **Supervisor Node**: Plans the investigation.
-    *   **Scout Node**: Executes safe `kubectl` commands.
-3.  **communication**: The Frontend and Sidecar communicate via a local HTTP interface.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    OpsPilot Desktop App                      │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
+│  │   Tauri/Rust    │    │         React Frontend          │ │
+│  │   - K8s API     │◄──►│   - Dashboard                   │ │
+│  │   - Window mgmt │    │   - Deep Dive Drawer            │ │
+│  │   - File I/O    │    │   - AI Chat Panel               │ │
+│  └─────────────────┘    └─────────────────────────────────┘ │
+└───────────────────────────────┬─────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                Python Agent Server (Sidecar)                 │
+│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
+│  │  Claude Code    │    │      MCP Servers                │ │
+│  │  - Bash/kubectl │◄──►│   - GitHub (code search)        │ │
+│  │  - Streaming    │    │   - Custom tools                │ │
+│  │  - Tool safety  │    │                                 │ │
+│  └─────────────────┘    └─────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## 🛠️ Prerequisites
 
-*   **Node.js** (v18+)
-*   **Rust** (latest stable)
-*   **Python** (3.10+) & `uv` (recommended for fast package management)
-*   **kubectl** & **helm** (installed in your PATH)
+- **Claude Code CLI** installed (`npm install -g @anthropic-ai/claude-code` or via Anthropic)
+- **Node.js** (v18+)
+- **Rust** (latest stable)
+- **Python** (3.10+)
+- **kubectl** in your PATH
 
-## 📦 Installation & Setup
+## 📦 Quick Start
 
-### 1. Clone the Repository
+### 1. Clone & Install
+
 ```bash
 git clone https://github.com/ankitjain91/opspilot.git
 cd opspilot
-```
-
-### 2. Backend (Rust) Setup
-Install system dependencies (macOS):
-```bash
-brew install rust upx
-```
-
-### 3. Frontend Setup
-```bash
 npm install
 ```
 
-### 4. AI Agent Setup (Python)
-We recommend using `uv` or `venv`:
+### 2. Set Up Python Environment
+
 ```bash
 cd python
-# Install dependencies
 pip install -r requirements.txt
-# OR with uv
-uv pip install -r requirements.txt
+cd ..
 ```
 
-### 5. Build & Run
-Run the development server (starts UI and Python sidecar automatically):
+### 3. Run Development Server
+
 ```bash
 npm run tauri dev
 ```
 
-## 🧠 AI Configuration (Ollama / Custom)
+This starts both the Tauri app and the Python agent sidecar.
 
-OpsPilot is optimized for **Ollama** running locally. The AI system uses two models:
+## ⚙️ Configuration
 
-1. **Supervisor/Brain** - Reasons about problems, plans investigation steps
-2. **Executor/Worker** - Translates plans into kubectl commands (can be smaller/faster)
+### Claude Code (Required)
 
-### Quick Start (Recommended)
-
-```bash
-# Install Ollama
-# macOS: brew install ollama
-# Linux: curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull recommended models
-ollama pull qwen2.5:14b        # Brain (reasoning)
-ollama pull qwen2.5-coder:1.5b # Executor (fast command generation)
-ollama pull nomic-embed-text   # Embeddings (REQUIRED for knowledge base)
-```
-
-### Knowledge Base Embeddings (Runtime Setup)
-
-OpsPilot includes a **curated Knowledge Base** of 57+ Kubernetes troubleshooting patterns (CrashLoopBackOff fixes, Crossplane debugging, cert-manager issues, etc.). To match your questions to the right knowledge, we use semantic embeddings.
-
-**Setup (One-Time)**:
-1. Download `nomic-embed-text` model (happens automatically in AI Settings)
-2. Click **"Generate"** button to index the knowledge base (~1 minute)
-3. Embeddings are cached locally in `~/.opspilot/kb_embeddings_cache.json`
-
-The agent will still work without embeddings (using keyword search fallback), but RAG-powered answers are more accurate.
-
-### Advanced: Custom Modelfiles for Power Users
-
-For users with powerful GPUs (24GB+ VRAM), you can create optimized custom models with K8s-specific system prompts. We provide two Modelfiles in the repo:
-
-#### Quick Setup: Build Both Models
+OpsPilot requires Claude Code CLI to be installed and authenticated:
 
 ```bash
-# First, pull the base models (one-time download)
-ollama pull llama3.3:70b       # ~40GB, best reasoning
-ollama pull qwen2.5-coder:32b  # ~18GB, great for commands
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
 
-# Build custom K8s-optimized models from our Modelfiles
-ollama create opspilot-brain -f Modelfile.brain    # Reasoning engine
-ollama create opspilot-cli -f Modelfile.k8s-cli    # Command executor
-
-# Verify they're available
-ollama list | grep opspilot
+# Authenticate (opens browser)
+claude login
 ```
 
-#### Modelfile.brain (Llama 3.3 70B - Reasoning)
+Then in OpsPilot Settings, select **"Claude Code"** as your AI provider.
 
-Optimized for complex K8s investigations with:
-- 32K context window for long investigations
-- Temperature 0.0 for deterministic JSON output
-- K8s-specific system prompt with CR discovery protocol, mental model, and diagnostic rules
-- Stop sequences tuned for Llama 3.3
+### GitHub Integration (Optional)
 
-```bash
-# Test it
-ollama run opspilot-brain "Why would a pod be in Pending state?"
-```
+To enable code search during investigations:
 
-#### Modelfile.k8s-cli (Qwen 2.5 32B - Commands)
+1. Open **Settings** (gear icon)
+2. Scroll to **GitHub Integration**
+3. Create a [Fine-Grained Personal Access Token](https://github.com/settings/personal-access-tokens/new):
+   - Permission: `Contents` → Read-only
+   - Select repositories or "All repositories"
+4. Paste token and click **Save**
+5. Click **Test** to verify connection
 
-Optimized for precise kubectl command execution with:
-- Strict JSON output format (`{"thought": "...", "command": "..."}`)
-- Read-only command enforcement (delete/apply/edit forbidden)
-- Built-in kubectl "cheat sheet" for power commands
-- Stop sequences tuned for Qwen
+Once connected, you'll see a **"Find related code"** button after each investigation.
 
-```bash
-# Test it
-ollama run opspilot-cli "Get all pods with high restart counts"
-```
+### Knowledge Base (Optional)
 
-#### Configure in OpsPilot
+OpsPilot includes 57+ Kubernetes troubleshooting patterns. To enable semantic search:
 
-In **AI Settings**, set:
-- **Model**: `opspilot-brain` (reasoning/planning)
-- **Executor Model**: `opspilot-cli` (command generation)
+1. Install embedding model: `ollama pull nomic-embed-text`
+2. Open Settings → Memory System
+3. Click **Generate** to index the knowledge base
 
-This dual-model setup gives you the best of both worlds: powerful reasoning from Llama 3.3 and precise command generation from Qwen.
-
-### Model Recommendations by Hardware
-
-| VRAM | Brain Model | Executor Model | Notes |
-|------|-------------|----------------|-------|
-| 8GB | `qwen2.5:7b` | `qwen2.5-coder:1.5b` | Basic, may struggle with complex issues |
-| 16GB | `qwen2.5:14b` | `qwen2.5-coder:7b` | Good balance for most users |
-| 24GB | `qwen2.5:32b` | `qwen2.5-coder:14b` | Excellent reasoning |
-| 48GB+ | `llama3.3:70b` | `qwen2.5-coder:32b` | Best possible local experience |
-
-### Cloud Providers (Alternative)
-
-If you prefer cloud models, OpsPilot supports:
-- **OpenAI**: `gpt-4o`, `gpt-4o-mini`
-- **Anthropic**: `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022`
-- **Azure OpenAI**: Custom deployments
-
-**Settings**: Click the "AI Settings" (Sparkles icon) in the app to configure your provider.
-
-## 🎮 Usage Guide
+## 🎮 Usage
 
 ### Connecting to Clusters
-*   **Local Kubeconfig**: Simply browse to your `~/.kube/config`.
-*   **Azure AKS**: Sign in with Azure to auto-discover your AKS clusters.
-*   **Setup Tab**: Use the "Setup" tab on the connection screen to install `kubectl` or `vcluster` if missing.
 
-### The "Deep Dive" Drawer
-Click any resource in the dashboard to open the Deep Dive Drawer.
-*   **Overview**: Real-time health, metrics, and events.
-*   **YAML**: Read/Edit the resource definition.
-*   **AI Chat**: Ask questions like *"Why is this crashing?"*. The AI automatically locks context to this specific resource.
+- **Kubeconfig**: Browse to your `~/.kube/config`
+- **Azure AKS**: Sign in with Azure to auto-discover clusters
+- **vCluster**: Create virtual clusters from the Clusters tab
 
-### MCP Extensions
-Go to **AI Settings > MCP Extensions** to connect external tools like GitHub or Postgres. The Agent can then use these tools during investigations (e.g., "Check GitHub issues for this error").
+### AI Chat
+
+Ask natural language questions:
+- "Show me all failing pods"
+- "Why is the auth-service crashing?"
+- "What events happened in the last hour?"
+- "Find pods with high restart counts"
+
+Claude will:
+1. Plan the investigation
+2. Run kubectl commands
+3. Analyze the output
+4. Provide a clear summary
+
+### Deep Dive Drawer
+
+Click any resource → Opens context-locked chat:
+- "Show me the logs" (knows which pod)
+- "What events are related?" (knows the namespace)
+- "Why is this pending?" (focuses on this specific resource)
+
+### GitHub Code Search
+
+After any investigation, click **"Find related code"** to:
+- Search for error strings in your repos
+- Find the source code causing exceptions
+- Check who made recent changes
+
+## 🔧 Development
+
+### Build for Production
+
+```bash
+# Build the app
+npm run tauri build
+
+# Output in src-tauri/target/release/bundle/
+```
+
+### Project Structure
+
+```
+opspilot/
+├── src/                    # React frontend
+│   ├── components/
+│   │   ├── ai/            # Chat panel, settings
+│   │   ├── cluster/       # Deep dive drawer
+│   │   └── dashboard/     # Main dashboard
+├── src-tauri/             # Rust backend
+│   └── src/
+│       └── main.rs        # Tauri commands, K8s API
+├── python/                # Agent server
+│   └── agent_server/
+│       ├── server.py      # FastAPI endpoints
+│       └── claude_code_backend.py  # Claude Code integration
+└── knowledge/             # K8s troubleshooting patterns
+```
 
 ## 🤝 Contributing
 
@@ -196,3 +217,7 @@ We welcome contributions! Please see `CONTRIBUTING.md` for guidelines.
 ## 📄 License
 
 MIT License. See `LICENSE` for details.
+
+---
+
+**Built with ❤️ using [Claude Code](https://claude.com/claude-code)**
