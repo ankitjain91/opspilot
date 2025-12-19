@@ -658,18 +658,19 @@ def save_opspilot_config(config: dict):
 
 def write_mcp_config(github_pat: str | None):
     """Write MCP server config for Claude Code to use GitHub integration."""
-    mcp_config_path = os.path.expanduser("~/.claude/mcp.json")
+    mcp_config_path = os.path.expanduser("~/.claude/settings.json")
 
     # Load existing config or start fresh
-    config = {"mcpServers": {}}
+    config = {}
     if os.path.exists(mcp_config_path):
         try:
             with open(mcp_config_path) as f:
                 config = json.load(f)
-                if "mcpServers" not in config:
-                    config["mcpServers"] = {}
         except Exception:
-            config = {"mcpServers": {}}
+            config = {}
+
+    if "mcpServers" not in config:
+        config["mcpServers"] = {}
 
     if github_pat:
         # Add GitHub MCP server
@@ -828,32 +829,61 @@ async def list_github_repos(group_id: str):
         raise HTTPException(status_code=400, detail="GitHub PAT not configured")
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             headers = {
                 "Authorization": f"Bearer {pat}",
                 "Accept": "application/vnd.github.v3+json"
             }
-            
+
             # First, check user login to see if group_id is the user
             user_resp = await client.get("https://api.github.com/user", headers=headers)
             user_resp.raise_for_status()
             user = user_resp.json()
-            
+
+            all_repos = []
+
             if user.get("login") == group_id:
-                url = "https://api.github.com/user/repos?affiliation=owner&per_page=100"
+                # For the authenticated user, fetch ALL accessible repos (owner, collaborator, org member)
+                # This includes repos from all orgs the user has access to
+                page = 1
+                while True:
+                    url = f"https://api.github.com/user/repos?per_page=100&page={page}&sort=updated"
+                    repos_resp = await client.get(url, headers=headers)
+                    repos_resp.raise_for_status()
+                    repos = repos_resp.json()
+                    if not repos:
+                        break
+                    all_repos.extend(repos)
+                    if len(repos) < 100:
+                        break
+                    page += 1
+                    if page > 10:  # Safety limit: 1000 repos max
+                        break
             else:
-                url = f"https://api.github.com/orgs/{group_id}/repos?per_page=100"
-                
-            repos_resp = await client.get(url, headers=headers)
-            if repos_resp.status_code != 200:
-                # Fallback to general user repos if org failed
-                url = f"https://api.github.com/users/{group_id}/repos?per_page=100"
-                repos_resp = await client.get(url, headers=headers)
-                
-            repos_resp.raise_for_status()
-            repos = repos_resp.json()
-            
-            return [repo["full_name"] for repo in repos]
+                # For organizations, fetch org repos with pagination
+                page = 1
+                while True:
+                    url = f"https://api.github.com/orgs/{group_id}/repos?per_page=100&page={page}&sort=updated"
+                    repos_resp = await client.get(url, headers=headers)
+
+                    if repos_resp.status_code == 404:
+                        # Not an org, try as a user
+                        url = f"https://api.github.com/users/{group_id}/repos?per_page=100&page={page}&sort=updated"
+                        repos_resp = await client.get(url, headers=headers)
+
+                    repos_resp.raise_for_status()
+                    repos = repos_resp.json()
+                    if not repos:
+                        break
+                    all_repos.extend(repos)
+                    if len(repos) < 100:
+                        break
+                    page += 1
+                    if page > 10:  # Safety limit: 1000 repos max
+                        break
+
+            print(f"[github] Fetched {len(all_repos)} repos for {group_id}", flush=True)
+            return [repo["full_name"] for repo in all_repos]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch GitHub repositories: {str(e)}")
 
@@ -1704,10 +1734,10 @@ you can search for related source code to find bugs, check recent changes, and
 correlate errors with application code.
 
 Available MCP tools:
-- `search_code` - Find code patterns (errors, exceptions, config keys)
-- `get_file_contents` - Read specific source files
-- `list_commits` - Check recent changes that might have caused issues
-- `search_issues` - Find related bug reports or discussions
+- `github__search_code` - Find code patterns (errors, exceptions, config keys)
+- `github__get_file_contents` - Read specific source files
+- `github__list_commits` - Check recent changes that might have caused issues
+- `github__search_issues` - Find related bug reports or discussions
 
 Default repos to search: {repos_str}
 

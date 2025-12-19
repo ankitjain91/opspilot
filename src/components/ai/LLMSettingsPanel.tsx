@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check } from 'lucide-react';
+import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
@@ -86,13 +86,21 @@ export function LLMSettingsPanel({
     const [showGithubPat, setShowGithubPat] = useState(false);
     const [githubRepos, setGithubRepos] = useState<string[]>([]);
     const [githubConfigured, setGithubConfigured] = useState(false);
+    const [githubSaveStatus, setGithubSaveStatus] = useState<string | null>(null);
     const [githubUser, setGithubUser] = useState<string | null>(null);
     const [testingGithub, setTestingGithub] = useState(false);
     const [githubGroups, setGithubGroups] = useState<GitHubGroup[]>([]);
     const [selectedGroup, setSelectedGroup] = useState<string>('');
     const [availableRepos, setAvailableRepos] = useState<string[]>([]);
+    const [repoSearch, setRepoSearch] = useState('');
     const [loadingGroups, setLoadingGroups] = useState(false);
     const [loadingRepos, setLoadingRepos] = useState(false);
+    const [searchAllRepos, setSearchAllRepos] = useState(true); // ON by default - search all accessible repos
+
+    // Derived State
+    const filteredRepos = availableRepos.filter(repo =>
+        repo.toLowerCase().includes(repoSearch.toLowerCase())
+    );
 
     // --- ACTIONS ---
 
@@ -672,7 +680,37 @@ export function LLMSettingsPanel({
                         {/* Improved Org/Repo Selection UI */}
                         {githubConfigured && (
                             <div className="space-y-4 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-500">
-                                {/* Group Selection */}
+                                {/* Search All Repos Toggle */}
+                                <div className="flex items-center justify-between p-3 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                                    <div className="flex-1">
+                                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                                            <Search size={14} className="text-purple-400" />
+                                            Search all accessible repositories
+                                        </div>
+                                        <p className="text-[10px] text-zinc-500 mt-1">
+                                            When enabled, the AI will search across all repos your token can access.
+                                            Disable to limit scope for faster searches in large accounts.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const newValue = !searchAllRepos;
+                                            setSearchAllRepos(newValue);
+                                            if (newValue) {
+                                                // Clear selected repos when enabling "search all"
+                                                setGithubRepos([]);
+                                            }
+                                        }}
+                                        className={`relative w-11 h-6 rounded-full transition-colors ${searchAllRepos ? 'bg-purple-500' : 'bg-zinc-700'
+                                            }`}
+                                    >
+                                        <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${searchAllRepos ? 'translate-x-5' : 'translate-x-0'
+                                            }`} />
+                                    </button>
+                                </div>
+
+                                {/* Group Selection - Only show when NOT searching all repos */}
+                                {!searchAllRepos && (
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
                                         Organization / User
@@ -693,12 +731,14 @@ export function LLMSettingsPanel({
                                         </select>
                                     </div>
                                 </div>
+                                )}
 
-                                {/* Repo Selection */}
+                                {/* Repo Selection - Only show when NOT searching all repos */}
+                                {!searchAllRepos && (
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
                                         <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
-                                            Repositories to Index
+                                            Repositories to Search
                                             {loadingRepos && <Loader2 size={10} className="animate-spin text-purple-400" />}
                                         </label>
                                         <div className="flex gap-2">
@@ -738,13 +778,34 @@ export function LLMSettingsPanel({
                                     )}
 
                                     {/* Repo Search/List */}
+                                    <div className="relative mb-2">
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+                                            <Search size={12} />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            placeholder="Search repositories..."
+                                            value={repoSearch}
+                                            onChange={(e) => setRepoSearch(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl pl-8 pr-3 py-2 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 transition-all"
+                                        />
+                                        {repoSearch && (
+                                            <button
+                                                onClick={() => setRepoSearch('')}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+
                                     <div className="relative max-h-48 overflow-y-auto custom-scrollbar bg-black/40 border border-white/10 rounded-xl p-1.5 space-y-1">
-                                        {availableRepos.length === 0 && !loadingRepos ? (
+                                        {filteredRepos.length === 0 && !loadingRepos ? (
                                             <div className="py-8 text-center text-zinc-600 text-[10px]">
-                                                No repositories found for this account.
+                                                {repoSearch ? 'No repositories match your search.' : 'No repositories found for this account.'}
                                             </div>
                                         ) : (
-                                            availableRepos.map(repo => {
+                                            filteredRepos.map(repo => {
                                                 const isSelected = githubRepos.includes(repo);
                                                 return (
                                                     <button
@@ -772,9 +833,10 @@ export function LLMSettingsPanel({
                                         )}
                                     </div>
                                     <p className="text-[9px] text-zinc-500 italic mt-1 px-1">
-                                        These repositories will be indexed by the agent for deep code searches.
+                                        Select specific repositories to limit search scope and improve speed.
                                     </p>
                                 </div>
+                                )}
                             </div>
                         )}
 
