@@ -47,7 +47,9 @@ src-tauri/.fastembed_cache/
 .fastembed_cache/
 __pycache__/
 *.pyc
+*.pyc
 python/cache/
+cache/
 
 # Runtime Data
 src-tauri/cluster-info/

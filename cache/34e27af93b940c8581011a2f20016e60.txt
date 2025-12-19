@@ -1,2 +1,0 @@
-NAME           READY   STATUS             RESTARTS   AGE
-payment-svc    0/1     CrashLoopBackOff   5          2m

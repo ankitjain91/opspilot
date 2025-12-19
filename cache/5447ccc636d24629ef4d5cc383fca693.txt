@@ -1,6 +1,0 @@
-NAMESPACE     NAME                          READY   STATUS    RESTARTS   AGE
-kube-system   coredns-789d4bf8f-x7k9m       0/1     Evicted   0          2h
-kube-system   coredns-789d4bf8f-p2l4n       0/1     Evicted   0          2h
-production    api-server-6d8f9c-qw8rt       0/1     Evicted   0          1h
-production    worker-5c7b8d-mn4kl           0/1     Evicted   0          1h
-production    api-server-6d8f9c-abc123      1/1     Running   0          5m

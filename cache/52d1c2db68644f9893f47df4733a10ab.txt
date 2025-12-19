@@ -1,2 +1,0 @@
-NAME           READY   STATUS             RESTARTS   AGE
-backend-api    0/1     CrashLoopBackOff   5          2m

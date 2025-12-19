@@ -1,4 +1,0 @@
-... State: Waiting
- Reason: CrashLoopBackOff
- ... Last State: Terminated
- Reason: Error ...
