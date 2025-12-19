@@ -38,7 +38,8 @@ class CodexBackend:
         kube_context: str = None,
         temperature: float = 0.3,
         session_id: str = None,
-        conversation_history: list = None
+        conversation_history: list = None,
+        mcp_config: dict = None  # Accepted for API compatibility, but Codex doesn't support MCP
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream events from Codex CLI execution.
