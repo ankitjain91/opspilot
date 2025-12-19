@@ -700,6 +700,7 @@ def write_mcp_config(github_pat: str | None):
 class GitHubConfigRequest(BaseModel):
     pat_token: str | None = None
     default_repos: list[str] = []
+    search_all_repos: bool = True  # When True, search all accessible repos instead of specific ones
 
 
 @app.get("/github-config")
@@ -708,7 +709,8 @@ async def get_github_config():
     config = load_opspilot_config()
     return {
         "configured": bool(config.get("github_pat")),
-        "default_repos": config.get("github_repos", [])
+        "default_repos": config.get("github_repos", []),
+        "search_all_repos": config.get("github_search_all_repos", True)  # Default to True
     }
 
 
@@ -724,6 +726,7 @@ async def set_github_config(request: GitHubConfigRequest):
         config.pop("github_pat", None)
 
     config["github_repos"] = request.default_repos
+    config["github_search_all_repos"] = request.search_all_repos
     save_opspilot_config(config)
 
     # Write MCP config for Claude Code

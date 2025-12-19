@@ -96,6 +96,7 @@ export function LLMSettingsPanel({
     const [loadingGroups, setLoadingGroups] = useState(false);
     const [loadingRepos, setLoadingRepos] = useState(false);
     const [searchAllRepos, setSearchAllRepos] = useState(true); // ON by default - search all accessible repos
+    const [githubConfigLoaded, setGithubConfigLoaded] = useState(false); // Track if initial load is complete
 
     // Derived State
     const filteredRepos = availableRepos.filter(repo =>
@@ -283,6 +284,8 @@ export function LLMSettingsPanel({
                 const data = await resp.json();
                 setGithubConfigured(data.configured);
                 setGithubRepos(data.default_repos || []);
+                setSearchAllRepos(data.search_all_repos !== false);  // Default to true if not set
+                setGithubConfigLoaded(true);  // Mark as loaded to enable auto-save
                 if (data.configured) {
                     testGithubConnection();
                 }
@@ -299,7 +302,8 @@ export function LLMSettingsPanel({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     pat_token: githubPat || null,
-                    default_repos: githubRepos
+                    default_repos: githubRepos,
+                    search_all_repos: searchAllRepos
                 })
             });
             if (resp.ok) {
@@ -393,6 +397,28 @@ export function LLMSettingsPanel({
     useEffect(() => {
         if (embeddingStatus?.available) checkKbStatus();
     }, [embeddingStatus?.available]);
+
+    // Auto-save GitHub config when repos or searchAllRepos changes (after initial load)
+    useEffect(() => {
+        if (!githubConfigLoaded || !githubConfigured) return;  // Don't save until config is loaded
+
+        const saveTimeout = setTimeout(async () => {
+            try {
+                await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        default_repos: githubRepos,
+                        search_all_repos: searchAllRepos
+                    })
+                });
+            } catch (e) {
+                console.error("Failed to auto-save GitHub config:", e);
+            }
+        }, 500);  // Debounce saves by 500ms
+
+        return () => clearTimeout(saveTimeout);
+    }, [githubRepos, searchAllRepos, githubConfigLoaded, githubConfigured]);
 
     // Auto-detect coding agent provider
     useEffect(() => {
@@ -700,6 +726,7 @@ export function LLMSettingsPanel({
                                                 // Clear selected repos when enabling "search all"
                                                 setGithubRepos([]);
                                             }
+                                            // Auto-save is handled by useEffect
                                         }}
                                         className={`relative w-11 h-6 rounded-full transition-colors ${searchAllRepos ? 'bg-purple-500' : 'bg-zinc-700'
                                             }`}
