@@ -310,8 +310,12 @@ Example for respond:
             cmd.extend(["--resume", self.session_id])
 
         # Append system prompt if provided
+        strict_read_only = "\n\nCRITICAL SECURITY RULE: You are in STRICT READ-ONLY mode. You are FORBIDDEN from running any 'kubectl' commands that modify state (apply, delete, patch, edit, scale, etc.). You may only use 'get', 'describe', 'logs', 'top', and other non-mutating commands. ANY attempt to mutate will be BLOCKED and logged.\n\nEFFICIENCY RULE: Optimize for MINIMUM TOKEN USAGE. Combine commands (e.g., using pipes, xargs, or complex shell strings) to get the required information in as few turns as possible. Focus only on the end result."
         if system_prompt:
+            system_prompt += strict_read_only
             cmd.extend(["--append-system-prompt", system_prompt])
+        else:
+            cmd.extend(["--append-system-prompt", strict_read_only])
 
         # Build prompt with conversation history for context
         full_prompt = ""

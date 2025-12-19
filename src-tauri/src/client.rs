@@ -59,8 +59,8 @@ pub async fn create_client(state: State<'_, AppState>) -> Result<Client, String>
 
     // Set reasonable timeouts for better responsiveness
     config.connect_timeout = Some(Duration::from_secs(10));
-    config.read_timeout = Some(Duration::from_secs(30));
-    config.write_timeout = Some(Duration::from_secs(30));
+    config.read_timeout = Some(Duration::from_secs(300));
+    config.write_timeout = Some(Duration::from_secs(300));
 
 
     // For vcluster contexts (local proxy), we may need to accept self-signed certs

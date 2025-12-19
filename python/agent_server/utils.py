@@ -17,6 +17,16 @@ def is_safe_command(cmd: str) -> tuple[bool, str]:
     """
     lower = cmd.lower().strip()
 
+    # Detect internal markers
+    if lower.startswith('__python_exec__:'):
+        code = lower.split(':', 1)[1]
+        if any(verb in code for verb in DANGEROUS_VERBS + ['patch', 'delete', 'create', 'update', 'replace']):
+             return False, "MUTATING_PYTHON"
+        return True, "SAFE"
+
+    if lower.startswith('__git_commit__:'):
+        return False, "MUTATING_GIT"
+
     # Azure CLI command detection and validation
     if lower.startswith('az '):
         # Check if it's a whitelisted safe command (starts with any safe prefix)
@@ -39,9 +49,9 @@ def is_safe_command(cmd: str) -> tuple[bool, str]:
     if any(re.search(rf'\b{verb}\b', lower) for verb in DANGEROUS_VERBS):
         return False, "MUTATING"
 
-    # Check for remediation verbs (allowed via tools but require approval)
+    # Check for remediation verbs (now strictly blocked)
     if any(re.search(rf'\b{verb}\b', lower) for verb in REMEDIATION_VERBS):
-        return False, "REMEDIATION"
+        return False, "MUTATING" # Changed from REMEDIATION to MUTATING
 
     if any(verb in lower for verb in LARGE_OUTPUT_VERBS):
         return False, "LARGE_OUTPUT"

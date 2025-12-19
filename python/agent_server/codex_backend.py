@@ -61,7 +61,8 @@ class CodexBackend:
                 history_str += f"\n{role.upper()}: {content}"
         
         # Construct full prompt with system prompt and history
-        full_prompt = ""
+        strict_read_only = "CRITICAL SECURITY RULE: You are in STRICT READ-ONLY mode. You are FORBIDDEN from running any 'kubectl' commands that modify state (apply, delete, patch, edit, scale, etc.).\n\nEFFICIENCY RULE: Optimize for MINIMUM TOKEN USAGE. Combine commands (e.g., using pipes, xargs, or complex shell strings) to get the required information in as few turns as possible. Focus only on the end result.\n\n"
+        full_prompt = strict_read_only
         if system_prompt:
              full_prompt += f"{system_prompt}\n\n"
         

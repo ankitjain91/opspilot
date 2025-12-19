@@ -86,8 +86,8 @@ export function ConfigMapDetails({ resource, fullObject }: ConfigMapDetailsProps
                 namespace: resource.namespace,
                 kind: resource.kind,
                 name: resource.name,
-                api_version: apiVersion,
-                patch_data: patchPayload
+                apiVersion,
+                patchData: patchPayload
             });
 
             setOriginalData({ ...data });

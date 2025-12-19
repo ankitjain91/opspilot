@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Virtuoso } from 'react-virtuoso';
 import {
     Play, Pause, Eraser, ArrowDown, ArrowUp, Search, Loader2, Sparkles, FileText,
     Download, Copy, Check, WrapText, X
@@ -118,9 +119,11 @@ function LogMinimap({ logs, scanResults, onScrollTo, searchMatches, currentMatch
 interface LogsTabProps {
     resource: K8sObject;
     fullObject: any;
+    autoAnalyzeContainer?: string;
+    onAnalysisStarted?: () => void;
 }
 
-export function LogsTab({ resource, fullObject }: LogsTabProps) {
+export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysisStarted }: LogsTabProps) {
     const [container, setContainer] = useState<string>('');
     const [logs, setLogs] = useState<string[]>([]);
     const [isStreaming, setIsStreaming] = useState(true);
@@ -130,6 +133,7 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     const [lineWrap, setLineWrap] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [analysisStatus, setAnalysisStatus] = useState<string>("");
+    const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [scanResults, setScanResults] = useState<LogScanResult[]>([]);
 
@@ -142,8 +146,12 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     const { showToast } = useToast();
     const logsEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const virtuosoRef = useRef<any>(null);
     const unlistenRef = useRef<(() => void) | null>(null);
     const activeSessionId = useRef<string | null>(null);
+    const activePodContainer = useRef<string>("");
+    const logBufferRef = useRef<string[]>([]);
+    const lastUpdateRef = useRef<number>(0);
 
     // Extract containers
     const spec = fullObject?.spec || {};
@@ -155,12 +163,16 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     // Initial Container Selection
     useEffect(() => {
         if (allContainers.length > 0) {
-            const isValid = allContainers.some((c: any) => c.name === container);
-            if (!container || !isValid) {
-                setContainer(allContainers[0].name);
+            if (autoAnalyzeContainer) {
+                setContainer(autoAnalyzeContainer);
+            } else {
+                const isValid = allContainers.some((c: any) => c.name === container);
+                if (!container || !isValid) {
+                    setContainer(allContainers[0].name);
+                }
             }
         }
-    }, [allContainers, container]);
+    }, [allContainers, container, autoAnalyzeContainer]);
 
     // Local Scan & Search Effect
     useEffect(() => {
@@ -204,13 +216,38 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
         return () => clearTimeout(timer);
     }, [logs.length, searchTerm]);
 
-    // Scroll Logic (Implicit Follow)
+    // Auto-analysis trigger
     useEffect(() => {
-        // Auto-scroll only if we are at the bottom AND not currently reviewing a search match
-        if (autoScroll && logsEndRef.current && currentMatchIndex === -1) {
-            logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+        if (autoAnalyzeContainer && container === autoAnalyzeContainer && logs.length > 5 && !analyzing && !lastAnalysis) {
+            console.log("[LogsTab] Auto-triggering AI analysis for", container);
+            onAnalysisStarted?.();
+            analyzeLogs();
         }
-    }, [logs.length, autoScroll, currentMatchIndex]);
+    }, [autoAnalyzeContainer, container, logs.length, analyzing, lastAnalysis]);
+
+    // Unified Batch Processing Effect
+    useEffect(() => {
+        console.log("[LogsTab] Batch Flush interval started");
+        const interval = setInterval(() => {
+            if (logBufferRef.current.length === 0) return;
+
+            // Atomically collect and clear buffer
+            const newLines = logBufferRef.current.splice(0, logBufferRef.current.length);
+            console.log(`[LogsTab] Batch Flush: ${newLines.length} lines appended to state.`);
+
+            setLogs(prev => {
+                const combined = [...prev, ...newLines];
+                // Keep history sane (10,000 lines for debugging)
+                if (combined.length > 10000) return combined.slice(-8000);
+                return combined;
+            });
+        }, 100);
+
+        return () => {
+            console.log("[LogsTab] Batch Flush interval cleared");
+            clearInterval(interval);
+        };
+    }, []); // Run for the lifetime of the component
 
     const scrollToLine = useCallback((index: number) => {
         setAutoScroll(false);
@@ -327,6 +364,7 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
             // Add the analysis to logs display
             if (analysisText.length > 30) {
                 setLogs(prev => [...prev, analysisText]);
+                setLastAnalysis(analysisText.replace("\n--- 🤖 AI ANALYSIS ---\n\n", ""));
                 showToast("AI analysis complete", "success");
             } else {
                 showToast("Analysis returned empty result", "error");
@@ -358,6 +396,12 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
 
     // --- Stream Logic ---
     const startStream = async () => {
+        const podId = `${resource.namespace}/${resource.name}/${container}`;
+        if (activePodContainer.current === podId && isStreaming) {
+            console.log(`[LogsTab] Stream already active for ${podId}, skipping restart.`);
+            return;
+        }
+
         const isValid = allContainers.some((c: any) => c.name === container);
         if (!container || !isValid) {
             if (allContainers.length > 0) {
@@ -369,12 +413,21 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
             }
         }
 
-        // Generate unique ID for this stream attempt
+        if (activePodContainer.current !== podId) {
+            setLogs([]);
+        }
+
+        // Capture old SID to stop it after starting the new one (avoids race)
+        const oldSessionId = activeSessionId.current;
         const newSessionId = `logs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        activePodContainer.current = podId;
         activeSessionId.current = newSessionId;
+        console.log(`[LogsTab] Starting stream ${newSessionId} for ${container}`);
 
         setIsStreaming(true);
         try {
+            console.log(`[LogsTab] Invoking start_log_stream for ${resource.name}...`);
             await invoke("start_log_stream", {
                 namespace: resource.namespace,
                 name: resource.name,
@@ -382,19 +435,40 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
                 sessionId: newSessionId,
                 tailLines: 500
             });
+            console.log(`[LogsTab] start_log_stream INVOKE success for ${newSessionId}`);
+
+            // Stop the previous session IF it's different
+            if (oldSessionId && oldSessionId !== newSessionId) {
+                console.log(`[LogsTab] Stopping old session ${oldSessionId}`);
+                invoke("stop_log_stream", { sessionId: oldSessionId }).catch(() => { });
+            }
+
             const unlisten = await listen<string>(`log_stream:${newSessionId}`, (event) => {
-                // Ensure we only process events for valid active session
                 if (activeSessionId.current === newSessionId) {
-                    setLogs(prev => {
-                        if (prev.length > 5000) return [...prev.slice(-4000), event.payload];
-                        return [...prev, event.payload];
-                    });
-                    setLastPacketTime(new Date());
+                    const lines = event.payload.split('\n');
+                    if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+                    if (lines.length > 0) {
+                        console.log(`[LogsTab] IPC Event received: ${lines.length} lines`);
+                        logBufferRef.current.push(...lines);
+                        setLastPacketTime(new Date());
+                    }
                 }
             });
             const unlistenEnd = await listen(`log_stream_end:${newSessionId}`, () => {
+                console.log(`[LogsTab] Received log_stream_end for ${newSessionId}`);
                 if (activeSessionId.current === newSessionId) {
                     setIsStreaming(false);
+                    // Automatic retry if target hasn't changed
+                    const currentId = `${resource.namespace}/${resource.name}/${container}`;
+                    if (activePodContainer.current === currentId) {
+                        console.log("[LogsTab] Unexpected end, attempting auto-reconnect in 2s...");
+                        setTimeout(() => {
+                            if (activePodContainer.current === currentId && !isStreaming) {
+                                startStream();
+                            }
+                        }, 2000);
+                    }
                 }
             });
             unlistenRef.current = () => { unlisten(); unlistenEnd(); };
@@ -418,10 +492,12 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
     };
 
     useEffect(() => {
-        setLogs([]);
         if (container) startStream();
-        return () => { stopStream(); };
-    }, [container, resource.name]);
+        return () => {
+            // Full cleanup on unmount
+            stopStream();
+        };
+    }, [container, resource.name, resource.namespace]);
 
     // --- Rendering Helpers ---
 
@@ -566,9 +642,12 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
                 <span className={`font-medium uppercase tracking-wider hidden sm:inline ${isStreaming ? 'text-green-400' : 'text-zinc-500'}`}>
                     {isStreaming ? 'Live' : 'Disconnected'}
                 </span>
+                {!isStreaming && activePodContainer.current && (
+                    <span className="text-yellow-500 animate-pulse ml-2 text-[10px]">Reconnecting...</span>
+                )}
                 {lastPacketTime && (
-                    <span className="text-zinc-600 font-mono hidden md:inline ml-2 truncate" title="Time of last received log line">
-                        Rx: {lastPacketTime.toLocaleTimeString()}
+                    <span className="text-zinc-600 font-mono hidden md:inline ml-2 truncate" title={`Time of last received log line (Session: ${activeSessionId.current})`}>
+                        Rx: {lastPacketTime.toLocaleTimeString()} [{activeSessionId.current?.slice(-4)}]
                     </span>
                 )}
 
@@ -688,54 +767,82 @@ export function LogsTab({ resource, fullObject }: LogsTabProps) {
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 overflow-hidden flex relative">
-                <div
-                    ref={scrollContainerRef}
-                    className="flex-1 overflow-auto bg-[#1e1e1e] p-2 font-mono scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700"
-                    style={{ fontSize: `${fontSize}px` }}
-                    onScroll={(e) => {
-                        const t = e.currentTarget;
-                        // Implicit Follow Logic
-                        const distanceFromBottom = t.scrollHeight - t.scrollTop - t.clientHeight;
-                        if (distanceFromBottom > 50) {
-                            if (autoScroll) setAutoScroll(false);
-                        } else {
-                            if (!autoScroll) setAutoScroll(true);
-                        }
-                    }}
-                >
-                    {logs.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2">
-                            {isStreaming ? <Loader2 size={24} className="animate-spin opacity-50" /> : <FileText size={24} className="opacity-20" />}
-                            <span className="text-xs">{isStreaming ? `Waiting for logs from ${container}...` : 'No logs to display.'}</span>
+            <div className="flex-1 overflow-hidden flex flex-col relative">
+                {/* AI Summary Banner */}
+                {lastAnalysis && (
+                    <div className="m-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl animate-in slide-in-from-top-2 duration-300 relative group overflow-hidden shrink-0">
+                        <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => setLastAnalysis(null)}
+                                className="p-1 hover:bg-white/10 rounded-md text-zinc-400 hover:text-white transition-colors"
+                                title="Clear Analysis"
+                            >
+                                <X size={14} />
+                            </button>
                         </div>
-                    ) : (
-                        <div className={lineWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}>
-                            {logs.map((line, i) => renderLogLine(line, i))}
-                            <div ref={logsEndRef} />
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400 shrink-0">
+                                <Sparkles size={18} />
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center gap-2">
+                                    AI Troubleshooting Summary
+                                    <span className="text-[10px] lowercase font-normal text-zinc-500 bg-white/5 px-2 py-0.5 rounded-full">Claude AI</span>
+                                </h3>
+                                <div className="prose prose-invert prose-xs max-w-none prose-p:leading-relaxed prose-li:my-0.5 text-zinc-300">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{lastAnalysis}</ReactMarkdown>
+                                </div>
+                            </div>
                         </div>
-                    )}
-                </div>
-
-                {/* Floating Resume Button */}
-                {!autoScroll && logs.length > 0 && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                        <button
-                            onClick={() => {
-                                setAutoScroll(true);
-                                if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-full shadow-xl shadow-black/50 transition-all transform hover:scale-105 border border-white/10"
-                        >
-                            <ArrowDown size={14} className="animate-bounce" />
-                            <span>Resume Scroll</span>
-                        </button>
                     </div>
                 )}
 
-                {/* Minimap Sidebar */}
-                <div className="w-3 border-l border-white/5 bg-[#16161a] hidden sm:block">
-                    <LogMinimap logs={logs} scanResults={scanResults} onScrollTo={scrollToLine} searchMatches={searchMatches} currentMatchIndex={currentMatchIndex} />
+                <div className="flex-1 flex relative overflow-hidden">
+                    <div
+                        ref={scrollContainerRef}
+                        className="flex-1 bg-[#1e1e1e] font-mono scrollbar-thin scrollbar-track-transparent scrollbar-thumb-zinc-700 overflow-hidden"
+                        style={{ fontSize: `${fontSize}px` }}
+                    >
+                        {logs.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-2">
+                                {isStreaming ? <Loader2 size={24} className="animate-spin opacity-50" /> : <FileText size={24} className="opacity-20" />}
+                                <span className="text-xs">{isStreaming ? `Waiting for logs from ${container}...` : 'No logs to display.'}</span>
+                            </div>
+                        ) : (
+                            <Virtuoso
+                                ref={virtuosoRef}
+                                style={{ height: '100%' }}
+                                data={logs}
+                                followOutput={autoScroll ? 'smooth' : 'auto'}
+                                atBottomStateChange={(bottom: boolean) => {
+                                    setAutoScroll(bottom);
+                                }}
+                                itemContent={(index: number, line: string) => renderLogLine(line, index)}
+                                className={lineWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}
+                            />
+                        )}
+                    </div>
+
+                    {/* Floating Resume Button */}
+                    {!autoScroll && logs.length > 0 && (
+                        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                            <button
+                                onClick={() => {
+                                    setAutoScroll(true);
+                                    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-full shadow-xl shadow-black/50 transition-all transform hover:scale-105 border border-white/10"
+                            >
+                                <ArrowDown size={14} className="animate-bounce" />
+                                <span>Resume Scroll</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Minimap Sidebar */}
+                    <div className="w-3 border-l border-white/5 bg-[#16161a] hidden sm:block">
+                        <LogMinimap logs={logs} scanResults={scanResults} onScrollTo={scrollToLine} searchMatches={searchMatches} currentMatchIndex={currentMatchIndex} />
+                    </div>
                 </div>
             </div>
         </div>

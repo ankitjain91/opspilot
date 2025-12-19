@@ -10,18 +10,15 @@ from .prompts_examples import SUPERVISOR_EXAMPLES_FULL
 # CONFIGURATION
 # =============================================================================
 
-# Dangerous write-verbs for kubectl (Strictly Blocked by default)
-# Dangerous write-verbs for kubectl (Strictly Blocked by default)
+# Dangerous write-verbs for kubectl (Strictly Blocked)
 DANGEROUS_VERBS = [
-    'apply', 'edit', 'replace',
+    'apply', 'edit', 'replace', 'patch',
     'create', 'cordon', 'drain', 'taint', 'annotate',
-    'label', 'cp'
+    'label', 'cp', 'delete', 'rollout', 'scale', 'set'
 ]
 
-# Remediation verbs (Allowed with explicit tool usage + Human Approval)
-REMEDIATION_VERBS = [
-    'delete', 'rollout', 'scale', 'set'
-]
+# Remediation verbs (Empty list to enforce strict read-only)
+REMEDIATION_VERBS = []
 
 # Azure CLI mutation verbs (ALWAYS BLOCKED - only read operations allowed)
 AZURE_MUTATION_VERBS = [

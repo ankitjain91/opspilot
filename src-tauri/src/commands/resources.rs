@@ -253,6 +253,7 @@ pub async fn start_log_stream(
                         Ok(0) => break,
                         Ok(n) => {
                             let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                            println!("[Backend] Received log chunk: {} bytes at {:?}", n, std::time::Instant::now());
                             let _ = app.emit(&format!("log_stream:{}", sid), data);
                         }
                         Err(_) => break,

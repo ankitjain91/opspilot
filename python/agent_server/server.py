@@ -21,7 +21,7 @@ import httpx
 import asyncio
 from typing import Literal, Any
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -770,8 +770,92 @@ async def test_github_connection():
         return {
             "connected": False,
             "user": None,
-            "error": f"Connection failed: {str(e)}"
+            "error": str(e)
         }
+
+
+@app.get("/github/orgs")
+async def list_github_groups():
+    """List GitHub organizations and the user's personal account."""
+    config = load_opspilot_config()
+    pat = config.get("github_pat")
+    if not pat:
+        raise HTTPException(status_code=400, detail="GitHub PAT not configured")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            headers = {
+                "Authorization": f"Bearer {pat}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # Fetch user info
+            user_resp = await client.get("https://api.github.com/user", headers=headers)
+            user_resp.raise_for_status()
+            user = user_resp.json()
+            
+            groups = [{
+                "id": user["login"],
+                "name": f"{user['login']} (Personal)",
+                "type": "user",
+                "avatar_url": user.get("avatar_url")
+            }]
+            
+            # Fetch organizations
+            orgs_resp = await client.get("https://api.github.com/user/orgs", headers=headers)
+            orgs_resp.raise_for_status()
+            orgs = orgs_resp.json()
+            
+            for org in orgs:
+                groups.append({
+                    "id": org["login"],
+                    "name": org.get("name", org["login"]),
+                    "type": "org",
+                    "avatar_url": org.get("avatar_url")
+                })
+                
+            return groups
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch GitHub organizations: {str(e)}")
+
+
+@app.get("/github/repos/{group_id}")
+async def list_github_repos(group_id: str):
+    """List repositories for a GitHub user or organization."""
+    config = load_opspilot_config()
+    pat = config.get("github_pat")
+    if not pat:
+        raise HTTPException(status_code=400, detail="GitHub PAT not configured")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            headers = {
+                "Authorization": f"Bearer {pat}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # First, check user login to see if group_id is the user
+            user_resp = await client.get("https://api.github.com/user", headers=headers)
+            user_resp.raise_for_status()
+            user = user_resp.json()
+            
+            if user.get("login") == group_id:
+                url = "https://api.github.com/user/repos?affiliation=owner&per_page=100"
+            else:
+                url = f"https://api.github.com/orgs/{group_id}/repos?per_page=100"
+                
+            repos_resp = await client.get(url, headers=headers)
+            if repos_resp.status_code != 200:
+                # Fallback to general user repos if org failed
+                url = f"https://api.github.com/users/{group_id}/repos?per_page=100"
+                repos_resp = await client.get(url, headers=headers)
+                
+            repos_resp.raise_for_status()
+            repos = repos_resp.json()
+            
+            return [repo["full_name"] for repo in repos]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch GitHub repositories: {str(e)}")
 
 
 class AgentRequest(BaseModel):
@@ -1924,36 +2008,39 @@ async def analyze_logs(request: LogAnalysisRequest):
     async def event_generator():
         try:
             # Build a focused log analysis prompt
-            log_analysis_prompt = f"""Analyze these Kubernetes pod logs and provide insights.
+            log_analysis_prompt = f"""Analyze these Kubernetes pod logs and provide a high-level troubleshooting summary.
 
 ## Context
 - **Pod:** {request.pod_name}
 - **Container:** {request.container_name}
 - **Namespace:** {request.namespace}
 
-## Logs (last lines)
+## Logs (last 200 lines)
 ```
-{request.logs[:15000]}
+{request.logs[:20000]}
 ```
 
 ## Your Task
-1. **Identify Issues**: Find errors, warnings, exceptions, crashes, or unusual patterns
-2. **Root Cause**: If there are errors, explain the likely root cause
-3. **Health Assessment**: Is this pod healthy? Any concerning patterns?
-4. **Recommendations**: What should be done to fix any issues?
+Provide a concise, expert analysis for a DevOps engineer.
+1. **The Lead**: What is the most critical thing happening right now? (e.g., "The pod is crashing due to a NullPointerException in the auth service")
+2. **Key Evidence**: Highlight 2-3 specific log lines or patterns that prove this.
+3. **Health Assessment**: Is this an isolated crash, a configuration error, or a systemic issue?
+4. **Resolution Path**: Provide exact steps or commands to fix the issue.
 
-Be concise and actionable. Format your response in markdown with clear sections."""
+Be authoritative and technical. Use markdown with bold highlights for critical terms."""
 
-            log_analysis_system = """You are a Kubernetes log analysis expert. Analyze the provided logs and give clear, actionable insights.
+            log_analysis_system = """You are a Principal SRE and Kubernetes troubleshooting expert. 
+Your goal is to provide high-density, actionable insights from raw container logs.
 
 Focus on:
-- Error messages and stack traces
-- Warning patterns that indicate problems
-- Connection issues, timeouts, crashes
-- Resource problems (OOM, disk, CPU)
-- Application-specific errors
+- Startup failures (SIGTERM, SIGKILL, Exit Codes)
+- Application stack traces and unhandled exceptions
+- Connectivity issues (RDS, Redis, External APIs)
+- Probing failures (Readiness/Liveness timeout/404)
+- Resource exhaustion indicators (OOM, slow I/O)
 
-Be direct and helpful. Don't just list what you see - explain what it means and what to do about it."""
+Avoid fluff. Don't say "I've analyzed the logs." Instead, start directly with the findings.
+Use a professional, expert tone."""
 
             yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 Analyzing logs...'})}\n\n"
 

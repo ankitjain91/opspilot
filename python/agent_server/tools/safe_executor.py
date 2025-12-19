@@ -39,14 +39,9 @@ class SafeExecutor:
         if kube_context and not isinstance(tool, (ShellCommand, ListDir, ReadFile, GrepSearch, FindFile)):
             base += f" --context={shlex.quote(kube_context)}"
 
-        # Allow dangerous verbs for remediation, but ONLY via specific tools
-        # KubectlGet/Describe/Logs are inherently safe read-only tools
-        # For edits, we would need a new KubectlApply/Delete tool.
-        # Currently, the Agent only uses GET/DESCRIBE/LOGS/EVENTS/TOP/API-RESOURCES
-        # so this build_command function implicitly blocks writes by not having handler blocks for them.
-        
-        # To enable remediation in the future, we would add:
-        # elif isinstance(tool, KubectlDelete): ...
+        # Mutation tools are strictly BLOCKED in Read-Only mode
+        if isinstance(tool, (KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, GitCommit)):
+            raise ValueError(f"CRITICAL: Mutation tool {type(tool).__name__} is strictly forbidden in Read-Only mode.")
 
         if isinstance(tool, KubectlGet):
             cmd = [base, "get", shlex.quote(tool.resource)]

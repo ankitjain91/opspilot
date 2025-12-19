@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import { ToolMessage } from './chat/ToolMessage';
 import { ThinkingMessage } from './chat/ThinkingMessage';
 import { InvestigationTimeline } from './chat/InvestigationTimeline';
+import { AgentStatusHeader } from './chat/AgentStatusHeader';
 import { StreamingProgressCard, AgentPhase, CommandExecution } from './chat/StreamingProgressCard';
 import remarkGfm from 'remark-gfm';
 import { LLMConfig, LLMStatus, ClusterHealthSummary } from '../../types/ai';
@@ -239,7 +240,7 @@ export function ClusterChatPanel({
     const [isCancelling, setIsCancelling] = useState(false);
 
     // Ref to hold sendMessage for use in callbacks defined before it
-    const sendMessageRef = useRef<(msg: string) => void>(() => { });
+    const sendMessageRef = useRef<(msg: string, context?: string) => void>(() => { });
 
     // Investigation chain-of-thought state (visible to user)
     const [investigationProgress, setInvestigationProgress] = useState<{
@@ -1278,8 +1279,10 @@ export function ClusterChatPanel({
             {/* Messages */}
             <div
                 ref={messagesContainerRef}
-                className={`relative flex-1 min-h-0 scroll-smooth overflow-y-auto p-4 space-y-4`}
+                className={`flex-1 min-h-0 scroll-smooth overflow-y-auto px-6 py-4 space-y-6 relative z-10`}
             >
+                {/* Background decorative elements that scroll with content */}
+                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-violet-500/5 to-transparent pointer-events-none" />
                 {/* Loading state while checking LLM */}
                 {checkingLLM && chatHistory.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-24 px-6">
@@ -1496,15 +1499,16 @@ export function ClusterChatPanel({
                             <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 {/* User Message */}
                                 {group.user && (
-                                    <div className="relative pl-6 pb-4">
-                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20" />
-                                        <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
+                                    <div className="relative pl-10 pb-6 group/user">
+                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-[0_0_12px_rgba(139,92,246,0.5)] z-10" />
+                                        <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/30 to-transparent" />
+
                                         <div className="ml-2">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Task</span>
+                                            <div className="flex items-center gap-2 mb-1.5">
+                                                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em]">Instruction</span>
                                             </div>
-                                            <div className="bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-lg px-3 py-2 border border-violet-500/30">
-                                                <p className="text-sm text-white">{group.user.content}</p>
+                                            <div className="inline-block max-w-[90%] bg-white/[0.03] border border-white/10 rounded-2xl px-5 py-3.5 backdrop-blur-sm shadow-xl hover:bg-white/[0.05] transition-all duration-300">
+                                                <p className="text-[15px] text-zinc-100 font-medium leading-relaxed">{group.user.content}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1524,36 +1528,45 @@ export function ClusterChatPanel({
 
                                 {/* Final Answer */}
                                 {group.answer && (
-                                    <div className="relative pl-6 pb-4">
-                                        <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
+                                    <div className="relative pl-10 pb-6 group/answer">
+                                        <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)] z-10" />
+
                                         <div className="ml-2">
                                             <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wider">Answer</span>
-                                                <Sparkles size={10} className="text-emerald-400" />
+                                                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-[0.2em]">Resolution</span>
+                                                <Sparkles size={12} className="text-emerald-400 animate-pulse" />
                                             </div>
-                                            <div className="bg-[#0d1117] rounded-lg border border-[#21262d] overflow-hidden">
-                                                <div className="px-4 py-3 prose prose-invert prose-sm max-w-none">
+                                            <div className="bg-[#0d1117] rounded-2xl border border-white/5 overflow-hidden shadow-2xl relative">
+                                                {/* Decorative top border */}
+                                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500/0 via-emerald-500/30 to-emerald-500/0" />
+
+                                                <div className="px-5 py-4 prose prose-invert prose-sm max-w-none">
                                                     <ReactMarkdown
                                                         remarkPlugins={[remarkGfm]}
                                                         components={{
-                                                            p: ({ children }) => <p className="text-[13px] text-zinc-300 my-1.5 leading-relaxed">{children}</p>,
-                                                            strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                                                            em: ({ children }) => <em className="text-zinc-400 not-italic">{children}</em>,
-                                                            code: ({ children }) => <code className="text-[11px] bg-black/40 px-1.5 py-0.5 rounded text-cyan-300 font-mono">{children}</code>,
-                                                            pre: ({ children }) => <pre className="text-[11px] bg-black/40 p-2.5 rounded-lg overflow-x-auto my-2 font-mono">{children}</pre>,
-                                                            ul: ({ children }) => <ul className="text-[13px] list-none ml-0 my-1.5 space-y-1">{children}</ul>,
-                                                            ol: ({ children }) => <ol className="text-[13px] list-decimal ml-4 my-1.5 space-y-1">{children}</ol>,
-                                                            li: ({ children }) => <li className="text-zinc-300 before:content-['→'] before:text-emerald-500 before:mr-2 before:font-bold">{children}</li>,
-                                                            h1: ({ children }) => <h1 className="text-sm font-bold text-white mt-4 mb-2 flex items-center gap-2 border-b border-zinc-700 pb-2">{children}</h1>,
-                                                            h2: ({ children }) => <h2 className="text-sm font-bold text-emerald-300 mt-4 mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{children}</h2>,
-                                                            h3: ({ children }) => <h3 className="text-sm font-semibold text-cyan-300 mt-3 mb-1.5">{children}</h3>,
-                                                            blockquote: ({ children }) => <blockquote className="border-l-2 border-amber-500 pl-3 my-2 text-amber-200/80 italic">{children}</blockquote>,
+                                                            p: ({ children }) => <p className="text-[14px] text-zinc-300 my-3 leading-relaxed opacity-90">{children}</p>,
+                                                            strong: ({ children }) => <strong className="text-white font-bold tracking-tight">{children}</strong>,
+                                                            em: ({ children }) => <em className="text-zinc-400 italic font-medium">{children}</em>,
+                                                            code: ({ children }) => <code className="text-[12px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono shadow-inner">{children}</code>,
+                                                            pre: ({ children }) => <pre className="text-[12px] bg-black/60 p-4 rounded-xl overflow-x-auto my-4 border border-white/5 shadow-inner font-mono leading-relaxed">{children}</pre>,
+                                                            ul: ({ children }) => <ul className="text-[14px] list-none ml-0 my-3 space-y-2.5">{children}</ul>,
+                                                            ol: ({ children }) => <ol className="text-[14px] list-decimal ml-5 my-3 space-y-2.5 text-zinc-400">{children}</ol>,
+                                                            li: ({ children }) => (
+                                                                <li className="text-zinc-300 flex items-start group/li transition-all duration-300">
+                                                                    <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-500/40 group-hover/li:bg-emerald-500 mt-2 mr-3 transition-colors shadow-sm" />
+                                                                    <span>{children}</span>
+                                                                </li>
+                                                            ),
+                                                            h1: ({ children }) => <h1 className="text-lg font-bold text-white mt-6 mb-4 flex items-center gap-3 border-b border-white/10 pb-3">{children}</h1>,
+                                                            h2: ({ children }) => <h2 className="text-base font-bold text-emerald-300 mt-6 mb-3 flex items-center gap-2.5"><span className="w-2 h-2 rounded bg-emerald-400" />{children}</h2>,
+                                                            h3: ({ children }) => <h3 className="text-sm font-bold text-zinc-200 mt-5 mb-2.5 uppercase tracking-widest">{children}</h3>,
+                                                            blockquote: ({ children }) => <blockquote className="border-l-4 border-violet-500/30 bg-violet-500/5 pl-4 py-2 pr-2 my-4 italic text-zinc-400 rounded-r-lg">{children}</blockquote>,
                                                         }}
                                                     >
                                                         {fixMarkdownHeaders(group.answer.content)}
                                                     </ReactMarkdown>
                                                     {group.answer.isStreaming && group.answer.content && (
-                                                        <span className="inline-block w-1.5 h-4 bg-emerald-400 animate-pulse ml-0.5" />
+                                                        <span className="inline-block w-2 h-5 bg-emerald-400 animate-pulse ml-1 align-middle" />
                                                     )}
                                                 </div>
                                             </div>
@@ -1568,31 +1581,38 @@ export function ClusterChatPanel({
                 {/* Loading State with Cancel Button */}
                 {
                     llmLoading && (
-                        <div className="relative pl-6 pb-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="relative pl-10 pb-6 animate-in fade-in slide-in-from-bottom-3 duration-500">
                             {/* Timeline dot - pulsing */}
-                            <div className="absolute left-0 top-1 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20 animate-pulse" />
-                            <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/50 to-transparent" />
+                            <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-violet-600 shadow-[0_0_12px_rgba(124,58,237,0.5)] animate-pulse z-10" />
+                            <div className="absolute left-[7px] top-6 bottom-0 w-px bg-gradient-to-b from-violet-500/20 to-transparent" />
 
                             <div className="ml-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-medium text-violet-400 uppercase tracking-wider">Processing</span>
-                                    <div className="flex gap-1">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                                    </div>
-                                    {/* Cancel button */}
+                                <div className="flex items-center gap-3 mb-4">
+                                    <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                        Synthesizing
+                                        <div className="flex gap-1.5">
+                                            <div className="w-1 h-3 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0s]" />
+                                            <div className="w-1 h-4 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0.2s]" />
+                                            <div className="w-1 h-3 bg-violet-400/60 rounded-full animate-[bounce_1s_infinite_0.4s]" />
+                                        </div>
+                                    </span>
+
+                                    {/* Action button - Stop Generation */}
                                     <button
                                         onClick={cancelAnalysis}
                                         disabled={isCancelling}
-                                        className="ml-auto px-3 py-1.5 text-[10px] font-bold text-red-400 hover:text-red-300 bg-zinc-900 border border-red-500/40 hover:border-red-500 hover:bg-red-500/10 rounded-md shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 uppercase tracking-wider"
-                                        title="Stop analysis"
+                                        className="ml-auto flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500 border border-rose-500/30 transition-all rounded-full disabled:opacity-50 tracking-wider uppercase"
                                     >
-                                        <StopCircle size={14} className={isCancelling ? "animate-spin" : ""} />
-                                        {isCancelling ? 'STOPPING...' : 'STOP GENERATING'}
+                                        <StopCircle size={12} className={isCancelling ? "animate-spin" : ""} />
+                                        {isCancelling ? 'Stopping...' : 'Stop'}
                                     </button>
                                 </div>
-                                {!streamingPhase && <p className="text-sm text-zinc-300 mt-2 font-medium">{currentActivity}</p>}
+
+                                {!streamingPhase && (
+                                    <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-4 backdrop-blur-sm shadow-xl animate-pulse">
+                                        <p className="text-[14px] text-zinc-300 font-medium italic">{currentActivity}...</p>
+                                    </div>
+                                )}
 
                                 {/* Investigation Chain of Thought Panel */}
                                 {investigationProgress && (
@@ -1788,7 +1808,19 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* GitHub Code Search Action Bar - shows when there's a completed answer */}
+            {/* Agent Activity Header (Persistent when loading) */}
+            {llmLoading && (
+                <div className="px-5 py-2 animate-in slide-in-from-bottom-2 duration-300">
+                    <AgentStatusHeader
+                        activity={currentActivity}
+                        phase={streamingPhase?.phase}
+                        provider={llmStatus?.provider || llmConfig.provider}
+                        progress={investigationProgress?.iteration ? (investigationProgress.iteration / investigationProgress.maxIterations) * 100 : undefined}
+                    />
+                </div>
+            )}
+
+            {/* GitHub Code Search Action Bar */}
             {(() => {
                 // Find the last completed interaction with an answer
                 const lastInteraction = [...groupedHistory].reverse().find(

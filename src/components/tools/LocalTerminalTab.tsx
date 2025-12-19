@@ -1,5 +1,4 @@
-
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -17,31 +16,29 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
-    const sessionIdRef = useRef<string | null>(null);
-    const unlistenersRef = useRef<UnlistenFn[]>([]);
+    const sessionId = useMemo(() => `shell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, []);
+
+    // Anti-double init ref
+    const isInitializingRef = useRef(false);
     const initialCommandSentRef = useRef(false);
 
     const [status, setStatus] = useState<'connecting' | 'ready' | 'error'>('connecting');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    // Generate session ID immediately (not in effect)
-    if (!sessionIdRef.current) {
-        sessionIdRef.current = `shell-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    }
-
     // Main terminal initialization
     useEffect(() => {
-        const sessionId = sessionIdRef.current;
-        if (!terminalRef.current || !sessionId) return;
+        if (!terminalRef.current || isInitializingRef.current) return;
+        isInitializingRef.current = true;
 
-        console.log('[LocalTerminalTab] Generated session ID:', sessionId);
-
-        console.log('[LocalTerminalTab] Initializing terminal with session:', sessionId);
         let mounted = true;
+        let xterm: Terminal | null = null;
+        let fitAddon: FitAddon | null = null;
+        let resizeObs: ResizeObserver | null = null;
+        let unlisteners: UnlistenFn[] = [];
 
         const init = async () => {
             // Create terminal instance
-            const term = new Terminal({
+            xterm = new Terminal({
                 cursorBlink: true,
                 cursorStyle: 'block',
                 fontSize: 14,
@@ -75,148 +72,128 @@ export function LocalTerminalTab({ initialCommand, onCommandSent }: LocalTermina
                 }
             });
 
-            const fitAddon = new FitAddon();
-            term.loadAddon(fitAddon);
+            fitAddon = new FitAddon();
+            xterm.loadAddon(fitAddon);
 
             // Try WebGL addon
             try {
                 const webglAddon = new WebglAddon();
                 webglAddon.onContextLoss(() => webglAddon.dispose());
-                term.loadAddon(webglAddon);
+                xterm.loadAddon(webglAddon);
             } catch {
-                console.log('[LocalTerminalTab] WebGL not available, using canvas renderer');
+                // Ignore WebGL failures
             }
 
             if (!terminalRef.current || !mounted) {
-                term.dispose();
+                xterm.dispose();
                 return;
             }
 
-            term.open(terminalRef.current);
-            xtermRef.current = term;
+            xterm.open(terminalRef.current);
+            xtermRef.current = xterm;
             fitAddonRef.current = fitAddon;
 
-            // Set up event listeners BEFORE starting shell
-            console.log('[LocalTerminalTab] Setting up listeners for:', `shell_output:${sessionId}`);
+            // Set up event listeners
+            try {
+                const outputUnlisten = await listen<string>(`shell_output:${sessionId}`, (event) => {
+                    if (mounted && xtermRef.current) {
+                        xtermRef.current.write(event.payload);
+                    }
+                });
+                if (mounted) unlisteners.push(outputUnlisten); else outputUnlisten();
 
-            const outputUnlisten = await listen<string>(`shell_output:${sessionId}`, (event) => {
-                console.log('[LocalTerminalTab] Received output:', event.payload.length, 'bytes');
-                if (xtermRef.current) {
-                    xtermRef.current.write(event.payload);
-                }
-            });
-            unlistenersRef.current.push(outputUnlisten);
-
-            const closedUnlisten = await listen(`shell_closed:${sessionId}`, () => {
-                console.log('[LocalTerminalTab] Shell closed');
-                if (xtermRef.current) {
-                    xtermRef.current.writeln('\r\n\x1b[31mShell session ended.\x1b[0m');
-                }
-                if (mounted) setStatus('error');
-            });
-            unlistenersRef.current.push(closedUnlisten);
+                const closedUnlisten = await listen(`shell_closed:${sessionId}`, () => {
+                    if (mounted) {
+                        if (xtermRef.current) {
+                            xtermRef.current.writeln('\r\n\x1b[31mShell session ended.\x1b[0m');
+                        }
+                        setStatus('error');
+                    }
+                });
+                if (mounted) unlisteners.push(closedUnlisten); else closedUnlisten();
+            } catch (e) {
+                console.error('Failed to setup listeners:', e);
+            }
 
             // Handle user input
-            term.onData(data => {
-                invoke("send_shell_input", { sessionId: sessionId, data }).catch(err => {
-                    console.error('[LocalTerminalTab] Failed to send input:', err);
-                });
+            const dataDisposable = xterm.onData(data => {
+                if (mounted) {
+                    invoke("send_shell_input", { sessionId, data }).catch(() => { });
+                }
             });
 
             // Handle resize
             const handleResize = () => {
-                if (fitAddonRef.current && xtermRef.current) {
+                if (fitAddon && xterm) {
                     try {
-                        fitAddonRef.current.fit();
-                        const { cols, rows } = xtermRef.current;
-                        invoke("resize_shell", { sessionId: sessionId, rows, cols }).catch(() => { });
+                        fitAddon.fit();
+                        const { cols, rows } = xterm;
+                        invoke("resize_shell", { sessionId, rows, cols }).catch(() => { });
                     } catch { }
                 }
             };
 
-            // ResizeObserver for container size changes
-            const resizeObserver = new ResizeObserver(() => {
-                requestAnimationFrame(handleResize);
+            resizeObs = new ResizeObserver(() => {
+                if (mounted) requestAnimationFrame(handleResize);
             });
             if (terminalRef.current) {
-                resizeObserver.observe(terminalRef.current);
+                resizeObs.observe(terminalRef.current);
             }
 
             // Start the shell
             try {
-                console.log('[LocalTerminalTab] Starting shell...');
-                await invoke("start_local_shell", { sessionId: sessionId });
-                console.log('[LocalTerminalTab] Shell started successfully');
-
+                await invoke("start_local_shell", { sessionId });
                 if (mounted) {
                     setStatus('ready');
-
-                    // Initial fit and focus
                     requestAnimationFrame(() => {
                         handleResize();
-                        term.focus();
+                        xterm?.focus();
                     });
 
-                    // Send initial command if provided
                     if (initialCommand && !initialCommandSentRef.current) {
                         initialCommandSentRef.current = true;
                         setTimeout(() => {
-                            console.log('[LocalTerminalTab] Sending initial command:', initialCommand);
-                            invoke("send_shell_input", { sessionId: sessionId, data: initialCommand + '\n' }).catch(() => { });
-                            onCommandSent?.();
+                            if (mounted) {
+                                invoke("send_shell_input", { sessionId, data: initialCommand + '\n' }).catch(() => { });
+                                onCommandSent?.();
+                            }
                         }, 300);
                     }
                 }
             } catch (err) {
-                console.error('[LocalTerminalTab] Failed to start shell:', err);
                 if (mounted) {
                     setStatus('error');
                     setErrorMessage(String(err));
+                    xterm?.writeln(`\x1b[31mFailed to start shell: ${err}\x1b[0m`);
                 }
-                term.writeln(`\x1b[31mFailed to start shell: ${err}\x1b[0m`);
             }
-
-            // Cleanup function
-            return () => {
-                resizeObserver.disconnect();
-            };
         };
 
-        const cleanupPromise = init();
+        const initPromise = init();
 
         return () => {
             mounted = false;
-            cleanupPromise.then(cleanup => cleanup?.());
-
-            // Cleanup listeners
-            unlistenersRef.current.forEach(unlisten => unlisten());
-            unlistenersRef.current = [];
-
-            // Dispose terminal
-            if (xtermRef.current) {
-                xtermRef.current.dispose();
+            isInitializingRef.current = false;
+            unlisteners.forEach(u => u());
+            resizeObs?.disconnect();
+            if (xterm) {
+                xterm.dispose();
                 xtermRef.current = null;
             }
-
-            // Stop the shell session
-            if (sessionIdRef.current) {
-                invoke("stop_local_shell", { sessionId: sessionIdRef.current }).catch(() => { });
-            }
+            invoke("stop_local_shell", { sessionId }).catch(() => { });
         };
     }, []); // Only run once on mount
 
     // Handle initialCommand changes after mount
     useEffect(() => {
-        const sessionId = sessionIdRef.current;
-        if (status === 'ready' && initialCommand && !initialCommandSentRef.current && sessionId) {
+        if (status === 'ready' && initialCommand && !initialCommandSentRef.current) {
             initialCommandSentRef.current = true;
             setTimeout(() => {
-                console.log('[LocalTerminalTab] Sending delayed initial command:', initialCommand);
-                invoke("send_shell_input", { sessionId: sessionId, data: initialCommand + '\n' }).catch(() => { });
+                invoke("send_shell_input", { sessionId, data: initialCommand + '\n' }).catch(() => { });
                 onCommandSent?.();
             }, 100);
         }
-    }, [status, initialCommand, onCommandSent]);
+    }, [status, initialCommand, onCommandSent, sessionId]);
 
     // Reset flag when initialCommand is cleared
     useEffect(() => {

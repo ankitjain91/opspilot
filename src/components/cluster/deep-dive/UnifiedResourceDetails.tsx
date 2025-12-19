@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import {
     Activity, Box, Network,
@@ -33,15 +33,30 @@ interface UnifiedDetailsProps {
     onNavigateResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void; // Navigate to related resource
 }
 
+// Simple global cache to persist tab state across navigation for the current session
+const PROVISIONAL_TAB_CACHE: Record<string, any> = {};
+
 export function UnifiedResourceDetails({ resource, fullObject, currentContext, loading, error, onClose, onNavigateResource }: UnifiedDetailsProps) {
-    const [activeTab, setActiveTab] = useState<'overview' | 'logs' | 'terminal' | 'events'>('overview');
+    const resourceId = resource.id || `${resource.namespace}/${resource.kind}/${resource.name}`;
+
+    const [activeTab, setActiveTab] = useState<'overview' | 'logs' | 'terminal' | 'events'>(() => {
+        return PROVISIONAL_TAB_CACHE[resourceId] || 'overview';
+    });
+
+    // Update cache when tab changes
+    useEffect(() => {
+        PROVISIONAL_TAB_CACHE[resourceId] = activeTab;
+    }, [activeTab, resourceId]);
+
     const [isRestarting, setIsRestarting] = useState(false);
     const [isScaling, setIsScaling] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [triggerAnalysis, setTriggerAnalysis] = useState<{ container: string } | null>(null);
 
     const { showToast, dismissToast } = useToast();
+    const qc = useQueryClient();
 
     // Data Extraction
     const safeFullObject = fullObject || {};
@@ -111,6 +126,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                 name: resource.name,
                 replicas: newReplicas
             });
+
             setOptimisticReplicas(newReplicas);
             showToast(`Scaled to ${newReplicas} replicas`, 'success');
         } catch (e) {
@@ -138,6 +154,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                     spec: { template: { metadata: { annotations: { "kubectl.kubernetes.io/restartedAt": now } } } }
                 }
             });
+
             dismissToast(toastId);
             showToast('Restart initiated successfully', 'success');
         } catch (e) {
@@ -305,6 +322,10 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                             fullObject={fullObject}
                             currentContext={currentContext}
                             onViewLogs={() => setActiveTab('logs')}
+                            onAnalyzeLogs={(container) => {
+                                setTriggerAnalysis({ container });
+                                setActiveTab('logs');
+                            }}
                             onUpdate={handlePatch}
                             onNavigateResource={onNavigateResource}
                         />
@@ -312,7 +333,12 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                 )}
 
                 {activeTab === 'logs' && isPod && (
-                    <LogsTab resource={resource} fullObject={fullObject} />
+                    <LogsTab
+                        resource={resource}
+                        fullObject={fullObject}
+                        autoAnalyzeContainer={triggerAnalysis?.container}
+                        onAnalysisStarted={() => setTriggerAnalysis(null)}
+                    />
                 )}
 
                 {activeTab === 'terminal' && isPod && (

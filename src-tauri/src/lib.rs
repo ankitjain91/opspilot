@@ -19,6 +19,7 @@ mod commands {
     pub mod ai_utilities;
     pub mod vcluster;
     pub mod azure;
+    pub mod helm;
 
 }
 
@@ -32,6 +33,7 @@ use commands::cost::get_cluster_cost_report;
 use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations};
 use commands::vcluster::{list_vclusters, connect_vcluster, disconnect_vcluster};
 use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials};
+use commands::helm::{helm_list, helm_uninstall, helm_get_details};
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
@@ -155,7 +157,12 @@ pub fn run() {
 
             // Embeddings (KB)
             check_embedding_model_status,
-            init_embedding_model
+            init_embedding_model,
+
+            // Helm
+            helm_list,
+            helm_uninstall,
+            helm_get_details
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

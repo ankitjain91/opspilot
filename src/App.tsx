@@ -300,16 +300,6 @@ function AppContent() {
           </p>
         </div>
 
-        {/* Global Floating AI Chat Button (Available even on error) */}
-        {!showClusterChat && (
-          <button
-            onClick={() => { setShowClusterChat(true); setIsClusterChatMinimized(false); }}
-            className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 text-white font-medium transition-all hover:scale-105"
-          >
-            <MessageSquare size={20} />
-            <span>AI Chat</span>
-          </button>
-        )}
 
         {/* Global Cluster Chat Panel */}
         {showClusterChat && (
@@ -348,19 +338,14 @@ function AppContent() {
           }
           showToast('Disconnected from cluster', 'info');
         }}
+        showClusterChat={showClusterChat}
+        onToggleClusterChat={() => {
+          setShowClusterChat(!showClusterChat);
+          setIsClusterChatMinimized(false);
+        }}
       />
       <PortForwardList currentContext={globalCurrentContext} />
 
-      {/* Global Floating AI Chat Button */}
-      {!showClusterChat && (
-        <button
-          onClick={() => { setShowClusterChat(true); setIsClusterChatMinimized(false); }}
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400 rounded-full shadow-lg shadow-purple-500/30 text-white font-medium transition-all hover:scale-105"
-        >
-          <MessageSquare size={20} />
-          <span>AI Chat</span>
-        </button>
-      )}
 
       {/* Global Cluster Chat Panel */}
       {showClusterChat && (

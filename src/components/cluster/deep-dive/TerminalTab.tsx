@@ -148,25 +148,29 @@ export function TerminalTab({ namespace, name, podSpec }: TerminalTabProps) {
 
         // Handle Input - send immediately for responsiveness
         const inputDisposable = term.onData(data => {
-            invoke("send_exec_input", { session_id: sessionId, data }).catch(() => { });
+            invoke("send_exec_input", { sessionId: sessionId, data }).catch(() => { });
         });
 
-        // Handle Resize with debounce
-        let resizeTimeout: ReturnType<typeof setTimeout>;
+        // Handle Resize
         const handleResize = () => {
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-                if (fitAddonRef.current && xtermRef.current) {
-                    try {
-                        fitAddonRef.current.fit();
-                    } catch { }
-                }
-            }, 100);
+            if (fitAddonRef.current && xtermRef.current) {
+                try {
+                    fitAddonRef.current.fit();
+                    const { cols, rows } = xtermRef.current;
+                    invoke("resize_exec", { sessionId: sessionId, cols, rows }).catch(() => { });
+                } catch { }
+            }
         };
-        window.addEventListener("resize", handleResize);
+
+        const resizeObserver = new ResizeObserver(() => {
+            requestAnimationFrame(handleResize);
+        });
+        if (terminalRef.current) {
+            resizeObserver.observe(terminalRef.current);
+        }
 
         try {
-            await invoke("start_exec", { namespace, name, container: selectedContainer, session_id: sessionId });
+            await invoke("start_exec", { namespace, name, container: selectedContainer, sessionId: sessionId });
             term.writeln(`\x1b[32mConnected to ${name}/${selectedContainer}\x1b[0m\r\n`);
             // Fit terminal after connection established with slight delay for DOM to settle
             setTimeout(() => {
@@ -185,9 +189,9 @@ export function TerminalTab({ namespace, name, podSpec }: TerminalTabProps) {
 
         // Return cleanup
         return () => {
-            clearTimeout(resizeTimeout);
+            resizeObserver.disconnect();
             inputDisposable.dispose();
-            window.removeEventListener("resize", handleResize);
+            invoke("stop_local_shell", { sessionId: sessionId }).catch(() => { });
         };
     }, [namespace, name, selectedContainer, sessionId, cleanupTerminal]);
 

@@ -200,11 +200,10 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 namespace: namespaceFilter === "All Namespaces" ? null : namespaceFilter
             }
         }),
-        // STREAMING MODE: We disable the initial list fetch and rely 100% on the watcher
-        // to populate the cache via events. This gives "instant" feeling (streaming)
-        // rather than "waiting" (monolithic fetch).
-        enabled: false,
-        staleTime: Infinity,
+        // HYBRID MODE: We enable the initial list fetch to get immediate data.
+        // The watch stream will then "top off" and keep it live.
+        enabled: true,
+        staleTime: 30000,
         gcTime: 1000 * 60 * 5,
         refetchInterval: false,
         refetchOnWindowFocus: false,

@@ -37,6 +37,13 @@ interface CodexStatus {
     error?: string;
 }
 
+interface GitHubGroup {
+    id: string;
+    name: string;
+    type: 'user' | 'org';
+    avatar_url: string;
+}
+
 export function LLMSettingsPanel({
     config,
     onConfigChange,
@@ -81,6 +88,11 @@ export function LLMSettingsPanel({
     const [githubConfigured, setGithubConfigured] = useState(false);
     const [githubUser, setGithubUser] = useState<string | null>(null);
     const [testingGithub, setTestingGithub] = useState(false);
+    const [githubGroups, setGithubGroups] = useState<GitHubGroup[]>([]);
+    const [selectedGroup, setSelectedGroup] = useState<string>('');
+    const [availableRepos, setAvailableRepos] = useState<string[]>([]);
+    const [loadingGroups, setLoadingGroups] = useState(false);
+    const [loadingRepos, setLoadingRepos] = useState(false);
 
     // --- ACTIONS ---
 
@@ -308,6 +320,7 @@ export function LLMSettingsPanel({
                 if (data.connected) {
                     setGithubConfigured(true);
                     setGithubUser(data.user);
+                    loadGithubGroups();
                 } else {
                     setGithubConfigured(false);
                     setGithubUser(null);
@@ -321,7 +334,45 @@ export function LLMSettingsPanel({
         setTestingGithub(false);
     };
 
-    // --- EFFECTS ---
+    const loadGithubGroups = async () => {
+        if (loadingGroups) return;
+        setLoadingGroups(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/orgs`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubGroups(data);
+                // Also load repos for first group if none selected
+                if (data.length > 0 && !selectedGroup) {
+                    setSelectedGroup(data[0].id);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub groups:", e);
+        }
+        setLoadingGroups(false);
+    };
+
+    const loadGithubRepos = async (groupId: string) => {
+        if (!groupId || loadingRepos) return;
+        setLoadingRepos(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/repos/${groupId}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setAvailableRepos(data);
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub repos:", e);
+        }
+        setLoadingRepos(false);
+    };
+
+    useEffect(() => {
+        if (selectedGroup) {
+            loadGithubRepos(selectedGroup);
+        }
+    }, [selectedGroup]);
 
     useEffect(() => {
         checkClaudeCodeStatus();
@@ -618,22 +669,114 @@ export function LLMSettingsPanel({
                             </div>
                         </div>
 
-                        {/* Default Repos */}
-                        <div>
-                            <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">
-                                Default Repos to Search (optional)
-                            </label>
-                            <input
-                                type="text"
-                                value={githubRepos.join(", ")}
-                                onChange={e => setGithubRepos(e.target.value.split(",").map(s => s.trim()).filter(Boolean))}
-                                className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white placeholder-zinc-700 focus:border-purple-500/50 outline-none font-mono"
-                                placeholder="myorg/auth-service, myorg/api-gateway"
-                            />
-                            <p className="text-[10px] text-zinc-600 mt-1">
-                                Comma-separated list of repos. Leave empty to search all accessible repos.
-                            </p>
-                        </div>
+                        {/* Improved Org/Repo Selection UI */}
+                        {githubConfigured && (
+                            <div className="space-y-4 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-2 duration-500">
+                                {/* Group Selection */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
+                                        Organization / User
+                                        {loadingGroups && <Loader2 size={10} className="animate-spin text-purple-400" />}
+                                    </label>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        <select
+                                            value={selectedGroup}
+                                            onChange={(e) => setSelectedGroup(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-purple-500/50 appearance-none transition-all cursor-pointer"
+                                        >
+                                            <option value="" disabled>Select an account or organization</option>
+                                            {githubGroups.map(group => (
+                                                <option key={group.id} value={group.id}>
+                                                    {group.name} {group.type === 'org' ? '(Org)' : '(Personal)'}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Repo Selection */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-2">
+                                            Repositories to Index
+                                            {loadingRepos && <Loader2 size={10} className="animate-spin text-purple-400" />}
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    const newRepos = [...new Set([...githubRepos, ...availableRepos])];
+                                                    setGithubRepos(newRepos);
+                                                }}
+                                                className="text-[9px] text-purple-400 hover:text-purple-300 font-bold uppercase tracking-tighter"
+                                            >
+                                                Add All
+                                            </button>
+                                            <button
+                                                onClick={() => setGithubRepos([])}
+                                                className="text-[9px] text-zinc-500 hover:text-zinc-400 font-bold uppercase tracking-tighter"
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Selected Repos Tags */}
+                                    {githubRepos.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 mb-2">
+                                            {githubRepos.map(repo => (
+                                                <div key={repo} className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-lg px-2 py-1 text-[10px] text-purple-300 group/tag">
+                                                    <span className="max-w-[120px] truncate">{repo.split('/')[1] || repo}</span>
+                                                    <button
+                                                        onClick={() => setGithubRepos(githubRepos.filter(r => r !== repo))}
+                                                        className="text-purple-500 hover:text-purple-300 transition-colors"
+                                                    >
+                                                        <X size={10} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Repo Search/List */}
+                                    <div className="relative max-h-48 overflow-y-auto custom-scrollbar bg-black/40 border border-white/10 rounded-xl p-1.5 space-y-1">
+                                        {availableRepos.length === 0 && !loadingRepos ? (
+                                            <div className="py-8 text-center text-zinc-600 text-[10px]">
+                                                No repositories found for this account.
+                                            </div>
+                                        ) : (
+                                            availableRepos.map(repo => {
+                                                const isSelected = githubRepos.includes(repo);
+                                                return (
+                                                    <button
+                                                        key={repo}
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setGithubRepos(githubRepos.filter(r => r !== repo));
+                                                            } else {
+                                                                setGithubRepos([...githubRepos, repo]);
+                                                            }
+                                                        }}
+                                                        className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left transition-all ${isSelected
+                                                            ? 'bg-purple-500/20 text-purple-200'
+                                                            : 'hover:bg-white/5 text-zinc-400 hover:text-zinc-200'
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-purple-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]' : 'bg-transparent'}`} />
+                                                            <span className="text-[11px] truncate font-medium">{repo}</span>
+                                                        </div>
+                                                        {isSelected && <Check size={12} className="text-purple-400 shrink-0" />}
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                    <p className="text-[9px] text-zinc-500 italic mt-1 px-1">
+                                        These repositories will be indexed by the agent for deep code searches.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Connection Status & Save */}
                         <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${testingGithub ? 'bg-amber-500/5 border-amber-500/20' :

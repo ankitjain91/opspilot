@@ -18,6 +18,7 @@ import {
     LayoutDashboard,
     Loader2,
     LogOutIcon,
+    MessageSquare,
     Network,
     Package,
     PieChart,
@@ -53,9 +54,11 @@ interface DashboardProps {
     isConnected: boolean;
     setIsConnected: (v: boolean) => void;
     onOpenAzure?: () => void;
+    showClusterChat?: boolean;
+    onToggleClusterChat?: () => void;
 }
 
-export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
+export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggleClusterChat }: DashboardProps) {
     const [activeRes, setActiveRes] = useState<NavResource | null>(null);
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -127,7 +130,8 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
             status: 'Unknown', // Will be updated when details are fetched
             age: '',
             group,
-            version
+            version,
+            raw_json: ''
         };
         handleOpenResource(relatedObj);
     };
@@ -889,29 +893,40 @@ export function Dashboard({ onDisconnect, onOpenAzure }: DashboardProps) {
                     )}
                 </div>
 
-                {/* User Profile / Context */}
-                <div className="p-3 border-t border-gray-800 flex flex-col gap-1">
+                {/* User Profile / Context / Tools */}
+                <div className="p-3 border-t border-white/5 flex flex-col gap-1.5 bg-white/5 backdrop-blur-md">
+                    <button
+                        onClick={onToggleClusterChat}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${showClusterChat ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <MessageSquare className={showClusterChat ? "text-white" : "text-purple-400 group-hover:text-purple-300"} size={18} />
+                            <span>AI Assistant</span>
+                        </div>
+                        {showClusterChat && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+                    </button>
+
                     <button
                         onClick={() => setIsTerminalOpen(!isTerminalOpen)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-base rounded-md transition-all ${isTerminalOpen ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/30' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-md transition-all ${isTerminalOpen ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/30' : 'text-zinc-400 hover:text-white hover:bg-white/5'}`}
                     >
-                        <TerminalIcon size={18} />
+                        <TerminalIcon size={18} className={isTerminalOpen ? "text-white" : "text-emerald-400"} />
                         <span>Terminal</span>
                     </button>
-                    <button onClick={async () => {
-                        console.log("Disconnect button clicked");
-                        console.log("Clearing all query cache...");
-                        qc.removeQueries();
-                        try {
-                            await invoke("clear_discovery_cache");
-                        } catch (e) {
-                            console.error("Failed to clear discovery cache:", e);
-                        }
-                        console.log("Calling onDisconnect...");
-                        onDisconnect();
-                        console.log("Disconnect complete");
-                    }} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-base text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-all">
-                        <LogOutIcon size={18} />
+
+                    <button
+                        onClick={async () => {
+                            qc.removeQueries();
+                            try {
+                                await invoke("clear_discovery_cache");
+                            } catch (e) {
+                                console.error("Failed to clear discovery cache:", e);
+                            }
+                            onDisconnect();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all group"
+                    >
+                        <LogOutIcon size={18} className="group-hover:text-red-400" />
                         <span>Disconnect</span>
                     </button>
                 </div>

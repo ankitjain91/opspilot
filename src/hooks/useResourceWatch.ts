@@ -14,6 +14,8 @@ export function useResourceWatch(
     const [isWatching, setIsWatching] = useState(false);
     const [syncComplete, setSyncComplete] = useState(false);
     const watchIdRef = useRef<string | null>(null);
+    const eventBufferRef = useRef<ResourceWatchEvent[]>([]);
+    const lastFlushRef = useRef<number>(0);
 
     useEffect(() => {
         if (!enabled || !resourceType || !resourceType.kind || !currentContext) {
@@ -45,30 +47,45 @@ export function useResourceWatch(
 
         // Listen for watch events
         const unlistenWatch = listen<ResourceWatchEvent>(`resource_watch:${watchId}`, (event) => {
-            const watchEvent = event.payload;
+            eventBufferRef.current.push(event.payload);
+        });
+
+        // Flush Buffer Effect (10fps for UI updates)
+        const interval = setInterval(() => {
+            if (eventBufferRef.current.length === 0) return;
+
+            const batch = eventBufferRef.current.splice(0, eventBufferRef.current.length);
+            console.log(`[useResourceWatch] Flushing batch of ${batch.length} events for ${resourceType.kind}`);
 
             qc.setQueryData(queryKey, (oldData: K8sObject[] | undefined) => {
-                if (!oldData) return [watchEvent.resource];
+                if (!oldData) return batch.map(e => e.resource);
 
-                switch (watchEvent.event_type) {
-                    case "ADDED":
-                        // Check if already exists (might be from initial sync)
-                        if (oldData.some(r => r.id === watchEvent.resource.id)) {
-                            return oldData.map(r => r.id === watchEvent.resource.id ? watchEvent.resource : r);
-                        }
-                        return [...oldData, watchEvent.resource];
+                let newData = [...oldData];
 
-                    case "MODIFIED":
-                        return oldData.map(r => r.id === watchEvent.resource.id ? watchEvent.resource : r);
+                // Process batch - use a Map for O(1) deduplication within the batch
+                const updates = new Map<string, ResourceWatchEvent>();
+                batch.forEach(e => updates.set(e.resource.id, e));
 
-                    case "DELETED":
-                        return oldData.filter(r => r.id !== watchEvent.resource.id);
+                updates.forEach((event) => {
+                    switch (event.event_type) {
+                        case "ADDED":
+                        case "MODIFIED":
+                            const index = newData.findIndex(r => r.id === event.resource.id);
+                            if (index >= 0) {
+                                newData[index] = event.resource;
+                            } else {
+                                newData.push(event.resource);
+                            }
+                            break;
+                        case "DELETED":
+                            newData = newData.filter(r => r.id !== event.resource.id);
+                            break;
+                    }
+                });
 
-                    default:
-                        return oldData;
-                }
+                return newData;
             });
-        });
+        }, 100);
 
         // Listen for sync complete
         const unlistenSync = listen(`resource_watch_sync:${watchId}`, () => {
@@ -83,6 +100,7 @@ export function useResourceWatch(
 
         // Cleanup
         return () => {
+            clearInterval(interval);
             unlistenWatch.then(fn => fn());
             unlistenSync.then(fn => fn());
             unlistenEnd.then(fn => fn());

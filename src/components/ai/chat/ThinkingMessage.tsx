@@ -33,86 +33,89 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({ content, isLat
     }, [isLatest]);
 
     return (
-        <div className="relative pl-6 pb-2">
+        <div className="relative pl-8 pb-3 group font-sans text-sm">
             {/* Timeline Dot with Pulse Effect */}
-            <div className="absolute left-0 top-1">
-                <div className={`w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-500/20 shadow-[0_0_15px_rgba(139,92,246,0.5)] ${isLatest ? 'animate-pulse' : ''}`} />
-                {isLatest && <div className="absolute top-0 left-0 w-3 h-3 rounded-full bg-violet-400 animate-ping opacity-75" />}
+            <div className="absolute left-0 top-2 z-10">
+                <div className={`w-3.5 h-3.5 rounded-full bg-violet-500 ring-4 ring-violet-500/10 shadow-[0_0_12px_rgba(139,92,246,0.4)] ${isLatest ? 'animate-pulse' : ''}`} />
+                {isLatest && <div className="absolute top-0 left-0 w-3.5 h-3.5 rounded-full bg-violet-400 animate-ping opacity-75" />}
             </div>
 
-            {/* Timeline Line */}
-            <div className="absolute left-[5px] top-4 bottom-0 w-0.5 bg-gradient-to-b from-violet-500/30 to-transparent" />
-
-            <div className="ml-2">
+            <div className="ml-3">
                 <div
                     className={`
-                        border rounded-xl overflow-hidden transition-all duration-500 ease-out
+                        border rounded-2xl overflow-hidden transition-all duration-500 ease-out shadow-lg shadow-black/20
                         ${isExpanded
-                            ? 'bg-gradient-to-br from-[#1a1a2e] to-[#13111c] border-violet-500/30 shadow-lg shadow-violet-900/20'
-                            : 'bg-white/5 border-white/5 hover:border-violet-500/30 hover:bg-white/10'
+                            ? 'bg-gradient-to-br from-[#1a1a2e] to-[#13111c] border-violet-500/30'
+                            : 'bg-white/5 border-white/5 hover:border-violet-500/20 hover:bg-white/[0.07]'
                         }
                     `}
                 >
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="w-full flex items-center gap-3 px-3 py-2 text-left relative overflow-hidden group"
+                        className="w-full flex items-center gap-4 px-4 py-3 text-left relative overflow-hidden group"
                     >
                         {/* Shimmer effect when collapsed */}
                         {!isExpanded && (
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1500" />
                         )}
 
-                        <div className={`p-1.5 rounded-lg ${isLatest ? 'bg-violet-500/20 text-violet-300' : 'bg-zinc-800 text-zinc-500'}`}>
-                            {isLatest ? <Cpu size={14} className="animate-pulse" /> : <BrainCircuit size={14} />}
+                        <div className={`
+                            shrink-0 p-2 rounded-lg transition-colors
+                            ${isLatest ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-zinc-500 group-hover:text-violet-400'}
+                        `}>
+                            {isLatest ? <Cpu size={14} className="animate-spin-slow" /> : <BrainCircuit size={14} />}
                         </div>
 
                         <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-violet-200 tracking-wide uppercase">
-                                    {isLatest ? 'Processing Context' : 'Reasoning Chain'}
+                            <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isLatest ? 'text-violet-400' : 'text-zinc-500'}`}>
+                                    {isLatest ? 'Synthesizing Context' : 'Reasoning Chain'}
                                 </span>
                                 {isLatest && (
                                     <div className="flex gap-0.5 items-end h-3 pb-0.5">
                                         <div className="w-0.5 h-1.5 bg-violet-400 animate-[bounce_1s_infinite_0ms]" />
-                                        <div className="w-0.5 h-1.5 bg-violet-400 animate-[bounce_1s_infinite_200ms]" />
+                                        <div className="w-0.5 h-2.5 bg-violet-400 animate-[bounce_1s_infinite_200ms]" />
                                         <div className="w-0.5 h-1.5 bg-violet-400 animate-[bounce_1s_infinite_400ms]" />
                                     </div>
                                 )}
                             </div>
 
+                            <h5 className="text-[13px] font-semibold text-zinc-200 truncate tracking-tight">
+                                {isLatest ? 'Formulating next steps...' : cleanContent.split('\n')[0].slice(0, 60)}
+                            </h5>
                             {!isExpanded && (
-                                <p className="text-[10px] text-zinc-400 truncate mt-0.5 font-medium">
-                                    {/* Strip markdown formatting for preview */}
-                                    {cleanContent.replace(/\*\*/g, '').replace(/`/g, '').slice(0, 50)}...
+                                <p className="text-[11px] text-zinc-500 truncate mt-1 animate-in fade-in duration-500 italic">
+                                    {cleanContent.replace(/\*\*/g, '').replace(/`/g, '').slice(0, 80)}{cleanContent.length > 80 && '...'}
                                 </p>
                             )}
                         </div>
 
                         <ChevronDown
-                            size={14}
-                            className={`text-violet-400/50 transition-transform duration-300 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            size={16}
+                            className={`text-zinc-600 transition-transform duration-500 group-hover:text-violet-400 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
                         />
                     </button>
 
                     <div
                         className={`
                             transition-[max-height,opacity] duration-500 ease-in-out
-                            ${isExpanded ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'}
+                            ${isExpanded ? 'max-h-[1000px] opacity-100 border-t border-violet-500/10' : 'max-h-0 opacity-0 overflow-hidden'}
                         `}
                     >
-                        <div className="px-4 pb-4 pt-1">
-                            {/* Decorative Divider */}
-                            <div className="h-px w-full bg-gradient-to-r from-transparent via-violet-500/30 to-transparent mb-3" />
+                        <div className="p-5 relative">
+                            {/* Decorative gradient for the content */}
+                            <div className="absolute inset-0 bg-gradient-to-b from-violet-500/[0.02] to-transparent pointer-events-none" />
 
-                            <div className="prose prose-invert prose-sm max-w-none text-xs text-zinc-300/90 leading-relaxed font-sans">
+                            <div className="prose prose-invert prose-sm max-w-none text-[13px] text-zinc-300 leading-relaxed relative z-10">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
-                                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                        strong: ({ children }) => <strong className="text-violet-300 font-semibold">{children}</strong>,
-                                        code: ({ children }) => <code className="text-[10px] bg-violet-900/30 px-1 py-0.5 rounded text-violet-200 font-mono border border-violet-500/20">{children}</code>,
-                                        ul: ({ children }) => <ul className="list-disc ml-4 my-2 space-y-1 text-zinc-400">{children}</ul>,
-                                        li: ({ children }) => <li>{children}</li>
+                                        p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed opacity-90">{children}</p>,
+                                        strong: ({ children }) => <strong className="text-violet-300 font-bold border-b border-violet-500/30 pb-0.5">{children}</strong>,
+                                        code: ({ children }) => <code className="text-[11px] bg-violet-500/10 px-1.5 py-0.5 rounded text-violet-200 font-mono border border-violet-500/20">{children}</code>,
+                                        ul: ({ children }) => <ul className="list-disc ml-5 my-4 space-y-2 text-zinc-400">{children}</ul>,
+                                        li: ({ children }) => <li className="pl-1">{children}</li>,
+                                        blockquote: ({ children }) => <blockquote className="border-l-2 border-violet-500/30 pl-4 my-4 italic text-zinc-500">{children}</blockquote>,
                                     }}
                                 >
                                     {cleanContent}

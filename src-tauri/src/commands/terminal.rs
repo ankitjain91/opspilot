@@ -142,9 +142,36 @@ pub async fn start_local_shell(
 ) -> Result<(), String> {
     let pty_system = NativePtySystem::default();
 
-    // Default to shell or sh
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
-    let cmd = CommandBuilder::new(&shell);
+    // Platform-aware shell detection
+    let shell = if cfg!(target_os = "windows") {
+        std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    };
+
+    let mut cmd = CommandBuilder::new(&shell);
+
+    // Set environment variables for better compatibility (Unix-centric but safe for Windows)
+    if !cfg!(target_os = "windows") {
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+
+        // Add login shell flag for Unix shells
+        if shell.contains("zsh") || shell.contains("bash") || shell.contains("sh") {
+            cmd.arg("-l");
+        }
+    }
+
+    // Set initial working directory to HOME/USERPROFILE
+    let home_dir = if cfg!(target_os = "windows") {
+        std::env::var("USERPROFILE")
+    } else {
+        std::env::var("HOME")
+    };
+
+    if let Ok(path) = home_dir {
+        cmd.cwd(path);
+    }
 
     // Use reasonable default size, will be resized by frontend
     let pair = pty_system.openpty(PtySize {
@@ -203,6 +230,7 @@ pub fn send_shell_input(
     if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
         if let Ok(mut writer) = session.writer.lock() {
             write!(writer, "{}", data).map_err(|e| e.to_string())?;
+            let _ = writer.flush();
         }
     }
     Ok(())
@@ -304,6 +332,7 @@ pub fn send_exec_input(
     if let Some(session) = state.shell_sessions.lock().unwrap().get(&session_id) {
         if let Ok(mut writer) = session.writer.lock() {
             write!(writer, "{}", data).map_err(|e| e.to_string())?;
+            let _ = writer.flush();
         }
     }
     Ok(())

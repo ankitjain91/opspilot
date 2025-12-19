@@ -13,7 +13,8 @@ import {
     List,
     Tag,
     Settings,
-    Network
+    Network,
+    Sparkles
 } from 'lucide-react';
 import { K8sObject, ResourceMetrics, NavResource } from '../../../types/k8s';
 import { StatusBadge } from '../../shared/StatusBadge';
@@ -56,11 +57,12 @@ interface OverviewTabProps {
     fullObject: any;
     currentContext?: string;
     onViewLogs: () => void;
+    onAnalyzeLogs?: (container: string) => void;
     onUpdate: (path: string[], value: any) => Promise<void>;
     onNavigateResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void;
 }
 
-export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, onUpdate, onNavigateResource }: OverviewTabProps) {
+export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, onAnalyzeLogs, onUpdate, onNavigateResource }: OverviewTabProps) {
     const isPod = resource.kind.toLowerCase() === "pod";
     const isWorkload = ['deployment', 'statefulset', 'daemonset', 'replicaset', 'job'].includes(resource.kind.toLowerCase());
 
@@ -179,12 +181,21 @@ export function OverviewTab({ resource, fullObject, currentContext, onViewLogs, 
                                         </div>
                                         <div className="pt-2 mt-auto border-t border-white/5 flex gap-2">
                                             {isPod && (
-                                                <button
-                                                    onClick={onViewLogs}
-                                                    className="flex-1 flex items-center justify-center gap-2 px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-[10px] font-medium text-zinc-300 transition-colors"
-                                                >
-                                                    <List size={12} /> View Logs
-                                                </button>
+                                                <div className="flex-1 flex gap-2">
+                                                    <button
+                                                        onClick={onViewLogs}
+                                                        className="flex-1 flex items-center justify-center gap-2 px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-[10px] font-medium text-zinc-300 transition-colors"
+                                                    >
+                                                        <List size={12} /> View Logs
+                                                    </button>
+                                                    <button
+                                                        onClick={() => onAnalyzeLogs?.(c.name)}
+                                                        className="flex-1 flex items-center justify-center gap-2 px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 rounded text-[10px] font-medium transition-all"
+                                                        title="Analyze logs with Claude AI"
+                                                    >
+                                                        <Sparkles size={11} className="text-purple-400" /> AI Analyze
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
