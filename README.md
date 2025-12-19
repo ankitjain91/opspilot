@@ -2,8 +2,6 @@
 
 **OpsPilot** is an intelligent Kubernetes management platform powered by **Claude Code**. It combines a high-performance Rust/Tauri frontend with Anthropic's Claude to provide autonomous troubleshooting, deep cluster insights, and GitHub code search integration.
 
-![OpsPilot Screenshot](docs/screenshots/overview.png)
-
 ## 🚀 Key Features
 
 ### 🤖 Claude Code Integration
