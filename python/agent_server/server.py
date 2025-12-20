@@ -355,9 +355,29 @@ async def lifespan(app: FastAPI):
         print(f"[Sentinel] Failed to start (cluster may be unavailable): {e}", flush=True)
         global_sentinel = None
 
+    # Write server info for frontend discovery
+    import json
+    import os
+    info_path = os.path.expanduser("~/.opspilot/server-info.json")
+    try:
+        os.makedirs(os.path.dirname(info_path), exist_ok=True)
+        with open(info_path, "w") as f:
+            json.dump({"port": 8765, "pid": os.getpid(), "version": "0.2.55"}, f)
+        print(f"[Server] Wrote connection info to {info_path}", flush=True)
+    except Exception as e:
+        print(f"[Server] Failed to write connection info: {e}", flush=True)
+
     yield
 
     print("K8s Agent Server shutting down...")
+    
+    # Cleanup server info
+    try:
+        if os.path.exists(info_path):
+            os.remove(info_path)
+    except Exception as e:
+        print(f"[Server] Failed to clean up info file: {e}", flush=True)
+
     if global_sentinel:
         await global_sentinel.stop()
     if global_sentinel_task:
@@ -378,6 +398,59 @@ app = FastAPI(
     version="3.0.0",
     lifespan=lifespan,
 )
+
+# --- Installer Endpoint ---
+class InstallRequest(BaseModel):
+    package: str = "claude-code"
+
+@app.post("/setup/install")
+async def install_package(req: InstallRequest):
+    """Auto-install dependencies like Claude Code."""
+    if req.package != "claude-code":
+        return {"success": False, "error": "Only claude-code installation is supported"}
+
+    import shutil
+    import subprocess
+    
+    # Check for npm
+    npm_path = shutil.which("npm")
+    if not npm_path:
+        return {"success": False, "error": "NPM is not installed. Please install Node.js first."}
+
+    # Install to ~/.opspilot/bin to avoid permission issues
+    install_dir = os.path.expanduser("~/.opspilot")
+    bin_dir = os.path.join(install_dir, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+
+    print(f"[Installer] Installing {req.package} to {install_dir}...", flush=True)
+    
+    try:
+        # Use npm install --prefix
+        # Note: --prefix with -g installs to {prefix}/lib/node_modules and puts bin in {prefix}/bin
+        # We need to ensure we invoke npm correctly cross-platform
+        cmd = [npm_path, "install", "-g", "@anthropic-ai/claude-code", "--prefix", install_dir]
+        
+        # On Windows, npm is a cmd file
+        if os.name == 'nt':
+            cmd = ["cmd", "/c", npm_path, "install", "-g", "@anthropic-ai/claude-code", "--prefix", install_dir]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            err_msg = stderr.decode()
+            print(f"[Installer] Failed: {err_msg}", flush=True)
+            return {"success": False, "error": f"NPM install failed: {err_msg}"}
+
+        return {"success": True, "path": os.path.join(bin_dir, "claude")}
+        
+    except Exception as e:
+        print(f"[Installer] Internal error: {e}", flush=True)
+        return {"success": False, "error": str(e)}
 
 app.add_middleware(
     CORSMiddleware,
@@ -557,6 +630,7 @@ def find_executable_path(exe_name: str) -> str | None:
         os.path.expanduser("~/.npm-global/bin"),
         os.path.expanduser("~/.local/bin"),
         os.path.expanduser("~/.cargo/bin"),
+        os.path.expanduser("~/.opspilot/bin"), # OpsPilot managed bin
         "/usr/local/bin",
         "/opt/homebrew/bin",
         "/usr/bin",
@@ -1026,7 +1100,8 @@ class AgentRequest(BaseModel):
     user_hint: str | None = None  # User guidance for next step
     skip_current_step: bool = False  # Skip current plan step
     pause_after_step: bool = False  # Pause for approval after each step
-    tool_output: dict | None = None  
+    tool_output: dict | None = None
+    project_mappings: list[dict] = [] # Image pattern -> Local path mappings
 
 @app.get("/health")
 async def health():
@@ -1325,6 +1400,7 @@ async def analyze(request: AgentRequest):
             "pause_after_step": request.pause_after_step,
             # Claude Code fast path
             "embedded_tool_call": None,
+            "project_mappings": request.project_mappings,
         }
         
         # Keys that should be persisted across turns and NOT overwritten with None
@@ -2382,6 +2458,70 @@ def print_access_urls(port):
         print(f"Could not determine network IP: {e}")
         
     print("="*50 + "\n")
+
+# =============================================================================
+# KNOWLEDGE BASE API - Adaptive Learning
+# =============================================================================
+
+class SolutionRequest(BaseModel):
+    """Request to mark a response as a validated solution."""
+    query: str
+    solution: str
+    metadata: dict = {}
+    kube_context: str | None = None
+
+
+@app.post("/knowledge/solution")
+async def save_solution_endpoint(request: SolutionRequest):
+    """
+    Save a marked solution to the knowledge base.
+    These solutions will be indexed and retrieved in future investigations.
+    """
+    import time
+    import uuid
+    import os
+    import json
+    
+    # Ensure directory
+    base_dir = os.path.expanduser("~/.opspilot/knowledge/solutions")
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except Exception as e:
+        print(f"[KB] ❌ Failed to create solution directory: {e}", flush=True)
+        return {"status": "error", "message": str(e)}
+    
+    # Create solution object
+    solution_data = {
+        "id": str(uuid.uuid4()),
+        "query": request.query,
+        "solution": request.solution,
+        "metadata": request.metadata,
+        "created_at": time.time(),
+        "kube_context": request.kube_context,
+        "source": "user_feedback"
+    }
+    
+    # Save to JSON
+    filename = f"{solution_data['id']}.json"
+    path = os.path.join(base_dir, filename)
+    
+    try:
+        with open(path, "w") as f:
+            json.dump(solution_data, f, indent=2)
+        print(f"[KB] 🧠 Saved solution {filename} for query: {request.query[:50]}...", flush=True)
+    except Exception as e:
+        print(f"[KB] ❌ Failed to save solution file: {e}", flush=True)
+        return {"status": "error", "message": str(e)}
+    
+    # Invalidate cache to force reload of new solution
+    try:
+        from .tools import clear_cache
+        clear_cache()
+    except Exception as e:
+        print(f"[KB] ⚠️ Failed to clear cache: {e}", flush=True)
+    
+    return {"status": "saved", "id": solution_data["id"]}
+
 
 if __name__ == "__main__":
     import uvicorn

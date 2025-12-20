@@ -121,3 +121,6 @@ class AgentState(TypedDict):
     user_hint: str | None  # User-provided guidance for next step
     skip_current_step: bool | None  # Skip current plan step and move to next
     pause_after_step: bool | None  # Pause for user approval after each step
+    
+    # Smart Discovery
+    project_mappings: list[dict] | None # Image pattern -> Local path mappings

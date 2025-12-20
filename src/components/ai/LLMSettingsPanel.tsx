@@ -1,10 +1,10 @@
 
 import { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search } from 'lucide-react';
+import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search, FileJson, Settings2, FileCode, Plus, Trash2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
-import { getAgentServerUrl, setAgentServerUrl } from '../../utils/config';
+import { getAgentServerUrl, setAgentServerUrl, getAllConfigWithSources, ConfigSource } from '../../utils/config';
 import { KBProgress } from './useSentinel';
 
 const AGENT_SERVER_URL = getAgentServerUrl();
@@ -103,6 +103,13 @@ export function LLMSettingsPanel({
     const [agentUrl, setAgentUrl] = useState(getAgentServerUrl());
     const [claudeCliPath, setClaudeCliPath] = useState('claude');
     const [showAgentSettings, setShowAgentSettings] = useState(false);
+
+    // Config source tracking (shows where each setting came from)
+    const [configSources, setConfigSources] = useState<{
+        agentUrl?: ConfigSource;
+        claudeCliPath?: ConfigSource;
+        embeddingEndpoint?: ConfigSource;
+    }>({});
 
     // Derived State
     const filteredRepos = availableRepos.filter(repo =>
@@ -427,6 +434,17 @@ export function LLMSettingsPanel({
         checkEmbeddingStatus();
         checkKbStatus();
         loadGithubConfig();
+
+        // Load config with sources to show where values came from
+        getAllConfigWithSources().then(config => {
+            setAgentUrl(config.agentUrl.value);
+            setClaudeCliPath(config.claudeCliPath.value);
+            setConfigSources({
+                agentUrl: config.agentUrl.source,
+                claudeCliPath: config.claudeCliPath.source,
+                embeddingEndpoint: config.embeddingEndpoint.source,
+            });
+        }).catch(e => console.warn('Failed to load config sources:', e));
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -470,6 +488,35 @@ export function LLMSettingsPanel({
         </div>
     );
 
+    // Config source badge - shows where a setting value came from
+    const ConfigSourceBadge = ({ source }: { source?: ConfigSource }) => {
+        if (!source || source === 'default') return null;
+
+        const labels: Record<ConfigSource, { label: string; color: string; icon: React.ReactNode }> = {
+            'env': { label: 'ENV', color: 'bg-green-500/20 text-green-400 border-green-500/30', icon: <Settings2 size={10} /> },
+            'file': { label: 'CONFIG', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', icon: <FileJson size={10} /> },
+            'localStorage': { label: 'SAVED', color: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30', icon: null },
+            'auto-detected': { label: 'AUTO', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30', icon: <Sparkles size={10} /> },
+            'default': { label: '', color: '', icon: null },
+        };
+
+        const config = labels[source];
+        return (
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${config.color}`}
+                title={`Value loaded from: ${source === 'env' ? 'Environment Variable' : source === 'file' ? '.opspilot.json config file' : source === 'auto-detected' ? 'Auto-detected' : 'Saved in app'}`}>
+                {config.icon}
+                {config.label}
+            </span>
+        );
+    };
+
+    // Sparkles icon for auto-detected values
+    const Sparkles = ({ size }: { size: number }) => (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+        </svg>
+    );
+
     return (
         <div className="flex flex-col h-full bg-black/60 backdrop-blur-2xl">
             {/* --- HEADER --- */}
@@ -509,28 +556,54 @@ export function LLMSettingsPanel({
 
                     {showAgentSettings && (
                         <div className="mt-5 space-y-4 relative z-10 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Agent Server URL</label>
-                                <input
-                                    type="text"
-                                    value={agentUrl}
-                                    onChange={e => setAgentUrl(e.target.value)}
-                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
-                                    placeholder="http://127.0.0.1:8765"
-                                />
-                                <p className="text-[10px] text-zinc-500 mt-1">Check the backend terminal output for the <strong>Network URL</strong> (e.g., http://192.168.1.5:8765).</p>
+                            {/* Quick config tip */}
+                            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-3 text-[10px] text-indigo-300/80">
+                                <strong className="text-indigo-300">💡 Tip:</strong> Set <code className="bg-black/30 px-1 rounded">OPSPILOT_AGENT_URL</code> environment variable or create <code className="bg-black/30 px-1 rounded">~/.opspilot.json</code> for zero-config setup across machines.
                             </div>
 
                             <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase mb-1 block">Claude CLI Path</label>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Agent Server URL</label>
+                                    <ConfigSourceBadge source={configSources.agentUrl} />
+                                </div>
+                                <input
+                                    type="text"
+                                    value={agentUrl}
+                                    onChange={e => {
+                                        setAgentUrl(e.target.value);
+                                        setConfigSources(prev => ({ ...prev, agentUrl: 'localStorage' }));
+                                    }}
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
+                                    placeholder="http://127.0.0.1:8765"
+                                />
+                                <p className="text-[10px] text-zinc-500 mt-1">
+                                    {configSources.agentUrl === 'auto-detected' ? '✓ Auto-detected from running agent' :
+                                        configSources.agentUrl === 'env' ? '✓ Set via OPSPILOT_AGENT_URL environment variable' :
+                                            configSources.agentUrl === 'file' ? '✓ Loaded from .opspilot.json config file' :
+                                                'Check the backend terminal output for the Network URL (e.g., http://192.168.1.5:8765).'}
+                                </p>
+                            </div>
+
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Claude CLI Path</label>
+                                    <ConfigSourceBadge source={configSources.claudeCliPath} />
+                                </div>
                                 <input
                                     type="text"
                                     value={claudeCliPath}
-                                    onChange={e => setClaudeCliPath(e.target.value)}
+                                    onChange={e => {
+                                        setClaudeCliPath(e.target.value);
+                                        setConfigSources(prev => ({ ...prev, claudeCliPath: 'localStorage' }));
+                                    }}
                                     className="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500/50 outline-none font-mono"
                                     placeholder="claude"
                                 />
-                                <p className="text-[10px] text-zinc-500 mt-1">Absolute path to 'claude' executable. Default: 'claude' (uses system PATH).</p>
+                                <p className="text-[10px] text-zinc-500 mt-1">
+                                    {configSources.claudeCliPath === 'env' ? '✓ Set via OPSPILOT_CLAUDE_CLI_PATH environment variable' :
+                                        configSources.claudeCliPath === 'file' ? '✓ Loaded from .opspilot.json config file' :
+                                            "Absolute path to 'claude' executable. Default: 'claude' (uses system PATH)."}
+                                </p>
                             </div>
                         </div>
                     )}
@@ -677,12 +750,90 @@ export function LLMSettingsPanel({
                     </div>
                 </div>
 
-                {/* === SECTION 2: CODE SEARCH - Hidden for now === */}
-                {/* GitHub config section hidden - can be re-enabled later
+                {/* === SECTION 2: SMART CODE DISCOVERY === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-                    ...
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+
+                    <div className="flex items-center gap-2.5 mb-5 relative z-10">
+                        <div className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-400">
+                            <FileCode size={18} />
+                        </div>
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Smart Code Discovery</h3>
+                    </div>
+
+                    <div className="space-y-4 relative z-10">
+                        <p className="text-[11px] text-zinc-400">
+                            Map container images to local project folders. This allows the agent to deep link stack traces directly to your source code.
+                        </p>
+
+                        {/* Mappings List */}
+                        <div className="space-y-2">
+                            {(localConfig.project_mappings || []).map((mapping, idx) => (
+                                <div key={idx} className="flex items-center gap-2 p-2 bg-black/20 rounded-lg border border-white/5 group">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[10px] font-mono text-emerald-300 truncate">{mapping.image_pattern}</div>
+                                        <div className="text-[10px] font-mono text-zinc-500 truncate" title={mapping.local_path}>{mapping.local_path}</div>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const newMappings = [...(localConfig.project_mappings || [])];
+                                            newMappings.splice(idx, 1);
+                                            setLocalConfig({ ...localConfig, project_mappings: newMappings });
+                                        }}
+                                        className="p-1.5 hover:bg-red-500/20 text-zinc-600 hover:text-red-400 rounded transition-colors"
+                                    >
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
+                            ))}
+                            {(localConfig.project_mappings || []).length === 0 && (
+                                <div className="text-[10px] text-zinc-600 italic text-center py-2">No mappings configured</div>
+                            )}
+                        </div>
+
+                        {/* Add New Mapping */}
+                        <div className="flex gap-2 items-end">
+                            <div className="flex-1 space-y-1">
+                                <label className="text-[9px] font-bold text-zinc-500 uppercase">Image Pattern (Regex)</label>
+                                <input
+                                    type="text"
+                                    id="new-mapping-pattern"
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:border-emerald-500/50 outline-none font-mono"
+                                    placeholder="my-app:.*"
+                                />
+                            </div>
+                            <div className="flex-[2] space-y-1">
+                                <label className="text-[9px] font-bold text-zinc-500 uppercase">Local Absolute Path</label>
+                                <input
+                                    type="text"
+                                    id="new-mapping-path"
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:border-emerald-500/50 outline-none font-mono"
+                                    placeholder="/Users/me/projects/my-app"
+                                />
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const patternInput = document.getElementById('new-mapping-pattern') as HTMLInputElement;
+                                    const pathInput = document.getElementById('new-mapping-path') as HTMLInputElement;
+                                    if (patternInput.value && pathInput.value) {
+                                        setLocalConfig({
+                                            ...localConfig,
+                                            project_mappings: [
+                                                ...(localConfig.project_mappings || []),
+                                                { image_pattern: patternInput.value, local_path: pathInput.value }
+                                            ]
+                                        });
+                                        patternInput.value = '';
+                                        pathInput.value = '';
+                                    }
+                                }}
+                                className="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg border border-emerald-500/30 transition-colors"
+                            >
+                                <Plus size={14} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                */}
 
                 {/* === SECTION 2: MEMORY SYSTEM === */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">

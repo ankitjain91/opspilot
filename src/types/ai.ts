@@ -11,6 +11,7 @@ export interface LLMConfig {
     embedding_endpoint?: string | null;
     temperature: number;
     max_tokens: number;
+    project_mappings?: { image_pattern: string; local_path: string; }[];
 }
 
 export interface LLMStatus {

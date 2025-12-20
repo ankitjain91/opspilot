@@ -242,6 +242,13 @@ Execute Python code with pre-loaded Kubernetes clients. Returns stdout.
   "overwrite": false
 }}}}
 
+**LocateSource**: Find source code from stack trace
+{{{{
+  "tool": "locate_source",
+  "file_pattern": "com/company/App.java",
+  "line_number": 42
+}}}}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚙️ **Kubectl Tools** - Use ONLY when Python doesn't suffice
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -387,7 +394,18 @@ for line in logs.split('\\n'):
 logs = v1.read_namespaced_pod_log("pod", "ns", previous=True, tail_lines=200)
 ```
 
+# 5. Get previous container logs (CrashLoopBackOff)
+logs = v1.read_namespaced_pod_log("pod", "ns", previous=True, tail_lines=200)
+```
+
+**SMART DISCOVERY:**
+If you see a stack trace (e.g., `java.lang.NullPointerException at com.mycompany.Service.java:42`), use `locate_source` to find the file in the local project:
+```json
+{{"tool": "locate_source", "file_pattern": "com/mycompany/Service.java", "line_number": 42}}
+```
+
 **SUCCESS = Identifying ROOT CAUSE with Python evidence.**
+
 """
 
 WORKER_MODE_REMEDIATION = """

@@ -16,6 +16,7 @@ import { LLMConfig, LLMStatus, ClusterHealthSummary } from '../../types/ai';
 import { fixMarkdownHeaders } from '../../utils/markdown';
 import { stripAnsi } from '../../utils/ansi';
 import { loadLLMConfig } from './utils';
+import { getAgentServerUrl } from '../../utils/config';
 import { LLMSettingsPanel } from './LLMSettingsPanel';
 import { SearchCodeDialog } from './SearchCodeDialog';
 import {
@@ -1025,6 +1026,32 @@ export function ClusterChatPanel({
         }
     };
 
+    // Adaptive Knowledge Base: Mark as Solution
+    const [markedSolutions, setMarkedSolutions] = useState<Set<number>>(new Set());
+
+    const handleMarkSolution = async (index: number, query: string, solution: string) => {
+        if (markedSolutions.has(index)) return;
+
+        try {
+            await fetch(`${getAgentServerUrl()}/knowledge/solution`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query,
+                    solution,
+                    kube_context: currentContext || undefined
+                })
+            });
+            setMarkedSolutions(prev => {
+                const newSet = new Set(prev);
+                newSet.add(index);
+                return newSet;
+            });
+        } catch (e) {
+            console.error("Failed to mark solution:", e);
+        }
+    };
+
     // Keep ref updated so searchGitHub can call it
     sendMessageRef.current = sendMessage;
 
@@ -1436,8 +1463,8 @@ export function ClusterChatPanel({
                                 <p className="text-xs text-zinc-500 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                                     {llmStatus.provider === 'codex-cli' ? 'Codex (OpenAI) • o1-preview' :
-                                     llmStatus.provider === 'claude-code' ? 'Claude Code' :
-                                     `${llmStatus.provider} • ${(llmStatus.model || llmConfig.model).split(':')[0]}`}
+                                        llmStatus.provider === 'claude-code' ? 'Claude Code' :
+                                            `${llmStatus.provider} • ${(llmStatus.model || llmConfig.model).split(':')[0]}`}
                                 </p>
                                 {/* Embedding model status indicator */}
                                 {embeddingStatus && (
@@ -1602,6 +1629,23 @@ export function ClusterChatPanel({
                                                     </ReactMarkdown>
                                                     {group.answer.isStreaming && group.answer.content && (
                                                         <span className="inline-block w-2 h-5 bg-emerald-400 animate-pulse ml-1 align-middle" />
+                                                    )}
+
+                                                    {/* Mark as Solution Button */}
+                                                    {!group.answer.isStreaming && group.user && (
+                                                        <div className="mt-3 flex justify-end border-t border-white/5 pt-2">
+                                                            <button
+                                                                onClick={() => handleMarkSolution(i, group.user?.content || '', group.answer?.content || '')}
+                                                                className={`text-[10px] flex items-center gap-1.5 px-2 py-1 rounded transition-all ${markedSolutions.has(i)
+                                                                    ? 'text-emerald-400 bg-emerald-500/10 cursor-default'
+                                                                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
+                                                                title={markedSolutions.has(i) ? "Saved to Knowledge Base" : "Mark as Solution (improves future answers)"}
+                                                                disabled={markedSolutions.has(i)}
+                                                            >
+                                                                {markedSolutions.has(i) ? <CheckCircle2 size={12} /> : <CheckCircle2 size={12} className="opacity-50" />}
+                                                                {markedSolutions.has(i) ? 'Solution Saved' : 'Mark as Solution'}
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>

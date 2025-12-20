@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
 import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
+import { initializeConfig } from "./utils/config";
 
 import { Dashboard } from './components/dashboard/Dashboard';
 import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
@@ -86,6 +87,11 @@ function AppContent() {
 
   // Start Sentinel listener with auto-investigate handler
   const { kbProgress, sentinelStatus } = useSentinel(handleAutoInvestigate);
+
+  // Initialize configuration on app startup (auto-detect agent URL, load config file, etc.)
+  useEffect(() => {
+    initializeConfig().catch(e => console.warn('[Config] Initialization error:', e));
+  }, []);
 
   useEffect(() => {
     const handler = (e: any) => {

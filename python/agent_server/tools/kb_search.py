@@ -142,7 +142,27 @@ def load_kb_entries(kb_dir: str) -> List[Dict]:
         except Exception as e:
             print(f"[KB] Error loading {jsonl_file.name}: {e}", flush=True)
 
-    print(f"[KB] Loaded {len(entries)} knowledge base entries", flush=True)
+    # Load user-verified solutions (Adaptive Learning)
+    solutions_dir = os.path.expanduser("~/.opspilot/knowledge/solutions")
+    if os.path.exists(solutions_dir):
+        for sol_file in Path(solutions_dir).glob("*.json"):
+            try:
+                with open(sol_file, 'r') as f:
+                    sol = json.load(f)
+                    entry = {
+                        "id": f"solution-{sol.get('id', 'unknown')}",
+                        "category": "UserVerifiedSolution",
+                        "symptoms": [sol.get('query', '')],
+                        "root_cause": f"✅ VERIFIED SOLUTION\n\n{sol.get('solution', '')}",
+                        "investigation": [],
+                        "fixes": [],
+                        "description": f"User verified solution for query: {sol.get('query', '')}"
+                    }
+                    entries.append(entry)
+            except Exception as e:
+                print(f"[KB] Error loading solution {sol_file.name}: {e}", flush=True)
+
+    print(f"[KB] Loaded {len(entries)} knowledge base entries (including user solutions)", flush=True)
     _kb_cache["default"] = entries
     return entries
 

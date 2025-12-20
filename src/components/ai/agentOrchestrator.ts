@@ -53,7 +53,7 @@ import {
     createAIInvestigationPlan
 } from './aiDrivenUtils';
 
-import { getAgentServerUrl } from '../../utils/config';
+import { getAgentServerUrl, getProjectMappings } from '../../utils/config';
 
 /**
  * Trigger background KB preloading for a context.
@@ -287,10 +287,13 @@ async function runPythonAgent(
     let loopCount = 0;
     const MAX_LOOPS = 10;
 
+    // Retrieve project mappings (Smart Code Discovery)
+    const projectMappings = await getProjectMappings();
+
     while (loopCount < MAX_LOOPS) {
         loopCount++;
 
-        const request: PythonAgentRequest & { mcp_tools?: any[], tool_output?: any, history: any[], thread_id?: string } = {
+        const request: PythonAgentRequest & { mcp_tools?: any[], tool_output?: any, history: any[], thread_id?: string, project_mappings?: any[] } = {
             query,
             kube_context: kubeContext || '',
             llm_endpoint: llmEndpoint,
@@ -298,6 +301,7 @@ async function runPythonAgent(
             llm_model: llmModel,
             executor_model: executorModel,
             embedding_model: embeddingModel,
+            project_mappings: projectMappings,
             api_key: apiKey,
             conversation_history: initialHistory || [],
             mcp_tools: mcpTools || [],

@@ -190,6 +190,15 @@ class FindFile(BaseModel):
     pattern: str = Field(..., description="Glob pattern to find (e.g., *.ts, config.*)")
     path: str = Field(..., description="Root path to start search from")
 
+class LocateSource(BaseModel):
+    """
+    Locate a source file from a stack trace in the local project mappings.
+    Returns a clickable vscode:// link if found.
+    """
+    tool: Literal["locate_source"]
+    file_pattern: str = Field(..., description="File path or name from stack trace (e.g., 'com/mycompany/Service.java' or 'app.py')")
+    line_number: Optional[int] = Field(None, description="Line number if available")
+
 # Discriminated Union Entry Point
 
 
@@ -223,5 +232,5 @@ class AgentToolWrapper(BaseModel):
         KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff, GitCommit, PredictScaling,
         KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
         ShellCommand,
-        ListDir, ReadFile, GrepSearch, FindFile
+        ListDir, ReadFile, GrepSearch, FindFile, LocateSource
     ], Field(discriminator='tool')]

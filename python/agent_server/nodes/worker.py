@@ -362,7 +362,7 @@ async def worker_node(state: AgentState) -> dict:
                     }
 
                 # SPECIAL HANDLING: Filesystem Tools (Native Python Execution)
-                from ..tools.definitions import ListDir, ReadFile, GrepSearch, FindFile
+                from ..tools.definitions import ListDir, ReadFile, GrepSearch, FindFile, LocateSource
                 from ..tools.fs_tools import WriteFile, write_file
                 
                 if isinstance(tool_obj, (ListDir, ReadFile, GrepSearch, FindFile, WriteFile)):
@@ -399,6 +399,34 @@ async def worker_node(state: AgentState) -> dict:
                         'pending_command': None,
                         'events': events
                     }
+                
+                # SPECIAL HANDLING: Code Navigation (Smart Discovery)
+                if isinstance(tool_obj, LocateSource):
+                     from ..tools.code_nav import locate_source
+                     
+                     print(f"[agent-sidecar] 🧭 Locating Source Code: {tool_obj.file_pattern}", flush=True)
+                     events.append(emit_event("progress", {"message": f"🧭 Scanning local source code for {tool_obj.file_pattern}..."}))
+                     
+                     output = locate_source(
+                         file_pattern=tool_obj.file_pattern,
+                         line_number=tool_obj.line_number,
+                         project_mappings=state.get('project_mappings', [])
+                     )
+                     
+                     cmd_str = f"locate_source(pattern='{tool_obj.file_pattern}')"
+                     
+                     events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
+                     
+                     return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': state['command_history'] + [
+                            {'command': cmd_str, 'output': output, 'error': None if not output.startswith("Could not find") else output}
+                        ],
+                        'pending_command': None,
+                        'events': events
+                    }
+
 
 
                 # SPECIAL HANDLING: Python Execution (The 10X Tool)

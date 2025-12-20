@@ -5,10 +5,12 @@
  * - LLM configuration management
  * - Calling LLM endpoints
  * - Storing/retrieving investigation patterns
+ * - OpsPilot configuration file support
  */
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::env;
 use tokio::fs;
 
 // =============================================================================
@@ -216,4 +218,126 @@ pub async fn find_similar_investigations(
 
     // Return top N
     Ok(results.into_iter().take(limit).collect())
+}
+
+// =============================================================================
+// OPSPILOT CONFIG FILE SUPPORT
+// =============================================================================
+
+/// OpsPilot configuration structure (matches frontend OpsPilotConfig interface)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsPilotConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_server_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_cli_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kubeconfig: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+}
+
+/// Get list of config file paths to search (in priority order)
+fn get_opspilot_config_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    // 1. Current directory (project-level config)
+    paths.push(PathBuf::from(".opspilot.json"));
+
+    // 2. Home directory config
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".opspilot.json"));
+    }
+
+    // 3. XDG config directory (Linux/macOS standard)
+    if let Some(config_dir) = dirs::config_dir() {
+        paths.push(config_dir.join("opspilot").join("config.json"));
+    }
+
+    paths
+}
+
+/// Load OpsPilot configuration from file
+/// Searches multiple locations in priority order
+#[tauri::command]
+pub async fn load_opspilot_config() -> Result<OpsPilotConfig, String> {
+    let paths = get_opspilot_config_paths();
+
+    for path in paths {
+        if path.exists() {
+            match fs::read_to_string(&path).await {
+                Ok(content) => {
+                    match serde_json::from_str::<OpsPilotConfig>(&content) {
+                        Ok(config) => {
+                            eprintln!("[config] Loaded OpsPilot config from: {:?}", path);
+                            return Ok(config);
+                        }
+                        Err(e) => {
+                            eprintln!("[config] Failed to parse {:?}: {}", path, e);
+                            // Continue to next path
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[config] Failed to read {:?}: {}", path, e);
+                    // Continue to next path
+                }
+            }
+        }
+    }
+
+    // No config file found, return empty config
+    Ok(OpsPilotConfig::default())
+}
+
+/// Save OpsPilot configuration to file (home directory)
+#[tauri::command]
+pub async fn save_opspilot_config(config: OpsPilotConfig) -> Result<(), String> {
+    let config_path = dirs::home_dir()
+        .ok_or_else(|| "Could not find home directory".to_string())?
+        .join(".opspilot.json");
+
+    let json = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    fs::write(&config_path, json)
+        .await
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+
+    eprintln!("[config] Saved OpsPilot config to: {:?}", config_path);
+    Ok(())
+}
+
+/// Get an environment variable value
+#[tauri::command]
+pub fn get_env_var(name: String) -> Option<String> {
+    env::var(&name).ok()
+}
+
+/// Get all OpsPilot-related environment variables
+#[tauri::command]
+pub fn get_opspilot_env_vars() -> std::collections::HashMap<String, String> {
+    let env_keys = vec![
+        "OPSPILOT_AGENT_URL",
+        "OPSPILOT_CLAUDE_CLI_PATH",
+        "OPSPILOT_EMBEDDING_ENDPOINT",
+        "OPSPILOT_EMBEDDING_MODEL",
+        "OPSPILOT_GITHUB_TOKEN",
+        "KUBECONFIG",
+    ];
+
+    let mut result = std::collections::HashMap::new();
+    for key in env_keys {
+        if let Ok(value) = env::var(key) {
+            result.insert(key.to_string(), value);
+        }
+    }
+    result
 }
