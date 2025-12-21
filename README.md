@@ -215,7 +215,3 @@ We welcome contributions! Please see `CONTRIBUTING.md` for guidelines.
 ## 📄 License
 
 MIT License. See `LICENSE` for details.
-
----
-
-**Built with ❤️ using [Claude Code](https://claude.com/claude-code)**
