@@ -1,0 +1,10 @@
+sequenceDiagram
+  participant UI as MCP Settings
+  participant BE as Tauri Rust
+  participant Server as MCP Server
+
+  UI->>BE: connect_mcp_server(name, command, args, env)
+  BE->>Server: Spawn process with env
+  Server-->>BE: Ready / Error
+  BE-->>UI: Success or error message
+  UI->>BE: disconnect_mcp_server(name) (optional if only testing)

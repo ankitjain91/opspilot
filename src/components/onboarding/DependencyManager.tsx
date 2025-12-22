@@ -19,32 +19,36 @@ interface ProgressEvent {
     error?: string;
 }
 
-const TOOL_INFO: Record<string, { label: string; description: string; purpose: string; link: string; required: boolean }> = {
+const TOOL_INFO: Record<string, { label: string; description: string; purpose: string; link: string; required: boolean; lookingFor: string }> = {
     kubectl: {
-        label: "Kubernetes CLI",
-        description: "The official command line tool for communicating with the Kubernetes control plane.",
-        purpose: "Required to inspect clusters, manage resources, and execute commands.",
+        label: "kubectl",
+        description: "Kubernetes command-line tool",
+        purpose: "Connect to clusters, list resources, view logs, and execute commands",
+        lookingFor: "kubectl binary in PATH",
         link: "https://kubernetes.io/docs/tasks/tools/",
         required: true
     },
     helm: {
-        label: "Helm Package Manager",
-        description: "The package manager for Kubernetes.",
-        purpose: "Needed to install, upgrade, and manage applications on your cluster.",
+        label: "Helm",
+        description: "Kubernetes package manager",
+        purpose: "Install, upgrade, and manage Helm charts and releases",
+        lookingFor: "helm binary in PATH",
         link: "https://helm.sh/docs/intro/install/",
         required: true
     },
     vcluster: {
-        label: "Virtual Cluster CLI",
-        description: "Tool for creating isolated virtual clusters.",
-        purpose: "Recommended for creating safe, sandboxed environments for testing.",
+        label: "vcluster",
+        description: "Virtual Kubernetes clusters",
+        purpose: "Create isolated virtual clusters for testing and development",
+        lookingFor: "vcluster binary in PATH",
         link: "https://www.vcluster.com/docs/getting-started/setup",
         required: false
     },
     "agent-server": {
-        label: "Python Agent Sidecar",
-        description: "AI backend service designed for OpsPilot.",
-        purpose: "Powers the LLM reasoning and code execution. Run `bin/agent-server`.",
+        label: "Agent Server",
+        description: "AI-powered backend service",
+        purpose: "Powers AI chat, knowledge base, and intelligent analysis features",
+        lookingFor: "Python sidecar running on port 8765",
         link: "https://github.com/ankitjain91/opspilot",
         required: true
     }
@@ -150,116 +154,134 @@ export function DependencyManager() {
         }
     };
 
+    const requiredCount = statuses.filter(s => TOOL_INFO[s.name]?.required).length;
+    const installedCount = statuses.filter(s => s.installed && TOOL_INFO[s.name]?.required).length;
+    const allRequiredInstalled = requiredCount > 0 && installedCount === requiredCount;
+
     return (
-        <div className="p-4 bg-gray-900 rounded-lg border border-gray-800">
-            <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-400" />
-                    System Dependencies
-                </h2>
-                <button
-                    onClick={checkDeps}
-                    className="p-2 hover:bg-gray-800 rounded-full text-gray-400"
-                    disabled={loading}
-                >
-                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
+        <div className="space-y-4">
+            {/* Header with clear explanation */}
+            <div className="text-center pb-4 border-b border-white/10">
+                <h2 className="text-lg font-semibold text-white mb-2">Required Tools</h2>
+                <p className="text-sm text-zinc-400 max-w-md mx-auto">
+                    OpsPilot needs the following CLI tools to manage your Kubernetes clusters. Install any missing tools to get started.
+                </p>
+                {/* Status summary */}
+                <div className="mt-3 flex items-center justify-center gap-2">
+                    {allRequiredInstalled ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-medium">
+                            <CheckCircle size={14} />
+                            All required tools installed
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-medium">
+                            <AlertTriangle size={14} />
+                            {requiredCount - installedCount} required tool{requiredCount - installedCount !== 1 ? 's' : ''} missing
+                        </span>
+                    )}
+                    <button
+                        onClick={checkDeps}
+                        className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                        disabled={loading}
+                        title="Refresh status"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                </div>
             </div>
 
-            <div className="space-y-3">
-                <div className="space-y-4">
-                    {statuses.map(tool => {
-                        const info = TOOL_INFO[tool.name] || {
-                            label: tool.name,
-                            description: "System tool",
-                            purpose: "Required for system operations",
-                            link: "#",
-                            required: false
-                        };
-                        const isDownloading = downloading[tool.name] !== undefined;
-                        const progress = downloading[tool.name];
-                        const canInstall = getDownloadUrl(tool.name) !== "";
+            {/* Tool list */}
+            <div className="space-y-2">
+                {statuses.map(tool => {
+                    const info = TOOL_INFO[tool.name] || {
+                        label: tool.name,
+                        description: "System tool",
+                        purpose: "Required for system operations",
+                        lookingFor: `${tool.name} in PATH`,
+                        link: "#",
+                        required: false
+                    };
+                    const isDownloading = downloading[tool.name] !== undefined;
+                    const progress = downloading[tool.name];
+                    const canInstall = getDownloadUrl(tool.name) !== "";
 
-                        return (
-                            <div key={tool.name} className={`p-4 rounded-xl border transition-all ${tool.installed
-                                    ? 'bg-emerald-500/5 border-emerald-500/20'
-                                    : 'bg-gray-800/50 border-gray-700'
-                                }`}>
-                                <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                                            {info.label}
-                                            {info.required && <span className="text-[10px] bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded uppercase tracking-wider">Required</span>}
-                                            {tool.installed && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">{tool.version}</span>}
-                                        </h3>
-                                        <p className="text-xs text-gray-400 mt-1">{info.description}</p>
+                    return (
+                        <div key={tool.name} className={`p-3 rounded-xl border transition-all ${tool.installed
+                                ? 'bg-emerald-500/5 border-emerald-500/20'
+                                : 'bg-zinc-800/50 border-zinc-700'
+                            }`}>
+                            <div className="flex items-center justify-between gap-3">
+                                {/* Left: Icon + Info */}
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${tool.installed
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-zinc-700 text-zinc-400'
+                                        }`}>
+                                        {tool.installed ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
                                     </div>
-                                    <div className="shrink-0">
-                                        {tool.installed ? (
-                                            <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold bg-emerald-500/10 px-2 py-1 rounded-full">
-                                                <CheckCircle size={14} />
-                                                <span>Ready</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1.5 text-amber-500 text-xs font-bold bg-amber-500/10 px-2 py-1 rounded-full">
-                                                <AlertTriangle size={14} />
-                                                <span>Missing</span>
-                                            </div>
-                                        )}
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-sm font-semibold text-white truncate">{info.label}</h3>
+                                            {info.required && (
+                                                <span className="text-[9px] bg-zinc-700 text-zinc-300 px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0">Required</span>
+                                            )}
+                                            {tool.installed && tool.version && (
+                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono shrink-0">{tool.version}</span>
+                                            )}
+                                        </div>
+                                        <p className="text-[11px] text-zinc-500 truncate">
+                                            {tool.installed ? info.purpose : (
+                                                <span>
+                                                    <span className="text-zinc-400">Looking for:</span> {info.lookingFor}
+                                                </span>
+                                            )}
+                                        </p>
                                     </div>
                                 </div>
 
-                                <div className="bg-black/20 rounded p-2.5 mb-3 border border-white/5">
-                                    <div className="text-[11px] text-blue-300 font-medium mb-0.5">Why is this needed?</div>
-                                    <div className="text-[11px] text-gray-400 leading-relaxed">{info.purpose}</div>
-                                </div>
-
-                                {!tool.installed && (
-                                    <div className="flex items-center gap-3 pt-2 border-t border-white/5">
-                                        {isDownloading ? (
-                                            <div className="flex-1 flex items-center gap-3">
-                                                <div className="flex flex-col flex-1">
-                                                    <div className="flex justify-between text-[10px] text-blue-300 mb-1">
-                                                        <span>Downloading...</span>
-                                                        <span>{progress}%</span>
-                                                    </div>
-                                                    <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
-                                                        <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }} />
-                                                    </div>
+                                {/* Right: Action */}
+                                <div className="shrink-0">
+                                    {tool.installed ? (
+                                        <span className="text-xs text-emerald-400 font-medium">Ready</span>
+                                    ) : isDownloading ? (
+                                        <div className="flex items-center gap-2 min-w-[100px]">
+                                            <div className="flex-1">
+                                                <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }} />
                                                 </div>
                                             </div>
-                                        ) : (
-                                            <>
-                                                {canInstall ? (
-                                                    <button
-                                                        onClick={() => handleInstall(tool.name)}
-                                                        className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors"
-                                                    >
-                                                        <Download size={14} />
-                                                        Auto-Install
-                                                    </button>
-                                                ) : (
-                                                    <div className="text-[11px] text-gray-500 italic">
-                                                        Results of auto-install may vary.
-                                                    </div>
-                                                )}
-
-                                                <a
-                                                    href={info.link}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
-                                                >
-                                                    Manual Installation Guide ↗
-                                                </a>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
+                                            <span className="text-[10px] text-blue-300 font-mono">{progress}%</span>
+                                        </div>
+                                    ) : canInstall ? (
+                                        <button
+                                            onClick={() => handleInstall(tool.name)}
+                                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors"
+                                        >
+                                            <Download size={12} />
+                                            Install
+                                        </button>
+                                    ) : (
+                                        <a
+                                            href={info.link}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                                        >
+                                            Install Guide ↗
+                                        </a>
+                                    )}
+                                </div>
                             </div>
-                        );
-                    })}
-                </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Help text at bottom */}
+            <div className="text-center pt-3 border-t border-white/5">
+                <p className="text-[11px] text-zinc-600">
+                    Can't find a tool? Make sure it's in your system PATH and click refresh.
+                </p>
             </div>
         </div>
     );

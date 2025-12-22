@@ -17,7 +17,8 @@ import hashlib
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 
-from ..config import EMBEDDING_MODEL, CACHE_DIR, KB_DIR
+from ..config import EMBEDDING_MODEL, CACHE_DIR, KB_DIR, KB_MAX_DOC_TOKENS
+from ..discovery import list_crds
 
 # Simple in-memory cache
 # _kb_cache is now context-aware: {"default": [...], "context-name": [...]}
@@ -32,6 +33,77 @@ embedding_model_available = False # State tracker for UI checks
 
 # CRD cache TTL in seconds (5 minutes)
 CRD_CACHE_TTL = 300
+
+
+def get_cached_crds(kube_context: str = 'default') -> Tuple[List, float]:
+    """
+    Get cached CRDs for a context if available.
+
+    Returns:
+        Tuple of (list of CRDInfo objects, cache_age_seconds)
+        Returns ([], -1) if no cache exists.
+
+    This is used by CR Health scan to reuse CRDs already fetched by KB preload,
+    avoiding duplicate kubectl calls.
+    """
+    global _kb_cache, _kb_cache_timestamps
+    from ..discovery import CRDInfo
+
+    try:
+        current_time = time.time()
+        cache_age = current_time - _kb_cache_timestamps.get(kube_context, 0)
+
+        # Debug: Log cache state
+        cached_contexts = list(_kb_cache.keys())
+        print(f"[KB] 🔍 get_cached_crds called for '{kube_context}', available contexts: {cached_contexts}", flush=True)
+
+        # Check if we have cached entries for this context and it's not expired
+        if kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
+            # Extract CRD names from the cached KB entries
+            # KB entries for CRDs have IDs like "live-crd-<crd-name>"
+            cached_entries = _kb_cache[kube_context]
+            crd_names = []
+            for entry in cached_entries:
+                entry_id = entry.get('id', '')
+                if entry_id.startswith('live-crd-'):
+                    # Extract CRD name from ID (e.g., "live-crd-postgresclusters.acid.zalan.do")
+                    crd_name = entry_id[len('live-crd-'):]
+                    if crd_name:
+                        crd_names.append(crd_name)
+
+            if crd_names:
+                print(f"[KB] ♻️ Reusing {len(crd_names)} cached CRDs (age: {int(cache_age)}s)", flush=True)
+                # Reconstruct CRDInfo objects from names
+                crds = []
+                for crd_name in crd_names:
+                    parts = crd_name.split('.')
+                    plural = parts[0] if parts else crd_name
+                    group = '.'.join(parts[1:]) if len(parts) > 1 else ''
+                    # Kind is typically the singular of plural
+                    kind = entry.get('kind')
+                    if not kind:
+                         # Fallback heuristic
+                         kind = plural.rstrip('s').title() if plural else crd_name
+
+                    crds.append(CRDInfo(
+                        name=crd_name,
+                        group=group,
+                        version=entry.get('version', 'v1'),
+                        kind=kind
+                    ))
+                return crds, cache_age
+            else:
+                print(f"[KB] ⚠️ Cache exists but no live-crd- entries found (total entries: {len(cached_entries)})", flush=True)
+        else:
+            if kube_context not in _kb_cache:
+                print(f"[KB] ℹ️ Context '{kube_context}' not in cache", flush=True)
+            elif cache_age >= CRD_CACHE_TTL:
+                print(f"[KB] ℹ️ Cache expired for '{kube_context}' (age: {int(cache_age)}s >= TTL: {CRD_CACHE_TTL}s)", flush=True)
+
+        return [], -1
+    except Exception as e:
+        print(f"[KB] ⚠️ get_cached_crds failed: {e}", flush=True)
+        return [], -1
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -175,6 +247,65 @@ def load_kb_entries(kb_dir: str) -> List[Dict]:
 EXPLAIN_CACHE_DIR = os.path.join(CACHE_DIR, "crd_schemas")
 EXPLAIN_CACHE_TTL = 86400  # 24 hours in seconds
 
+# Persistent CRD Cache Directory
+CRD_DISK_CACHE_DIR = os.path.join(CACHE_DIR, "crds_persistent")
+
+
+def _get_crd_hash(kube_context: str) -> str:
+    """
+    Get a lightweight hash of the current CRDs in the cluster.
+    Used to detect if we need to re-ingest without fetching full details.
+    """
+    try:
+        cmd = ["kubectl"]
+        if kube_context:
+            cmd.extend(["--context", kube_context])
+        # Fetch just names and versions - fast
+        cmd.extend(["get", "crds", "--no-headers", "-o", "custom-columns=NAME:.metadata.name,VERSION:.spec.versions[0].name"])
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            # Hash the output string
+            return hashlib.md5(result.stdout.encode()).hexdigest()
+        return ""
+    except Exception as e:
+        print(f"[KB] Failed to compute CRD hash: {e}", flush=True)
+        return ""
+
+def _load_crd_disk_cache(kube_context: str) -> Tuple[List[Dict], str]:
+    """Load CRDs from persistent disk cache. Returns (entries, hash)."""
+    if not os.path.exists(CRD_DISK_CACHE_DIR):
+        return [], ""
+        
+    cache_file = os.path.join(CRD_DISK_CACHE_DIR, f"{kube_context}.json")
+    if not os.path.exists(cache_file):
+        return [], ""
+        
+    try:
+        with open(cache_file, 'r') as f:
+            data = json.load(f)
+            return data.get('entries', []), data.get('hash', "")
+    except Exception as e:
+        print(f"[KB] Failed to load disk cache: {e}", flush=True)
+        return [], ""
+
+def _save_crd_disk_cache(kube_context: str, entries: List[Dict], crd_hash: str):
+    """Save CRDs to persistent disk cache."""
+    if not os.path.exists(CRD_DISK_CACHE_DIR):
+        os.makedirs(CRD_DISK_CACHE_DIR, exist_ok=True)
+        
+    cache_file = os.path.join(CRD_DISK_CACHE_DIR, f"{kube_context}.json")
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump({
+                'hash': crd_hash,
+                'entries': entries,
+                'timestamp': time.time()
+            }, f)
+        print(f"[KB] 💾 Persisted {len(entries)} CRDs to disk for '{kube_context}'", flush=True)
+    except Exception as e:
+        print(f"[KB] Failed to save disk cache: {e}", flush=True)
+
 def _get_cached_explain(crd_name: str) -> Optional[str]:
     """Get cached kubectl explain output if available and fresh."""
     if not os.path.exists(EXPLAIN_CACHE_DIR):
@@ -276,7 +407,17 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
 
     # Build knowledge entries without kubectl explain (instant)
     entries = []
-    for idx, crd in enumerate(crd_list, 1):
+    for idx, item in enumerate(crd_list, 1):
+        # Handle both list of strings and list of CRDInfo objects
+        if hasattr(item, 'name'):
+            crd = item.name
+            real_kind = getattr(item, 'kind', None)
+            real_version = getattr(item, 'version', None)
+        else:
+            crd = str(item)
+            real_kind = None
+            real_version = None
+
         name = crd.split('.')[0]
         group = '.'.join(crd.split('.')[1:])
 
@@ -341,7 +482,7 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
             ])
 
         entry = {
-            "id": f"live-crd-{name}",
+            "id": f"live-crd-{crd}",  # Use full CRD name (e.g., postgresclusters.acid.zalan.do) for proper group reconstruction
             "category": "LiveResource",
             "symptoms": symptoms,
             "root_cause": f"✅ KUBERNETES CUSTOM RESOURCE: '{name}' (API: {crd})\n\nThis is a standard Kubernetes resource that works with ALL kubectl commands:\n- kubectl get {name} -A (list all)\n- kubectl get {name} <name> -n <namespace> (get specific)\n- kubectl get {name} <name> -n <namespace> -o yaml (full details)\n- kubectl describe {name} <name> -n <namespace> (detailed status)\n- kubectl explain {name} (see schema)\n\n**FINDING THE CONTROLLER/OPERATOR**:\nCustom Resources are managed by controllers/operators. To find the controller:\n1. Check pods with labels: kubectl get pods -A -l 'app.kubernetes.io/name' -o wide | grep -i {name}\n2. Search by API group: kubectl get pods -A -o yaml | grep -i {group}\n3. Look for operator pods: kubectl get pods -A | grep -i '{name.rstrip('s')}'\n4. Common patterns: {name}-controller, {name}-operator, {group.split('.')[0]}-operator\n\n**BULK DISCOVERY** (when asked for 'all azure resources', 'all crossplane resources', etc.):\n- Use kubectl api-resources | grep -i azure to find ALL Azure resource types\n- Then iterate: for TYPE in $(kubectl api-resources | grep azure | awk '{{print $1}}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done",
@@ -360,6 +501,13 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
             ],
             "description": f"🔧 Cluster Capability: {name} ({group}) - Custom Resource managed by a controller/operator. API Group: {group}. Use kubectl get {name} -A to list instances."
         }
+        
+        # Store metadata for cache reconstruction
+        if real_kind:
+            entry['kind'] = real_kind
+        if real_version:
+            entry['version'] = real_version
+
         entries.append(entry)
 
         # Report progress after each CRD
@@ -394,9 +542,30 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         cache_age = current_time - _kb_cache_timestamps.get(kube_context, 0)
 
         # Check if we already have dynamic knowledge in cache for this context
-        if not force_refresh and kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
-            print(f"[KB] ✅ Using cached CRDs for context '{kube_context}' (age: {int(cache_age)}s, TTL: {CRD_CACHE_TTL}s)", flush=True)
-            return _kb_cache[kube_context]
+        if not force_refresh:
+            # 1. OPTIMIZED: Check Persistent Disk Cache first (survives restarts)
+            cached_entries, cached_hash = _load_crd_disk_cache(kube_context)
+            
+            if cached_entries:
+                # 2. Smart Check: Is the cache still valid? 
+                # We compute the current CRD hash (cheap) and compare with stored hash.
+                print(f"[KB] 🕵️ Checking if CRD cache is stale for '{kube_context}'...", flush=True)
+                current_hash = _get_crd_hash(kube_context)
+                
+                if current_hash and current_hash == cached_hash:
+                     print(f"[KB] ✅ CRDs unchanged (hash match). Using persistent cache ({len(cached_entries)} entries).", flush=True)
+                     # Hydrate in-memory cache
+                     static_kb = load_kb_entries(state.get('kb_dir') or KB_DIR)
+                     _kb_cache[kube_context] = static_kb + cached_entries
+                     _kb_cache_timestamps[kube_context] = time.time()
+                     return _kb_cache[kube_context]
+                else:
+                    print(f"[KB] ♻️ CRD change detected (hash mismatch). Refreshing...", flush=True)
+            
+            # 3. Fallback to in-memory TTL check if disk cache empty/stale
+            elif kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
+                print(f"[KB] ✅ Using in-memory cached CRDs for context '{kube_context}' (age: {int(cache_age)}s, TTL: {CRD_CACHE_TTL}s)", flush=True)
+                return _kb_cache[kube_context]
 
         if cache_age >= CRD_CACHE_TTL:
             print(f"[KB] ⏰ CRD cache expired (age: {int(cache_age)}s), refreshing...", flush=True)
@@ -412,24 +581,16 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         # But for discovery, we usually want to know what's in the *connected* cluster
         kube_context = state.get('kube_context')
         
-        cmd = ["kubectl"]
-        if kube_context:
-            cmd.extend(["--context", kube_context])
-        cmd.extend(["get", "crds", "--no-headers", "-o", "custom-columns=NAME:.metadata.name"])
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
-        if result.returncode != 0:
-            print(f"[KB] Failed to fetch CRDs: {result.stderr}", flush=True)
-            # Don't return empty yet, try XRDs
-            crd_list = []
-        else:
-            crd_list = result.stdout.strip().split('\n')
-            crd_list = [c.strip() for c in crd_list if c.strip()]
+        # Use centralized discovery module
+        # Use centralized discovery module
+        print(f"[KB] 🔍 Fetching CRDs using discovery module...", flush=True)
+        found_crds = list_crds(kube_context)
+        # Pass full objects to preserve Kind/Version info, but keep list of names for bulk patterns
+        crd_list = [c.name for c in found_crds]
         
         # Fast basic ingestion (no kubectl explain - instant startup)
         # Parallel kubectl explain execution with caching
-        live_entries = await _ingest_crds_parallel(crd_list, context=kube_context, progress_callback=progress_callback)
+        live_entries = await _ingest_crds_parallel(found_crds, context=kube_context, progress_callback=progress_callback)
 
         # Add meta-entries for bulk discovery patterns
         azure_crds = [c for c in crd_list if 'azure' in c.lower()]
@@ -544,6 +705,12 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
 
         # Update cache timestamp
         _kb_cache_timestamps[kube_context] = time.time()
+        
+        # 4. Save to Persistent Disk Cache
+        # Calculate hash for future checks
+        crd_hash = _get_crd_hash(kube_context) 
+        _save_crd_disk_cache(kube_context, live_entries, crd_hash)
+        
         print(f"[KB] 💾 Cached {len(_kb_cache[kube_context])} entries for context '{kube_context}' (TTL: {CRD_CACHE_TTL}s)", flush=True)
 
         # Invalidate embedding cache for these new entries (they will be computed on demand)
@@ -585,8 +752,8 @@ def entry_to_searchable_text(entry: Dict) -> str:
 async def get_relevant_kb_snippets(
     query: str,
     state: Dict,
-    max_results: int = 5,
-    min_similarity: float = 0.35
+    max_results: int = None,  # Uses KB_MAX_MATCHES from config
+    min_similarity: float = None  # Uses KB_MIN_SIMILARITY from config
 ) -> str:
     """
     Semantic search over KB to find relevant troubleshooting patterns.
@@ -608,7 +775,13 @@ async def get_relevant_kb_snippets(
     from .query_cache import get_query_cache, get_query_coalescer
 
     # Get config from state - check explicit state override first, then fall back to config global
-    from ..config import EMBEDDING_ENDPOINT as GLOBAL_EMBEDDING_ENDPOINT
+    from ..config import EMBEDDING_ENDPOINT as GLOBAL_EMBEDDING_ENDPOINT, KB_MAX_MATCHES, KB_MIN_SIMILARITY
+
+    # Apply config defaults if not specified
+    if max_results is None:
+        max_results = KB_MAX_MATCHES
+    if min_similarity is None:
+        min_similarity = KB_MIN_SIMILARITY
 
     # Priority: State override > Config Global (which handles cloud logic) > Default
     llm_endpoint = state.get('embedding_endpoint') or GLOBAL_EMBEDDING_ENDPOINT or 'http://localhost:11434'
@@ -769,7 +942,15 @@ async def _compute_kb_search(
     if not top_results:
         return ""
 
-    # Format as context string
+    # Token optimization: Truncate long documents to save tokens
+    def truncate_text(text: str, max_chars: int = KB_MAX_DOC_TOKENS * 4) -> str:
+        """Truncate text to approximate token limit (assuming ~4 chars per token)."""
+        if not text or len(text) <= max_chars:
+            return text
+        # Keep first portion and indicate truncation
+        return text[:max_chars] + "..."
+
+    # Format as context string with truncation
     context_parts = ["## Relevant Knowledge Base Patterns\n"]
 
     for fusion_score, entry in top_results:
@@ -779,20 +960,24 @@ async def _compute_kb_search(
         if 'symptoms' in entry:
             symptoms = entry['symptoms']
             if isinstance(symptoms, list):
+                # Limit symptoms to save tokens
                 context_parts.append(f"**Symptoms:** {', '.join(symptoms[:3])}")
 
         if 'root_cause' in entry:
-            context_parts.append(f"**Cause:** {entry['root_cause']}")
+            # Truncate long root causes
+            root_cause = truncate_text(str(entry['root_cause']))
+            context_parts.append(f"**Cause:** {root_cause}")
 
         if 'investigation' in entry:
             investigation = entry['investigation']
             if isinstance(investigation, list) and investigation:
-                context_parts.append(f"**Investigation:** {investigation[0]}")
+                # Only show first investigation step, truncated
+                context_parts.append(f"**Investigation:** {truncate_text(str(investigation[0]), 500)}")
 
         if 'fixes' in entry:
             fixes = entry['fixes']
             if isinstance(fixes, list) and fixes:
-                context_parts.append(f"**Fix:** {fixes[0]}")
+                context_parts.append(f"**Fix:** {truncate_text(str(fixes[0]), 300)}")
 
         context_parts.append("")  # Blank line
 

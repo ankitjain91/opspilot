@@ -7,6 +7,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import {
     Activity,
     AlertCircle,
+    ArrowLeft,
     Box,
     ChevronDown,
     ChevronRight,
@@ -17,6 +18,7 @@ import {
     GitBranch,
     HardDrive,
     Info,
+    Layers,
     LayoutDashboard,
     Loader2,
     LogOutIcon,
@@ -31,7 +33,8 @@ import {
     Shield,
     Terminal as TerminalIcon,
     X,
-    Download
+    Download,
+    Settings
 } from 'lucide-react';
 
 import { NavResource, NavGroup, K8sObject, InitialClusterData } from '../../types/k8s';
@@ -44,6 +47,7 @@ import { HelmReleases } from '../tools/HelmReleases';
 import { ArgoApplications } from '../tools/ArgoApplications';
 import { ResourceList } from '../cluster/ResourceList';
 import { ClusterCockpit } from './ClusterCockpit';
+import { CustomResourceHealth } from '../cluster/CustomResourceHealth';
 import { DeepDiveDrawer } from '../cluster/DeepDiveDrawer';
 import { DeleteConfirmationModal } from '../shared/DeleteConfirmationModal';
 import Loading from '../Loading';
@@ -51,6 +55,7 @@ import { useUpdaterState, installPendingUpdate, checkForUpdatesManually } from '
 import { NotificationCenter } from '../notifications/NotificationCenter';
 import { useKeyboardShortcuts, KeyboardShortcut } from '../../hooks/useKeyboardShortcuts';
 import { KeyboardShortcutsModal } from '../shared/KeyboardShortcutsModal';
+import { SettingsPage } from '../settings/SettingsPage';
 
 // Define PersistQueryClientProvider in App, so queryClient is available via hook
 
@@ -64,9 +69,12 @@ interface DashboardProps {
     showClusterChat?: boolean;
     onToggleClusterChat?: () => void;
     sentinelStatus?: SentinelStatus;
+    onReconnectSentinel?: () => void;
+    currentContext: string;
+    onAutoInvestigate?: (prompt: string) => void;
 }
 
-export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggleClusterChat, sentinelStatus }: DashboardProps) {
+export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggleClusterChat, sentinelStatus, onReconnectSentinel, currentContext, onAutoInvestigate }: DashboardProps) {
     const [activeRes, setActiveRes] = useState<NavResource | null>(null);
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -92,6 +100,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     const [isCmdPaletteOpen, setIsCmdPaletteOpen] = useState(false); // Command Palette State
     const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false); // Keyboard shortcuts help
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Settings page
     const qc = useQueryClient();
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -161,14 +170,13 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     };
 
     // Fetch Current Context Name
-    const { data: currentContext } = useQuery({
-        queryKey: ["current_context"],
-        queryFn: async () => await invoke<string>("get_current_context_name"),
-    });
+    // Fetch Current Context Name - Managed by App.tsx now
+    // const { data: currentContext } = useQuery({ ... });
 
     // Context Switcher State
     const [isContextDropdownOpen, setIsContextDropdownOpen] = useState(false);
     const [isSwitchingContext, setIsSwitchingContext] = useState(false);
+    const [contextSwitchTarget, setContextSwitchTarget] = useState<string | null>(null);
     const [contextSearchQuery, setContextSearchQuery] = useState("");
 
     // Fetch all contexts for context switcher
@@ -189,6 +197,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         }
 
         setIsSwitchingContext(true);
+        setContextSwitchTarget(contextName);
         setIsContextDropdownOpen(false);
 
         try {
@@ -210,6 +219,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         } catch (e) {
             console.error("Failed to switch context:", e);
             (window as any).showToast?.(`Failed to switch context: ${e}`, 'error');
+            setContextSwitchTarget(null);
         } finally {
             setIsSwitchingContext(false);
         }
@@ -413,6 +423,13 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         staleTime: 30000, // 30 seconds
         gcTime: 1000 * 60 * 5, // 5 minutes
     });
+
+    // Clear context switch target once data is loaded for new context
+    useEffect(() => {
+        if (contextSwitchTarget && currentContext === contextSwitchTarget && initialData) {
+            setContextSwitchTarget(null);
+        }
+    }, [contextSwitchTarget, currentContext, initialData]);
 
     // Invalidate discovery on context change
     useEffect(() => {
@@ -694,7 +711,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         },
         onSuccess: (data) => {
             if (data) {
-                (window as any).showToast?.(`${data.kind} '${data.name}' deleted successfully`, 'success');
+                // Note: For resources with finalizers, this just initiates deletion
+                // The resource may enter "Terminating" state before being fully removed
+                (window as any).showToast?.(`${data.kind} '${data.name}' deletion initiated`, 'success');
             }
             qc.invalidateQueries({ queryKey: ["list_resources"] });
             if (activeTabId) {
@@ -733,7 +752,21 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         );
     }
 
+    // Show loading state when waiting for context or discovery
+    // Don't show "No Data Found" until we've actually tried to discover with a valid context
     if (!navStructure && !isDiscovering) {
+        // If we don't have a context yet, show loading (context is still being fetched)
+        if (!currentContext) {
+            return (
+                <div className="h-screen flex flex-col items-center justify-center p-8" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+                    <Loader2 size={40} className="animate-spin text-cyan-500 mb-4" />
+                    <h3 className="text-lg font-medium mb-2">Connecting to cluster...</h3>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Fetching cluster context</p>
+                </div>
+            );
+        }
+
+        // Context exists but no data - show error
         return (
             <div className="h-screen bg-[#1e1e1e] text-[#cccccc] flex flex-col items-center justify-center p-8">
                 <AlertCircle size={40} className="text-[#f48771] mb-4" />
@@ -759,7 +792,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     }
 
     return (
-        <div className="flex h-screen bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
+        <div className="flex h-screen font-sans overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <CommandPalette
                 isOpen={isCmdPaletteOpen}
                 onClose={() => setIsCmdPaletteOpen(false)}
@@ -773,8 +806,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
 
             {/* Sidebar */}
             <aside
-                className="fixed top-0 bottom-0 left-0 z-30 flex flex-col glass-panel border-r border-white/5"
-                style={{ width: sidebarWidth }}
+                className="fixed top-0 bottom-0 left-0 z-30 flex flex-col glass-panel"
+                style={{ width: sidebarWidth, borderRight: '1px solid var(--border-subtle)' }}
             >
                 {/* Sidebar Resize Handle */}
                 <div
@@ -782,24 +815,25 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     onMouseDown={() => setIsResizingSidebar(true)}
                 />
                 {/* Sidebar Header */}
-                <div className="h-14 flex items-center justify-between px-4 border-b border-white/5 shrink-0 bg-white/5 backdrop-blur-sm">
+                <div className="h-14 flex items-center justify-between px-4 shrink-0 backdrop-blur-sm" style={{ borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-hover)' }}>
                     <div className="flex items-center gap-3 overflow-hidden">
                         <img src="/icon.png" alt="OpsPilot" className="w-8 h-8 rounded-lg shadow-lg shadow-cyan-500/20 shrink-0" />
                         <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
-                                <span className="font-bold text-sm tracking-tight text-white truncate">OpsPilot</span>
+                                <span className="font-bold text-sm tracking-tight truncate" style={{ color: 'var(--text-primary)' }}>OpsPilot</span>
                                 {appVersion && (
-                                    <span className="text-[10px] text-zinc-500 font-medium">v{appVersion}</span>
+                                    <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>v{appVersion}</span>
                                 )}
                             </div>
                             <button
                                 onClick={() => setIsContextDropdownOpen(!isContextDropdownOpen)}
-                                className="flex items-center gap-1.5 hover:bg-white/10 rounded px-1 -mx-1 py-0.5 transition-colors group"
+                                className="flex items-center gap-1.5 rounded px-1 -mx-1 py-0.5 transition-colors group"
+                                style={{ backgroundColor: 'transparent' }}
                                 title="Click to switch context"
                             >
                                 <div className={`w-1.5 h-1.5 rounded-full ${isSwitchingContext ? 'bg-yellow-400 animate-pulse' : 'bg-emerald-400'} shadow-[0_0_6px_rgba(52,211,153,0.6)]`} />
-                                <span className="text-[10px] text-zinc-400 truncate font-medium group-hover:text-zinc-200">{currentContext || "Unknown"}</span>
-                                <ChevronDown size={10} className={`text-zinc-500 transition-transform ${isContextDropdownOpen ? 'rotate-180' : ''}`} />
+                                <span className="text-[10px] truncate font-medium" style={{ color: 'var(--text-tertiary)' }}>{currentContext || "Unknown"}</span>
+                                <ChevronDown size={10} className={`transition-transform ${isContextDropdownOpen ? 'rotate-180' : ''}`} style={{ color: 'var(--text-muted)' }} />
                             </button>
                         </div>
                     </div>
@@ -838,7 +872,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                             placeholder="Search resources..."
                             value={sidebarSearchQuery}
                             onChange={(e) => setSidebarSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 bg-zinc-900/50 border border-white/5 text-zinc-200 text-sm rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 placeholder:text-zinc-600 transition-all"
+                            className="w-full pl-9 pr-3 py-2 text-sm rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
+                            style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
                         />
                         {sidebarSearchQuery && (
                             <button
@@ -860,7 +895,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                 console.error("Failed to refresh discovery:", e);
                             }
                         }}
-                        className="p-2 bg-zinc-900/50 border border-white/5 text-zinc-500 hover:text-white rounded-md hover:bg-white/10 transition-colors"
+                        className="p-2 rounded-md transition-colors"
+                        style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}
                         title="Refresh Discovery Cache"
                     >
                         <RefreshCw size={14} />
@@ -882,6 +918,25 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                 <div className="flex items-center gap-2.5">
                                     <LayoutDashboard size={18} className={activeRes === null ? "text-white" : "text-cyan-400 group-hover:text-cyan-300"} />
                                     <span>Cluster Overview</span>
+                                </div>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Custom Resource Health Button */}
+                    {(!sidebarSearchQuery || "crossplane".includes(sidebarSearchQuery.toLowerCase()) || "custom".includes(sidebarSearchQuery.toLowerCase()) || "resource".includes(sidebarSearchQuery.toLowerCase()) || "cr".includes(sidebarSearchQuery.toLowerCase()) || "health".includes(sidebarSearchQuery.toLowerCase())) && (
+                        <div className="mb-1">
+                            <button
+                                onClick={() => {
+                                    setActiveRes({ kind: "CustomResourceHealth", group: "internal", version: "v1", namespaced: false, title: "CR Health" });
+                                    setActiveTabId(null);
+                                    setSearchQuery("");
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "CustomResourceHealth" ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <Layers size={18} className={activeRes?.kind === "CustomResourceHealth" ? "text-white" : "text-purple-400 group-hover:text-purple-300"} />
+                                    <span>CR Health</span>
                                 </div>
                             </button>
                         </div>
@@ -1026,6 +1081,14 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </button>
 
                     <button
+                        onClick={() => setIsSettingsOpen(true)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-md transition-all group"
+                    >
+                        <Settings size={18} className="text-zinc-500 group-hover:text-zinc-300" />
+                        <span>Settings</span>
+                    </button>
+
+                    <button
                         onClick={async () => {
                             qc.removeQueries();
                             try {
@@ -1082,6 +1145,28 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     paddingBottom: isTerminalOpen ? terminalHeight : 0
                 }}
             >
+                {/* Context Switching Loading Overlay */}
+                {(isSwitchingContext || contextSwitchTarget) && (
+                    <div className="absolute inset-0 z-50 bg-[#09090b]/95 backdrop-blur-sm flex flex-col items-center justify-center">
+                        <div className="flex flex-col items-center gap-4 p-8 rounded-2xl bg-zinc-900/80 border border-white/10 shadow-2xl">
+                            <div className="relative">
+                                <div className="w-16 h-16 rounded-full border-4 border-zinc-700 border-t-cyan-500 animate-spin" />
+                                <Server className="absolute inset-0 m-auto w-6 h-6 text-cyan-400" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-lg font-semibold text-white mb-1">Switching Context</h3>
+                                <p className="text-sm text-zinc-400">
+                                    Connecting to <span className="text-cyan-400 font-medium">{contextSwitchTarget || currentContext}</span>
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>Loading cluster data...</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Sticky vcluster Banner */}
                 {isInsideVcluster && vclusterInfo && (
                     <div className="sticky top-0 z-30 bg-gradient-to-r from-purple-900/80 via-purple-800/70 to-purple-900/80 backdrop-blur-sm border-b border-purple-500/30 px-4 py-2 flex items-center justify-between">
@@ -1117,7 +1202,15 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </div>
                 )}
 
-                {activeRes?.kind === "HelmReleases" ? (
+                {activeRes?.kind === "CustomResourceHealth" ? (
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                        <CustomResourceHealth
+                            currentContext={currentContext}
+                            onOpenResource={handleOpenRelatedResource}
+                            onAutoInvestigate={onAutoInvestigate}
+                        />
+                    </div>
+                ) : activeRes?.kind === "HelmReleases" ? (
                     <HelmReleases currentContext={currentContext} />
                 ) : activeRes?.kind === "ArgoApplications" ? (
                     <ArgoApplications currentContext={currentContext} onOpenResource={handleOpenResource} />
@@ -1126,6 +1219,21 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                         {/* Header */}
                         <header className="h-14 glass-header flex items-center justify-between px-6 sticky top-0 z-20">
                             <div className="flex items-center gap-4">
+                                {/* Back to Cockpit button - only show when viewing resources */}
+                                {activeRes && (
+                                    <button
+                                        onClick={() => {
+                                            setActiveRes(null);
+                                            setActiveTabId(null);
+                                            setSearchQuery("");
+                                        }}
+                                        className="flex items-center gap-1.5 px-2 py-1.5 -ml-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-all group"
+                                        title="Back to Cluster Overview"
+                                    >
+                                        <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
+                                        <LayoutDashboard size={14} className="text-cyan-400" />
+                                    </button>
+                                )}
                                 <div className="flex items-center gap-2 text-sm">
                                     <span className="text-zinc-500 font-medium">{activeRes?.group || "Core"}</span>
                                     <ChevronRight size={14} className="text-zinc-700" />
@@ -1134,28 +1242,32 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                             </div>
 
                             <div className="flex items-center gap-3">
-                                {/* Sentinel Status - Compact indicator with info popover */}
+                                {/* Sentinel Status - Compact indicator with info popover, clickable to reconnect */}
                                 <div className="relative group/sentinel">
-                                    <div
-                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all cursor-help ${
-                                            sentinelStatus === 'connected'
-                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                : sentinelStatus === 'connecting'
-                                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                                : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50'
-                                        }`}
+                                    <button
+                                        onClick={() => {
+                                            if (sentinelStatus !== 'connected' && onReconnectSentinel) {
+                                                onReconnectSentinel();
+                                            }
+                                        }}
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all ${sentinelStatus === 'connected'
+                                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help'
+                                            : sentinelStatus === 'connecting'
+                                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 cursor-wait'
+                                                : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:bg-zinc-700/50 hover:text-zinc-400 cursor-pointer'
+                                            }`}
+                                        title={sentinelStatus !== 'connected' ? 'Click to reconnect' : 'Sentinel is active'}
                                     >
                                         <Shield size={12} className={sentinelStatus === 'connecting' ? 'animate-pulse' : ''} />
                                         <span className="hidden sm:inline">
                                             {sentinelStatus === 'connected' ? 'Sentinel' : sentinelStatus === 'connecting' ? 'Connecting' : 'Offline'}
                                         </span>
-                                        <div className={`w-1.5 h-1.5 rounded-full ${
-                                            sentinelStatus === 'connected' ? 'bg-emerald-400' :
+                                        <div className={`w-1.5 h-1.5 rounded-full ${sentinelStatus === 'connected' ? 'bg-emerald-400' :
                                             sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
-                                            'bg-zinc-600'
-                                        }`} />
+                                                'bg-zinc-600'
+                                            }`} />
                                         <Info size={10} className="opacity-50 group-hover/sentinel:opacity-100 transition-opacity" />
-                                    </div>
+                                    </button>
                                     {/* Info Popover */}
                                     <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover/sentinel:opacity-100 group-hover/sentinel:visible transition-all duration-200 z-50">
                                         <div className="flex items-center gap-2 mb-2">
@@ -1166,20 +1278,18 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                             {sentinelStatus === 'connected'
                                                 ? 'Actively monitoring Kubernetes events. You\'ll be notified of pod crashes, OOM kills, scheduling failures, and other cluster issues automatically.'
                                                 : sentinelStatus === 'connecting'
-                                                ? 'Connecting to the Kubernetes event stream...'
-                                                : 'Not connected. Sentinel monitors Warning events from your cluster and alerts you to issues proactively.'}
+                                                    ? 'Connecting to the Kubernetes event stream...'
+                                                    : 'Not connected. Click to reconnect. Sentinel monitors Warning events from your cluster and alerts you to issues proactively.'}
                                         </p>
-                                        <div className={`mt-2 text-[10px] flex items-center gap-1.5 ${
-                                            sentinelStatus === 'connected' ? 'text-emerald-400' :
+                                        <div className={`mt-2 text-[10px] flex items-center gap-1.5 ${sentinelStatus === 'connected' ? 'text-emerald-400' :
                                             sentinelStatus === 'connecting' ? 'text-amber-400' :
-                                            'text-zinc-500'
-                                        }`}>
-                                            <div className={`w-1.5 h-1.5 rounded-full ${
-                                                sentinelStatus === 'connected' ? 'bg-emerald-400' :
+                                                'text-zinc-500'
+                                            }`}>
+                                            <div className={`w-1.5 h-1.5 rounded-full ${sentinelStatus === 'connected' ? 'bg-emerald-400' :
                                                 sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
-                                                'bg-zinc-600'
-                                            }`} />
-                                            {sentinelStatus === 'connected' ? 'Active' : sentinelStatus === 'connecting' ? 'Connecting...' : 'Offline'}
+                                                    'bg-zinc-600'
+                                                }`} />
+                                            {sentinelStatus === 'connected' ? 'Active' : sentinelStatus === 'connecting' ? 'Connecting...' : 'Offline - Click to reconnect'}
                                         </div>
                                     </div>
                                 </div>
@@ -1295,6 +1405,15 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 onClose={() => setIsShortcutsModalOpen(false)}
                 shortcuts={keyboardShortcuts}
             />
+
+            {/* Settings Page Modal */}
+            {isSettingsOpen && (
+                <div className="fixed inset-0 z-[9999] backdrop-blur-sm flex items-center justify-center p-8" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                    <div className="w-full max-w-4xl h-[85vh] rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+                        <SettingsPage onClose={() => setIsSettingsOpen(false)} />
+                    </div>
+                </div>
+            )}
 
             {/* Context Switcher Dropdown */}
             {isContextDropdownOpen && (

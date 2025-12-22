@@ -3,7 +3,7 @@
   "private": true,
   "description": "Fast Kubernetes IDE with autonomous AI debugging. Tauri + Rust + Ollama for read-only incident analysis and native performance.",
   "license": "SEE LICENSE IN LICENSE",
-  "version": "0.2.55",
+  "version": "0.2.56",
   "type": "module",
   "keywords": [
     "kubernetes",
@@ -35,7 +35,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "export:diagrams": "mmdc -i docs/diagrams/system-architecture.mmd -o docs/diagrams/system-architecture.png && mmdc -i docs/diagrams/component-architecture.mmd -o docs/diagrams/component-architecture.png && mmdc -i docs/diagrams/controller-health-seq.mmd -o docs/diagrams/controller-health-seq.png && mmdc -i docs/diagrams/jira-connect.mmd -o docs/diagrams/jira-connect.png && mmdc -i docs/diagrams/github-test.mmd -o docs/diagrams/github-test.png && mmdc -i docs/diagrams/mcp-test.mmd -o docs/diagrams/mcp-test.png",
+    "export:diagrams:svg": "mmdc -i docs/diagrams/system-architecture.mmd -o docs/diagrams/system-architecture.svg && mmdc -i docs/diagrams/component-architecture.mmd -o docs/diagrams/component-architecture.svg && mmdc -i docs/diagrams/controller-health-seq.mmd -o docs/diagrams/controller-health-seq.svg && mmdc -i docs/diagrams/jira-connect.mmd -o docs/diagrams/jira-connect.svg && mmdc -i docs/diagrams/github-test.mmd -o docs/diagrams/github-test.svg && mmdc -i docs/diagrams/mcp-test.mmd -o docs/diagrams/mcp-test.svg"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -45,8 +47,10 @@
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",
+    "@tauri-apps/plugin-http": "^2.5.4",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-shell": "^2",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xterm/addon-fit": "^0.10.0",
@@ -67,10 +71,12 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^10.9.1",
     "@tailwindcss/postcss": "^4.1.17",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
+    "@types/dagre": "^0.7.53",
     "@types/js-yaml": "^4.0.9",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -78,6 +84,7 @@
     "autoprefixer": "^10.4.22",
     "jsdom": "^27.3.0",
     "postcss": "^8.5.6",
+    "puppeteer": "^24.15.0",
     "tailwindcss": "^4.1.17",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",

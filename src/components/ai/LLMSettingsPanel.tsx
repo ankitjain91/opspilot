@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search, FileJson, Settings2, FileCode, Plus, Trash2 } from 'lucide-react';
+import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search, FileJson, Settings2, FileCode, Plus, Trash2, FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
@@ -81,6 +81,8 @@ export function LLMSettingsPanel({
     const [kbStatus, setKbStatus] = useState<KBEmbeddingsStatus | null>(null);
     const [reindexingKb, setReindexingKb] = useState(false);
     const [kbMessage, setKbMessage] = useState<string | null>(null);
+    const [kbDirInfo, setKbDirInfo] = useState<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean } | null>(null);
+    const [initializingKb, setInitializingKb] = useState(false);
 
     // GitHub Integration State
     const [githubPat, setGithubPat] = useState<string>('');
@@ -291,6 +293,29 @@ export function LLMSettingsPanel({
         setReindexingKb(false);
     };
 
+    // --- KB DIRECTORY LOGIC ---
+
+    const checkKbDirectory = async () => {
+        try {
+            const info = await invoke<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean }>('get_kb_directory_info');
+            setKbDirInfo(info);
+        } catch (e) {
+            console.error("Failed to check KB directory:", e);
+        }
+    };
+
+    const initializeKbDirectory = async () => {
+        setInitializingKb(true);
+        try {
+            const info = await invoke<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean }>('init_kb_directory');
+            setKbDirInfo(info);
+            setKbMessage("Knowledge base initialized with sample entries!");
+        } catch (e) {
+            setKbMessage("Failed to initialize: " + e);
+        }
+        setInitializingKb(false);
+    };
+
     // --- GITHUB LOGIC ---
 
     const loadGithubConfig = async () => {
@@ -433,6 +458,7 @@ export function LLMSettingsPanel({
         checkCodexStatus();
         checkEmbeddingStatus();
         checkKbStatus();
+        checkKbDirectory();
         loadGithubConfig();
 
         // Load config with sources to show where values came from
@@ -938,6 +964,153 @@ export function LLMSettingsPanel({
                                 <span className={`text-[10px] font-bold ${kbStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
                                     {kbStatus?.available ? 'ACTIVE' : 'OFFLINE'}
                                 </span>
+                            </div>
+
+                            {/* KB Explanation */}
+                            <div className="bg-fuchsia-500/5 border border-fuchsia-500/20 rounded-xl p-4 mb-4 space-y-3">
+                                <div className="flex items-start gap-2">
+                                    <Info size={14} className="text-fuchsia-400 mt-0.5 shrink-0" />
+                                    <div className="text-[11px] text-zinc-300 leading-relaxed">
+                                        <strong className="text-fuchsia-300">What is the Knowledge Base?</strong>
+                                        <p className="mt-1 text-zinc-400">
+                                            OpsPilot comes with <strong className="text-white">57+ built-in troubleshooting patterns</strong> for Kubernetes issues (CrashLoopBackOff, OOMKilled, ImagePullBackOff, etc.). Additionally, it auto-discovers CRDs from your cluster at runtime.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-fuchsia-500/10 pt-3 space-y-2">
+                                    <div className="text-[10px] font-bold text-fuchsia-300 uppercase">Document Sources:</div>
+                                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                        <div className="bg-black/20 rounded-lg p-2 border border-white/5">
+                                            <div className="text-zinc-300 font-medium">Built-in Patterns</div>
+                                            <div className="text-zinc-500">Pre-bundled K8s troubleshooting guides</div>
+                                        </div>
+                                        <div className="bg-black/20 rounded-lg p-2 border border-white/5">
+                                            <div className="text-zinc-300 font-medium">Cluster CRDs</div>
+                                            <div className="text-zinc-500">Auto-discovered from your cluster</div>
+                                        </div>
+                                        <div className="bg-black/20 rounded-lg p-2 border border-white/5">
+                                            <div className="text-zinc-300 font-medium">GitHub Repos</div>
+                                            <div className="text-zinc-500">Indexed from configured repos</div>
+                                        </div>
+                                        <div className="bg-black/20 rounded-lg p-2 border border-white/5">
+                                            <div className="text-zinc-300 font-medium">Custom Entries</div>
+                                            <div className="text-zinc-500">Your own .jsonl files</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-fuchsia-500/10 pt-3">
+                                    <div className="text-[10px] font-bold text-fuchsia-300 uppercase mb-2">Add Custom Knowledge:</div>
+                                    <div className="text-[10px] text-zinc-400 space-y-1.5">
+                                        <div className="flex items-start gap-1.5">
+                                            <span className="text-fuchsia-400">1.</span>
+                                            <span>Create <code className="bg-black/30 px-1 rounded font-mono text-fuchsia-200">~/.opspilot/knowledge/</code> directory</span>
+                                        </div>
+                                        <div className="flex items-start gap-1.5">
+                                            <span className="text-fuchsia-400">2.</span>
+                                            <span>Add <code className="bg-black/30 px-1 rounded font-mono text-fuchsia-200">.jsonl</code> files with your patterns</span>
+                                        </div>
+                                        <div className="flex items-start gap-1.5">
+                                            <span className="text-fuchsia-400">3.</span>
+                                            <span>Click "Re-Index Data" to include them</span>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const { openUrl } = await import('@tauri-apps/plugin-opener');
+                                                await openUrl('https://github.com/ankitjain-wiz/opspilot/blob/main/docs/knowledge-base.md');
+                                            } catch {
+                                                // Fallback: use window.open
+                                                window.open('https://github.com/ankitjain-wiz/opspilot/blob/main/docs/knowledge-base.md', '_blank');
+                                            }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 mt-2 text-[10px] text-fuchsia-400 hover:text-fuchsia-300 transition-colors"
+                                    >
+                                        <BookOpen size={10} />
+                                        View full documentation
+                                        <ArrowRight size={10} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Custom KB Directory Status */}
+                            <div className="bg-black/20 border border-white/5 rounded-xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <FolderOpen size={14} className="text-amber-400" />
+                                        <span className="text-[10px] font-bold text-zinc-300 uppercase">Your Custom Entries</span>
+                                    </div>
+                                    {kbDirInfo?.initialized && (
+                                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                            INITIALIZED
+                                        </span>
+                                    )}
+                                </div>
+
+                                {kbDirInfo ? (
+                                    <div className="space-y-3">
+                                        <div className="text-[10px] font-mono text-zinc-500 bg-black/30 px-2 py-1.5 rounded border border-white/5 truncate" title={kbDirInfo.path}>
+                                            {kbDirInfo.path}
+                                        </div>
+
+                                        {kbDirInfo.initialized ? (
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <FileJson size={12} className="text-amber-400" />
+                                                        <span className="text-[10px] text-zinc-400">
+                                                            <strong className="text-white">{kbDirInfo.file_count}</strong> custom file{kbDirInfo.file_count !== 1 ? 's' : ''}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            // Use Tauri opener plugin to open folder in file manager
+                                                            const { openPath } = await import('@tauri-apps/plugin-opener');
+                                                            await openPath(kbDirInfo.path);
+                                                        } catch (err) {
+                                                            console.error("Failed to open folder:", err);
+                                                            // Fallback: copy path to clipboard
+                                                            navigator.clipboard.writeText(kbDirInfo.path);
+                                                            setKbMessage("Path copied to clipboard");
+                                                        }
+                                                    }}
+                                                    className="text-[9px] text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors"
+                                                >
+                                                    Open Folder
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] text-zinc-500">
+                                                    No custom entries yet
+                                                </span>
+                                                <button
+                                                    onClick={initializeKbDirectory}
+                                                    disabled={initializingKb}
+                                                    className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20 transition-colors disabled:opacity-50"
+                                                >
+                                                    {initializingKb ? (
+                                                        <>
+                                                            <Loader2 size={10} className="animate-spin" />
+                                                            Initializing...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Plus size={10} />
+                                                            Initialize with Examples
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-[10px] text-zinc-600 animate-pulse">Checking...</div>
+                                )}
                             </div>
                         </div>
 

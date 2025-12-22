@@ -26,6 +26,17 @@ interface HelmReleaseDetails {
 export function HelmDetails({ namespace, name, onClose }: HelmDetailsProps) {
     const [activeTab, setActiveTab] = useState<'info' | 'values' | 'manifest'>('info');
 
+    // Handle Esc key
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
     const { data: details, isLoading, error } = useQuery({
         queryKey: ["helm_details", namespace, name],
         queryFn: async () => await invoke<HelmReleaseDetails>("helm_get_details", { namespace, name }),

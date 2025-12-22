@@ -232,6 +232,147 @@ export function extractSuggestions(response: string): { cleanedResponse: string;
 }
 
 /**
+ * Detects if the response contains patterns that would benefit from code search.
+ * Returns a suggestion object if code search is recommended.
+ */
+export interface CodeSearchSuggestion {
+  shouldSuggest: boolean;
+  reason: string;
+  searchQuery: string;
+  patterns: string[];
+}
+
+export function detectCodeSearchOpportunity(
+  userQuery: string,
+  assistantResponse: string,
+  commandOutputs: string[] = []
+): CodeSearchSuggestion {
+  const patterns: string[] = [];
+  const allContent = `${userQuery}\n${assistantResponse}\n${commandOutputs.join('\n')}`;
+
+  // 1. Stack trace patterns (Java, Python, Node.js, Go, etc.)
+  const stackTracePatterns = [
+    /at\s+[\w.$]+\.(java|kt|scala):\d+/gi,  // Java/Kotlin/Scala
+    /File\s+"[^"]+\.py",\s+line\s+\d+/gi,    // Python
+    /at\s+[\w./<>]+\s+\([^)]+:\d+:\d+\)/gi,  // Node.js/JavaScript
+    /\s+at\s+[\w.]+\s+\(.+\.go:\d+\)/gi,     // Go
+    /^\s+at\s+.+\(.+\.(ts|tsx|js|jsx):\d+:\d+\)$/gm, // TypeScript/JS with source maps
+    /Traceback \(most recent call last\)/gi, // Python traceback header
+    /panic:.*\.go:\d+/gi,                    // Go panic
+    /Error:.*at\s+Object\./gi,               // Node.js error
+  ];
+
+  for (const pattern of stackTracePatterns) {
+    const matches = allContent.match(pattern);
+    if (matches && matches.length > 0) {
+      patterns.push(`Stack trace detected: ${matches[0].substring(0, 60)}...`);
+    }
+  }
+
+  // 2. Application error patterns
+  const appErrorPatterns = [
+    /NullPointerException|NullReferenceException/gi,
+    /ClassNotFoundException|NoClassDefFoundError/gi,
+    /ModuleNotFoundError|ImportError/gi,
+    /TypeError|ReferenceError|SyntaxError/gi,
+    /panic:|fatal error:/gi,
+    /ENOENT|ECONNREFUSED|ETIMEDOUT/gi,
+    /Connection refused|Connection timed out/gi,
+    /Failed to load|Failed to initialize/gi,
+    /Caused by:|Root cause:/gi,
+  ];
+
+  for (const pattern of appErrorPatterns) {
+    const matches = allContent.match(pattern);
+    if (matches && matches.length > 0) {
+      patterns.push(`Application error: ${matches[0]}`);
+    }
+  }
+
+  // 3. Source file references in logs
+  const sourceFilePatterns = [
+    /\b[\w./]+\.(java|py|go|ts|tsx|js|jsx|rs|rb|cs|cpp|c|h):\d+/gi,
+    /\b(src|lib|app|pkg|internal|cmd)\/[\w./]+\.(java|py|go|ts|tsx|js|jsx)/gi,
+    /\bcom\.[\w.]+\.(java|kt)/gi,  // Java package paths
+    /\bpackage\s+[\w.]+/gi,         // Go/Java package declarations
+  ];
+
+  for (const pattern of sourceFilePatterns) {
+    const matches = allContent.match(pattern);
+    if (matches && matches.length > 0) {
+      patterns.push(`Source file reference: ${matches[0]}`);
+    }
+  }
+
+  // 4. Container image names that might map to local code
+  const imagePatterns = [
+    /image:\s*[\w.-]+\/[\w.-]+:[\w.-]+/gi,
+    /CrashLoopBackOff|Error|ImagePullBackOff/gi,
+  ];
+
+  for (const pattern of imagePatterns) {
+    const matches = allContent.match(pattern);
+    if (matches && matches.length > 0 && patterns.length < 5) {
+      // Only add if we have other patterns (image alone isn't strong enough)
+      if (patterns.length > 0) {
+        patterns.push(`Container issue: ${matches[0]}`);
+      }
+    }
+  }
+
+  // 5. Error message strings that are likely in source code
+  const errorMessagePatterns = [
+    /"[^"]{10,80}(error|failed|invalid|exception)[^"]*"/gi,
+    /'[^']{10,80}(error|failed|invalid|exception)[^']*'/gi,
+  ];
+
+  for (const pattern of errorMessagePatterns) {
+    const matches = allContent.match(pattern);
+    if (matches && matches.length > 0) {
+      patterns.push(`Error message: ${matches[0].substring(0, 50)}...`);
+    }
+  }
+
+  // Determine if we should suggest code search
+  const shouldSuggest = patterns.length >= 1;
+
+  // Build a search query from the patterns
+  let searchQuery = '';
+  if (shouldSuggest) {
+    // Extract the most searchable term
+    const stackMatch = allContent.match(/at\s+([\w.$]+)\.(java|py|go|ts|js)/i);
+    const errorMatch = allContent.match(/([\w]+Exception|[\w]+Error):/i);
+    const fileMatch = allContent.match(/([\w]+)\.(java|py|go|ts|js):\d+/i);
+
+    if (stackMatch) {
+      searchQuery = stackMatch[1].split('.').pop() || stackMatch[1];
+    } else if (errorMatch) {
+      searchQuery = errorMatch[1];
+    } else if (fileMatch) {
+      searchQuery = fileMatch[1];
+    } else {
+      // Fallback: extract key error terms from user query
+      const keyTerms = userQuery.match(/\b(error|crash|fail|exception|bug|issue)\b/gi);
+      searchQuery = keyTerms ? keyTerms.join(' ') : 'error';
+    }
+  }
+
+  let reason = '';
+  if (patterns.length > 0) {
+    reason = patterns.length === 1
+      ? patterns[0]
+      : `Found ${patterns.length} code-related patterns`;
+  }
+
+  return {
+    shouldSuggest,
+    reason,
+    searchQuery,
+    patterns
+  };
+}
+
+/**
  * Extract learning metadata (Confidence, Root Cause) from LLM response
  */
 export function extractLearningMetadata(response: string): {

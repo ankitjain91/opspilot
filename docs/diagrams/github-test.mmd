@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant UI as Settings (GitHub)
+  participant GitHub as GitHub API
+  participant BE as Tauri Rust
+  participant OS as OS Keychain
+
+  UI->>GitHub: GET /user (Bearer PAT)
+  GitHub-->>UI: 200 OK
+  UI->>BE: save_opspilot_config({ githubToken })
+  BE->>OS: keyring.save('github_token', PAT)
+  BE-->>UI: Saved
+  UI->>LS: Save sanitized config (githubToken removed)

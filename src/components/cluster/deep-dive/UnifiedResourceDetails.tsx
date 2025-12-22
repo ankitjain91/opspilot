@@ -185,7 +185,8 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                 req: { group: resource.group, version: resource.version, kind: resource.kind, namespace: resource.namespace === '-' ? null : resource.namespace },
                 name: resource.name
             });
-            showToast(`${resourceKind} '${resourceName}' deleted`, 'success');
+            // Note: For resources with finalizers, this just initiates deletion
+            showToast(`${resourceKind} '${resourceName}' deletion initiated`, 'success');
             setDeleteModalOpen(false);
             onClose?.(); // Close drawer if prop provided
         } catch (err) {
@@ -215,14 +216,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
         );
     }
 
-    if (loading) {
-        return (
-            <div className="flex h-full items-center justify-center space-y-4 flex-col text-zinc-500">
-                <Loader2 size={32} className="animate-spin text-cyan-500" />
-                <span className="text-xs tracking-widest uppercase">Loading Resources...</span>
-            </div>
-        );
-    }
+    // LOADING STATE HANDLING inside tabs now, global spinner removed to allow shell rendering
 
     // Show a warning if data failed to load but we have no explicit error
     if (!fullObject && !loading && !error) {
@@ -239,6 +233,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                         <div className="flex items-center gap-2">
                             <StatusBadge status={resource.status} />
                             <h1 className="text-xl font-bold text-white tracking-tight">{resource.name}</h1>
+                            {loading && <Loader2 size={14} className="animate-spin text-zinc-500 ml-2" />}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-zinc-500 font-mono">
                             <span>{resource.kind}</span>
@@ -327,6 +322,7 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                             resource={resource}
                             fullObject={fullObject}
                             currentContext={currentContext}
+                            loading={loading}
                             onViewLogs={() => setActiveTab('logs')}
                             onAnalyzeLogs={(container) => {
                                 setTriggerAnalysis({ container });
@@ -339,20 +335,32 @@ export function UnifiedResourceDetails({ resource, fullObject, currentContext, l
                 )}
 
                 {activeTab === 'logs' && isPod && (
-                    <LogsTab
-                        resource={resource}
-                        fullObject={fullObject}
-                        autoAnalyzeContainer={triggerAnalysis?.container}
-                        onAnalysisStarted={() => setTriggerAnalysis(null)}
-                    />
+                    loading ? (
+                        <div className="flex items-center justify-center h-full text-zinc-500 gap-2">
+                            <Loader2 size={16} className="animate-spin" /> Loading logs configuration...
+                        </div>
+                    ) : (
+                        <LogsTab
+                            resource={resource}
+                            fullObject={fullObject}
+                            autoAnalyzeContainer={triggerAnalysis?.container}
+                            onAnalysisStarted={() => setTriggerAnalysis(null)}
+                        />
+                    )
                 )}
 
                 {activeTab === 'terminal' && isPod && (
-                    <TerminalTab
-                        namespace={resource.namespace}
-                        name={resource.name}
-                        podSpec={spec}
-                    />
+                    loading ? (
+                        <div className="flex items-center justify-center h-full text-zinc-500 gap-2">
+                            <Loader2 size={16} className="animate-spin" /> Preparing terminal...
+                        </div>
+                    ) : (
+                        <TerminalTab
+                            namespace={resource.namespace}
+                            name={resource.name}
+                            podSpec={spec}
+                        />
+                    )
                 )}
 
                 {activeTab === 'events' && (

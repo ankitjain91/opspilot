@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 use portable_pty::MasterPty;
 use kube::{Client, Discovery};
-use crate::models::{ClusterStats, InitialClusterData, ClusterCockpitData};
+use crate::models::{ClusterStats, InitialClusterData, ClusterCockpitData, MetricsHistoryBuffer};
 
 #[allow(dead_code)]
 pub struct ExecSession {
@@ -33,6 +33,8 @@ pub struct AppState {
     pub shell_sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
     pub port_forwards: Arc<Mutex<HashMap<String, PortForwardSession>>>,
     pub log_streams: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
+    // Track active resource watch streams for proper cancellation
+    pub watch_streams: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
     pub discovery_cache: Arc<Mutex<Option<(std::time::Instant, Arc<Discovery>)>>>,
     pub vcluster_cache: Arc<Mutex<Option<(std::time::Instant, String)>>>,
     pub cluster_stats_cache: Arc<Mutex<Option<(std::time::Instant, ClusterStats)>>>,
@@ -44,6 +46,8 @@ pub struct AppState {
     // Cache for initial dashboard data (15s TTL) for instant navigation
     pub initial_data_cache: Arc<Mutex<Option<(std::time::Instant, InitialClusterData)>>>,
     pub cockpit_cache: Arc<Mutex<Option<(std::time::Instant, ClusterCockpitData)>>>,
+    // Metrics history for timeline graphs (stores last 60 snapshots per context)
+    pub metrics_history: Arc<Mutex<Option<MetricsHistoryBuffer>>>,
     // Persistent session for Claude Code
     pub claude_session: Arc<Mutex<Option<ShellSession>>>,
     // Store vcluster proxy process ID to kill it on disconnect
@@ -60,6 +64,7 @@ impl AppState {
             shell_sessions: Arc::new(Mutex::new(HashMap::new())),
             port_forwards: Arc::new(Mutex::new(HashMap::new())),
             log_streams: Arc::new(Mutex::new(HashMap::new())),
+            watch_streams: Arc::new(Mutex::new(HashMap::new())),
             discovery_cache: Arc::new(Mutex::new(None)),
             vcluster_cache: Arc::new(Mutex::new(None)),
             cluster_stats_cache: Arc::new(Mutex::new(None)),
@@ -67,6 +72,7 @@ impl AppState {
             client_cache: Arc::new(Mutex::new(None)),
             initial_data_cache: Arc::new(Mutex::new(None)),
             cockpit_cache: Arc::new(Mutex::new(None)),
+            metrics_history: Arc::new(Mutex::new(None)),
             claude_session: Arc::new(Mutex::new(None)),
             vcluster_pid: Arc::new(Mutex::new(None)),
         }

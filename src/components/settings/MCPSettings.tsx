@@ -16,6 +16,11 @@ interface McpServer {
 export function MCPSettings() {
     const [servers, setServers] = useState<McpServer[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [npxAvailable, setNpxAvailable] = useState<boolean | null>(null);
+    const [globalInfoDismissed, setGlobalInfoDismissed] = useState(false);
+    const [quickTestName, setQuickTestName] = useState<string | null>(null);
+    const [quickTestMsg, setQuickTestMsg] = useState<string | null>(null);
+    const [quickTestOk, setQuickTestOk] = useState<boolean | null>(null);
     const [formState, setFormState] = useState<Partial<McpServer>>({
         name: '',
         command: '',
@@ -72,6 +77,9 @@ export function MCPSettings() {
         invoke<boolean>('check_command_exists', { command: 'uvx' })
             .then(() => setUvxAvailable(true))
             .catch(() => setUvxAvailable(false));
+        invoke<boolean>('check_command_exists', { command: 'npx' })
+            .then(() => setNpxAvailable(true))
+            .catch(() => setNpxAvailable(false));
     }, []);
 
     const saveServers = (updated: McpServer[]) => {
@@ -274,6 +282,10 @@ export function MCPSettings() {
 
             <div className="space-y-2">
                 <label className="text-[10px] text-zinc-400 uppercase tracking-wider font-semibold">Configuration (Environment)</label>
+                <p className="text-[10px] text-zinc-500">
+                    Secrets (token/key/password) are masked here and saved with your connection in app settings. They are not stored in the OS keychain.
+                    For higher security, consider using system environment variables or files managed outside the app.
+                </p>
                 <div className="space-y-2 bg-black/40 rounded-lg p-2 border border-white/5 max-h-[200px] overflow-y-auto">
                     {Object.entries(formState.env || {}).map(([key, value]) => {
                         const isPath = /config|path|file|credential/i.test(key);
@@ -366,6 +378,23 @@ export function MCPSettings() {
 
     return (
         <div className="space-y-4 h-full flex flex-col">
+            {!globalInfoDismissed && (
+                <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                            <h4 className="text-sm font-semibold text-white">Quick Start</h4>
+                            <ul className="text-[11px] text-zinc-400 list-disc ml-4 space-y-1">
+                                <li>Ensure tooling: uvx {uvxAvailable ? <span className="text-emerald-400 font-medium">available</span> : <span className="text-red-400">missing</span>}, npx {npxAvailable ? <span className="text-emerald-400 font-medium">available</span> : <span className="text-red-400">missing</span>}</li>
+                                <li>Add a server via Presets or Custom.</li>
+                                <li>Fill required environment values (tokens, paths).</li>
+                                <li>Use <span className="font-semibold">Test</span> to validate, then Connect.</li>
+                                <li>Enable <span className="font-semibold">Auto-connect</span> to start with the app.</li>
+                            </ul>
+                        </div>
+                        <button onClick={() => setGlobalInfoDismissed(true)} className="text-zinc-500 hover:text-white"><X size={16} /></button>
+                    </div>
+                </div>
+            )}
             <div className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5 mx-1">
                 <button onClick={() => setActiveTab('connected')} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'connected' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}>My Connections ({servers.length})</button>
                 <button onClick={() => setActiveTab('explore')} className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${activeTab === 'explore' ? 'bg-white/10 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}>Explore Presets</button>
@@ -422,6 +451,45 @@ export function MCPSettings() {
                                                     </span>
                                                     {server.error && (
                                                         <button onClick={() => setShowLogsFor(server.name)} className="text-[10px] text-red-400 underline hover:text-red-300 cursor-pointer flex items-center gap-0.5"><AlertCircle size={10} /> View Error</button>
+                                                    )}
+                                                    <div className="flex items-center gap-2">
+                                                        <label className="flex items-center gap-1 text-[10px] text-zinc-400">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={!!server.autoConnect}
+                                                                onChange={(e) => {
+                                                                    const updated = servers.map(s => s.name === server.name ? { ...s, autoConnect: e.target.checked } : s);
+                                                                    saveServers(updated);
+                                                                }}
+                                                            />
+                                                            Auto-connect
+                                                        </label>
+                                                        <button
+                                                            onClick={async () => {
+                                                                setQuickTestName(server.name);
+                                                                setQuickTestMsg(null);
+                                                                setQuickTestOk(null);
+                                                                try {
+                                                                    await invoke('connect_mcp_server', { name: server.name, command: server.command, args: server.args, env: server.env });
+                                                                    // Disconnect if it was not previously connected
+                                                                    if (!server.connected) {
+                                                                        try { await invoke('disconnect_mcp_server', { name: server.name }); } catch {}
+                                                                    }
+                                                                    setQuickTestOk(true);
+                                                                    setQuickTestMsg('Connection successful');
+                                                                } catch (err: any) {
+                                                                    setQuickTestOk(false);
+                                                                    const msg = String(err).replace('Error: ', '').replace('Command failed: ', '');
+                                                                    setQuickTestMsg(msg);
+                                                                }
+                                                            }}
+                                                            className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-zinc-300 border border-white/10"
+                                                        >
+                                                            Test
+                                                        </button>
+                                                    </div>
+                                                    {quickTestName === server.name && quickTestMsg && (
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded ${quickTestOk ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>{quickTestMsg}</span>
                                                     )}
                                                 </div>
                                             </div>

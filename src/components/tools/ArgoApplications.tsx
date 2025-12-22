@@ -1,13 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import {
     GitBranch, CheckCircle2, XCircle, Clock, AlertTriangle, AlertCircle,
-    ExternalLink, RefreshCw, Loader2, Server, FolderGit2, GitCommit,
-    Target, ArrowRightLeft, History, Layers, ChevronRight, X, Activity,
-    Search, Filter, LayoutGrid, List, Box, Trash2
+    RefreshCw, Loader2, FolderGit2, GitCommit, Target, ArrowRightLeft,
+    Layers, ChevronRight, X, Search, LayoutGrid, List
 } from 'lucide-react';
 import { LoadingScreen } from '../shared/LoadingScreen';
+import { ArgoAppDetailsModal } from './ArgoAppDetailsModal';
 import { K8sObject } from '../../types/k8s';
 
 interface ArgoApplicationsProps {
@@ -160,9 +160,9 @@ function parseArgoApp(app: K8sObject): ArgoAppDetails {
                 lastTransitionTime: c.lastTransitionTime,
             })),
 
-            // History
-            history: status?.history?.slice(-5).reverse().map((h: any) => ({
-                revision: h.revision?.substring(0, 7) || 'unknown',
+            // History - keep full revision for better tracking
+            history: status?.history?.slice(-10).reverse().map((h: any) => ({
+                revision: h.revision || 'unknown',
                 deployedAt: h.deployedAt,
                 id: h.id,
             })),
@@ -246,6 +246,17 @@ export function ArgoApplications({ currentContext, onOpenResource }: ArgoApplica
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [filterHealth, setFilterHealth] = useState<string>('all');
     const [filterSync, setFilterSync] = useState<string>('all');
+
+    // Handle Esc key for detail panel
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && selectedApp) {
+                setSelectedApp(null);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedApp]);
 
     const { data: apps, isLoading, refetch, isRefetching } = useQuery({
         queryKey: ["argo_applications_full", currentContext],
@@ -581,291 +592,13 @@ export function ArgoApplications({ currentContext, onOpenResource }: ArgoApplica
                 )}
             </div>
 
-            {/* Detail Panel */}
+            {/* Detail Modal */}
             {selectedApp && (
-                <>
-                    <div
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in duration-200"
-                        onClick={() => setSelectedApp(null)}
-                    />
-                    <div className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-gradient-to-br from-zinc-900 to-zinc-950 border-l border-white/10 z-50 flex flex-col animate-in slide-in-from-right duration-300">
-                        {/* Panel Header */}
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/30">
-                            <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${getHealthStyles(selectedApp.health).bg}`}>
-                                    {React.createElement(getHealthIcon(selectedApp.health), { size: 20, className: getHealthStyles(selectedApp.health).color })}
-                                </div>
-                                <div>
-                                    <h3 className="font-bold text-white text-lg">{selectedApp.name}</h3>
-                                    <p className="text-xs text-zinc-500">Project: {selectedApp.project}</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setSelectedApp(null)}
-                                className="p-2 text-zinc-500 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Panel Content */}
-                        <div className="flex-1 overflow-auto p-6 space-y-6">
-                            {/* Status Cards */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className={`p-4 rounded-xl border ${getHealthStyles(selectedApp.health).bg} ${getHealthStyles(selectedApp.health).border}`}>
-                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Health</div>
-                                    <div className={`text-lg font-bold ${getHealthStyles(selectedApp.health).color}`}>{selectedApp.health}</div>
-                                    {selectedApp.healthMessage && (
-                                        <p className="text-xs text-zinc-500 mt-1 line-clamp-2">{selectedApp.healthMessage}</p>
-                                    )}
-                                </div>
-                                <div className={`p-4 rounded-xl border ${getSyncStyles(selectedApp.sync).bg} ${getSyncStyles(selectedApp.sync).border}`}>
-                                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Sync Status</div>
-                                    <div className={`text-lg font-bold ${getSyncStyles(selectedApp.sync).color}`}>{selectedApp.sync}</div>
-                                    {selectedApp.syncRevision && (
-                                        <p className="text-xs text-zinc-500 mt-1 font-mono">{selectedApp.syncRevision.substring(0, 12)}</p>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Source */}
-                            <div className="space-y-3">
-                                <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                    <FolderGit2 size={14} />
-                                    Source
-                                </h4>
-                                <div className="bg-white/5 rounded-xl p-4 space-y-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Repo</span>
-                                        <a
-                                            href={selectedApp.repoURL}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-sm text-cyan-400 hover:text-cyan-300 break-all flex items-center gap-1"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            {selectedApp.repoURL}
-                                            <ExternalLink size={10} />
-                                        </a>
-                                    </div>
-                                    {selectedApp.path && (
-                                        <div className="flex items-start gap-3">
-                                            <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Path</span>
-                                            <span className="text-sm text-zinc-300">{selectedApp.path}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-start gap-3">
-                                        <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Revision</span>
-                                        <span className="text-sm text-zinc-300 font-mono">{selectedApp.targetRevision}</span>
-                                    </div>
-                                    {selectedApp.chart && (
-                                        <div className="flex items-start gap-3">
-                                            <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Chart</span>
-                                            <span className="text-sm text-zinc-300">{selectedApp.chart}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Destination */}
-                            <div className="space-y-3">
-                                <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                    <Target size={14} />
-                                    Destination
-                                </h4>
-                                <div className="bg-white/5 rounded-xl p-4 space-y-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Server</span>
-                                        <span className="text-sm text-zinc-300 break-all">{selectedApp.destServer}</span>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <span className="text-[10px] text-zinc-600 w-16 shrink-0 uppercase">Namespace</span>
-                                        <span className="text-sm text-zinc-300">{selectedApp.destNamespace || 'default'}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Resources */}
-                            {selectedApp.resourceCount !== undefined && selectedApp.resourceCount > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                        <Layers size={14} />
-                                        Resources
-                                    </h4>
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <div className="bg-white/5 rounded-xl p-3 text-center">
-                                            <div className="text-xl font-bold text-white">{selectedApp.resourceCount}</div>
-                                            <div className="text-[10px] text-zinc-500 uppercase">Total</div>
-                                        </div>
-                                        <div className="bg-emerald-500/10 rounded-xl p-3 text-center border border-emerald-500/20">
-                                            <div className="text-xl font-bold text-emerald-400">{selectedApp.syncedResources || 0}</div>
-                                            <div className="text-[10px] text-zinc-500 uppercase">Synced</div>
-                                        </div>
-                                        <div className="bg-amber-500/10 rounded-xl p-3 text-center border border-amber-500/20">
-                                            <div className="text-xl font-bold text-amber-400">{selectedApp.outOfSyncResources || 0}</div>
-                                            <div className="text-[10px] text-zinc-500 uppercase">Out of Sync</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Managed Resources - Clickable List */}
-                            {selectedApp.resources && selectedApp.resources.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                        <Box size={14} />
-                                        Managed Resources ({selectedApp.resources.length})
-                                    </h4>
-                                    <div className="space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
-                                        {selectedApp.resources.map((res, idx) => {
-                                            const resHealthStyles = res.health ? getHealthStyles(res.health) : getHealthStyles('Unknown');
-                                            const resSyncStyles = res.status ? getSyncStyles(res.status) : getSyncStyles('Unknown');
-                                            const ResHealthIcon = res.health ? getHealthIcon(res.health) : AlertCircle;
-
-                                            return (
-                                                <button
-                                                    key={idx}
-                                                    onClick={() => {
-                                                        if (onOpenResource) {
-                                                            // Create a K8sObject to navigate to
-                                                            const k8sObj: K8sObject = {
-                                                                id: `${res.namespace || ''}/${res.kind}/${res.name}`,
-                                                                name: res.name,
-                                                                namespace: res.namespace || '-',
-                                                                kind: res.kind,
-                                                                group: res.group || '',
-                                                                version: res.version,
-                                                                status: res.health || 'Unknown',
-                                                                age: '',
-                                                            };
-                                                            onOpenResource(k8sObj);
-                                                            setSelectedApp(null);
-                                                        }
-                                                    }}
-                                                    className="w-full flex items-center gap-3 p-2.5 bg-white/5 hover:bg-white/10 rounded-lg transition-all group text-left"
-                                                >
-                                                    <div className={`p-1 rounded ${resHealthStyles.bg}`}>
-                                                        <ResHealthIcon size={12} className={resHealthStyles.color} />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs font-medium text-zinc-300 group-hover:text-orange-300 transition-colors truncate">
-                                                                {res.name}
-                                                            </span>
-                                                            {res.requiresPruning && (
-                                                                <Trash2 size={10} className="text-red-400 shrink-0" title="Requires Pruning" />
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 text-[10px] text-zinc-600">
-                                                            <span>{res.kind}</span>
-                                                            {res.namespace && <span>• {res.namespace}</span>}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 shrink-0">
-                                                        {res.health && (
-                                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${resHealthStyles.bg} ${resHealthStyles.color}`}>
-                                                                {res.health}
-                                                            </span>
-                                                        )}
-                                                        {res.status && (
-                                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${resSyncStyles.bg} ${resSyncStyles.color}`}>
-                                                                {res.status}
-                                                            </span>
-                                                        )}
-                                                        <ChevronRight size={12} className="text-zinc-600 group-hover:text-orange-400" />
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Operation State */}
-                            {selectedApp.operationState && (
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                        <Activity size={14} />
-                                        Last Operation
-                                    </h4>
-                                    <div className="bg-white/5 rounded-xl p-4 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-medium text-zinc-300">{selectedApp.operationState.phase}</span>
-                                            {selectedApp.operationState.finishedAt && (
-                                                <span className="text-[10px] text-zinc-500">{formatTimeAgo(selectedApp.operationState.finishedAt)}</span>
-                                            )}
-                                        </div>
-                                        {selectedApp.operationState.message && (
-                                            <p className="text-xs text-zinc-500">{selectedApp.operationState.message}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* History */}
-                            {selectedApp.history && selectedApp.history.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                        <History size={14} />
-                                        Deployment History
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {selectedApp.history.map((h, idx) => (
-                                            <div key={h.id} className="flex items-center gap-3 bg-white/5 rounded-lg p-3">
-                                                <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400">
-                                                    {h.id}
-                                                </div>
-                                                <div className="flex-1">
-                                                    <span className="text-xs font-mono text-zinc-300">{h.revision}</span>
-                                                </div>
-                                                <span className="text-[10px] text-zinc-500">{formatTimeAgo(h.deployedAt)}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Conditions */}
-                            {selectedApp.conditions && selectedApp.conditions.length > 0 && (
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                        <AlertCircle size={14} />
-                                        Conditions
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {selectedApp.conditions.map((c, idx) => (
-                                            <div key={idx} className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs font-medium text-amber-400">{c.type}</span>
-                                                    {c.lastTransitionTime && (
-                                                        <span className="text-[10px] text-zinc-500">{formatTimeAgo(c.lastTransitionTime)}</span>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs text-zinc-400">{c.message}</p>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Panel Footer */}
-                        <div className="px-6 py-4 border-t border-white/10 bg-black/30">
-                            <button
-                                onClick={() => {
-                                    if (onOpenResource && selectedApp._original) {
-                                        onOpenResource(selectedApp._original);
-                                        setSelectedApp(null);
-                                    }
-                                }}
-                                className="w-full py-2.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white font-medium rounded-lg transition-all flex items-center justify-center gap-2"
-                            >
-                                <ExternalLink size={14} />
-                                View Full Details
-                            </button>
-                        </div>
-                    </div>
-                </>
+                <ArgoAppDetailsModal
+                    app={selectedApp}
+                    onClose={() => setSelectedApp(null)}
+                    onOpenResource={onOpenResource}
+                />
             )}
         </div>
     );

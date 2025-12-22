@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant UI as Settings (JIRA)
+  participant JIRA as JIRA Cloud
+  participant BE as Tauri Rust
+  participant OS as OS Keychain
+
+  UI->>JIRA: GET /rest/api/3/myself (Basic: email:token)
+  JIRA-->>UI: 200 OK (user)
+  UI->>BE: store_secret('jira_access_token', token)
+  BE->>OS: Save credential via keyring
+  UI->>LS: Save config (without token)
+  Note right of UI: Subsequent requests retrieve token via BE

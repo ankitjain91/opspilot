@@ -1,0 +1,20 @@
+flowchart LR
+    subgraph DesktopApp[Tauri Desktop App]
+      FE[React/TypeScript UI]
+      BE[Rust Backend Commands]
+    end
+
+    Agent[Python Agent Server]
+    K8s[Kubernetes Cluster]
+    MCP[MCP Servers]
+    GH[GitHub API]
+    JIRA[JIRA Cloud]
+    OS[(OS Credential Store)]
+
+    FE -->|Tauri invoke| BE
+    FE -->|HTTP| Agent
+    BE -->|Keychain| OS
+    Agent -->|Kube Context| K8s
+    FE -->|Connect/Test| MCP
+    FE -->|Bearer| GH
+    FE -->|Basic| JIRA

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search, Bug } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -33,10 +33,12 @@ import {
     recordInvestigationForLearning,
 } from './agentUtils';
 
-import { runAgentLoop, AgentStep, LLMOptions } from './agentOrchestrator';
+import { runAgentLoop, AgentStep, LLMOptions, getClaudeUsage, ClaudeUsageData, getAgentServerStatus, restartServerComponent } from './agentOrchestrator';
 import { PlanProgressUI } from './PlanProgressUI';
 import { formatFailingPods } from './kubernetesFormatter';
 import { KBProgress } from './useSentinel';
+import { createJiraIssue, isJiraConnected, formatInvestigationForJira, getJiraIssueUrl, ResourceDebugContext } from '../../utils/jira';
+import { useToast } from '../ui/Toast';
 
 // ... (Known MCP Servers constant omitted for brevity, it is unchanged)
 const KNOWN_MCP_SERVERS = [
@@ -138,7 +140,7 @@ export function ClusterChatPanel({
     onToggleMinimize?: () => void,
     currentContext?: string,
     embedded?: boolean,
-    resourceContext?: { kind: string; name: string; namespace: string },
+    resourceContext?: { kind: string; name: string; namespace: string } & Partial<ResourceDebugContext>,
     initialPrompt?: string | null,
     onPromptHandled?: () => void,
     kbProgress?: KBProgress | null,
@@ -183,6 +185,7 @@ export function ClusterChatPanel({
     const groupedHistory = useMemo(() => groupMessages(chatHistory), [chatHistory]);
 
     const [llmLoading, setLlmLoading] = useState(false);
+    const [claudeUsage, setClaudeUsage] = useState<ClaudeUsageData | null>(null);
     const [currentActivity, setCurrentActivity] = useState("Analyzing cluster data...");
     const [isExpanded, setIsExpanded] = useState(false);
 
@@ -195,6 +198,28 @@ export function ClusterChatPanel({
     const [checkingLLM, setCheckingLLM] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
     const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
+    const [fastMode, setFastMode] = useState<boolean>(true); // Default to Fast Mode (true)
+
+    // Connection error state for retry UI
+    const [connectionError, setConnectionError] = useState<{ message: string; canRetry: boolean } | null>(null);
+    const [retryingConnection, setRetryingConnection] = useState(false);
+
+    // Fetch Claude usage periodically
+    useEffect(() => {
+        if (llmConfig.provider !== 'claude-code') {
+            setClaudeUsage(null);
+            return;
+        }
+
+        const fetchUsage = async () => {
+            const usage = await getClaudeUsage();
+            setClaudeUsage(usage);
+        };
+
+        fetchUsage();
+        const interval = setInterval(fetchUsage, 60000); // Every minute
+        return () => clearInterval(interval);
+    }, [llmConfig.provider]);
 
     // Chat State managed above (chatHistory)
     const [investigationPlan, setInvestigationPlan] = useState<InvestigationPlan | null>(null);
@@ -236,6 +261,41 @@ export function ClusterChatPanel({
         setThreadId(newThreadId);
         localStorage.setItem('agent_thread_id', newThreadId);
     }, []);
+
+    // Retry connection handler
+    const handleRetryConnection = useCallback(async () => {
+        setRetryingConnection(true);
+        setConnectionError(null);
+        try {
+            // First check status
+            const status = await getAgentServerStatus();
+            if (!status.available) {
+                // Try to start the agent
+                await invoke('start_agent');
+                // Wait for it to come up
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+
+            // Check status again
+            const newStatus = await getAgentServerStatus();
+            if (newStatus.available) {
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ **Reconnected**: Agent server is now available. You can continue your conversation.` }]);
+            } else {
+                setConnectionError({
+                    message: 'Agent server is still unavailable. Try again or check Settings > Diagnostics.',
+                    canRetry: true
+                });
+            }
+        } catch (e) {
+            setConnectionError({
+                message: `Retry failed: ${e}. Check Settings > Diagnostics for more options.`,
+                canRetry: true
+            });
+        } finally {
+            setRetryingConnection(false);
+        }
+    }, []);
+
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     // Claude Code streaming state
@@ -652,14 +712,21 @@ export function ClusterChatPanel({
                     `You are currently analyzing a specific resource in the Deep Dive Drawer: \n` +
                     `• Kind: ${resourceContext.kind} \n` +
                     `• Name: ${resourceContext.name} \n` +
-                    `• Namespace: ${resourceContext.namespace} \n\n` +
+                    `• Namespace: ${resourceContext.namespace} \n` +
+                    (resourceContext.phase ? `• Phase: ${resourceContext.phase} \n` : '') +
+                    (resourceContext.status ? `• Status: ${resourceContext.status} \n` : '') +
+                    `\n` +
+                    (resourceContext.conditions ? `• Conditions: ${resourceContext.conditions.map(c => `${c.type}=${c.status}`).join(', ')} \n` : '') +
+                    (resourceContext.containerStatuses ? `• Containers: ${resourceContext.containerStatuses.map(c => `${c.name} (${c.state}, restarts: ${c.restartCount})`).join(', ')} \n` : '') +
+                    (resourceContext.events ? `• Recent Events: ${resourceContext.events.map(e => `[${e.type}] ${e.reason}: ${e.message}`).join(' | ')} \n` : '') +
+                    `\n` +
                     `CRITICAL INSTRUCTIONS: \n` +
                     `1. ALL user queries imply THIS specific resource unless explicitly stated otherwise.\n` +
                     `2. example: "why is it failing?" → check logs / events for ${resourceContext.name}.\n` +
                     `3. example: "show logs" → fetch logs for ${resourceContext.name}.\n` +
                     `4. DO NOT search for other pods or resources unless the user explicitly names them.\n` +
                     `5. If the user asks a general question, answer it in the context of ${resourceContext.name}.\n` +
-                    `6. You are "immersed" in this resource.Do not broaden scope unnecessarily.`;
+                    `6. You are "immersed" in this resource. Do not broaden scope unnecessarily.`;
 
                 // Prepend to context as a system-like USER instruction
                 contextHistory.unshift({
@@ -962,7 +1029,11 @@ export function ClusterChatPanel({
                         setPlanTotalSteps(0);
                     }, 3000);
                 },
-                { thread_id: threadId } // baseParams
+                {
+                    thread_id: threadId,
+                    fastMode: fastMode,
+                    resourceContext: resourceContext ? `${resourceContext.kind}/${resourceContext.name} namespace:${resourceContext.namespace}` : undefined
+                } // baseParams
             );
 
             // Post-process final response to format kubectl output
@@ -1012,8 +1083,13 @@ export function ClusterChatPanel({
                 setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **API Error (404)**: Endpoint not found. Check your base URL and model name in Settings. Current: ${llmConfig.base_url} / ${llmConfig.model}` }]);
             } else if (errorMsg.includes("401") || errorMsg.includes("403") || errorMsg.includes("Unauthorized")) {
                 setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Authentication Failed**: Check your API key in Settings.` }]);
-            } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout")) {
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach ${llmConfig.base_url}. Is the server running?` }]);
+            } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout") || errorMsg.includes("Unreachable") || errorMsg.includes("unavailable")) {
+                // Set connection error state for retry UI
+                setConnectionError({
+                    message: `Cannot reach the agent server. The server may be starting up or experiencing issues.`,
+                    canRetry: true
+                });
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach the agent server. Use the retry button below to reconnect.` }]);
             } else {
                 setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Agent error: ${e}` }]);
             }
@@ -1028,6 +1104,72 @@ export function ClusterChatPanel({
 
     // Adaptive Knowledge Base: Mark as Solution
     const [markedSolutions, setMarkedSolutions] = useState<Set<number>>(new Set());
+
+    const { showToast } = useToast();
+
+    const handleCreateJiraIssue = async (userInput: string, aiAnswer: string) => {
+        try {
+            // Build resource debug context from current resourceContext prop
+            let debugContext: ResourceDebugContext | undefined;
+            if (resourceContext) {
+                debugContext = {
+                    kind: resourceContext.kind,
+                    name: resourceContext.name,
+                    namespace: resourceContext.namespace,
+                };
+            }
+
+            // Extract any tool outputs/commands from the conversation for additional context
+            const recentToolOutputs = chatHistory
+                .filter(msg => msg.role === 'tool' && msg.content)
+                .slice(-5) // Last 5 tool outputs
+                .map(msg => {
+                    const name = msg.toolName || 'tool';
+                    const output = msg.content.slice(0, 500); // Truncate long outputs
+                    return `[${name}]: ${output}${msg.content.length > 500 ? '...' : ''}`;
+                })
+                .join('\n\n');
+
+            // Include tool outputs in findings if available
+            let enhancedFindings = aiAnswer;
+            if (recentToolOutputs) {
+                enhancedFindings += `\n\nh3. Tool Outputs from Investigation\n{code}\n${recentToolOutputs}\n{code}`;
+            }
+
+            // Create title with resource context if available
+            const titlePrefix = resourceContext
+                ? `[${resourceContext.kind}/${resourceContext.name}]`
+                : '[AI Analysis]';
+            const titleSummary = userInput.slice(0, 50) + (userInput.length > 50 ? '...' : '');
+
+            const jiraInput = formatInvestigationForJira(
+                `${titlePrefix} ${titleSummary}`,
+                `User Question: ${userInput}`,
+                enhancedFindings,
+                currentContext,
+                debugContext
+            );
+
+            showToast('Creating JIRA issue...', 'info');
+            const issue = await createJiraIssue(jiraInput);
+            const url = getJiraIssueUrl(issue.key);
+
+            showToast(
+                <div className="flex flex-col gap-1">
+                    <span>JIRA issue created: {issue.key}</span>
+                    {url && (
+                        <a href={url} target="_blank" rel="noreferrer" className="text-cyan-400 underline text-[10px]">
+                            View in JIRA
+                        </a>
+                    )}
+                </div>,
+                "success"
+            );
+        } catch (err) {
+            console.error('Failed to create JIRA issue:', err);
+            showToast(`Failed to create JIRA issue: ${err}`, 'error');
+        }
+    };
 
     const handleMarkSolution = async (index: number, query: string, solution: string) => {
         if (markedSolutions.has(index)) return;
@@ -1229,6 +1371,13 @@ export function ClusterChatPanel({
                                 <span className="text-[10px] text-zinc-400 flex items-center gap-1 truncate max-w-[150px]" title={`Kubernetes Context: ${currentContext}`}>
                                     <span className="text-zinc-600">→</span>
                                     <span className="truncate">{currentContext}</span>
+                                </span>
+                            )}
+                            {claudeUsage && (
+                                <span className="text-[10px] text-zinc-500 font-medium" title={claudeUsage.cost_info || 'Token usage this session'}>
+                                    • {claudeUsage.subscription_type === 'max'
+                                        ? `${(claudeUsage.session_tokens.total_tokens / 1000).toFixed(1)}K tokens`
+                                        : claudeUsage.cost_info || `${claudeUsage.session_tokens.total_tokens.toLocaleString()} tokens`}
                                 </span>
                             )}
                         </div>
@@ -1570,8 +1719,8 @@ export function ClusterChatPanel({
                                             <div className="flex items-center gap-2 mb-1.5">
                                                 <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">You</span>
                                             </div>
-                                            <div className="inline-block max-w-[90%] bg-indigo-500/15 border border-indigo-500/20 rounded-2xl rounded-bl-md px-4 py-3">
-                                                <p className="text-[14px] text-zinc-200 leading-relaxed">{group.user.content}</p>
+                                            <div className="inline-block max-w-[90%] bg-indigo-500/15 border border-indigo-500/20 rounded-2xl rounded-bl-md px-4 py-3 break-words">
+                                                <p className="text-[14px] text-zinc-200 leading-relaxed break-words">{group.user.content}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1602,11 +1751,11 @@ export function ClusterChatPanel({
                                             </div>
                                             <div className="bg-white/[0.03] border border-white/5 rounded-2xl rounded-tl-md overflow-hidden">
 
-                                                <div className="px-5 py-4 prose prose-invert prose-sm max-w-none">
+                                                <div className="px-5 py-4 prose prose-invert prose-sm max-w-none break-words">
                                                     <ReactMarkdown
                                                         remarkPlugins={[remarkGfm]}
                                                         components={{
-                                                            p: ({ children }) => <p className="text-[14px] text-zinc-300 my-3 leading-relaxed opacity-90">{children}</p>,
+                                                            p: ({ children }) => <p className="text-[14px] text-zinc-300 my-3 leading-relaxed opacity-90 break-words">{children}</p>,
                                                             strong: ({ children }) => <strong className="text-white font-bold tracking-tight">{children}</strong>,
                                                             em: ({ children }) => <em className="text-zinc-400 italic font-medium">{children}</em>,
                                                             code: ({ children }) => <code className="text-[12px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono shadow-inner">{children}</code>,
@@ -1633,7 +1782,17 @@ export function ClusterChatPanel({
 
                                                     {/* Mark as Solution Button */}
                                                     {!group.answer.isStreaming && group.user && (
-                                                        <div className="mt-3 flex justify-end border-t border-white/5 pt-2">
+                                                        <div className="mt-3 flex justify-end items-center gap-3 border-t border-white/5 pt-2">
+                                                            {isJiraConnected() && (
+                                                                <button
+                                                                    onClick={() => handleCreateJiraIssue(group.user?.content || '', group.answer?.content || '')}
+                                                                    className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded text-zinc-500 hover:text-amber-400 hover:bg-white/5 transition-all"
+                                                                    title="Create JIRA Issue from this analysis"
+                                                                >
+                                                                    <Bug size={12} className="opacity-70" />
+                                                                    Create JIRA Issue
+                                                                </button>
+                                                            )}
                                                             <button
                                                                 onClick={() => handleMarkSolution(i, group.user?.content || '', group.answer?.content || '')}
                                                                 className={`text-[10px] flex items-center gap-1.5 px-2 py-1 rounded transition-all ${markedSolutions.has(i)
@@ -1941,7 +2100,75 @@ export function ClusterChatPanel({
 
             {/* Input - Elegant Apple Style */}
             <div className="relative z-20 p-4 bg-zinc-950/50 border-t border-white/5">
+                {/* Connection Error Banner with Retry */}
+                {connectionError && (
+                    <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs text-red-300">{connectionError.message}</p>
+                        </div>
+                        {connectionError.canRetry && (
+                            <button
+                                onClick={handleRetryConnection}
+                                disabled={retryingConnection}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+                            >
+                                {retryingConnection ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                    <RefreshCw size={12} />
+                                )}
+                                Retry
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setConnectionError(null)}
+                            className="p-1 text-red-400/60 hover:text-red-300 transition-colors flex-shrink-0"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+
+                {/* Active Context Banner */}
+                {resourceContext && (
+                    <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-md">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                        <span className="text-xs text-indigo-300 font-medium">Context: <span className="text-indigo-200">{resourceContext.kind}/{resourceContext.name}</span></span>
+                        <button
+                            onClick={() => { /* Ideally clear context, but it comes from props currently */ }}
+                            className="ml-auto text-indigo-400 hover:text-indigo-200"
+                        >
+                            <Minimize2 size={12} />
+                        </button>
+                    </div>
+                )}
                 <form onSubmit={(e) => { e.preventDefault(); sendMessage(userInput); }} className="flex items-center gap-2 p-1 bg-white/5 border border-white/10 rounded-xl focus-within:border-white/20 focus-within:bg-white/[0.07] transition-all duration-200">
+                    <button
+                        type="button"
+                        onClick={() => setFastMode(!fastMode)}
+                        className={`group relative p-2.5 rounded-lg transition-all duration-200 flex-shrink-0 border flex items-center justify-center ${fastMode
+                            ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
+                            : 'bg-zinc-800/30 border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 hover:border-white/10'}`}
+                    >
+                        {fastMode ? <Sparkles size={14} className="fill-amber-400" /> : <Sparkles size={14} />}
+
+                        {/* Tooltip on Hover */}
+                        <div className="absolute bottom-full left-0 mb-3 w-[260px] p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-xl backdrop-blur-xl opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Sparkles size={12} className={fastMode ? "text-amber-400" : "text-zinc-400"} />
+                                <span className={`text-xs font-bold ${fastMode ? "text-amber-400" : "text-zinc-300"}`}>
+                                    {fastMode ? "Fast Mode: Active" : "Fast Mode: Off"}
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                {fastMode
+                                    ? "Optimized for speed. Skips deep knowledge base search for quick answers."
+                                    : "Deep investigation mode. Uses full knowledge base and repository context (slower)."}
+                            </p>
+                            <div className="absolute -bottom-1 left-4 w-2 h-2 bg-zinc-900 border-b border-r border-white/10 rotate-45"></div>
+                        </div>
+                    </button>
                     <input
                         type="text"
                         value={userInput}

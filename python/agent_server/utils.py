@@ -7,13 +7,13 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 import os
 import hashlib
-from .config import DANGEROUS_VERBS, REMEDIATION_VERBS, LARGE_OUTPUT_VERBS, AZURE_MUTATION_VERBS, AZURE_SAFE_COMMANDS, MAX_OUTPUT_LENGTH, LOG_DIR, CACHE_DIR
+from .config import DANGEROUS_VERBS, DANGEROUS_HELM_VERBS, REMEDIATION_VERBS, LARGE_OUTPUT_VERBS, AZURE_MUTATION_VERBS, AZURE_SAFE_COMMANDS, MAX_OUTPUT_LENGTH, LOG_DIR, CACHE_DIR
 
 def is_safe_command(cmd: str) -> tuple[bool, str]:
     """Check if a command is safe (read-only) and requires approval.
 
-    Supports both kubectl and Azure CLI commands.
-    Azure CLI: ONLY read operations allowed (show, list, get). ALL mutations blocked.
+    Supports kubectl, helm, and Azure CLI commands.
+    ALL mutations are strictly blocked - read-only operations only.
     """
     lower = cmd.lower().strip()
 
@@ -26,6 +26,20 @@ def is_safe_command(cmd: str) -> tuple[bool, str]:
 
     if lower.startswith('__git_commit__:'):
         return False, "MUTATING_GIT"
+
+    # Helm command validation - STRICTLY block all mutations
+    if lower.startswith('helm '):
+        # Check for dangerous helm verbs
+        for verb in DANGEROUS_HELM_VERBS:
+            if f'helm {verb}' in lower or re.search(rf'\bhelm\s+{verb}\b', lower):
+                return False, "HELM_MUTATING"
+        # Safe helm commands: list, status, get, show, search, repo list, history
+        safe_helm_verbs = ['list', 'ls', 'status', 'get', 'show', 'search', 'history', 'repo list', 'env']
+        is_safe_helm = any(f'helm {verb}' in lower for verb in safe_helm_verbs)
+        if not is_safe_helm:
+            # Unknown helm command - block by default
+            return False, "HELM_UNKNOWN"
+        return True, "SAFE"
 
     # Azure CLI command detection and validation
     if lower.startswith('az '):
@@ -57,6 +71,46 @@ def is_safe_command(cmd: str) -> tuple[bool, str]:
         return False, "LARGE_OUTPUT"
 
     return True, "SAFE"
+
+def strip_verbose_fields(data: dict) -> dict:
+    """Remove verbose/noisy fields from Kubernetes resource YAML to save tokens.
+
+    Strips managedFields, status.conditions timestamps, annotations, and other
+    fields that are rarely useful for troubleshooting.
+    """
+    if not isinstance(data, dict):
+        return data
+
+    # Fields to remove from metadata
+    metadata = data.get('metadata', {})
+    if isinstance(metadata, dict):
+        for field in ['managedFields', 'generation', 'resourceVersion', 'uid', 'creationTimestamp']:
+            metadata.pop(field, None)
+        # Keep only essential annotations
+        annotations = metadata.get('annotations', {})
+        if isinstance(annotations, dict) and len(annotations) > 3:
+            # Keep only kubectl.kubernetes.io and app-related annotations
+            essential_prefixes = ['kubectl.', 'app.', 'helm.', 'argocd.']
+            filtered = {k: v for k, v in annotations.items()
+                       if any(k.startswith(p) for p in essential_prefixes)}
+            if len(filtered) < len(annotations):
+                filtered['...'] = f'{len(annotations) - len(filtered)} more annotations stripped'
+            metadata['annotations'] = filtered
+
+    # Strip verbose status fields
+    status = data.get('status', {})
+    if isinstance(status, dict):
+        # Remove condition lastTransitionTime to save tokens
+        conditions = status.get('conditions', [])
+        if isinstance(conditions, list):
+            for cond in conditions:
+                if isinstance(cond, dict):
+                    cond.pop('lastTransitionTime', None)
+                    cond.pop('lastHeartbeatTime', None)
+                    cond.pop('lastProbeTime', None)
+
+    return data
+
 
 def smart_truncate_output(output: str, max_chars: int = 3000) -> str:
     """Keep header + problematic rows, truncate healthy resources.

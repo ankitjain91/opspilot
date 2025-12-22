@@ -5,7 +5,7 @@ export type ToastType = 'success' | 'error' | 'info' | 'loading';
 
 export interface Toast {
     id: string;
-    message: string;
+    message: React.ReactNode;
     type: ToastType;
     duration?: number;
     action?: {
@@ -15,7 +15,7 @@ export interface Toast {
 }
 
 interface ToastContextType {
-    showToast: (message: string, type?: ToastType, duration?: number, action?: { label: string, onClick: () => void }) => string;
+    showToast: (message: React.ReactNode, type?: ToastType, duration?: number, action?: { label: string, onClick: () => void }) => string;
     dismissToast: (id: string) => void;
 }
 
@@ -36,8 +36,8 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
         setToasts(prev => prev.filter(t => t.id !== id));
     }, []);
 
-    const showToast = useCallback((message: string, type: ToastType = 'info', duration = 3000, action?: { label: string, onClick: () => void }) => {
-        const id = Math.random().toString(36).substr(2, 9);
+    const showToast = useCallback((message: React.ReactNode, type: ToastType = 'info', duration = 3000, action?: { label: string, onClick: () => void }) => {
+        const id = Math.random().toString(36).substring(2, 11);
         setToasts(prev => [...prev, { id, message, type, duration, action }]);
 
         if (duration > 0 && !action) { // Don't auto-dismiss if there is an action (or make it longer)
@@ -68,7 +68,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
                         {toast.type === 'loading' && <Loader2 size={16} className="text-cyan-500 animate-spin shrink-0" />}
 
 
-                        <p className="text-sm font-medium flex-1 leading-snug">{toast.message}</p>
+                        <div className="text-sm font-medium flex-1 leading-snug">{toast.message}</div>
 
                         {toast.action && (
                             <button

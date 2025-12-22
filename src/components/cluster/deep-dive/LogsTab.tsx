@@ -143,6 +143,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
     const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
 
     const [lastPacketTime, setLastPacketTime] = useState<Date | null>(null);
+    const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
     const { showToast } = useToast();
     const logsEndRef = useRef<HTMLDivElement>(null);
@@ -153,6 +154,8 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
     const activePodContainer = useRef<string>("");
     const logBufferRef = useRef<string[]>([]);
     const lastUpdateRef = useRef<number>(0);
+    const isStreamingRef = useRef<boolean>(false); // Track streaming state in ref for closure access
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Extract containers
     const spec = fullObject?.spec || {};
@@ -399,7 +402,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
     // --- Stream Logic ---
     const startStream = async () => {
         const podId = `${resource.namespace}/${resource.name}/${container}`;
-        if (activePodContainer.current === podId && isStreaming) {
+        if (activePodContainer.current === podId && isStreamingRef.current) {
             console.log(`[LogsTab] Stream already active for ${podId}, skipping restart.`);
             return;
         }
@@ -417,6 +420,13 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
 
         if (activePodContainer.current !== podId) {
             setLogs([]);
+            setReconnectAttempts(0); // Reset reconnect attempts on new container
+        }
+
+        // Clear any pending reconnect timeout
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
         }
 
         // Capture old SID to stop it after starting the new one (avoids race)
@@ -428,6 +438,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
         console.log(`[LogsTab] Starting stream ${newSessionId} for ${container}`);
 
         setIsStreaming(true);
+        isStreamingRef.current = true;
         try {
             console.log(`[LogsTab] Invoking start_log_stream for ${resource.name}...`);
             await invoke("start_log_stream", {
@@ -438,6 +449,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                 tailLines: 500
             });
             console.log(`[LogsTab] start_log_stream INVOKE success for ${newSessionId}`);
+            setReconnectAttempts(0); // Reset on successful start
 
             // Stop the previous session IF it's different
             if (oldSessionId && oldSessionId !== newSessionId) {
@@ -454,6 +466,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                         console.log(`[LogsTab] IPC Event received: ${lines.length} lines`);
                         logBufferRef.current.push(...lines);
                         setLastPacketTime(new Date());
+                        setReconnectAttempts(0); // Reset attempts on successful data
                     }
                 }
             });
@@ -461,15 +474,26 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                 console.log(`[LogsTab] Received log_stream_end for ${newSessionId}`);
                 if (activeSessionId.current === newSessionId) {
                     setIsStreaming(false);
-                    // Automatic retry if target hasn't changed
+                    isStreamingRef.current = false;
+                    // Automatic retry if target hasn't changed and we haven't exceeded attempts
                     const currentId = `${resource.namespace}/${resource.name}/${container}`;
                     if (activePodContainer.current === currentId) {
-                        console.log("[LogsTab] Unexpected end, attempting auto-reconnect in 2s...");
-                        setTimeout(() => {
-                            if (activePodContainer.current === currentId && !isStreaming) {
-                                startStream();
+                        setReconnectAttempts(prev => {
+                            const attempts = prev + 1;
+                            if (attempts <= 3) {
+                                // Exponential backoff: 2s, 4s, 8s
+                                const delay = Math.min(2000 * Math.pow(2, attempts - 1), 8000);
+                                console.log(`[LogsTab] Reconnect attempt ${attempts}/3 in ${delay}ms...`);
+                                reconnectTimeoutRef.current = setTimeout(() => {
+                                    if (activePodContainer.current === currentId && !isStreamingRef.current) {
+                                        startStream();
+                                    }
+                                }, delay);
+                            } else {
+                                console.log("[LogsTab] Max reconnect attempts reached, stopping auto-reconnect");
                             }
-                        }, 2000);
+                            return attempts;
+                        });
                     }
                 }
             });
@@ -478,11 +502,18 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
             if (activeSessionId.current === newSessionId) {
                 showToast(`Failed: ${err}`, "error");
                 setIsStreaming(false);
+                isStreamingRef.current = false;
             }
         }
     };
 
     const stopStream = async () => {
+        // Clear pending reconnect
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
+
         if (unlistenRef.current) { unlistenRef.current(); unlistenRef.current = null; }
 
         const sid = activeSessionId.current;
@@ -491,6 +522,8 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
             activeSessionId.current = null;
         }
         setIsStreaming(false);
+        isStreamingRef.current = false;
+        setReconnectAttempts(0);
     };
 
     useEffect(() => {
@@ -640,13 +673,10 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                     {allContainers.map((c: any) => <option key={c.name} value={c.name}>{c.name}</option>)}
                 </select>
 
-                <div className={`w-1.5 h-1.5 rounded-full ${isStreaming ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-                <span className={`font-medium uppercase tracking-wider hidden sm:inline ${isStreaming ? 'text-green-400' : 'text-zinc-500'}`}>
-                    {isStreaming ? 'Live' : 'Disconnected'}
+                <div className={`w-1.5 h-1.5 rounded-full ${isStreaming ? 'bg-green-500 animate-pulse' : reconnectAttempts > 0 && reconnectAttempts <= 3 ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className={`font-medium uppercase tracking-wider hidden sm:inline ${isStreaming ? 'text-green-400' : reconnectAttempts > 0 && reconnectAttempts <= 3 ? 'text-yellow-400' : 'text-zinc-500'}`}>
+                    {isStreaming ? 'Live' : reconnectAttempts > 0 && reconnectAttempts <= 3 ? `Reconnecting (${reconnectAttempts}/3)` : 'Disconnected'}
                 </span>
-                {!isStreaming && activePodContainer.current && (
-                    <span className="text-yellow-500 animate-pulse ml-2 text-[10px]">Reconnecting...</span>
-                )}
                 {lastPacketTime && (
                     <span className="text-zinc-600 font-mono hidden md:inline ml-2 truncate" title={`Time of last received log line (Session: ${activeSessionId.current})`}>
                         Rx: {lastPacketTime.toLocaleTimeString()} [{activeSessionId.current?.slice(-4)}]
@@ -828,7 +858,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                                 ref={virtuosoRef}
                                 style={{ height: '100%' }}
                                 data={logs}
-                                followOutput={autoScroll ? 'smooth' : 'auto'}
+                                followOutput={autoScroll ? 'smooth' : false}
                                 atBottomStateChange={(bottom: boolean) => {
                                     setAutoScroll(bottom);
                                 }}
@@ -844,7 +874,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
                             <button
                                 onClick={() => {
                                     setAutoScroll(true);
-                                    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+                                    virtuosoRef.current?.scrollToIndex({ index: logs.length - 1, behavior: 'smooth' });
                                 }}
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-full shadow-xl shadow-black/50 transition-all transform hover:scale-105 border border-white/10"
                             >

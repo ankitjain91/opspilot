@@ -93,3 +93,140 @@ pub async fn helm_get_details(namespace: String, name: String) -> Result<HelmRel
         values: values_json,
     })
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HelmHistoryEntry {
+    pub revision: i64,
+    pub updated: String,
+    pub status: String,
+    pub chart: String,
+    pub app_version: String,
+    pub description: String,
+}
+
+#[tauri::command]
+pub async fn helm_history(namespace: String, name: String) -> Result<Vec<HelmHistoryEntry>, String> {
+    let output = Command::new("helm")
+        .args(["history", &name, "-n", &namespace, "-o", "json"])
+        .output()
+        .map_err(|e| format!("Failed to execute helm history: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("helm history failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let history: Vec<HelmHistoryEntry> = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse helm history JSON: {}", e))?;
+
+    Ok(history)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HelmResource {
+    pub kind: String,
+    pub name: String,
+    pub namespace: Option<String>,
+    pub api_version: String,
+}
+
+#[tauri::command]
+pub async fn helm_get_resources(namespace: String, name: String) -> Result<Vec<HelmResource>, String> {
+    // Get the manifest
+    let output = Command::new("helm")
+        .args(["get", "manifest", &name, "-n", &namespace])
+        .output()
+        .map_err(|e| format!("Failed to execute helm get manifest: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("helm get manifest failed: {}", stderr));
+    }
+
+    let manifest = String::from_utf8_lossy(&output.stdout);
+
+    // Debug: Check if manifest is empty
+    if manifest.trim().is_empty() {
+        println!("[helm] Warning: Empty manifest for {}/{}", namespace, name);
+        return Ok(Vec::new());
+    }
+
+    let mut resources: Vec<HelmResource> = Vec::new();
+
+    // Parse YAML documents from manifest
+    // Use serde_yaml's Deserializer::from_str for multi-document support
+    for document in serde_yaml::Deserializer::from_str(&manifest) {
+        match serde_yaml::Value::deserialize(document) {
+            Ok(yaml_value) => {
+                // Skip null documents (can happen with empty --- separators)
+                if yaml_value.is_null() {
+                    continue;
+                }
+
+                // Extract kind
+                let kind = match yaml_value.get("kind") {
+                    Some(serde_yaml::Value::String(k)) => k.clone(),
+                    _ => continue, // Skip if no kind
+                };
+
+                // Extract metadata
+                let metadata = match yaml_value.get("metadata") {
+                    Some(m) => m,
+                    None => continue,
+                };
+
+                // Extract name from metadata
+                let res_name = match metadata.get("name") {
+                    Some(serde_yaml::Value::String(n)) => n.clone(),
+                    _ => "unknown".to_string(),
+                };
+
+                // Extract namespace from metadata (optional)
+                let ns = match metadata.get("namespace") {
+                    Some(serde_yaml::Value::String(n)) => Some(n.clone()),
+                    _ => None,
+                };
+
+                // Extract apiVersion
+                let api_version = match yaml_value.get("apiVersion") {
+                    Some(serde_yaml::Value::String(v)) => v.clone(),
+                    _ => "v1".to_string(),
+                };
+
+                resources.push(HelmResource {
+                    kind,
+                    name: res_name,
+                    namespace: ns,
+                    api_version,
+                });
+            }
+            Err(e) => {
+                // Log parse errors but continue processing other documents
+                println!("[helm] Warning: Failed to parse YAML document: {}", e);
+            }
+        }
+    }
+
+    println!("[helm] Found {} resources for {}/{}", resources.len(), namespace, name);
+    Ok(resources)
+}
+
+#[tauri::command]
+pub async fn helm_rollback(namespace: String, name: String, revision: i64) -> Result<String, String> {
+    let output = Command::new("helm")
+        .args(["rollback", &name, &revision.to_string(), "-n", &namespace])
+        .output()
+        .map_err(|e| format!("Failed to execute helm rollback: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("helm rollback failed: {}", stderr));
+    }
+
+    Ok(format!("Successfully rolled back {} to revision {}", name, revision))
+}

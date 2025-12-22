@@ -28,6 +28,20 @@ export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onS
         }
     }, [isOpen, resource]);
 
+    // Handle Esc key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
     const loadYaml = async () => {
         setIsLoading(true);
         setError(null);
@@ -63,7 +77,9 @@ export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onS
             });
 
             // Immediately update the cache with server response
-            const queryKey = ["resource_details", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name];
+            // Use normalized namespace (null for cluster-scoped resources marked with '-')
+            const normalizedNamespace = resource.namespace !== '-' ? resource.namespace : null;
+            const queryKey = ["resource_details", currentContext, normalizedNamespace, resource.group, resource.version, resource.kind, resource.name];
             qc.setQueryData(queryKey, updatedYaml);
 
             // Update local content with server response
@@ -109,12 +125,11 @@ export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onS
                         <button
                             onClick={handleSave}
                             disabled={isSaving || isLoading || saveSuccess}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-all ${
-                                saveSuccess
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-all ${saveSuccess
                                     ? 'bg-emerald-500 text-white'
                                     : isSaving
-                                    ? 'bg-emerald-500/50 text-white cursor-wait'
-                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                        ? 'bg-emerald-500/50 text-white cursor-wait'
+                                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                                 }`}
                         >
                             {saveSuccess ? (

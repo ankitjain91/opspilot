@@ -10,11 +10,26 @@ from .prompts_examples import SUPERVISOR_EXAMPLES_FULL
 # CONFIGURATION
 # =============================================================================
 
-# Dangerous write-verbs for kubectl (Strictly Blocked)
+# Dangerous write-verbs for kubectl (Strictly Blocked) - COMPREHENSIVE LIST
 DANGEROUS_VERBS = [
-    'apply', 'edit', 'replace', 'patch',
-    'create', 'cordon', 'drain', 'taint', 'annotate',
-    'label', 'cp', 'delete', 'rollout', 'scale', 'set'
+    # Core mutations
+    'apply', 'create', 'delete', 'patch', 'edit', 'replace',
+    # Resource modifications
+    'set', 'annotate', 'label', 'taint',
+    # Node operations
+    'cordon', 'uncordon', 'drain',
+    # Deployment operations
+    'rollout', 'scale', 'autoscale',
+    # Workload operations
+    'run', 'expose', 'cp',
+    # Auth/RBAC
+    'auth', 'certificate',
+]
+
+# Dangerous helm verbs (Strictly Blocked)
+DANGEROUS_HELM_VERBS = [
+    'install', 'upgrade', 'uninstall', 'delete', 'rollback',
+    'repo add', 'repo remove', 'plugin install', 'plugin uninstall'
 ]
 
 # Remediation verbs (Empty list to enforce strict read-only)
@@ -118,8 +133,11 @@ elif _is_cloud_llm:
 else:
     EMBEDDING_ENDPOINT = _llm_endpoint
 
-KB_MAX_MATCHES = 5
-KB_MIN_SIMILARITY = 0.35
+# Token Optimization: Reduced from 5→3 matches and 0.35→0.50 threshold
+# This saves ~1-2k tokens per request while maintaining quality
+KB_MAX_MATCHES = 3
+KB_MIN_SIMILARITY = 0.50
+KB_MAX_DOC_TOKENS = 500  # Truncate long KB documents
 USE_CHROMADB = os.environ.get("USE_CHROMADB", "true").lower() == "true"
 CHROMADB_PERSIST_DIR = os.environ.get("CHROMADB_PERSIST_DIR", "./chroma_db")
 

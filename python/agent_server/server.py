@@ -2,29 +2,67 @@
 import os
 import sys
 
-# MACOS RELEASE FIX: Prepend common paths to ensure subprocesses (kubectl) works in bundled app
-if sys.platform == 'darwin':
-    paths = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin"
-    ]
+# OS-specific PATH initialization
+def init_system_path():
+    """Ensure common binary paths are in os.environ['PATH'] for all platforms."""
+    import os
+    import sys
+    
     current_path = os.environ.get("PATH", "")
-    new_path = ":".join(paths) + ":" + current_path
-    os.environ["PATH"] = new_path
-    print(f"[config] Updated PATH for macOS: {new_path[:50]}...", flush=True)
-import json
-import httpx
-import asyncio
-from typing import Literal, Any
+    new_paths = []
+    
+    if sys.platform == 'darwin':
+        new_paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+            # Add common K8s tool paths
+            os.path.expanduser("~/.krew/bin"),
+            os.path.expanduser("~/.rd/bin"),
+            os.path.expanduser("~/.opspilot/bin"),
+        ]
+    elif sys.platform == 'win32':
+        new_paths = [
+            os.path.expanduser("~\\AppData\\Roaming\\npm"),
+            "C:\\Program Files\\nodejs",
+            "C:\\Program Files (x86)\\nodejs",
+            os.path.expanduser("~\\.opspilot\\bin")
+        ]
+    else: # Linux/Other
+        new_paths = [
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            os.path.expanduser("~/.local/bin"),
+            os.path.expanduser("~/.npm-global/bin"),
+            # Add common K8s tool paths
+            os.path.expanduser("~/.krew/bin"),
+            os.path.expanduser("~/.rd/bin"), # Rancher Desktop
+            os.path.expanduser("~/.opspilot/bin"),
+        ]
+
+    # Prepend and filter out duplicates or non-existent paths to keep it clean
+    path_list = current_path.split(os.pathsep)
+    for p in reversed(new_paths):
+        if p and p not in path_list:
+            path_list.insert(0, p)
+            
+    os.environ["PATH"] = os.pathsep.join(path_list)
+    print(f"[config] Updated PATH for {sys.platform}: {os.environ['PATH'][:80]}...", flush=True)
+
+init_system_path()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import keyring
+from typing import Any, Literal
+import httpx
+import json
 
 from .config import EMBEDDING_MODEL, KB_DIR
 from .state import AgentState, CommandHistory
@@ -62,6 +100,27 @@ SESSION_MAX_TURNS = 50  # Hard limit on conversation turns before suggesting res
 from .sentinel import SentinelLoop
 global_sentinel = None
 global_sentinel_task = None
+
+# Claude Code Background Compaction
+from .claude_code_backend import get_claude_code_backend
+global_compaction_task = None
+
+async def background_claude_compaction():
+    """Periodic task to compact Claude Code conversations in the background."""
+    print("[Claude] Background compaction task started", flush=True)
+    while True:
+        try:
+            # Wait 5 minutes between runs
+            await asyncio.sleep(300)
+            backend = get_claude_code_backend()
+            if backend and backend.session_id:
+                # Silently compact
+                await backend.compact()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Claude] Compaction error: {e}", flush=True)
+            await asyncio.sleep(60) # Wait a bit before retry on error
 
 # --- Session Management Helpers ---
 def get_session_state(thread_id: str) -> dict | None:
@@ -241,10 +300,6 @@ def check_exhaustive_attempts(state: dict) -> dict:
     }
 
 
-# Background Sentinel (Lazy init)
-from .sentinel import SentinelLoop
-global_sentinel = None
-
 # --- Global Broadcasting (SSE) ---
 import asyncio
 from sse_starlette.sse import EventSourceResponse
@@ -264,6 +319,8 @@ class CircularBuffer:
         return list(self._buffer)
 
 class GlobalBroadcaster:
+    HEARTBEAT_INTERVAL = 15  # Send heartbeat every 15 seconds
+
     def __init__(self):
         self._queues = set()
         self._history = CircularBuffer(100) # Keep last 100 events
@@ -272,27 +329,43 @@ class GlobalBroadcaster:
         q = asyncio.Queue()
         self._queues.add(q)
         try:
+            # Send immediate ping to establish connection and flush headers
+            yield {"data": json.dumps({"type": "ping", "message": "connected"})}
+
             # Replay history first
             for event in self._history.get_all():
                 yield {"data": json.dumps(event)}
-                
-            # Then stream new events
+
+            # Then stream new events with periodic heartbeats
             while True:
-                msg = await q.get()
-                yield msg
+                try:
+                    # Wait for message with timeout for heartbeat
+                    msg = await asyncio.wait_for(q.get(), timeout=self.HEARTBEAT_INTERVAL)
+                    yield msg
+                except asyncio.TimeoutError:
+                    # No message received, send heartbeat to keep connection alive
+                    heartbeat = {"data": json.dumps({"type": "heartbeat", "timestamp": int(asyncio.get_event_loop().time())})}
+                    yield heartbeat
         except asyncio.CancelledError:
-            self._queues.remove(q)
+            pass
+        finally:
+            # Always clean up the queue
+            if q in self._queues:
+                self._queues.remove(q)
 
     async def broadcast(self, event: dict):
         # Store in history
         self._history.add(event)
-        
+
         # Format as SSE data
         import json
         payload = {"data": json.dumps(event)}
         # Send to all connected clients
-        for q in self._queues:
-            await q.put(payload)
+        for q in list(self._queues):  # Copy to avoid modification during iteration
+            try:
+                await q.put(payload)
+            except Exception:
+                pass  # Queue might be closed
 
 broadcaster = GlobalBroadcaster()
 
@@ -330,9 +403,13 @@ def trigger_background_preload(kube_context: str) -> bool:
     if kube_context in _preload_tasks:
         task = _preload_tasks[kube_context]
         if not task.done():
+            print(f"[KB] ⏳ Preload already in progress for {kube_context}", flush=True)
             return False  # Already loading
+        else:
+            print(f"[KB] ♻️ Previous preload task done, starting new one for {kube_context}", flush=True)
 
     # Start new preload task
+    print(f"[KB] 🚀 Starting background preload task for {kube_context}", flush=True)
     task = asyncio.create_task(_background_preload_kb(kube_context))
     _preload_tasks[kube_context] = task
     return True
@@ -354,6 +431,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Sentinel] Failed to start (cluster may be unavailable): {e}", flush=True)
         global_sentinel = None
+
+    # Start Claude background compaction
+    global global_compaction_task
+    global_compaction_task = asyncio.create_task(background_claude_compaction())
 
     # Write server info for frontend discovery
     import json
@@ -460,6 +541,130 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Global Exception Handler ---
+# Ensures CORS headers are ALWAYS sent, even on 500 errors
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SafeExceptionMiddleware(BaseHTTPMiddleware):
+    """
+    Catches ALL exceptions and returns a proper JSON response with CORS headers.
+    This prevents the browser from seeing CORS errors when the server crashes.
+    """
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as e:
+            print(f"[Server] ❌ Unhandled exception on {request.url.path}: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Internal server error",
+                    "detail": str(e),
+                    "path": str(request.url.path),
+                    "recoverable": True
+                },
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                }
+            )
+
+# Add BEFORE CORS middleware so it catches exceptions from all routes
+app.add_middleware(SafeExceptionMiddleware)
+
+
+# --- Robust Health & Status Endpoints ---
+@app.get("/health")
+async def health_check():
+    """
+    Simple health check - ALWAYS returns 200 if server is running.
+    Use this for connectivity checks before other operations.
+    """
+    return {"status": "ok", "version": "0.2.55"}
+
+
+@app.get("/status")
+async def server_status():
+    """
+    Detailed status check with component health.
+    Returns degraded status if some components are down, but still 200.
+    """
+    components = {
+        "server": "ok",
+        "sentinel": "unknown",
+        "kb_search": "unknown",
+    }
+
+    # Check Sentinel
+    try:
+        if global_sentinel:
+            components["sentinel"] = "running" if global_sentinel_task and not global_sentinel_task.done() else "stopped"
+        else:
+            components["sentinel"] = "not_initialized"
+    except Exception as e:
+        components["sentinel"] = f"error: {e}"
+
+    # Check KB search
+    try:
+        components["kb_search"] = "available" if search.embedding_model_available else "unavailable"
+    except Exception as e:
+        components["kb_search"] = f"error: {e}"
+
+    overall = "ok" if all(v in ["ok", "running", "available"] for v in components.values()) else "degraded"
+
+    return {
+        "status": overall,
+        "components": components,
+        "version": "0.2.55"
+    }
+
+
+@app.post("/restart-sentinel")
+async def restart_sentinel():
+    """
+    User-triggered restart of the Sentinel component.
+    Use this to recover from Sentinel failures without restarting the server.
+    """
+    global global_sentinel
+    global global_sentinel_task
+
+    try:
+        # Get current context before stopping
+        current_context = global_sentinel.kube_context if global_sentinel else None
+        print(f"[Sentinel] User-triggered restart for context: {current_context}", flush=True)
+
+        # Stop existing task
+        if global_sentinel_task:
+            global_sentinel_task.cancel()
+            try:
+                await global_sentinel_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                print(f"[Sentinel] Warning during task cancellation: {e}", flush=True)
+            global_sentinel_task = None
+
+        # Stop old sentinel
+        if global_sentinel:
+            await global_sentinel.stop()
+
+        # Create fresh sentinel with same context
+        global_sentinel = SentinelLoop(kube_context=current_context, broadcaster=broadcaster)
+        global_sentinel_task = asyncio.create_task(global_sentinel.start())
+
+        print(f"[Sentinel] Restarted successfully", flush=True)
+        return {"success": True, "message": f"Sentinel restarted for context: {current_context or 'default'}"}
+    except Exception as e:
+        print(f"[Sentinel] ❌ Restart failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e), "recoverable": True}
+
+
 @app.get("/events")
 async def events_stream():
     """Global event stream for background alerts (Sentinel)."""
@@ -476,13 +681,24 @@ async def preload_context(request: PreloadRequest):
     Trigger background KB preloading for a context.
     Call this when user switches contexts to warm the cache.
     """
-    started = trigger_background_preload(request.kube_context)
-    status = _preload_status.get(request.kube_context, "pending")
-    return {
-        "context": request.kube_context,
-        "started": started,
-        "status": status
-    }
+    try:
+        print(f"[KB] 📥 Preload request received for context: {request.kube_context}", flush=True)
+        started = trigger_background_preload(request.kube_context)
+        status = _preload_status.get(request.kube_context, "pending")
+        print(f"[KB] 📥 Preload started={started}, status={status}", flush=True)
+        return {
+            "context": request.kube_context,
+            "started": started,
+            "status": status
+        }
+    except Exception as e:
+        print(f"[KB] ❌ Preload error: {e}", flush=True)
+        return {
+            "context": request.kube_context,
+            "started": False,
+            "status": "error",
+            "error": str(e)
+        }
 
 
 @app.get("/preload/status/{kube_context}")
@@ -506,34 +722,46 @@ async def update_sentinel_context(request: PreloadRequest):
     """
     global global_sentinel
     global global_sentinel_task
-    
-    if global_sentinel:
-        old_context = global_sentinel.kube_context
+
+    try:
+        old_context = global_sentinel.kube_context if global_sentinel else None
+
         # Check if context actually changed
         if old_context == request.kube_context:
             return {"success": True, "context": request.kube_context, "previous": old_context, "restarted": False}
 
-        # Update context
-        global_sentinel.kube_context = request.kube_context
-        # Reset failure tracking when context changes
-        global_sentinel._consecutive_failures = 0
-        global_sentinel._backoff = 5
-        
-        # Restart the background task to pick up new context immediately
-        print(f"[Sentinel] Context updated: {old_context} -> {request.kube_context}. Restarting loop...", flush=True)
-        
+        print(f"[Sentinel] Context switching: {old_context} -> {request.kube_context}", flush=True)
+
+        # Cancel existing task first
         if global_sentinel_task:
             global_sentinel_task.cancel()
             try:
                 await global_sentinel_task
             except asyncio.CancelledError:
                 pass
-        
+            except Exception as e:
+                print(f"[Sentinel] Warning: Error during task cancellation: {e}", flush=True)
+            global_sentinel_task = None
+
+        # Stop old sentinel
+        if global_sentinel:
+            await global_sentinel.stop()
+
+        # Create a fresh SentinelLoop with the new context
+        # This ensures clean state (no stale connections, fresh backoff counters)
+        global_sentinel = SentinelLoop(kube_context=request.kube_context, broadcaster=broadcaster)
+
         # Start new task
         global_sentinel_task = asyncio.create_task(global_sentinel.start())
-        
+
+        print(f"[Sentinel] New loop started for context: {request.kube_context}", flush=True)
         return {"success": True, "context": request.kube_context, "previous": old_context, "restarted": True}
-    return {"success": False, "error": "Sentinel not running"}
+
+    except Exception as e:
+        print(f"[Sentinel] Error updating context: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
 
 
 from .llm import list_available_models
@@ -640,17 +868,20 @@ def find_executable_path(exe_name: str) -> str | None:
     ]
     
     for d in common_dirs:
+        if not d or not os.path.isdir(d):
+            continue
+            
         # Check standard name
         p = os.path.join(d, exe_name)
         if os.path.exists(p) and os.access(p, os.X_OK):
             return p
             
-        # Check .cmd/.exe (Windows)
-        if sys.platform == "win32":
-            for ext in [".cmd", ".exe", ".ps1"]:
-                p_win = p + ext
-                if os.path.exists(p_win):
-                    return p_win
+        # Check extensions (Windows/all)
+        exts = [".cmd", ".exe", ".ps1", ".bat"] if sys.platform == "win32" else [""]
+        for ext in exts:
+            p_ext = p + ext
+            if os.path.exists(p_ext) and (sys.platform == "win32" or os.access(p_ext, os.X_OK)):
+                return p_ext
             
     return None
 
@@ -799,23 +1030,75 @@ async def _test_codex_connection():
 # --- OpsPilot Config Management (GitHub, MCP, etc.) ---
 
 OPSPILOT_CONFIG_PATH = os.path.expanduser("~/.opspilot/config.json")
+OPSPILOT_CONFIG_LEGACY_PATH = os.path.expanduser("~/.opspilot.json")
+
+def get_secret(key: str) -> str | None:
+    """Retrieve a secret from the OS Keyring."""
+    try:
+        return keyring.get_password("opspilot", key)
+    except Exception as e:
+        print(f"[secret] Failed to retrieve secret {key}: {e}", flush=True)
+        return None
+
+def set_secret(key: str, value: str):
+    """Store a secret in the OS Keyring."""
+    try:
+        keyring.set_password("opspilot", key, value)
+    except Exception as e:
+        print(f"[secret] Failed to store secret {key}: {e}", flush=True)
+
+def delete_secret(key: str):
+    """Remove a secret from the OS Keyring."""
+    try:
+        keyring.delete_password("opspilot", key)
+    except Exception:
+        pass
 
 def load_opspilot_config() -> dict:
-    """Load OpsPilot config from ~/.opspilot/config.json"""
+    """Load OpsPilot config from ~/.opspilot/config.json or legacy ~/.opspilot.json"""
+    config = {}
+    
+    # Try preferred path first
     if os.path.exists(OPSPILOT_CONFIG_PATH):
         try:
             with open(OPSPILOT_CONFIG_PATH) as f:
-                return json.load(f)
+                config = json.load(f)
         except Exception as e:
-            print(f"[config] Failed to load config: {e}", flush=True)
-    return {}
+            print(f"[config] Failed to load config from {OPSPILOT_CONFIG_PATH}: {e}", flush=True)
+    
+    # Fallback to legacy path if preferred doesn't exist or is empty
+    if not config and os.path.exists(OPSPILOT_CONFIG_LEGACY_PATH):
+        try:
+            with open(OPSPILOT_CONFIG_LEGACY_PATH) as f:
+                config = json.load(f)
+                print(f"[config] Loaded from legacy path: {OPSPILOT_CONFIG_LEGACY_PATH}", flush=True)
+        except Exception as e:
+            print(f"[config] Failed to load legacy config: {e}", flush=True)
+
+    # Overlay secrets from Keyring
+    pat = get_secret("github_token")
+    if pat:
+        config["github_pat"] = pat
+        
+    return config
 
 def save_opspilot_config(config: dict):
-    """Save OpsPilot config to ~/.opspilot/config.json"""
+    """Save OpsPilot config to ~/.opspilot/config.json, securing secrets in Keyring."""
     os.makedirs(os.path.dirname(OPSPILOT_CONFIG_PATH), exist_ok=True)
+    
+    config_to_save = config.copy()
+    
+    # Extract and secure GitHub PAT
+    if "github_pat" in config_to_save:
+        pat = config_to_save.pop("github_pat")
+        if pat:
+            set_secret("github_token", pat)
+        else:
+            delete_secret("github_token")
+    
     with open(OPSPILOT_CONFIG_PATH, 'w') as f:
-        json.dump(config, f, indent=2)
-    print(f"[config] Saved config to {OPSPILOT_CONFIG_PATH}", flush=True)
+        json.dump(config_to_save, f, indent=2)
+    print(f"[config] Saved sanitized config to {OPSPILOT_CONFIG_PATH}", flush=True)
 
 def write_mcp_config(github_pat: str | None):
     """Write MCP server config for Claude Code to use GitHub integration."""
@@ -1149,12 +1432,21 @@ async def embedding_model_status(llm_endpoint: str = "http://localhost:11434", m
         }
 
 @app.post("/embedding-model/pull")
-async def pull_embedding_model(llm_endpoint: str = "http://localhost:11434", embedding_endpoint: str | None = None):
+async def pull_embedding_model(
+    llm_endpoint: str = "http://localhost:11434",
+    embedding_endpoint: str | None = None,
+    model_name: str | None = None
+):
     """Pull/download the embedding model with user consent."""
-    
+
+    # Use provided model_name or fall back to config default
+    target_model = model_name or EMBEDDING_MODEL
+
     target_endpoint = embedding_endpoint or llm_endpoint
     base = target_endpoint or ""
     clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
+
+    print(f"[embedding-pull] 📥 Pulling model '{target_model}' from {clean_endpoint}", flush=True)
 
     async def stream_progress():
         async with httpx.AsyncClient() as client:
@@ -1163,9 +1455,14 @@ async def pull_embedding_model(llm_endpoint: str = "http://localhost:11434", emb
                 async with client.stream(
                     "POST",
                     f"{clean_endpoint}/api/pull",
-                    json={"name": EMBEDDING_MODEL, "stream": True},
+                    json={"name": target_model, "stream": True},
                     timeout=600.0  # 10 min timeout
                 ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        yield f"data: {json.dumps({'status': 'error', 'message': f'HTTP {response.status_code}: {error_text.decode()}'})}\n\n"
+                        return
+
                     async for line in response.aiter_lines():
                         if line:
                             try:
@@ -1185,8 +1482,10 @@ async def pull_embedding_model(llm_endpoint: str = "http://localhost:11434", emb
 
                     # Mark as available after successful pull (update search module state)
                     search.embedding_model_available = True
-                    yield f"data: {json.dumps({'status': 'success', 'message': f'Model {EMBEDDING_MODEL} ready'})}\n\n"
+                    yield f"data: {json.dumps({'status': 'success', 'message': f'Model {target_model} ready'})}\n\n"
 
+            except httpx.ConnectError as e:
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Cannot connect to Ollama at {clean_endpoint}. Is Ollama running?'})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
 
@@ -1461,6 +1760,13 @@ async def analyze(request: AgentRequest):
             # Send initial progress event immediately
             yield f"data: {json.dumps(emit_event('progress', {'message': '🧠 Starting analysis...'}))}\n\n"
 
+            # Transparent Intelligence: Immediate "Warm-up" signals
+            # These give the user immediate feedback that the system is active and aware
+            yield f"data: {json.dumps(emit_event('progress', {'message': '🛡️ Verifying permissions...'}))}\n\n"
+            await asyncio.sleep(0.1)
+            yield f"data: {json.dumps(emit_event('progress', {'message': '🔍 Integrating Cluster Knowledge...'}))}\n\n"
+            await asyncio.sleep(0.1)
+
             # CRITICAL FIX: Increased recursion limits to handle complex investigations
             # Previous limits (150/250) were causing premature termination for deep debugging
             # New limits provide 2-3x more capacity for multi-step troubleshooting
@@ -1536,6 +1842,29 @@ async def analyze(request: AgentRequest):
                             elapsed = int(current_time - start_time)
                             yield f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Thinking{dots} ({elapsed}s)'}))}\n\n"
                             last_heartbeat = current_time
+
+                        # Handle Tool Starts for "Glass Box" transparency
+                        if kind == "on_tool_start":
+                            tool_data = event.get('data', {})
+                            tool_name = event.get('name', '')
+                            
+                            # Map raw tool names to user-friendly "Thoughts"
+                            # This replaces the generic spinner with specific actions
+                            friendly_message = None
+                            if tool_name == 'kb_search':
+                                friendly_message = '📚 Consulting Knowledge Base...'
+                            elif tool_name == 'list_k8s_resources':
+                                friendly_message = '🔍 Scouting Cluster Resources...'
+                            elif tool_name == 'get_resource_details':
+                                friendly_message = '📋 Inspecting Resource Details...'
+                            elif tool_name == 'get_pod_logs':
+                                friendly_message = '📜 Reading Logs...'
+                            elif tool_name == 'kubectl_command':
+                                friendly_message = '⚡ Executing Command...'
+                            
+                            if friendly_message:
+                                yield f"data: {json.dumps(emit_event('progress', {'message': friendly_message}))}\n\n"
+                                last_heartbeat = current_time
 
                         # Handle chain steps (updates from nodes)
                         if kind == "on_chain_end":
@@ -1822,6 +2151,14 @@ async def analyze(request: AgentRequest):
 # DIRECT AGENT ENDPOINT - Single Claude Code call (fast path)
 # =============================================================================
 
+class McpServerConfig(BaseModel):
+    """MCP server configuration."""
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}
+
+
 class DirectAgentRequest(BaseModel):
     """Request for direct Claude Code agent."""
     query: str
@@ -1829,22 +2166,475 @@ class DirectAgentRequest(BaseModel):
     thread_id: str = "default_session"
     llm_provider: str | None = None
     tool_subset: str | None = None  # "full", "code_search", "k8s_only"
+    fast_mode: bool = False
+    resource_context: str | None = None  # e.g. "Pod/nginx-1 namespace:default"
+    mcp_servers: list[McpServerConfig] = []  # Connected MCP servers to pass to Claude
+
+
+# =============================================================================
+# CONTROLLER DISCOVERY & HEALTH (Async with Background Processing)
+# =============================================================================
+
+@app.get("/analyze-controllers")
+async def analyze_controllers_endpoint(kube_context: str = "", force_refresh: bool = False):
+    """
+    Analyze Controller/Operator topology and health.
+
+    Returns cached data immediately if available.
+    If not cached or force_refresh=True, starts background scan and returns partial data.
+
+    Response includes:
+    - status: "complete" | "scanning" | "empty"
+    - data: controller/CRD data (may be partial during scanning)
+    - progress: scan progress if scanning
+    """
+    from .discovery import (
+        discovery_cache, get_discovery_status,
+        run_full_discovery_async
+    )
+
+    print(f"[discovery] 🔍 Controller Analysis request for context: {kube_context}, force={force_refresh}")
+
+    try:
+        # Check cache first
+        if not force_refresh:
+            cached = discovery_cache.get(kube_context)
+            if cached:
+                print(f"[discovery] ✅ Returning cached data")
+                return {
+                    "status": "complete",
+                    "controllers": cached.get("controllers", []),
+                    "crds": cached.get("crds", []),
+                    "mapping": cached.get("mapping", {}),
+                    "unhealthy_crs": cached.get("unhealthy_crs", [])
+                }
+
+        # Check if scan is in progress
+        if discovery_cache.is_scanning(kube_context):
+            progress = discovery_cache.get_scan_progress(kube_context)
+            print(f"[discovery] ⏳ Scan in progress: {progress.get('scanned_crds', 0)}/{progress.get('total_crds', 0)}")
+            return {
+                "status": "scanning",
+                "progress": {
+                    "scanned": progress.get("scanned_crds", 0),
+                    "total": progress.get("total_crds", 0)
+                },
+                "controllers": progress.get("controllers", []),
+                "crds": progress.get("crds", []),
+                "mapping": progress.get("mapping", {}),
+                "unhealthy_crs": progress.get("unhealthy_crs", [])
+            }
+
+        # Start new background scan
+        print(f"[discovery] 🚀 Starting background discovery...")
+
+        # Run the discovery in background (fire and forget)
+        asyncio.create_task(run_full_discovery_async(kube_context))
+
+        # Return immediately with empty/scanning status
+        return {
+            "status": "scanning",
+            "progress": {"scanned": 0, "total": 0},
+            "controllers": [],
+            "crds": [],
+            "mapping": {},
+            "unhealthy_crs": []
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[discovery] ❌ Error in analyze-controllers: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Controller Analysis Failed: {str(e)}")
+
+
+@app.get("/controller-discovery-status")
+async def controller_discovery_status(kube_context: str = ""):
+    """
+    Get the current status of controller discovery.
+    Use this for polling during background scans.
+    """
+    from .discovery import get_discovery_status
+
+    status = get_discovery_status(kube_context)
+    return status
+
+
+# =============================================================================
+# CUSTOM RESOURCE HEALTH (Crossplane, Upbound, and Custom CRDs)
+# =============================================================================
+
+# Cache for custom resource health
+_cr_health_cache: dict = {}
+_cr_health_scanning: dict = {}
+_cr_health_progress: dict = {}  # Progressive scan state: scanned CRDs, partial results
+
+# System API groups to exclude
+SYSTEM_API_GROUPS = {
+    'kubernetes.io', 'k8s.io', 'apiextensions.k8s.io',
+    'admissionregistration.k8s.io', 'authentication.k8s.io',
+    'authorization.k8s.io', 'autoscaling', 'batch',
+    'certificates.k8s.io', 'coordination.k8s.io',
+    'discovery.k8s.io', 'events.k8s.io', 'extensions',
+    'flowcontrol.apiserver.k8s.io', 'networking.k8s.io',
+    'node.k8s.io', 'policy', 'rbac.authorization.k8s.io',
+    'scheduling.k8s.io', 'storage.k8s.io',
+    'internal.apiserver.k8s.io', 'metrics.k8s.io',
+}
+
+# Provider categories for grouping
+PROVIDER_CATEGORIES = {
+    'crossplane.io': {'label': 'Crossplane Core', 'color': 'purple', 'icon': '🔀'},
+    'upbound.io': {'label': 'Upbound', 'color': 'blue', 'icon': '☁️'},
+    'azure.upbound.io': {'label': 'Azure (Upbound)', 'color': 'sky', 'icon': '☁️'},
+    'aws.upbound.io': {'label': 'AWS (Upbound)', 'color': 'amber', 'icon': '☁️'},
+    'gcp.upbound.io': {'label': 'GCP (Upbound)', 'color': 'red', 'icon': '☁️'},
+    'pkg.crossplane.io': {'label': 'Crossplane Packages', 'color': 'indigo', 'icon': '📦'},
+}
+
+
+def get_provider_category(group: str) -> dict:
+    """Get provider category info for an API group."""
+    # Check exact match first
+    if group in PROVIDER_CATEGORIES:
+        return {**PROVIDER_CATEGORIES[group], 'group': group}
+
+    # Check suffix matches (e.g., azure.upbound.io)
+    for pattern, info in PROVIDER_CATEGORIES.items():
+        if group.endswith(f'.{pattern}') or group == pattern:
+            return {**info, 'group': group}
+
+    # Check if it's a Crossplane provider (*.crossplane.io)
+    if group.endswith('.crossplane.io'):
+        provider = group.replace('.crossplane.io', '').split('.')[-1]
+        return {'label': f'{provider.title()} (Crossplane)', 'color': 'purple', 'icon': '🔀', 'group': group}
+
+    # Check if it's an Upbound provider (*.upbound.io)
+    if group.endswith('.upbound.io'):
+        parts = group.replace('.upbound.io', '').split('.')
+        provider = parts[-1] if parts else 'unknown'
+        return {'label': f'{provider.title()} (Upbound)', 'color': 'blue', 'icon': '☁️', 'group': group}
+
+    # Default: custom CRD
+    return {'label': group.split('.')[0].title() if group else 'Custom', 'color': 'zinc', 'icon': '📦', 'group': group}
+
+
+def is_system_api_group(group: str) -> bool:
+    """Check if an API group is a Kubernetes system group."""
+    if not group:
+        return True  # Core API is system
+    for sys_group in SYSTEM_API_GROUPS:
+        if group == sys_group or group.endswith(f'.{sys_group}'):
+            return True
+    return False
+
+
+async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
+    """
+    Background task to progressively scan CRDs in parallel batches.
+    Updates _cr_health_progress with partial results as they come in.
+    """
+    from .discovery import list_crds, scan_cr_health
+    from .tools.kb_search import get_cached_crds
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import asyncio
+    import time
+
+    BATCH_SIZE = 8  # Scan 8 CRDs in parallel at a time
+
+    try:
+        # Initialize progress state
+        _cr_health_progress[cache_key] = {
+            'status': 'discovering',
+            'phase': 'Checking cached CRDs...',
+            'totalCRDs': 0,
+            'scannedCRDs': 0,
+            'currentCRD': '',
+            'groups': {},  # group_key -> group data
+            'totalInstances': 0,
+            'healthyInstances': 0,
+            'degradedInstances': 0,
+            'progressingInstances': 0,
+        }
+
+        # Check if KB preload is in progress or needs to be triggered
+        preload_status = _preload_status.get(kube_context, "")
+        print(f"[cr-health] 🔍 Preload status for {kube_context}: '{preload_status}'")
+
+        if preload_status == "":
+            # Preload hasn't been triggered yet - trigger it now but DO NOT WAIT
+            # The health dashboard doesn't need semantic embeddings, it just needs raw counts
+            print(f"[cr-health] 📥 Triggering background KB preload for {kube_context} (non-blocking)...")
+            trigger_background_preload(kube_context)
+
+        # DELETED: The 10s wait loop that was blocking the UI
+        # We proceed immediately to scanning CRDs
+
+
+        # Try to reuse CRDs from KB cache first (avoids duplicate kubectl call)
+        print(f"[cr-health] 📋 Phase 1: Getting CRDs (checking KB cache first)...")
+        cached_crds, cache_age = get_cached_crds(kube_context)
+
+        if cached_crds:
+            print(f"[cr-health] ♻️ Reusing {len(cached_crds)} CRDs from KB cache (age: {int(cache_age)}s)")
+            crds = cached_crds
+        else:
+            print(f"[cr-health] 🔄 No cached CRDs found, fetching fresh...")
+            _cr_health_progress[cache_key]['phase'] = 'Discovering CRDs from cluster...'
+            crds = list_crds(kube_context)
+
+        # Debug: Log some sample CRDs to understand filtering
+        if crds:
+            sample_crds = crds[:5]
+            print(f"[cr-health] Sample CRDs before filter: {[(c.name, c.group) for c in sample_crds]}", flush=True)
+
+        custom_crds = [crd for crd in crds if not is_system_api_group(crd.group)]
+        total_crds = len(custom_crds)
+
+        # Debug: Log what was filtered
+        filtered_count = len(crds) - len(custom_crds)
+        if filtered_count > 0 and filtered_count == len(crds):
+            # ALL CRDs were filtered - this is a problem
+            filtered_sample = crds[:10]
+            print(f"[cr-health] ⚠️ ALL {len(crds)} CRDs were filtered as 'system'! Sample groups: {set(c.group for c in filtered_sample)}", flush=True)
+        elif filtered_count > 0:
+            print(f"[cr-health] Filtered {filtered_count} system CRDs, keeping {total_crds} custom CRDs", flush=True)
+
+        print(f"[cr-health] Found {total_crds} custom CRDs to scan")
+
+        _cr_health_progress[cache_key].update({
+            'status': 'scanning',
+            'phase': f'Scanning {total_crds} CRD types...',
+            'totalCRDs': total_crds,
+        })
+
+        # Initialize group structures
+        groups_map = {}
+        for crd in custom_crds:
+            category = get_provider_category(crd.group)
+            if crd.group not in groups_map:
+                groups_map[crd.group] = {
+                    'group': crd.group,
+                    'label': category['label'],
+                    'color': category['color'],
+                    'icon': category['icon'],
+                    'crds': [],
+                    'totalInstances': 0,
+                    'healthyInstances': 0,
+                    'degradedInstances': 0,
+                }
+
+        _cr_health_progress[cache_key]['groups'] = groups_map
+
+        # Scan in parallel batches
+        def scan_one_crd(crd):
+            """Scan a single CRD and return summary."""
+            try:
+                instances = scan_cr_health(crd.name, kube_context)
+                return {
+                    'crd': crd,
+                    'instances': instances,
+                    'error': None
+                }
+            except Exception as e:
+                return {
+                    'crd': crd,
+                    'instances': [],
+                    'error': str(e)
+                }
+
+        scanned = 0
+        with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
+            # Submit all CRDs
+            futures = {executor.submit(scan_one_crd, crd): crd for crd in custom_crds}
+
+            for future in as_completed(futures):
+                result = future.result()
+                crd = result['crd']
+                instances = result['instances']
+
+                # Build CRD summary
+                crd_summary = {
+                    'name': crd.name,
+                    'group': crd.group,
+                    'kind': crd.kind,
+                    'version': crd.version,
+                    'total': len(instances),
+                    'healthy': sum(1 for i in instances if i.status == 'Healthy'),
+                    'degraded': sum(1 for i in instances if i.status == 'Degraded'),
+                    'progressing': sum(1 for i in instances if i.status == 'Progressing'),
+                    'unknown': sum(1 for i in instances if i.status == 'Unknown'),
+                    'instances': [
+                        {
+                            'name': inst.name,
+                            'namespace': inst.namespace,
+                            'kind': inst.kind,
+                            'group': crd.group,
+                            'version': crd.version,
+                            'status': inst.status,
+                            'message': inst.message,
+                        }
+                        for inst in instances
+                    ]
+                }
+
+                # Update group
+                group = groups_map[crd.group]
+                group['crds'].append(crd_summary)
+                group['totalInstances'] += crd_summary['total']
+                group['healthyInstances'] += crd_summary['healthy']
+                group['degradedInstances'] += crd_summary['degraded']
+
+                # Update progress totals
+                scanned += 1
+                progress = _cr_health_progress[cache_key]
+                progress['scannedCRDs'] = scanned
+                progress['currentCRD'] = crd.kind
+                progress['totalInstances'] += crd_summary['total']
+                progress['healthyInstances'] += crd_summary['healthy']
+                progress['degradedInstances'] += crd_summary['degraded']
+                progress['progressingInstances'] += crd_summary['progressing']
+                progress['phase'] = f'Scanned {scanned}/{total_crds} CRDs ({crd.kind})'
+                progress['groups'] = groups_map
+
+                # Log progress every 10 CRDs
+                if scanned % 10 == 0 or scanned == total_crds:
+                    print(f"[cr-health] Progress: {scanned}/{total_crds} CRDs scanned")
+
+        # Finalize - convert groups to sorted list
+        groups = sorted(groups_map.values(), key=lambda g: g['totalInstances'], reverse=True)
+
+        final_result = {
+            "status": "complete",
+            "groups": groups,
+            "totalCRDs": total_crds,
+            "scannedCRDs": total_crds,
+            "totalInstances": _cr_health_progress[cache_key]['totalInstances'],
+            "healthyInstances": _cr_health_progress[cache_key]['healthyInstances'],
+            "degradedInstances": _cr_health_progress[cache_key]['degradedInstances'],
+            "progressingInstances": _cr_health_progress[cache_key]['progressingInstances'],
+        }
+
+        # Cache the final result
+        _cr_health_cache[cache_key] = {
+            'timestamp': time.time(),
+            'data': final_result
+        }
+
+        _cr_health_progress[cache_key] = final_result
+        print(f"[cr-health] ✅ Scan complete: {total_crds} CRDs, {final_result['totalInstances']} instances")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        _cr_health_progress[cache_key] = {
+            'status': 'error',
+            'error': str(e),
+            'groups': [],
+            'totalCRDs': 0,
+            'scannedCRDs': 0,
+        }
+        print(f"[cr-health] ❌ Scan failed: {e}")
+    finally:
+        _cr_health_scanning[cache_key] = False
+
+
+@app.get("/custom-resource-health")
+async def custom_resource_health_endpoint(
+    background_tasks: BackgroundTasks,
+    kube_context: str = "",
+    force_refresh: bool = False
+):
+    """
+    Progressive scan of custom resources (Crossplane, Upbound, custom CRDs).
+
+    Returns immediately with either:
+    - Cached complete data (if available and fresh)
+    - Current progress state (if scan in progress)
+    - Starts background scan and returns "scanning" status
+
+    Frontend should poll this endpoint to get updates during scanning.
+    """
+    import time
+    cache_key = f"cr_health:{kube_context}"
+
+    # Return cached data if fresh and not forcing refresh
+    if not force_refresh and cache_key in _cr_health_cache:
+        cached = _cr_health_cache[cache_key]
+        if cached.get('timestamp', 0) > time.time() - 300:  # 5 min TTL
+            print(f"[cr-health] ✅ Returning cached data")
+            return cached['data']
+
+    # If scan is in progress, return current progress
+    if _cr_health_scanning.get(cache_key):
+        progress = _cr_health_progress.get(cache_key, {})
+        groups_map = progress.get('groups', {})
+
+        # Convert groups dict to sorted list for frontend
+        if isinstance(groups_map, dict):
+            groups = sorted(groups_map.values(), key=lambda g: g.get('totalInstances', 0), reverse=True)
+        else:
+            groups = groups_map if isinstance(groups_map, list) else []
+
+        return {
+            "status": progress.get('status', 'scanning'),
+            "phase": progress.get('phase', 'Initializing...'),
+            "groups": groups,
+            "totalCRDs": progress.get('totalCRDs', 0),
+            "scannedCRDs": progress.get('scannedCRDs', 0),
+            "currentCRD": progress.get('currentCRD', ''),
+            "totalInstances": progress.get('totalInstances', 0),
+            "healthyInstances": progress.get('healthyInstances', 0),
+            "degradedInstances": progress.get('degradedInstances', 0),
+            "progressingInstances": progress.get('progressingInstances', 0),
+        }
+
+    # Start background scan
+    print(f"[cr-health] 🚀 Starting progressive scan for context: {kube_context}")
+    _cr_health_scanning[cache_key] = True
+    _cr_health_progress[cache_key] = {
+        'status': 'starting',
+        'phase': 'Initializing scan...',
+        'groups': [],
+        'totalCRDs': 0,
+        'scannedCRDs': 0,
+    }
+
+    # Run scan in background
+    import asyncio
+    asyncio.create_task(_run_progressive_cr_scan(cache_key, kube_context))
+
+    return {
+        "status": "scanning",
+        "phase": "Starting scan...",
+        "groups": [],
+        "totalCRDs": 0,
+        "scannedCRDs": 0,
+        "totalInstances": 0,
+        "healthyInstances": 0,
+        "degradedInstances": 0,
+        "progressingInstances": 0,
+    }
+
+
+@app.get("/claude/usage")
+async def get_claude_usage():
+    """Get Claude Code usage information."""
+    backend = get_claude_code_backend()
+    usage = await backend.get_usage()
+    return {"usage": usage}
 
 
 @app.post("/analyze-direct")
 async def analyze_direct(request: DirectAgentRequest):
     """
-    Direct Claude Code agent - handles entire investigation in ONE call.
-
-    This bypasses the complex LangGraph and lets Claude Code handle:
-    - Tool execution (kubectl via Bash)
-    - Reasoning and reflection
-    - Final answer generation
-
-    Returns SSE stream with progress events and final answer.
+    Direct Claude Code agent.
+    If fast_mode is True: Skips RAG/Context injection for max speed.
+    Uses modular prompts to minimize token usage (40-60% savings).
     """
     from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT, DIRECT_AGENT_USER_PROMPT
-    
+    from .prompts.modular_builder import build_system_prompt, get_prompt_stats
+
     # Imports backend dynamically based on provider
     backend = None
     if request.llm_provider == "codex-cli":
@@ -1856,7 +2646,22 @@ async def analyze_direct(request: DirectAgentRequest):
         backend = get_claude_code_backend()
         print(f"[direct-agent] 🤖 Using Claude Code backend", flush=True)
 
-    print(f"[direct-agent] 🚀 Starting direct investigation: {request.query}", flush=True)
+    # Token Optimization: Use modular prompt builder for minimal prompts
+    # This reduces token usage by 40-60% compared to monolithic prompts
+    prompt_stats = get_prompt_stats(request.query)
+    if prompt_stats["is_minimal"]:
+        # For simple queries (greetings, off-topic), use ultra-minimal prompt
+        system_prompt = build_system_prompt(request.query)
+        print(f"[direct-agent] ⚡ Using minimal prompt ({prompt_stats['estimated_tokens']} tokens, modules: {prompt_stats['modules']})", flush=True)
+    else:
+        # For complex queries, use full direct agent prompt
+        system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
+
+    if request.resource_context:
+         system_prompt += f"\n\nIMPORTANT: The user is asking about a specific resource: {request.resource_context}. Keep your answer focused on this resource unless asked otherwise."
+
+    mode_icon = "⚡" if request.fast_mode else "✨"
+    print(f"[direct-agent] {mode_icon} Starting investigation: {request.query} (Fast: {request.fast_mode})", flush=True)
     print(f"[direct-agent] 📋 Thread ID: {request.thread_id}", flush=True)
 
     # Load conversation history from session for context continuity
@@ -1871,34 +2676,31 @@ async def analyze_direct(request: DirectAgentRequest):
             # 1. Get cluster info
             cluster_info = await get_cluster_recon(request.kube_context)
 
-            # 2. Fetch relevant KB context (CRDs, troubleshooting patterns)
-            # This saves tokens by providing pre-computed knowledge instead of Claude discovering it
+            # 2. Fetch relevant KB context (SKIP IN FAST MODE)
             kb_context = ""
-            try:
-                from .tools.kb_search import get_relevant_kb_snippets, ingest_cluster_knowledge
-
-                # Build minimal state for KB search
-                kb_state = {
-                    'kube_context': request.kube_context or 'default',
-                    'query': request.query
-                }
-
-                # First ensure CRDs are ingested (cached after first call)
-                await ingest_cluster_knowledge(kb_state)
-
-                # Search for relevant KB entries based on query
-                kb_context = await get_relevant_kb_snippets(
-                    query=request.query,
-                    state=kb_state,
-                    max_results=3,  # Top 3 most relevant entries
-                    min_similarity=0.3
-                )
-
-                if kb_context:
-                    print(f"[direct-agent] 📚 Found relevant KB context ({len(kb_context)} chars)", flush=True)
-
-            except Exception as kb_err:
-                print(f"[direct-agent] ⚠️ KB search skipped: {kb_err}", flush=True)
+            if not request.fast_mode:
+                try:
+                    from .tools.kb_search import get_relevant_kb_snippets, ingest_cluster_knowledge
+                    # Build minimal state for KB search
+                    kb_state = {
+                        'kube_context': request.kube_context or 'default',
+                        'query': request.query
+                    }
+                    # First ensure CRDs are ingested (cached after first call)
+                    await ingest_cluster_knowledge(kb_state)
+                    # Search for relevant KB entries based on query
+                    kb_context = await get_relevant_kb_snippets(
+                        query=request.query,
+                        state=kb_state,
+                        max_results=3,  # Top 3 most relevant entries
+                        min_similarity=0.3
+                    )
+                    if kb_context:
+                        print(f"[direct-agent] 📚 Found relevant KB context ({len(kb_context)} chars)", flush=True)
+                except Exception as kb_err:
+                    print(f"[direct-agent] ⚠️ KB search skipped: {kb_err}", flush=True)
+            else:
+                 print(f"[direct-agent] ⏩ Fast Mode: Skipping KB Search", flush=True)
 
             # 3. Build the prompt with KB context
             user_prompt = DIRECT_AGENT_USER_PROMPT.format(
@@ -1916,14 +2718,26 @@ async def analyze_direct(request: DirectAgentRequest):
 
 {user_prompt}"""
 
-            # Inject Local Repos context if configured
+            # Load config and repos (needed for working_dir even in fast mode)
             opspilot_config = load_opspilot_config()
-            local_repos = opspilot_config.get("local_repos", [])
-            github_pat = opspilot_config.get("github_pat")  # Keep checking for PAT just in case we need it later
 
+            # Check both local_repos and github_repos (user may have configured either)
+            # github_repos are saved from the LLM Settings panel "Repository" field
+            local_repos_config = opspilot_config.get("local_repos", [])
+            github_repos_config = opspilot_config.get("github_repos", [])
+
+            # Merge: combine both sources, remove duplicates
+            local_repos = list(set(local_repos_config + github_repos_config))
             if local_repos:
-                repos_str = "\n".join([f"- `{path}`" for path in local_repos])
-                github_context = f"""
+                print(f"[direct-agent] 📁 Configured repos: {local_repos}", flush=True)
+
+            # Inject Local Repos context if configured (SKIP IN FAST MODE for prompt injection only)
+            if not request.fast_mode:
+                github_pat = opspilot_config.get("github_pat")  # Keep checking for PAT just in case we need it later
+
+                if local_repos:
+                    repos_str = "\n".join([f"- `{path}`" for path in local_repos])
+                    github_context = f"""
 ## Local Codebase Access
 You have access to the user's local source code repositories.
 **Configured Repositories:**
@@ -1945,35 +2759,45 @@ You have access to the user's local source code repositories.
 
 3. **IGNORE MCP**: Do NOT use `mcp__github__*` tools. Use local filesystem tools.
 """
-                user_prompt = github_context + user_prompt
-                print(f"[direct-agent] 🔗 Local Repos context injected", flush=True)
+                    user_prompt = github_context + user_prompt
+                    print(f"[direct-agent] 🔗 Local Repos context injected", flush=True)
+            else:
+                print(f"[direct-agent] ⏩ Fast Mode: Skipping Local Repo context", flush=True)
 
-            elif github_pat: # Fallback to GitHub MCP if no local repos but PAT exists (legacy)
-                 # ... (Existing GitHub Logic kept commented out or significantly reduced to avoid confusion)
-                 pass
 
-            yield f"data: {json.dumps(emit_event('status', {'message': 'Starting investigation...', 'type': 'info'}))}\\n\\n"
+            yield f"data: {json.dumps(emit_event('status', {'message': 'Starting fast investigation...' if request.fast_mode else 'Starting investigation...', 'type': 'info'}))}\n\n"
 
             # 3. Call Backend (Claude Code or Codex) with streaming
             # backend is already instantiated above
 
-            # Build MCP config for GitHub if configured
-            # Format must be: {"mcpServers": {"name": {...}}}
-            # Use npx.cmd on Windows, npx elsewhere
+            # Build MCP config from user-configured servers (SKIP IN FAST MODE)
             mcp_config = None
-            if opspilot_config.get("github_pat"):
-                npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
-                mcp_config = {
-                    "mcpServers": {
-                        "github": {
-                            "command": npx_cmd,
-                            "args": ["-y", "@modelcontextprotocol/server-github"],
-                            "env": {
-                                "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
-                            }
+            if not request.fast_mode:
+                mcp_servers_config = {}
+
+                # Add user-configured MCP servers from the request
+                if request.mcp_servers:
+                    for srv in request.mcp_servers:
+                        mcp_servers_config[srv.name] = {
+                            "command": srv.command,
+                            "args": srv.args,
+                            "env": srv.env
+                        }
+                    print(f"[direct-agent] 🔌 MCP servers from request: {list(mcp_servers_config.keys())}", flush=True)
+
+                # Add GitHub MCP if configured (legacy support)
+                if opspilot_config.get("github_pat"):
+                    npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
+                    mcp_servers_config["github"] = {
+                        "command": npx_cmd,
+                        "args": ["-y", "@modelcontextprotocol/server-github"],
+                        "env": {
+                            "GITHUB_PERSONAL_ACCESS_TOKEN": opspilot_config["github_pat"]
                         }
                     }
-                }
+
+                if mcp_servers_config:
+                    mcp_config = {"mcpServers": mcp_servers_config}
 
             final_answer = ""
             command_history = []
@@ -1981,6 +2805,9 @@ You have access to the user's local source code repositories.
 
             # Determine mode-specific settings
             system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
+            if request.fast_mode:
+                system_prompt = "You are a direct, concise helper. Answer the question immediately. Use bullet points. Do not over-explain."
+            
             restricted_tools = False
             
             # Code Search Mode: Strict Read-Only, Local Only
@@ -2007,6 +2834,11 @@ Protocol:
             command_history = []
             pending_command = None  # Track command from tool_use to pair with tool_result
 
+            # Determine working directory - use first configured repo if available
+            working_dir = local_repos[0] if local_repos else None
+            if working_dir:
+                print(f"[direct-agent] 📁 Setting working directory: {working_dir}", flush=True)
+
             async for event in backend.call_streaming_with_tools(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
@@ -2015,7 +2847,8 @@ Protocol:
                 session_id=request.thread_id,
                 restricted_tools=restricted_tools,
                 conversation_history=conversation_history,
-                mcp_config=mcp_config
+                mcp_config=mcp_config,
+                working_dir=working_dir
             ):
                 event_type = event.get('type')
 
@@ -2075,6 +2908,15 @@ Protocol:
                     final_text = event.get('final_text', '')
                     if final_text:
                         final_answer = final_text
+
+                elif event_type == 'usage':
+                    # Token usage data from the request
+                    yield f"data: {json.dumps(emit_event('usage', {
+                        'input_tokens': event.get('input_tokens', 0),
+                        'output_tokens': event.get('output_tokens', 0),
+                        'total_tokens': event.get('total_tokens', 0),
+                        'session_total': event.get('session_total', 0)
+                    }))}\n\n"
 
                 elif event_type == 'error':
                     yield f"data: {json.dumps(emit_event('error', {'message': event.get('message', 'Unknown error')}))}\n\n"
@@ -2271,24 +3113,53 @@ class LogAnalysisRequest(BaseModel):
     container_name: str = ""
     namespace: str = ""
     kube_context: str = ""
+    fast_mode: bool = False
 
 
 @app.post("/analyze-logs")
 async def analyze_logs(request: LogAnalysisRequest):
     """
-    Analyze logs using LLM (Claude Code or other configured provider).
-
+    Analyze logs using LLM. Supports 'fast_mode' for cheaper/quicker insights.
     Returns SSE stream with analysis progress and final result.
     """
     from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT
     from .claude_code_backend import get_claude_code_backend
 
-    print(f"[log-analysis] 🔍 Analyzing logs for {request.pod_name}/{request.container_name}", flush=True)
+    mode_icon = "⚡" if request.fast_mode else "🔍"
+    print(f"[log-analysis] {mode_icon} Analyzing logs for {request.pod_name}/{request.container_name} (Fast: {request.fast_mode})", flush=True)
 
     async def event_generator():
         try:
-            # Build a focused log analysis prompt
-            log_analysis_prompt = f"""Analyze these Kubernetes pod logs and provide a high-level troubleshooting summary.
+            if request.fast_mode:
+                # FAST MODE: Concise, direct, cheaper prompt
+                log_analysis_system = "You are a log analysis expert. Identify the root cause immediately. Be extremely concise. Use bullet points."
+                log_analysis_prompt = f"""Quickly analyze these logs for {request.pod_name} (last 200 lines).
+Identify the ERROR/CRASH cause.
+Logs:
+```
+{request.logs[:10000]}
+```
+
+Output Format:
+**Root Cause**: [One sentence summary]
+**Fix**: [One sentence command or action]
+"""
+            else:
+                # DEEP MODE (Original): Detailed persona and structured output
+                log_analysis_system = """You are a Principal SRE and Kubernetes troubleshooting expert. 
+Your goal is to provide high-density, actionable insights from raw container logs.
+
+Focus on:
+- Startup failures (SIGTERM, SIGKILL, Exit Codes)
+- Application stack traces and unhandled exceptions
+- Connectivity issues (RDS, Redis, External APIs)
+- Probing failures (Readiness/Liveness timeout/404)
+- Resource exhaustion indicators (OOM, slow I/O)
+
+Avoid fluff. Don't say "I've analyzed the logs." Instead, start directly with the findings.
+Use a professional, expert tone."""
+                
+                log_analysis_prompt = f"""Analyze these Kubernetes pod logs and provide a high-level troubleshooting summary.
 
 ## Context
 - **Pod:** {request.pod_name}
@@ -2308,19 +3179,6 @@ Provide a concise, expert analysis for a DevOps engineer.
 4. **Resolution Path**: Provide exact steps or commands to fix the issue.
 
 Be authoritative and technical. Use markdown with bold highlights for critical terms."""
-
-            log_analysis_system = """You are a Principal SRE and Kubernetes troubleshooting expert. 
-Your goal is to provide high-density, actionable insights from raw container logs.
-
-Focus on:
-- Startup failures (SIGTERM, SIGKILL, Exit Codes)
-- Application stack traces and unhandled exceptions
-- Connectivity issues (RDS, Redis, External APIs)
-- Probing failures (Readiness/Liveness timeout/404)
-- Resource exhaustion indicators (OOM, slow I/O)
-
-Avoid fluff. Don't say "I've analyzed the logs." Instead, start directly with the findings.
-Use a professional, expert tone."""
 
             yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 Analyzing logs...'})}\n\n"
 

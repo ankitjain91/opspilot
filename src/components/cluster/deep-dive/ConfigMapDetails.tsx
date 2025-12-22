@@ -165,7 +165,7 @@ export function ConfigMapDetails({ resource, fullObject }: ConfigMapDetailsProps
                                 onChange={(e) => handleValueChange(key, e.target.value)}
                                 className="w-full bg-black/20 border border-white/5 rounded px-3 py-2 text-xs font-mono text-zinc-300 focus:outline-none focus:border-cyan-500/50 focus:bg-black/40 transition-all placeholder:text-zinc-700 min-h-[38px] resize-y"
                                 placeholder="Value"
-                                rows={Math.max(1, value.split('\n').length > 5 ? 5 : value.split('\n').length)}
+                                rows={Math.max(1, String(value).split('\n').length > 5 ? 5 : String(value).split('\n').length)}
                             />
 
                             {/* Delete Action */}

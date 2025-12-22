@@ -11,6 +11,352 @@ use crate::client::create_client;
 use crate::commands::discovery::get_cached_discovery;
 use futures::{StreamExt, TryStreamExt};
 
+/// Extract meaningful status from a Kubernetes resource based on its actual YAML structure.
+/// This avoids generic fallbacks and instead shows accurate status from the resource's status section.
+fn extract_status(obj: &DynamicObject, kind: &str) -> String {
+    let status_obj = obj.data.get("status");
+    let spec_obj = obj.data.get("spec");
+
+    match kind {
+        // Workload resources with replica-based status
+        "Deployment" => {
+            let replicas = spec_obj.and_then(|s| s.get("replicas")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let ready = status_obj.and_then(|s| s.get("readyReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let available = status_obj.and_then(|s| s.get("availableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let updated = status_obj.and_then(|s| s.get("updatedReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let unavailable = status_obj.and_then(|s| s.get("unavailableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+            if ready >= replicas && available >= replicas && unavailable == 0 {
+                "Running".to_string()
+            } else if unavailable > 0 {
+                format!("{}/{} Ready", ready, replicas)
+            } else if updated < replicas {
+                "Updating".to_string()
+            } else {
+                format!("{}/{} Ready", ready, replicas)
+            }
+        }
+
+        "StatefulSet" | "ReplicaSet" => {
+            let replicas = spec_obj.and_then(|s| s.get("replicas")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+            let ready = status_obj.and_then(|s| s.get("readyReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            if ready >= replicas {
+                "Running".to_string()
+            } else {
+                format!("{}/{} Ready", ready, replicas)
+            }
+        }
+
+        "DaemonSet" => {
+            let desired = status_obj.and_then(|s| s.get("desiredNumberScheduled")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let ready = status_obj.and_then(|s| s.get("numberReady")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            if ready >= desired && desired > 0 {
+                "Running".to_string()
+            } else {
+                format!("{}/{} Ready", ready, desired)
+            }
+        }
+
+        "Job" => {
+            let succeeded = status_obj.and_then(|s| s.get("succeeded")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let failed = status_obj.and_then(|s| s.get("failed")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let active = status_obj.and_then(|s| s.get("active")).and_then(|v| v.as_i64()).unwrap_or(0);
+
+            if succeeded > 0 && active == 0 {
+                "Complete".to_string()
+            } else if failed > 0 && active == 0 {
+                "Failed".to_string()
+            } else if active > 0 {
+                "Running".to_string()
+            } else {
+                "Pending".to_string()
+            }
+        }
+
+        "CronJob" => {
+            let active = status_obj.and_then(|s| s.get("active")).and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
+            let suspended = spec_obj.and_then(|s| s.get("suspend")).and_then(|v| v.as_bool()).unwrap_or(false);
+
+            if suspended {
+                "Suspended".to_string()
+            } else if active > 0 {
+                format!("{} Active", active)
+            } else {
+                "Scheduled".to_string()
+            }
+        }
+
+        // Storage resources
+        "VolumeAttachment" => {
+            let attached = status_obj.and_then(|s| s.get("attached")).and_then(|v| v.as_bool()).unwrap_or(false);
+            if attached { "Attached".to_string() } else { "Attaching".to_string() }
+        }
+
+        "PersistentVolume" | "PersistentVolumeClaim" => {
+            status_obj.and_then(|s| s.get("phase")).and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        }
+
+        "StorageClass" => {
+            // StorageClasses don't have status - they're configuration objects
+            "-".to_string()
+        }
+
+        // Networking resources
+        "Service" => {
+            // Show Service type with inline details (IPs/ports).
+            let svc_type = spec_obj
+                .and_then(|s| s.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("ClusterIP");
+            let ports = spec_obj
+                .and_then(|s| s.get("ports"))
+                .and_then(|p| p.as_array());
+            let first_port = if let Some(arr) = ports { arr.get(0) } else { None };
+            let port_str = first_port.map(|p| {
+                let port = p.get("port").and_then(|v| v.as_i64()).unwrap_or(0);
+                let protocol = p.get("protocol").and_then(|v| v.as_str()).unwrap_or("TCP");
+                let target_port = p.get("targetPort").and_then(|v| v.as_i64());
+                if let Some(tp) = target_port { format!("{}→{}/{}", port, tp, protocol) } else { format!("{}/{}", port, protocol) }
+            });
+
+            match svc_type {
+                "LoadBalancer" => {
+                    let ingress = status_obj
+                        .and_then(|s| s.get("loadBalancer"))
+                        .and_then(|lb| lb.get("ingress"))
+                        .and_then(|i| i.as_array());
+                    if let Some(list) = ingress {
+                        if let Some(first) = list.get(0) {
+                            let host = first.get("hostname").and_then(|v| v.as_str());
+                            let ip = first.get("ip").and_then(|v| v.as_str());
+                            let addr = host.or(ip).unwrap_or("pending");
+                            if addr == "pending" {
+                                return "LoadBalancer (pending)".to_string();
+                            }
+                            return match port_str {
+                                Some(ps) => format!("LoadBalancer {}:{}", addr, ps),
+                                None => format!("LoadBalancer {}", addr),
+                            };
+                        }
+                    }
+                    "LoadBalancer (pending)".to_string()
+                }
+                "NodePort" => {
+                    let node_port = first_port.and_then(|p| p.get("nodePort").and_then(|v| v.as_i64()));
+                    match (node_port, port_str) {
+                        (Some(np), Some(ps)) => format!("NodePort {}→{}", np, ps),
+                        (Some(np), None) => format!("NodePort {}", np),
+                        (None, Some(ps)) => format!("NodePort {}", ps),
+                        _ => "NodePort".to_string(),
+                    }
+                }
+                "ExternalName" => {
+                    let name = spec_obj.and_then(|s| s.get("externalName")).and_then(|v| v.as_str()).unwrap_or("");
+                    if name.is_empty() { "ExternalName".to_string() } else { format!("ExternalName {}", name) }
+                }
+                _ => {
+                    // ClusterIP and others
+                    let cip = spec_obj.and_then(|s| s.get("clusterIP")).and_then(|v| v.as_str());
+                    match (cip, port_str) {
+                        (Some(ip), Some(ps)) => format!("{} {}:{}", svc_type, ip, ps),
+                        (Some(ip), None) => format!("{} {}", svc_type, ip),
+                        (None, Some(ps)) => format!("{} {}", svc_type, ps),
+                        _ => svc_type.to_string(),
+                    }
+                }
+            }
+        }
+
+        "Ingress" => {
+            // Show concise ingress info: exposed address, hosts, and TLS count
+            let rules = spec_obj
+                .and_then(|s| s.get("rules"))
+                .and_then(|r| r.as_array());
+            let hosts: Vec<String> = rules
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|rule| rule.get("host").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_default();
+            let tls_count = spec_obj
+                .and_then(|s| s.get("tls"))
+                .and_then(|t| t.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+
+            let host_display = if !hosts.is_empty() {
+                let first = hosts[0].clone();
+                if hosts.len() > 1 { format!("{} +{}", first, hosts.len() - 1) } else { first }
+            } else { String::new() };
+            let tls_part = if tls_count > 0 { format!("; TLS:{}", tls_count) } else { String::new() };
+
+            let lb_ingress = status_obj
+                .and_then(|s| s.get("loadBalancer"))
+                .and_then(|lb| lb.get("ingress"))
+                .and_then(|i| i.as_array());
+
+            if let Some(list) = lb_ingress {
+                if let Some(first) = list.get(0) {
+                    let host = first.get("hostname").and_then(|v| v.as_str());
+                    let ip = first.get("ip").and_then(|v| v.as_str());
+                    let addr = host.or(ip).unwrap_or("pending");
+                    if addr == "pending" {
+                        let extra = if host_display.is_empty() && tls_part.is_empty() { String::new() } else { format!("; hosts: {}{}", host_display, tls_part) };
+                        return format!("Ingress (pending{})", extra);
+                    }
+                    let extra = if host_display.is_empty() && tls_part.is_empty() { String::new() } else { format!("; hosts: {}{}", host_display, tls_part) };
+                    return format!("Ingress {}{}", addr, extra);
+                }
+            }
+            // No ingress yet
+            let extra = if host_display.is_empty() && tls_part.is_empty() { String::new() } else { format!("; hosts: {}{}", host_display, tls_part) };
+            format!("Ingress (pending{})", extra)
+        }
+
+        "NetworkPolicy" | "IngressClass" => {
+            // These are configuration objects without status
+            "-".to_string()
+        }
+
+        "Endpoints" | "Endpoint" => {
+            // Endpoints don't have status - they're derived from pods/services
+            // Show count of addresses if available
+            if let Some(subsets) = obj.data.get("subsets").and_then(|s| s.as_array()) {
+                let total_addresses: usize = subsets.iter()
+                    .filter_map(|subset| subset.get("addresses").and_then(|a| a.as_array()).map(|a| a.len()))
+                    .sum();
+                if total_addresses > 0 {
+                    format!("{} addr", total_addresses)
+                } else {
+                    "No addresses".to_string()
+                }
+            } else {
+                "-".to_string()
+            }
+        }
+
+        "EndpointSlice" => {
+            // EndpointSlices show endpoint count
+            if let Some(endpoints) = obj.data.get("endpoints").and_then(|e| e.as_array()) {
+                let ready_count = endpoints.iter()
+                    .filter(|ep| ep.get("conditions").and_then(|c| c.get("ready")).and_then(|r| r.as_bool()).unwrap_or(false))
+                    .count();
+                let total = endpoints.len();
+                if ready_count == total && total > 0 {
+                    format!("{} Ready", total)
+                } else if total > 0 {
+                    format!("{}/{} Ready", ready_count, total)
+                } else {
+                    "Empty".to_string()
+                }
+            } else {
+                "-".to_string()
+            }
+        }
+
+        // Configuration resources (no status)
+        "ConfigMap" | "Secret" | "ServiceAccount" | "Role" | "ClusterRole" |
+        "RoleBinding" | "ClusterRoleBinding" | "LimitRange" | "ResourceQuota" |
+        "PodDisruptionBudget" | "PriorityClass" | "RuntimeClass" => {
+            "-".to_string()
+        }
+
+        // Namespace
+        "Namespace" => {
+            status_obj.and_then(|s| s.get("phase")).and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Active".to_string())
+        }
+
+        // Node
+        "Node" => {
+            // Check conditions for Ready status
+            if let Some(conditions) = status_obj.and_then(|s| s.get("conditions")).and_then(|c| c.as_array()) {
+                for cond in conditions {
+                    let cond_type = cond.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let cond_status = cond.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                    if cond_type == "Ready" {
+                        return if cond_status == "True" { "Ready".to_string() } else { "NotReady".to_string() };
+                    }
+                }
+            }
+            "Unknown".to_string()
+        }
+
+        // Pod - use phase directly
+        "Pod" => {
+            status_obj.and_then(|s| s.get("phase")).and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Unknown".to_string())
+        }
+
+        // HPA
+        "HorizontalPodAutoscaler" => {
+            let current = status_obj.and_then(|s| s.get("currentReplicas")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let desired = status_obj.and_then(|s| s.get("desiredReplicas")).and_then(|v| v.as_i64()).unwrap_or(0);
+            format!("{}/{}", current, desired)
+        }
+
+        // Events - use type (Normal/Warning)
+        "Event" => {
+            obj.data.get("type").and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        }
+
+        // Default: Try common patterns, but don't fabricate status
+        _ => {
+            // 1. Try status.phase (used by many resources)
+            if let Some(phase) = status_obj.and_then(|s| s.get("phase")).and_then(|v| v.as_str()) {
+                return phase.to_string();
+            }
+
+            // 2. Try status.state (used by some CRDs)
+            if let Some(state) = status_obj.and_then(|s| s.get("state")).and_then(|v| v.as_str()) {
+                return state.to_string();
+            }
+
+            // 3. Try status.health (used by Argo, etc.)
+            if let Some(health) = status_obj.and_then(|s| s.get("health")).and_then(|h| h.get("status")).and_then(|v| v.as_str()) {
+                return health.to_string();
+            }
+
+            // 4. Try status.sync.status (used by Argo Application)
+            if let Some(sync) = status_obj.and_then(|s| s.get("sync")).and_then(|sync| sync.get("status")).and_then(|v| v.as_str()) {
+                return sync.to_string();
+            }
+
+            // 5. Check conditions for Ready=True pattern (common in CRDs)
+            if let Some(conditions) = status_obj.and_then(|s| s.get("conditions")).and_then(|c| c.as_array()) {
+                // Look for Ready condition first
+                for cond in conditions {
+                    let cond_type = cond.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    let cond_status = cond.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                    if cond_type == "Ready" || cond_type == "Available" || cond_type == "Healthy" {
+                        return if cond_status == "True" { "Ready".to_string() } else { "NotReady".to_string() };
+                    }
+                }
+                // If no Ready condition, check last condition's status
+                if let Some(last_cond) = conditions.last() {
+                    let cond_type = last_cond.get("type").and_then(|t| t.as_str()).unwrap_or("-");
+                    let cond_status = last_cond.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                    if cond_status == "True" {
+                        return cond_type.to_string();
+                    } else if cond_status == "False" {
+                        return format!("Not{}", cond_type);
+                    }
+                }
+            }
+
+            // 6. No status available - show dash instead of fake "Active"
+            "-".to_string()
+        }
+    }
+}
+
 // Helper to convert DynamicObject to ResourceSummary
 fn to_summary(obj: DynamicObject, req_kind: &str, req_group: &str, req_version: &str, include_raw: bool) -> ResourceSummary {
     let name = obj.metadata.name.clone().unwrap_or_default();
@@ -25,41 +371,8 @@ fn to_summary(obj: DynamicObject, req_kind: &str, req_group: &str, req_version: 
 
     let status = if is_terminating {
         "Terminating".to_string()
-    } else if req_kind == "Deployment" {
-        let status_obj = obj.data.get("status");
-        let spec_obj = obj.data.get("spec");
-        let replicas = spec_obj.and_then(|s| s.get("replicas")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let ready_replicas = status_obj.and_then(|s| s.get("readyReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let available_replicas = status_obj.and_then(|s| s.get("availableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let updated_replicas = status_obj.and_then(|s| s.get("updatedReplicas")).and_then(|v| v.as_i64()).unwrap_or(replicas as i64) as i32;
-        let has_unavailable = status_obj.and_then(|s| s.get("unavailableReplicas")).is_some();
-        let unavailable_replicas = status_obj.and_then(|s| s.get("unavailableReplicas")).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-
-        if ready_replicas >= replicas && available_replicas >= replicas && !has_unavailable {
-            "Running".to_string()
-        } else if has_unavailable && unavailable_replicas > 0 {
-            "Progressing".to_string()
-        } else if updated_replicas < replicas {
-            "Updating".to_string()
-        } else if ready_replicas < replicas || available_replicas < replicas {
-            "Scaling".to_string()
-        } else {
-            "Running".to_string()
-        }
     } else {
-        obj.data.get("status")
-            .and_then(|s| s.get("phase").or(s.get("state")))
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| {
-                obj.data.get("status")
-                    .and_then(|s| s.get("conditions"))
-                    .and_then(|c| c.as_array())
-                    .and_then(|arr| arr.last())
-                    .and_then(|cond| cond.get("type"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("Active")
-            })
-            .to_string()
+        extract_status(&obj, req_kind)
     };
 
     let (ready, restarts, node, ip) = if req_kind.to_lowercase() == "pod" {
@@ -81,6 +394,30 @@ fn to_summary(obj: DynamicObject, req_kind: &str, req_group: &str, req_version: 
 
     let labels = obj.metadata.labels.clone();
 
+    let (reason, message, type_, count, source_component, involved_object) = if req_kind == "Event" {
+        (
+            obj.data.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            obj.data.get("message").and_then(|v| v.as_str()).map(|s| s.to_string())
+             .or_else(|| obj.data.get("note").and_then(|v| v.as_str()).map(|s| s.to_string())),
+            obj.data.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            obj.data.get("count").and_then(|v| v.as_i64()).map(|c| c as i32)
+             .or_else(|| obj.data.get("series").and_then(|s| s.get("count")).and_then(|v| v.as_i64()).map(|c| c as i32)),
+            obj.data.get("source").and_then(|s| s.get("component")).and_then(|v| v.as_str()).map(|s| s.to_string()),
+            obj.data.get("involvedObject").map(|io| {
+                let kind = io.get("kind").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let name = io.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                format!("{}/{}", kind, name)
+            })
+            .or_else(|| obj.data.get("regarding").map(|io| {
+                let kind = io.get("kind").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let name = io.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                format!("{}/{}", kind, name)
+            }))
+        )
+    } else {
+        (None, None, None, None, None, None)
+    };
+
     ResourceSummary {
         id: obj.metadata.uid.clone().unwrap_or_default(),
         name,
@@ -96,6 +433,12 @@ fn to_summary(obj: DynamicObject, req_kind: &str, req_group: &str, req_version: 
         node,
         ip,
         labels,
+        reason,
+        message,
+        type_,
+        count,
+        source_component,
+        involved_object,
     }
 }
 
@@ -174,7 +517,28 @@ pub async fn get_resource_details(state: State<'_, AppState>, req: ResourceReque
     let client = create_client(state.clone()).await?;
     let gvk = GroupVersionKind::gvk(&req.group, &req.version, &req.kind);
     let discovery = get_cached_discovery(&state, client.clone()).await?;
-    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("Resource not found")?;
+
+    // Try direct GVK resolution first, then fallback to searching by kind
+    let ar = if let Some((res, _caps)) = discovery.resolve_gvk(&gvk) {
+        res
+    } else {
+        // Fallback: search through all groups for matching kind
+        let mut found: Option<kube::discovery::ApiResource> = None;
+        for group in discovery.groups() {
+            for (res, _caps) in group.recommended_resources() {
+                // Match by kind first, then optionally by group if provided
+                if res.kind == req.kind {
+                    // If group was provided, it must match (or be empty for core resources)
+                    if req.group.is_empty() || res.group == req.group {
+                        found = Some(res.clone());
+                        break;
+                    }
+                }
+            }
+            if found.is_some() { break; }
+        }
+        found.ok_or_else(|| format!("Resource not found: {}/{}/{}", req.group, req.version, req.kind))?
+    };
 
     let api: Api<DynamicObject> = if let Some(ns) = req.namespace {
         Api::namespaced_with(client, &ns, &ar)
@@ -288,6 +652,14 @@ pub async fn start_resource_watch(
     req: ResourceRequest,
     watch_id: String,
 ) -> Result<(), String> {
+    // Cancel any existing watch with the same ID to prevent duplicates
+    {
+        let mut watches = state.watch_streams.lock().unwrap();
+        if let Some(cancel_tx) = watches.remove(&watch_id) {
+            let _ = cancel_tx.send(());
+        }
+    }
+
     let client = create_client(state.clone()).await?;
     let gvk = GroupVersionKind::gvk(&req.group, &req.version, &req.kind);
     let discovery = get_cached_discovery(&state, client.clone()).await?;
@@ -309,49 +681,86 @@ pub async fn start_resource_watch(
         Api::all_with(client.clone(), &ar)
     };
 
+    // Create cancellation channel
+    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Store the cancel sender in AppState for later cancellation
+    {
+        let mut watches = state.watch_streams.lock().unwrap();
+        watches.insert(watch_id.clone(), cancel_tx);
+    }
+
+    let watch_streams = state.watch_streams.clone();
     let watch_id_clone = watch_id.clone();
-    
+    let watch_id_for_cleanup = watch_id.clone();
+
     tokio::spawn(async move {
         let watcher_config = WatcherConfig::default();
         let mut stream = watcher(api, watcher_config).boxed();
 
-        while let Ok(Some(event)) = stream.try_next().await {
-            let watch_event = match event {
-                WatcherEvent::Apply(obj) => {
-                    ResourceWatchEvent {
-                        event_type: "MODIFIED".to_string(),
-                        resource: to_summary(obj, &kind, &group, &version, include_raw),
+        loop {
+            tokio::select! {
+                biased;
+                // Check for cancellation first
+                _ = &mut cancel_rx => {
+                    // Cancelled - clean exit
+                    break;
+                }
+                // Process watch events
+                result = stream.try_next() => {
+                    match result {
+                        Ok(Some(event)) => {
+                            let watch_event = match event {
+                                WatcherEvent::Apply(obj) => {
+                                    ResourceWatchEvent {
+                                        event_type: "MODIFIED".to_string(),
+                                        resource: to_summary(obj, &kind, &group, &version, include_raw),
+                                    }
+                                }
+                                WatcherEvent::Delete(obj) => {
+                                    ResourceWatchEvent {
+                                        event_type: "DELETED".to_string(),
+                                        resource: to_summary(obj, &kind, &group, &version, include_raw),
+                                    }
+                                }
+                                WatcherEvent::Init => { continue; }
+                                WatcherEvent::InitApply(obj) => {
+                                    ResourceWatchEvent {
+                                        event_type: "ADDED".to_string(),
+                                        resource: to_summary(obj, &kind, &group, &version, include_raw),
+                                    }
+                                }
+                                WatcherEvent::InitDone => {
+                                    let _ = app.emit(&format!("resource_watch_sync:{}", watch_id_clone), "SYNC_COMPLETE");
+                                    continue;
+                                }
+                            };
+                            let _ = app.emit(&format!("resource_watch:{}", watch_id_clone), watch_event);
+                        }
+                        Ok(None) => break, // Stream ended
+                        Err(_) => break, // Stream error
                     }
                 }
-                WatcherEvent::Delete(obj) => {
-                    ResourceWatchEvent {
-                        event_type: "DELETED".to_string(),
-                        resource: to_summary(obj, &kind, &group, &version, include_raw),
-                    }
-                }
-                WatcherEvent::Init => { continue; }
-                WatcherEvent::InitApply(obj) => {
-                    ResourceWatchEvent {
-                        event_type: "ADDED".to_string(),
-                        resource: to_summary(obj, &kind, &group, &version, include_raw),
-                    }
-                }
-                WatcherEvent::InitDone => {
-                    let _ = app.emit(&format!("resource_watch_sync:{}", watch_id_clone), "SYNC_COMPLETE");
-                    continue;
-                }
-            };
-
-            let _ = app.emit(&format!("resource_watch:{}", watch_id_clone), watch_event);
+            }
         }
-        let _ = app.emit(&format!("resource_watch_end:{}", watch_id_clone), ());
+
+        // Cleanup: remove from tracking on exit
+        {
+            let mut watches = watch_streams.lock().unwrap();
+            watches.remove(&watch_id_for_cleanup);
+        }
+        let _ = app.emit(&format!("resource_watch_end:{}", watch_id_for_cleanup), ());
     });
 
     Ok(())
 }
 
 #[tauri::command]
-pub async fn stop_resource_watch(_watch_id: String) -> Result<(), String> {
+pub async fn stop_resource_watch(state: State<'_, AppState>, watch_id: String) -> Result<(), String> {
+    let mut watches = state.watch_streams.lock().unwrap();
+    if let Some(cancel_tx) = watches.remove(&watch_id) {
+        let _ = cancel_tx.send(());
+    }
     Ok(())
 }
 
@@ -607,7 +1016,7 @@ pub async fn restart_resource(
 }
 
 #[tauri::command]
-pub async fn get_resource_metrics(state: State<'_, AppState>, kind: Option<String>, namespace: Option<String>) -> Result<Vec<crate::models::ResourceMetrics>, String> {
+pub async fn get_resource_metrics(state: State<'_, AppState>, kind: Option<String>, namespace: Option<String>, name: Option<String>) -> Result<Vec<crate::models::ResourceMetrics>, String> {
     let client = create_client(state).await?;
     let k = kind.unwrap_or_else(|| "Pod".to_string());
     
@@ -633,9 +1042,26 @@ pub async fn get_resource_metrics(state: State<'_, AppState>, kind: Option<Strin
         Api::all_with(client, &api_resource)
     };
 
-    let list = api.list(&ListParams::default()).await.map_err(|e| e.to_string())?;
+    let items = if let Some(resource_name) = name {
+        match api.get(&resource_name).await {
+            Ok(item) => vec![item],
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("NotFound") || err_str.contains("404") {
+                    vec![]
+                } else {
+                    return Err(err_str);
+                }
+            }
+        }
+    } else {
+        let list = api.list(&ListParams::default()).await.map_err(|e| e.to_string())?;
+        list.items
+    };
+    
+    // let list = api.list(&ListParams::default()).await.map_err(|e| e.to_string())?;
 
-    let metrics = list.items.into_iter().filter_map(|item| {
+    let metrics = items.into_iter().filter_map(|item| {
         let name = item.metadata.name?;
         let ns = item.metadata.namespace.unwrap_or_default();
         let timestamp = item.metadata.creation_timestamp.map(|t| t.0.timestamp()).unwrap_or(0);

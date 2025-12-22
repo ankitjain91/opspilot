@@ -1,0 +1,28 @@
+flowchart TB
+  subgraph UI
+    SettingsPage
+    MCPSettings
+    ControllerHealthDashboard
+    DeepDiveDrawer
+    OverviewTab
+    ResourceList
+    ClusterCockpit
+  end
+
+  subgraph Backend[Tauri Rust]
+    ai_utilities[ai_utilities.rs]
+    context.rs
+    cluster.rs
+    discovery.rs
+  end
+
+  subgraph Agent[Python]
+    llm_endpoints[/llm/test\n/embedding-model/status/]
+    controllers[/analyze-controllers?kube_context=/]
+  end
+
+  SettingsPage --> ai_utilities
+  ControllerHealthDashboard --> controllers
+  OverviewTab --> ResourceList
+  MCPSettings --> ai_utilities
+  ai_utilities --> OSKeychain[(keyring: OS keychain)]

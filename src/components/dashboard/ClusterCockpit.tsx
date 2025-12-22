@@ -14,6 +14,7 @@ import { NavResource, NavGroup } from '../../types/k8s';
 import { ClusterCockpitData, NodeHealth, DeploymentHealth, NamespaceUsage } from '../../types/cockpit';
 import { COLORS, SpeedometerGauge, VerticalMeter, GradientProgress, Gauge, StatusIndicator } from './CockpitGauge';
 import { VclusterConnectButton } from './VclusterConnectButton';
+import { ClusterTimelineChart } from './ClusterTimelineChart';
 
 // Ollama Setup Instructions Component
 interface OllamaStatus {
@@ -42,29 +43,9 @@ interface PlatformConfig {
     pullCommand: string;
 }
 
-// Helper component for AI investigation action
-function InvestigateAction({ query, label }: { query: string, label: string }) {
-    const handleInvestigate = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        window.dispatchEvent(new CustomEvent('opspilot:investigate', {
-            detail: { prompt: query }
-        }));
-    };
-
-    return (
-        <button
-            onClick={handleInvestigate}
-            className="ml-2 p-1 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 transition-all group relative"
-            title={`Investigate ${label} with AI`}
-        >
-            <Sparkles size={12} className="animate-pulse" />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-cyan-400 rounded-full animate-ping opacity-75" />
-        </button>
-    );
-}
 
 // Cluster Cockpit Dashboard - Airplane cockpit style view
-export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[], currentContext?: string }) {
+export function ClusterCockpit({ onNavigate, currentContext }: { onNavigate: (res: NavResource) => void, navStructure?: NavGroup[], currentContext?: string }) {
     const qc = useQueryClient();
     const [connectingVcluster, setConnectingVcluster] = useState<string | null>(null);
     const [connectCancelled, setConnectCancelled] = useState(false);
@@ -73,6 +54,47 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
     const [isInvestigating, setIsInvestigating] = useState(false);
     const [investigationResult, setInvestigationResult] = useState<string | null>(null);
     const [showInfoPanel, setShowInfoPanel] = useState(false);
+
+    // =========================================================================
+    // NAVIGATION HELPERS - Make cockpit fully interactive
+    // =========================================================================
+
+    // Navigate to a resource type with optional filters
+    const navigateTo = (kind: string, group: string = "", version: string = "v1", options?: { statusFilter?: string; namespaceFilter?: string; title?: string }) => {
+        onNavigate({
+            kind,
+            group,
+            version,
+            namespaced: kind !== 'Node' && kind !== 'Namespace',
+            title: options?.title || kind + 's',
+            statusFilter: options?.statusFilter,
+            namespaceFilter: options?.namespaceFilter,
+        });
+    };
+
+    // Trigger AI investigation with a specific query - only for explicit AI actions
+    const investigate = (query: string) => {
+        window.dispatchEvent(new CustomEvent('opspilot:investigate', {
+            detail: { prompt: query }
+        }));
+    };
+
+    // Common resource navigation shortcuts - all return functions safe for onClick
+    const nav = {
+        nodes: () => navigateTo('Node', '', 'v1'),
+        nodesNotReady: () => navigateTo('Node', '', 'v1', { statusFilter: 'NotReady', title: 'Nodes (Not Ready)' }),
+        pods: () => navigateTo('Pod', '', 'v1'),
+        podsFailed: () => navigateTo('Pod', '', 'v1', { statusFilter: 'Failed', title: 'Pods (Failed)' }),
+        podsPending: () => navigateTo('Pod', '', 'v1', { statusFilter: 'Pending', title: 'Pods (Pending)' }),
+        podsUnknown: () => navigateTo('Pod', '', 'v1', { statusFilter: 'Unknown', title: 'Pods (Unknown)' }),
+        podsRunning: () => navigateTo('Pod', '', 'v1', { statusFilter: 'Running', title: 'Pods (Running)' }),
+        deployments: () => navigateTo('Deployment', 'apps', 'v1'),
+        deploymentsUnhealthy: () => navigateTo('Deployment', 'apps', 'v1', { statusFilter: 'Unhealthy', title: 'Deployments (Unhealthy)' }),
+        services: () => navigateTo('Service', '', 'v1'),
+        namespaces: () => navigateTo('Namespace', '', 'v1'),
+        events: () => navigateTo('Event', '', 'v1'),
+        podsInNamespace: (ns: string) => () => navigateTo('Pod', '', 'v1', { namespaceFilter: ns, title: `Pods in ${ns}` }),
+    };
 
     // Detect if we're inside a vcluster (context name starts with "vcluster_")
     const isInsideVcluster = currentContext?.startsWith('vcluster_') || false;
@@ -231,46 +253,87 @@ export function ClusterCockpit({ onNavigate: _onNavigate, currentContext }: { on
 
     const healthStatus = getHealthStatus(healthMetrics.healthScore);
 
-    // Disconnect from vcluster and switch to host cluster
+    // Disconnect from vcluster and switch to host cluster - IRONCLAD version
     const handleDisconnectVcluster = async () => {
+        if (isDisconnecting) return; // Prevent double-click
         setIsDisconnecting(true);
+
         try {
+            console.log('[vCluster] Starting disconnect...');
+
+            // Step 1: Clear all frontend caches FIRST to prevent stale data display
+            qc.clear();
+
+            // Step 2: Run disconnect command
             const result = await invoke<string>("disconnect_vcluster");
-            console.log("disconnect_vcluster result:", result);
+            console.log("[vCluster] Disconnect result:", result);
 
-            // Check if we got a host context to switch to
-            if (result.startsWith("HOST_CONTEXT:")) {
-                const hostContext = result.replace("HOST_CONTEXT:", "");
-                console.log("Switching to host context:", hostContext);
-
-                // Clear all caches
+            // Step 3: Clear backend caches
+            try {
                 await invoke("clear_all_caches");
-                qc.clear();
-
-                // The backend already set the context, just need to refresh the UI
-                await qc.invalidateQueries({ queryKey: ["current_context"] });
-                await qc.invalidateQueries({ queryKey: ["cluster_cockpit"] });
-                await qc.invalidateQueries({ queryKey: ["cluster_stats"] });
-                await qc.invalidateQueries({ queryKey: ["initial_cluster_data"] });
-                await qc.invalidateQueries({ queryKey: ["discovery"] });
-                await qc.invalidateQueries({ queryKey: ["namespaces"] });
-                await qc.invalidateQueries({ queryKey: ["vclusters"] });
-
-                if ((window as any).showToast) {
-                    (window as any).showToast(`Disconnected from vcluster. Switched to host cluster: ${hostContext}`, 'success');
-                }
-            } else {
-                // Just refresh
-                qc.clear();
-                await qc.invalidateQueries({ queryKey: ["current_context"] });
-                if ((window as any).showToast) {
-                    (window as any).showToast('Disconnected from vcluster', 'success');
-                }
+            } catch (e) {
+                console.warn("[vCluster] Failed to clear backend caches:", e);
             }
-        } catch (err) {
-            console.error("Failed to disconnect from vcluster:", err);
+
+            // Step 4: Trigger full app reload event
+            window.dispatchEvent(new Event("lenskiller:reload"));
+
+            // Step 5: Small delay to let reload propagate
+            await new Promise(r => setTimeout(r, 300));
+
+            // Step 6: Comprehensive query invalidation
+            const queriesToInvalidate = [
+                "current_context",
+                "current_context_boot",
+                "current_context_global",
+                "cluster_bootstrap",
+                "cluster_stats",
+                "cluster_cockpit",
+                "initial_cluster_data",
+                "vclusters",
+                "discovery",
+                "namespaces",
+                "crd-groups",
+                "metrics",
+            ];
+
+            for (const key of queriesToInvalidate) {
+                await qc.invalidateQueries({ queryKey: [key], refetchType: 'all' });
+            }
+
+            // Also invalidate all resource lists
+            await qc.invalidateQueries({
+                predicate: (q) => Array.isArray(q.queryKey) && q.queryKey.includes("list_resources"),
+                refetchType: 'all'
+            });
+
+            // Step 7: Extract host context from result if available
+            let hostContext = "";
+            if (result.includes("context:")) {
+                hostContext = result.split("context:")[1]?.trim() || "";
+            } else if (result.startsWith("HOST_CONTEXT:")) {
+                hostContext = result.replace("HOST_CONTEXT:", "");
+            }
+
+            // Step 8: Show success notification
             if ((window as any).showToast) {
-                (window as any).showToast(`Failed to disconnect: ${err}`, 'error');
+                const msg = hostContext
+                    ? `Returned to host cluster: ${hostContext}`
+                    : 'Disconnected from vcluster';
+                (window as any).showToast(msg, 'success');
+            }
+
+            console.log('[vCluster] Disconnect complete, host context:', hostContext || '(auto-detected)');
+
+        } catch (err) {
+            console.error("[vCluster] Disconnect failed:", err);
+
+            // Even on error, try to clear caches and refresh
+            qc.clear();
+            window.dispatchEvent(new Event("lenskiller:reload"));
+
+            if ((window as any).showToast) {
+                (window as any).showToast(`Disconnect failed: ${err}. Refreshing...`, 'error');
             }
         } finally {
             setIsDisconnecting(false);
@@ -453,7 +516,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
 
             {/* vclusters Found Banner - Show if vclusters are detected (and we are on host) */}
             {vclusters && vclusters.length > 0 && !isInsideVcluster && (
-                <div className="mb-6 bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-indigo-950/40 rounded-xl p-5 border border-purple-500/30 shadow-lg shadow-purple-900/20">
+                <div className={`mb-6 bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-indigo-950/40 rounded-xl p-5 border border-purple-500/30 shadow-lg shadow-purple-900/20 ${connectingVcluster ? 'hidden' : ''}`}>
                     <div className="flex items-center gap-3 mb-4">
                         <div className="p-2.5 rounded-lg bg-purple-500/20 border border-purple-400/30">
                             <Box className="w-5 h-5 text-purple-300" />
@@ -477,10 +540,25 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                         {vc.status}
                                     </span>
                                 </div>
-                                <VclusterConnectButton name={vc.name} namespace={vc.namespace} />
+                                <VclusterConnectButton
+                                    name={vc.name}
+                                    namespace={vc.namespace}
+                                    onConnectStart={() => setConnectingVcluster(vc.name)}
+                                    onConnected={() => setConnectingVcluster(null)}
+                                    onConnectError={() => setConnectingVcluster(null)}
+                                />
                             </div>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {/* Connecting State - Show when transitioning to a vCluster */}
+            {connectingVcluster && (
+                <div className="mb-6 bg-gradient-to-r from-purple-900/20 via-indigo-900/20 to-purple-900/20 rounded-xl p-8 border border-purple-500/30 flex flex-col items-center justify-center animate-pulse">
+                    <Loader2 className="w-8 h-8 text-purple-400 animate-spin mb-3" />
+                    <h3 className="text-lg font-medium text-white">Connecting to vCluster '{connectingVcluster}'...</h3>
+                    <p className="text-sm text-zinc-400">Switching context and establishing secure tunnel</p>
                 </div>
             )}
 
@@ -611,27 +689,37 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
             {/* Cluster Health Summary */}
             <div className="bg-gradient-to-r from-zinc-900 via-zinc-900/80 to-zinc-950 rounded-xl p-5 border border-zinc-800 mb-6">
                 <div className="flex items-start gap-6">
-                    {/* Health Score Circle */}
-                    <div className="flex flex-col items-center">
-                        <div className={`relative w-28 h-28 rounded-full border-4 ${healthStatus.border} flex items-center justify-center`}
+                    {/* Health Score Circle - Click for AI analysis */}
+                    <button
+                        onClick={() => investigate(`Analyze the overall health of this Kubernetes cluster. The health score is ${healthMetrics.healthScore}/100. Identify any issues and provide recommendations.`)}
+                        className="flex flex-col items-center group cursor-pointer"
+                        title="Click for AI health analysis"
+                    >
+                        <div className={`relative w-28 h-28 rounded-full border-4 ${healthStatus.border} flex items-center justify-center group-hover:scale-105 transition-transform group-hover:shadow-lg group-hover:shadow-cyan-500/20`}
                             style={{ background: `conic-gradient(${healthStatus.bg.replace('bg-', '')} ${healthMetrics.healthScore * 3.6}deg, #27272a ${healthMetrics.healthScore * 3.6}deg)` }}>
                             <div className="absolute inset-2 bg-zinc-900 rounded-full flex flex-col items-center justify-center">
                                 <span className={`text-3xl font-bold ${healthStatus.color}`}>{healthMetrics.healthScore}</span>
-                                <span className="text-[10px] text-zinc-400 uppercase font-medium">Health</span>
+                                <span className="text-[10px] text-zinc-400 uppercase font-medium group-hover:text-cyan-400 transition-colors">Health</span>
                             </div>
+                            <Sparkles size={14} className="absolute -top-1 -right-1 text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
-                        <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${healthStatus.bg}/20 ${healthStatus.color}`}>
+                        <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${healthStatus.bg}/20 ${healthStatus.color} group-hover:ring-1 group-hover:ring-cyan-500/30 transition-all`}>
                             {healthStatus.label}
                         </div>
-                    </div>
+                    </button>
 
-                    {/* Health Breakdown */}
+                    {/* Health Breakdown - All cards are clickable */}
                     <div className="flex-1 grid grid-cols-5 gap-4">
-                        {/* Nodes Health */}
-                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                        {/* Nodes Health - Click to view nodes */}
+                        <button
+                            onClick={nav.nodes}
+                            className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 hover:border-blue-500/50 hover:bg-zinc-800 transition-all cursor-pointer text-left group"
+                            title="Click to view all nodes"
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <Server size={14} className="text-blue-400" />
-                                <span className="text-xs text-zinc-400">Nodes</span>
+                                <Server size={14} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs text-zinc-400 group-hover:text-blue-300">Nodes</span>
+                                <span className="ml-auto text-[9px] text-zinc-600 group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
                             </div>
                             <div className="text-xl font-bold text-white">{cockpit.healthy_nodes}<span className="text-zinc-500 text-sm">/{cockpit.total_nodes}</span></div>
                             <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
@@ -641,13 +729,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                             <div className="text-[10px] mt-1">
                                 {healthMetrics.unhealthyNodes > 0 ? <span className="text-red-400 font-medium">{healthMetrics.unhealthyNodes} not ready</span> : <span className="text-emerald-400">All ready</span>}
                             </div>
-                        </div>
+                        </button>
 
-                        {/* Pods Health */}
-                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                        {/* Pods Health - Click to view pods */}
+                        <button
+                            onClick={nav.pods}
+                            className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 hover:border-green-500/50 hover:bg-zinc-800 transition-all cursor-pointer text-left group"
+                            title="Click to view all pods"
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <Layers size={14} className="text-green-400" />
-                                <span className="text-xs text-zinc-400">Pods</span>
+                                <Layers size={14} className="text-green-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs text-zinc-400 group-hover:text-green-300">Pods</span>
+                                <span className="ml-auto text-[9px] text-zinc-600 group-hover:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
                             </div>
                             <div className="text-xl font-bold text-white">{cockpit.pod_status.running}<span className="text-zinc-500 text-sm">/{cockpit.total_pods}</span></div>
                             <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
@@ -659,13 +752,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                 {healthMetrics.failedPods > 0 && <span className="text-red-400 font-medium">{healthMetrics.failedPods} failed</span>}
                                 {healthMetrics.pendingPods === 0 && healthMetrics.failedPods === 0 && <span className="text-emerald-400">All running</span>}
                             </div>
-                        </div>
+                        </button>
 
-                        {/* Deployments Health */}
-                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                        {/* Deployments Health - Click to view deployments */}
+                        <button
+                            onClick={nav.deployments}
+                            className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 hover:border-purple-500/50 hover:bg-zinc-800 transition-all cursor-pointer text-left group"
+                            title="Click to view all deployments"
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <Package size={14} className="text-purple-400" />
-                                <span className="text-xs text-zinc-400">Deployments</span>
+                                <Package size={14} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs text-zinc-400 group-hover:text-purple-300">Deployments</span>
+                                <span className="ml-auto text-[9px] text-zinc-600 group-hover:text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
                             </div>
                             <div className="text-xl font-bold text-white">{cockpit.total_deployments - healthMetrics.unhealthyDeployments}<span className="text-zinc-500 text-sm">/{cockpit.total_deployments}</span></div>
                             <div className="mt-1 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
@@ -675,13 +773,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                             <div className="text-[10px] mt-1">
                                 {healthMetrics.unhealthyDeployments > 0 ? <span className="text-amber-400 font-medium">{healthMetrics.unhealthyDeployments} degraded</span> : <span className="text-emerald-400">All healthy</span>}
                             </div>
-                        </div>
+                        </button>
 
-                        {/* CPU Pressure */}
-                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                        {/* CPU Pressure - Click to view nodes */}
+                        <button
+                            onClick={nav.nodes}
+                            className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 hover:border-cyan-500/50 hover:bg-zinc-800 transition-all cursor-pointer text-left group"
+                            title="Click to view nodes and check CPU usage"
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <Cpu size={14} className="text-cyan-400" />
-                                <span className="text-xs text-zinc-400">CPU Pressure</span>
+                                <Cpu size={14} className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs text-zinc-400 group-hover:text-cyan-300">CPU Pressure</span>
+                                <span className="ml-auto text-[9px] text-zinc-600 group-hover:text-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
                             </div>
                             <div className={`text-xl font-bold ${healthMetrics.cpuPct > 90 ? 'text-red-400' : healthMetrics.cpuPct > 75 ? 'text-yellow-400' : 'text-white'}`}>
                                 {healthMetrics.cpuPct.toFixed(0)}%
@@ -695,13 +798,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                     healthMetrics.cpuPct > 75 ? <span className="text-amber-400 font-medium">High load</span> :
                                         <span className="text-emerald-400">Normal</span>}
                             </div>
-                        </div>
+                        </button>
 
-                        {/* Memory Pressure */}
-                        <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                        {/* Memory Pressure - Click to view nodes */}
+                        <button
+                            onClick={nav.nodes}
+                            className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 hover:border-purple-500/50 hover:bg-zinc-800 transition-all cursor-pointer text-left group"
+                            title="Click to view nodes and check memory usage"
+                        >
                             <div className="flex items-center gap-2 mb-2">
-                                <HardDrive size={14} className="text-purple-400" />
-                                <span className="text-xs text-zinc-400">Memory Pressure</span>
+                                <HardDrive size={14} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs text-zinc-400 group-hover:text-purple-300">Memory Pressure</span>
+                                <span className="ml-auto text-[9px] text-zinc-600 group-hover:text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
                             </div>
                             <div className={`text-xl font-bold ${healthMetrics.memPct > 90 ? 'text-red-400' : healthMetrics.memPct > 75 ? 'text-yellow-400' : 'text-white'}`}>
                                 {healthMetrics.memPct.toFixed(0)}%
@@ -715,66 +823,95 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                     healthMetrics.memPct > 75 ? <span className="text-amber-400 font-medium">High usage</span> :
                                         <span className="text-emerald-400">Normal</span>}
                             </div>
-                        </div>
+                        </button>
                     </div>
                 </div>
 
-                {/* Issues Summary - only show if there are issues */}
+                {/* Issues Summary - only show if there are issues - Pills navigate to filtered views, AI button for analysis */}
                 {(cockpit.critical_count > 0 || cockpit.warning_count > 0 || healthMetrics.failedPods > 0 || healthMetrics.pendingPods > 0 || healthMetrics.unhealthyNodes > 0) && (
                     <div className="mt-4 pt-4 border-t border-zinc-700/50">
                         <div className="flex items-center gap-2 mb-3">
                             <AlertCircle size={14} className="text-yellow-400" />
                             <span className="text-xs font-medium text-zinc-300">Active Issues</span>
+                            <span className="text-[9px] text-zinc-500">(click to view resources)</span>
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {healthMetrics.unhealthyNodes > 0 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
-                                    <Server size={12} className="text-red-400" />
+                                <button
+                                    onClick={nav.nodesNotReady}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all cursor-pointer group"
+                                    title="View nodes that are not ready"
+                                >
+                                    <Server size={12} className="text-red-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-red-300">{healthMetrics.unhealthyNodes} node{healthMetrics.unhealthyNodes > 1 ? 's' : ''} not ready</span>
-                                    <InvestigateAction query="Investigate why nodes are not ready in this cluster and suggest fixes." label="Nodes" />
-                                </div>
+                                    <span className="text-[9px] text-red-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.failedPods > 0 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
-                                    <Layers size={12} className="text-red-400" />
+                                <button
+                                    onClick={nav.podsFailed}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all cursor-pointer group"
+                                    title="View failed pods"
+                                >
+                                    <Layers size={12} className="text-red-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-red-300">{healthMetrics.failedPods} pod{healthMetrics.failedPods > 1 ? 's' : ''} failed</span>
-                                    <InvestigateAction query="Find all failed pods in the cluster and analyze their status or logs to find the root cause." label="Failed Pods" />
-                                </div>
+                                    <span className="text-[9px] text-red-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.pendingPods > 0 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
-                                    <Layers size={12} className="text-yellow-400" />
+                                <button
+                                    onClick={nav.podsPending}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/20 hover:border-yellow-500/50 transition-all cursor-pointer group"
+                                    title="View pending pods"
+                                >
+                                    <Layers size={12} className="text-yellow-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-yellow-300">{healthMetrics.pendingPods} pod{healthMetrics.pendingPods > 1 ? 's' : ''} pending</span>
-                                    <InvestigateAction query="Investigate why pods are stuck in Pending state. Check for resource constraints or scheduling issues." label="Pending Pods" />
-                                </div>
+                                    <span className="text-[9px] text-yellow-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.crashingPods > 0 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30">
-                                    <Layers size={12} className="text-orange-400" />
+                                <button
+                                    onClick={nav.podsUnknown}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50 transition-all cursor-pointer group"
+                                    title="View pods in unknown state"
+                                >
+                                    <Layers size={12} className="text-orange-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-orange-300">{healthMetrics.crashingPods} pod{healthMetrics.crashingPods > 1 ? 's' : ''} unknown state</span>
-                                    <InvestigateAction query="Identify pods in Unknown or CrashLoopBackOff state and analyze the cause." label="Crashing Pods" />
-                                </div>
+                                    <span className="text-[9px] text-orange-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.unhealthyDeployments > 0 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30">
-                                    <Package size={12} className="text-yellow-400" />
+                                <button
+                                    onClick={nav.deploymentsUnhealthy}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/20 hover:border-yellow-500/50 transition-all cursor-pointer group"
+                                    title="View unhealthy deployments"
+                                >
+                                    <Package size={12} className="text-yellow-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-yellow-300">{healthMetrics.unhealthyDeployments} deployment{healthMetrics.unhealthyDeployments > 1 ? 's' : ''} degraded</span>
-                                    <InvestigateAction query="Analyze degraded deployments and explain why they are not reaching desired replicas." label="Deployments" />
-                                </div>
+                                    <span className="text-[9px] text-yellow-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.cpuPct > 90 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
-                                    <Cpu size={12} className="text-red-400" />
+                                <button
+                                    onClick={nav.nodes}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all cursor-pointer group"
+                                    title="View nodes to check CPU usage"
+                                >
+                                    <Cpu size={12} className="text-red-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-red-300">CPU at {healthMetrics.cpuPct.toFixed(0)}% - critical</span>
-                                    <InvestigateAction query="Identify which pods or nodes are consuming the most CPU and suggest optimization." label="CPU Usage" />
-                                </div>
+                                    <span className="text-[9px] text-red-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                             {healthMetrics.memPct > 90 && (
-                                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30">
-                                    <HardDrive size={12} className="text-red-400" />
+                                <button
+                                    onClick={nav.nodes}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50 transition-all cursor-pointer group"
+                                    title="View nodes to check memory usage"
+                                >
+                                    <HardDrive size={12} className="text-red-400 group-hover:scale-110 transition-transform" />
                                     <span className="text-xs text-red-300">Memory at {healthMetrics.memPct.toFixed(0)}% - critical</span>
-                                    <InvestigateAction query="Identify which pods or nodes are consuming the most Memory and suggest optimization." label="Memory Usage" />
-                                </div>
+                                    <span className="text-[9px] text-red-400/60 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                </button>
                             )}
                         </div>
                     </div>
@@ -1034,16 +1171,29 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                 </div>
             </div>
 
+            {/* Cluster Timeline - Historical metrics over time */}
+            <div className="mb-6">
+                <ClusterTimelineChart currentContext={currentContext} />
+            </div>
+
             {/* Charts Row */}
             <div className="grid grid-cols-3 gap-6 mb-6">
-                {/* Pod Status Pie Chart */}
+                {/* Pod Status Pie Chart - Click slices to view pods by status */}
                 <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <PieChart className="w-4 h-4 text-cyan-400" />
-                            Pod Status Distribution
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">Breakdown of pod lifecycle states</p>
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <PieChart className="w-4 h-4 text-cyan-400" />
+                                Pod Status Distribution
+                            </h3>
+                            <p className="text-[10px] text-zinc-400 mt-1">Click a slice to view pods by status</p>
+                        </div>
+                        <button
+                            onClick={nav.pods}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                        >
+                            View All Pods →
+                        </button>
                     </div>
                     <div className="h-[180px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -1056,16 +1206,22 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                     outerRadius={70}
                                     paddingAngle={2}
                                     dataKey="value"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(data) => {
+                                        if (data && data.name) {
+                                            investigate(`Show me all pods with status "${data.name}" and explain why they are in this state.`);
+                                        }
+                                    }}
                                 >
                                     {podStatusData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                        <Cell key={`cell-${index}`} fill={entry.color} className="hover:opacity-80 transition-opacity" />
                                     ))}
                                 </Pie>
                                 <Tooltip
                                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
                                     labelStyle={{ color: '#fff' }}
                                     itemStyle={{ color: '#e4e4e7' }}
-                                    formatter={(value: number, name: string) => [<span style={{ color: '#e4e4e7' }}>{value} pods</span>, name]}
+                                    formatter={(value: number, name: string) => [<span style={{ color: '#e4e4e7' }}>{value} pods - Click to investigate</span>, name]}
                                 />
                                 <Legend
                                     verticalAlign="bottom"
@@ -1083,29 +1239,46 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                     </div>
                 </div>
 
-                {/* Node Resource Usage Bar Chart */}
+                {/* Node Resource Usage Bar Chart - Click bars to investigate nodes */}
                 <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <Server className="w-4 h-4 text-cyan-400" />
-                            Node Resource Usage
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">CPU and memory utilization per node</p>
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <Server className="w-4 h-4 text-cyan-400" />
+                                Node Resource Usage
+                            </h3>
+                            <p className="text-[10px] text-zinc-400 mt-1">Click a bar to analyze that node</p>
+                        </div>
+                        <button
+                            onClick={nav.nodes}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                        >
+                            View All Nodes →
+                        </button>
                     </div>
                     <div className="h-[180px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={nodeBarData} layout="vertical">
+                            <BarChart
+                                data={nodeBarData}
+                                layout="vertical"
+                                onClick={(data) => {
+                                    if (data && data.activeLabel) {
+                                        investigate(`Analyze the node "${data.activeLabel}" in detail. Show its resource usage, running pods, and any potential issues.`);
+                                    }
+                                }}
+                                style={{ cursor: 'pointer' }}
+                            >
                                 <XAxis type="number" domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
                                 <YAxis type="category" dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} width={80} />
                                 <Tooltip
                                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
                                     labelStyle={{ color: '#fff' }}
                                     itemStyle={{ color: '#e4e4e7' }}
-                                    formatter={(value: number, name: string) => [<span style={{ color: '#e4e4e7' }}>{value}%</span>, name]}
+                                    formatter={(value: number, name: string) => [<span style={{ color: '#e4e4e7' }}>{value}% - Click to analyze</span>, name]}
                                 />
                                 <Legend formatter={(value) => <span className="text-xs text-zinc-400">{value}</span>} />
-                                <Bar dataKey="cpu" fill={COLORS.cpu} name="CPU %" radius={[0, 4, 4, 0]} />
-                                <Bar dataKey="memory" fill={COLORS.memory} name="Memory %" radius={[0, 4, 4, 0]} />
+                                <Bar dataKey="cpu" fill={COLORS.cpu} name="CPU %" radius={[0, 4, 4, 0]} className="hover:opacity-80" />
+                                <Bar dataKey="memory" fill={COLORS.memory} name="Memory %" radius={[0, 4, 4, 0]} className="hover:opacity-80" />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1115,27 +1288,43 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                     </div>
                 </div>
 
-                {/* Top Namespaces */}
+                {/* Top Namespaces - Click to explore namespace */}
                 <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <FolderOpen className="w-4 h-4 text-cyan-400" />
-                            Top Namespaces
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">Namespaces with most pods deployed</p>
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <FolderOpen className="w-4 h-4 text-cyan-400" />
+                                Top Namespaces
+                            </h3>
+                            <p className="text-[10px] text-zinc-400 mt-1">Click a bar to explore namespace</p>
+                        </div>
+                        <button
+                            onClick={nav.namespaces}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                        >
+                            View All →
+                        </button>
                     </div>
                     <div className="h-[180px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={namespaceData}>
+                            <BarChart
+                                data={namespaceData}
+                                onClick={(data) => {
+                                    if (data && data.activeLabel) {
+                                        investigate(`Show me all resources in the "${data.activeLabel}" namespace. List the pods, deployments, services, and any issues.`);
+                                    }
+                                }}
+                                style={{ cursor: 'pointer' }}
+                            >
                                 <XAxis dataKey="name" tick={{ fill: '#71717a', fontSize: 10 }} angle={-45} textAnchor="end" height={60} />
                                 <YAxis tick={{ fill: '#71717a', fontSize: 10 }} label={{ value: 'Pods', angle: -90, position: 'insideLeft', fill: '#52525b', fontSize: 10 }} />
                                 <Tooltip
                                     contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px' }}
                                     labelStyle={{ color: '#fff' }}
                                     itemStyle={{ color: '#e4e4e7' }}
-                                    formatter={(value: number) => [<span style={{ color: '#e4e4e7' }}>{value} pods</span>, 'Pod count']}
+                                    formatter={(value: number) => [<span style={{ color: '#e4e4e7' }}>{value} pods - Click to explore</span>, 'Pod count']}
                                 />
-                                <Bar dataKey="pods" fill={COLORS.running} radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="pods" fill={COLORS.running} radius={[4, 4, 0, 0]} className="hover:opacity-80" />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -1147,14 +1336,22 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
 
             {/* Bottom Row - Nodes Table and Unhealthy Deployments */}
             <div className="grid grid-cols-2 gap-6">
-                {/* Nodes Health Table */}
+                {/* Nodes Health Table - Click rows to investigate */}
                 <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <Server className="w-4 h-4 text-cyan-400" />
-                            Nodes Health ({cockpit.nodes.length})
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">Individual node status and resource consumption</p>
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <Server className="w-4 h-4 text-cyan-400" />
+                                Nodes Health ({cockpit.nodes.length})
+                            </h3>
+                            <p className="text-[10px] text-zinc-400 mt-1">Click to view nodes, <Sparkles size={10} className="inline text-purple-400" /> to analyze</p>
+                        </div>
+                        <button
+                            onClick={nav.nodes}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                        >
+                            View All →
+                        </button>
                     </div>
                     <div className="overflow-auto max-h-[280px]">
                         <table className="w-full text-xs">
@@ -1165,6 +1362,7 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                     <th className="text-right py-2 px-2" title="CPU utilization percentage">CPU %</th>
                                     <th className="text-right py-2 px-2" title="Memory utilization percentage">Mem %</th>
                                     <th className="text-right py-2 px-2" title="Running/Capacity pods">Pods</th>
+                                    <th className="text-center py-2 px-2" title="Actions"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1172,8 +1370,13 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                     const cpuPct = node.cpu_capacity > 0 ? (node.cpu_usage / node.cpu_capacity) * 100 : 0;
                                     const memPct = node.memory_capacity > 0 ? (node.memory_usage / node.memory_capacity) * 100 : 0;
                                     return (
-                                        <tr key={i} className="border-t border-zinc-800 hover:bg-zinc-800/50">
-                                            <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px]" title={node.name}>
+                                        <tr
+                                            key={i}
+                                            className="border-t border-zinc-800 hover:bg-cyan-500/10 cursor-pointer transition-colors group"
+                                            onClick={nav.nodes}
+                                            title={`Click to view nodes`}
+                                        >
+                                            <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px] group-hover:text-cyan-300" title={node.name}>
                                                 {node.name.length > 25 ? '...' + node.name.slice(-22) : node.name}
                                             </td>
                                             <td className="py-2 px-2 text-center">
@@ -1199,6 +1402,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                             <td className="py-2 px-2 text-right text-zinc-400">
                                                 {node.pods_running}/{node.pods_capacity}
                                             </td>
+                                            <td className="py-2 px-2 text-center">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        investigate(`Analyze node "${node.name}" in detail. Show CPU/memory usage, running pods, conditions, and any issues that need attention.`);
+                                                    }}
+                                                    className="p-1 rounded hover:bg-purple-500/20 opacity-0 group-hover:opacity-100 transition-all"
+                                                    title="Analyze with AI"
+                                                >
+                                                    <Sparkles size={12} className="text-purple-400" />
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -1207,14 +1422,22 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                     </div>
                 </div>
 
-                {/* Unhealthy Deployments */}
+                {/* Unhealthy Deployments - Click rows to view deployments, sparkles for AI */}
                 <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800">
-                    <div className="mb-4">
-                        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 text-amber-400" />
-                            Unhealthy Deployments ({cockpit.unhealthy_deployments.length})
-                        </h3>
-                        <p className="text-[10px] text-zinc-400 mt-1">Deployments with missing or unavailable replicas</p>
+                    <div className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-400" />
+                                Unhealthy Deployments ({cockpit.unhealthy_deployments.length})
+                            </h3>
+                            <p className="text-[10px] text-zinc-400 mt-1">Click to view deployments, <Sparkles size={10} className="inline text-purple-400" /> to analyze</p>
+                        </div>
+                        <button
+                            onClick={nav.deployments}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                        >
+                            View All →
+                        </button>
                     </div>
                     {cockpit.unhealthy_deployments.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-[240px] text-zinc-400">
@@ -1231,12 +1454,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                         <th className="text-left py-2 px-2" title="Kubernetes namespace">Namespace</th>
                                         <th className="text-center py-2 px-2" title="Ready/Desired pods">Ready</th>
                                         <th className="text-center py-2 px-2" title="Available/Desired pods">Available</th>
+                                        <th className="text-center py-2 px-2" title="Actions"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {cockpit.unhealthy_deployments.map((dep: DeploymentHealth, i: number) => (
-                                        <tr key={i} className="border-t border-zinc-800 hover:bg-zinc-800/50">
-                                            <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px]" title={dep.name}>{dep.name}</td>
+                                        <tr
+                                            key={i}
+                                            className="border-t border-zinc-800 hover:bg-amber-500/10 cursor-pointer transition-colors group"
+                                            onClick={nav.deployments}
+                                            title={`Click to view deployments`}
+                                        >
+                                            <td className="py-2 px-2 font-mono text-zinc-300 truncate max-w-[150px] group-hover:text-amber-300" title={dep.name}>{dep.name}</td>
                                             <td className="py-2 px-2 text-zinc-500 truncate max-w-[100px]">{dep.namespace}</td>
                                             <td className="py-2 px-2 text-center">
                                                 <span className={`${dep.ready < dep.desired ? 'text-yellow-400' : 'text-green-400'}`}>
@@ -1247,6 +1476,18 @@ Memory: ${healthMetrics.memPct.toFixed(1)}% used
                                                 <span className={`${dep.available < dep.desired ? 'text-red-400' : 'text-green-400'}`}>
                                                     {dep.available}/{dep.desired}
                                                 </span>
+                                            </td>
+                                            <td className="py-2 px-2 text-center">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        investigate(`Diagnose why deployment "${dep.name}" in namespace "${dep.namespace}" is unhealthy. It has ${dep.ready}/${dep.desired} ready pods and ${dep.available}/${dep.desired} available. Check pod status, events, and logs to find the root cause.`);
+                                                    }}
+                                                    className="p-1 rounded hover:bg-purple-500/20 opacity-0 group-hover:opacity-100 transition-all"
+                                                    title="Analyze with AI"
+                                                >
+                                                    <Sparkles size={12} className="text-purple-400" />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}

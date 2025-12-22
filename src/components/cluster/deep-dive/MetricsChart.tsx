@@ -20,11 +20,12 @@ export function MetricsChart({ resourceKind, namespace, name, currentContext, va
     const { data: currentMetrics } = useQuery({
         queryKey: ["metrics_chart", currentContext, resourceKind, namespace, name],
         queryFn: async () => {
-            const allMetrics = await invoke<ResourceMetrics[]>("get_resource_metrics", {
+            const metrics = await invoke<ResourceMetrics[]>("get_resource_metrics", {
                 kind: resourceKind,
-                namespace: resourceKind.toLowerCase() === "pod" ? namespace : null
+                namespace: resourceKind.toLowerCase() === "pod" ? namespace : null,
+                name: name
             });
-            return allMetrics.find(m => m.name === name);
+            return metrics[0];
         },
         enabled: resourceKind.toLowerCase() === "pod" || resourceKind.toLowerCase() === "node",
         refetchInterval: 5000,

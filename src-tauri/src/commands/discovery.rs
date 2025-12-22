@@ -109,7 +109,12 @@ pub async fn get_cached_discovery(state: &State<'_, AppState>, client: Client) -
     }
 
     // Refresh cache
-    let discovery = std::sync::Arc::new(Discovery::new(client).run().await.map_err(|e| e.to_string())?);
+    let discovery = std::sync::Arc::new(
+        tokio::time::timeout(std::time::Duration::from_secs(30), Discovery::new(client).run())
+            .await
+            .map_err(|_| "Discovery timed out after 30s".to_string())?
+            .map_err(|e| e.to_string())?
+    );
 
     // Update cache using try_lock
     if let Ok(mut cache) = state.discovery_cache.try_lock() {
@@ -150,7 +155,10 @@ pub async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<Na
     let (discovery_result, crd_result) = tokio::join!(
         // Task 1: Standard Discovery
         async {
-            Discovery::new(client).run().await.map_err(|e| e.to_string())
+            tokio::time::timeout(std::time::Duration::from_secs(30), Discovery::new(client).run())
+                .await
+                .map_err(|_| "Discovery timed out after 30s".to_string())?
+                .map_err(|e| e.to_string())
         },
         // Task 2: CRD Listing (Manual fallback)
         async {
@@ -198,6 +206,10 @@ pub async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<Na
 
     for group in discovery.groups() {
         for (ar, caps) in group.recommended_resources() {
+             if !caps.supports_operation("list") {
+                 continue;
+             }
+
              let category = if let Some(cat) = standard_categories.get(ar.kind.as_str()) {
                 cat.to_string()
             } else if ar.group.contains("crossplane.io") || ar.group.contains("upbound.io") || ar.group.contains("tf.upbound.io") || ar.group.contains("infra.contrib.fluxcd.io") || ar.group.contains("hashicorp.com") {
@@ -247,31 +259,45 @@ pub async fn discover_api_resources(state: State<'_, AppState>) -> Result<Vec<Na
 
     // Fallback: ensure CRDs are visible even if discovery missed some kinds
     if let Ok(crd_list) = crd_result {
-        let mut seen: std::collections::HashSet<(String,String)> = std::collections::HashSet::new();
+        let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
         for ng in &result {
             for it in &ng.items {
                 seen.insert((it.group.clone(), it.kind.clone()));
             }
         }
-        let mut custom_resources: Vec<NavResource> = Vec::new();
+
         for crd in crd_list.items {
-            let group = crd.spec.group.clone();
+            let group_name = crd.spec.group.clone();
             let kind = crd.spec.names.kind.clone();
             let plural = crd.spec.names.plural.clone();
             let version = crd.spec.versions.first().map(|v| v.name.clone()).unwrap_or_else(|| "v1".into());
             let namespaced = crd.spec.scope == "Namespaced";
-            if !seen.contains(&(group.clone(), kind.clone())) {
-                if let Some(existing) = result.iter_mut().find(|ng| ng.title == group) {
-                    existing.items.push(NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() });
-                    existing.items.sort_by(|a, b| a.kind.cmp(&b.kind));
+
+            if !seen.contains(&(group_name.clone(), kind.clone())) {
+                let res = NavResource { 
+                    kind: kind.clone(), 
+                    group: group_name.clone(), 
+                    version: version.clone(), 
+                    namespaced, 
+                    title: plural.clone() 
+                };
+                
+                if let Some(existing) = result.iter_mut().find(|ng| ng.title == group_name) {
+                    existing.items.push(res);
                 } else {
-                    result.push(NavGroup { title: group.clone(), items: vec![NavResource { kind: kind.clone(), group: group.clone(), version: version.clone(), namespaced, title: plural.clone() }] });
+                    result.push(NavGroup { 
+                        title: group_name.clone(), 
+                        items: vec![res] 
+                    });
                 }
+                seen.insert((group_name, kind));
             }
-            custom_resources.push(NavResource { kind: kind, group, version, namespaced, title: plural });
         }
-        custom_resources.sort_by(|a, b| a.kind.cmp(&b.kind));
-        result.push(NavGroup { title: "Custom Resources".to_string(), items: custom_resources });
+
+        // Final sort of all items in all groups to avoid O(N^2) sorting in the loop
+        for ng in &mut result {
+            ng.items.sort_by(|a, b| a.kind.cmp(&b.kind));
+        }
     }
 
     save_cached_nav_structure(&context_name, &result);

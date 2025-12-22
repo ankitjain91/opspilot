@@ -119,7 +119,7 @@ export function YamlTab({ resource, currentContext }: { resource: K8sObject, cur
                     group: resource.group,
                     version: resource.version,
                     kind: resource.kind,
-                    namespace: resource.namespace !== "-" ? resource.namespace : null
+                    namespace: resource.namespace && resource.namespace !== "-" ? resource.namespace : null
                 },
                 name: resource.name
             });
@@ -199,7 +199,9 @@ export function YamlTab({ resource, currentContext }: { resource: K8sObject, cur
             });
 
             // Immediately update the cache with the server response - instant UI update!
-            const queryKey = ["resource_details", currentContext, resource.namespace, resource.group, resource.version, resource.kind, resource.name];
+            // Use normalized namespace (null for cluster-scoped resources marked with '-')
+            const normalizedNamespace = resource.namespace !== '-' ? resource.namespace : null;
+            const queryKey = ["resource_details", currentContext, normalizedNamespace, resource.group, resource.version, resource.kind, resource.name];
             qc.setQueryData(queryKey, updatedYaml);
 
             // Update local editor content with server response (includes server-side changes like resourceVersion)

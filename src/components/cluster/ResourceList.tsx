@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { Virtuoso } from "react-virtuoso";
@@ -143,8 +143,113 @@ interface ResourceListProps {
     currentContext?: string;
 }
 
+// Standalone Resizer Component
+const ColumnResizer = ({ width, minWidth, onResize, onResizeEnd }: {
+    width: number;
+    minWidth: number;
+    onResize: (width: number) => void;
+    onResizeEnd: () => void;
+}) => {
+    const [isResizing, setIsResizing] = useState(false);
+    const startXRef = React.useRef<number>(0);
+    const startWidthRef = React.useRef<number>(0);
+
+    useEffect(() => {
+        if (!isResizing) return;
+
+        const onMouseMove = (e: MouseEvent) => {
+            const deltaX = e.clientX - startXRef.current;
+            const newWidth = Math.max(minWidth, startWidthRef.current + deltaX);
+            onResize(newWidth);
+        };
+
+        const onMouseUp = () => {
+            setIsResizing(false);
+            onResizeEnd();
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, [isResizing, minWidth, onResize, onResizeEnd]);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startXRef.current = e.clientX;
+        startWidthRef.current = width;
+        setIsResizing(true);
+    };
+
+    return (
+        <div
+            className="w-1 hover:bg-cyan-500/50 cursor-col-resize absolute right-0 top-0 bottom-0 z-20 flex justify-center group touch-none"
+            onMouseDown={handleMouseDown}
+        >
+            <div className={`w-0.5 h-full ${isResizing ? 'bg-cyan-500' : 'bg-transparent group-hover:bg-cyan-500/30'}`} />
+        </div>
+    );
+};
+
+// Standalone Header Component
+const SortableHeader = ({
+    col,
+    index,
+    isLast,
+    sortConfig,
+    onSort,
+    onResize,
+    onResizeEnd
+}: {
+    col: ColumnDef;
+    index: number;
+    isLast: boolean;
+    sortConfig: { key: string; direction: 'asc' | 'desc' } | null;
+    onSort: (key: string) => void;
+    onResize: (width: number) => void;
+    onResizeEnd: () => void;
+}) => {
+    const isActive = sortConfig?.key === col.sortKey;
+    const direction = sortConfig?.direction;
+
+    return (
+        <div className={`relative flex items-center h-full px-3 border-r border-transparent ${col.id !== 'actions' ? 'border-zinc-800/50' : ''}`}>
+            <div
+                onClick={() => col.sortKey && onSort(col.sortKey)}
+                className={`flex items-center gap-1 flex-1 truncate ${col.sortKey ? 'cursor-pointer hover:text-cyan-400 select-none' : ''}`}
+            >
+                <span className="truncate">{col.label}</span>
+                {col.sortKey && (
+                    <div className="flex flex-col">
+                        <ChevronDown size={10} className={`-mb-1 ${isActive && direction === 'asc' ? 'text-cyan-400' : 'text-gray-700'}`} style={{ transform: 'rotate(180deg)' }} />
+                        <ChevronDown size={10} className={`${isActive && direction === 'desc' ? 'text-cyan-400' : 'text-gray-700'}`} />
+                    </div>
+                )}
+            </div>
+            {!isLast && (
+                <ColumnResizer
+                    width={col.width}
+                    minWidth={col.minWidth}
+                    onResize={onResize}
+                    onResizeEnd={onResizeEnd}
+                />
+            )}
+        </div>
+    );
+};
+
 // --- Column Definitions ---
-type ColumnId = 'name' | 'namespace' | 'ready' | 'status' | 'restarts' | 'cpu' | 'memory' | 'node' | 'age' | 'sync' | 'type' | 'message' | 'count' | 'actions';
+type ColumnId = 'name' | 'namespace' | 'ready' | 'status' | 'restarts' | 'cpu' | 'memory' | 'node' | 'age' | 'sync' | 'type' | 'message' | 'count' | 'source' | 'involvedObject' | 'actions';
 
 interface ColumnDef {
     id: ColumnId;
@@ -176,11 +281,13 @@ const COLUMN_CONFIGS: Record<string, ColumnDef[]> = {
         { id: 'actions', label: '', width: 40, minWidth: 40 }
     ],
     'Event': [
-        { id: 'name', label: 'Reason', width: 200, minWidth: 100, sortKey: 'name' },
-        { id: 'type', label: 'Type', width: 100, minWidth: 80, sortKey: 'type' },
-        { id: 'message', label: 'Message', width: 400, minWidth: 200, sortKey: 'message' },
-        { id: 'count', label: 'Count', width: 80, minWidth: 60, sortKey: 'count' },
-        { id: 'age', label: 'Last Prior', width: 120, minWidth: 80, sortKey: 'age' },
+        { id: 'type', label: 'Type', width: 80, minWidth: 60, sortKey: 'type' },
+        { id: 'name', label: 'Reason', width: 200, minWidth: 100, sortKey: 'name' }, // Mapped to Reason
+        { id: 'involvedObject', label: 'Involved Object', width: 200, minWidth: 140, sortKey: 'involvedObject' },
+        { id: 'source', label: 'Source', width: 140, minWidth: 100, sortKey: 'source' },
+        { id: 'message', label: 'Message', width: 450, minWidth: 200, sortKey: 'message' },
+        { id: 'count', label: 'Count', width: 60, minWidth: 50, sortKey: 'count' },
+        { id: 'age', label: 'Last Seen', width: 100, minWidth: 80, sortKey: 'age' },
         { id: 'actions', label: '', width: 40, minWidth: 40 }
     ],
     // Default for others
@@ -218,11 +325,23 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
 
     // --- Column State Management ---
     const getInitialColumns = (): ColumnDef[] => {
-        if (_isIaC) return JSON.parse(JSON.stringify(IAC_CONFIG));
-        if (isPod) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Pod']));
-        if (isNode) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Node']));
-        if (isEvent) return JSON.parse(JSON.stringify(COLUMN_CONFIGS['Event']));
-        return JSON.parse(JSON.stringify(COLUMN_CONFIGS['default']));
+        let baseCols: ColumnDef[] = [];
+        if (_isIaC) baseCols = JSON.parse(JSON.stringify(IAC_CONFIG));
+        else if (isPod) baseCols = JSON.parse(JSON.stringify(COLUMN_CONFIGS['Pod']));
+        else if (isNode) baseCols = JSON.parse(JSON.stringify(COLUMN_CONFIGS['Node']));
+        else if (isEvent) baseCols = JSON.parse(JSON.stringify(COLUMN_CONFIGS['Event']));
+        else baseCols = JSON.parse(JSON.stringify(COLUMN_CONFIGS['default']));
+
+        // Enforce minimum width based on header label length
+        // Approx 8px per char + 40px padding/icon
+        return baseCols.map(col => {
+            const minHeaderWidth = (col.label.length * 9) + 40;
+            return {
+                ...col,
+                width: Math.max(col.width, minHeaderWidth),
+                minWidth: Math.max(col.minWidth, minHeaderWidth)
+            };
+        });
     };
 
     const [columns, setColumns] = useState<ColumnDef[]>(getInitialColumns);
@@ -260,6 +379,18 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         saveColumns(columns);
     };
 
+    // Callback for resizing specific column
+    const handleColumnResize = (index: number, newWidth: number) => {
+        setColumns(cols => {
+            const newCols = [...cols];
+            if (newCols[index].width !== newWidth) {
+                newCols[index] = { ...newCols[index], width: newWidth };
+                return newCols;
+            }
+            return cols;
+        });
+    };
+
     // --- Data Fetching ---
     // Delete modal state
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -294,8 +425,11 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 },
                 name: resourceToDelete.name
             });
-            (window as any).showToast?.(`${resourceKind} '${resourceName}' deleted successfully`, 'success');
-            setTimeout(() => refetch(), 500);
+            // Note: For resources with finalizers (like Namespaces), this just initiates deletion
+            // The resource may enter "Terminating" state before being fully removed
+            (window as any).showToast?.(`${resourceKind} '${resourceName}' deletion initiated`, 'success');
+            // Refetch immediately to show updated status (e.g., Terminating)
+            refetch();
         } catch (err) {
             (window as any).showToast?.(`Failed to delete ${resourceKind} '${resourceName}': ${err}`, 'error');
             setDeletingResources(prev => {
@@ -311,6 +445,14 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
     const watchNamespace = namespaceFilter === "All Namespaces" ? null : namespaceFilter;
     const { isWatching, syncComplete } = useResourceWatch(resourceType, watchNamespace, currentContext, true);
     useLiveAge(1000);
+
+    // Track document visibility for smart polling
+    const [isDocumentVisible, setIsDocumentVisible] = useState(!document.hidden);
+    useEffect(() => {
+        const handleVisibilityChange = () => setIsDocumentVisible(!document.hidden);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
 
     const { data: resources, isLoading: isListLoading, isError, error, isFetching, refetch } = useQuery({
         queryKey: ["list_resources", currentContext, resourceType.group || "", resourceType.version || "", resourceType.kind || "", namespaceFilter],
@@ -336,6 +478,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
     }, [refetch]);
 
 
+    // Metrics polling: reduce frequency when watches are active or document hidden
+    const metricsPollingInterval = !isDocumentVisible ? false : (isWatching ? 60000 : 30000);
     const { data: metricsData } = useQuery({
         queryKey: ["list_metrics", currentContext, resourceType.kind || "", namespaceFilter],
         queryFn: async () => {
@@ -350,8 +494,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
             }
         },
         enabled: isPod || isNode,
-        staleTime: 10000,
-        refetchInterval: 30000,
+        staleTime: isWatching ? 20000 : 10000, // Longer stale time when watching
+        refetchInterval: metricsPollingInterval, // 60s when watching, 30s otherwise, disabled when hidden
     });
 
     const metricsMap = useMemo(() => {
@@ -369,7 +513,31 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         let filtered = resources.filter(r => {
             const nsMatch = namespaceFilter === "All Namespaces" || r.namespace === namespaceFilter;
             const searchMatch = !searchQuery || r.name.toLowerCase().includes(searchQuery.toLowerCase());
-            return nsMatch && searchMatch;
+
+            // Status filter from cockpit navigation (e.g., "Failed", "Pending", "NotReady")
+            let statusMatch = true;
+            if (resourceType.statusFilter) {
+                const filter = resourceType.statusFilter.toLowerCase();
+                const status = r.status?.toLowerCase() || '';
+
+                // Handle special cases for different resource types
+                if (filter === 'notready') {
+                    // For nodes: status is "Ready" or "NotReady"
+                    statusMatch = status !== 'ready';
+                } else if (filter === 'unhealthy') {
+                    // For deployments: check ready field or status
+                    const [ready, desired] = (r.ready || '0/0').split('/').map(Number);
+                    statusMatch = ready < desired || status === 'failed' || status === 'error';
+                } else {
+                    // Direct match for pods: Running, Pending, Failed, Unknown
+                    statusMatch = status === filter || status.includes(filter);
+                }
+            }
+
+            // Namespace filter from cockpit navigation
+            const nsFilterMatch = !resourceType.namespaceFilter || r.namespace === resourceType.namespaceFilter;
+
+            return nsMatch && searchMatch && statusMatch && nsFilterMatch;
         });
 
         if (sortConfig) {
@@ -428,77 +596,10 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
         gap: '0px'
     };
 
-    // Resizer Component
-    const Resizer = ({ index }: { index: number }) => {
-        const [isResizing, setIsResizing] = useState(false);
-
-        useEffect(() => {
-            if (!isResizing) return;
-
-            const onMouseMove = (e: MouseEvent) => {
-                setColumns(cols => {
-                    const newCols = [...cols];
-                    const col = newCols[index];
-                    const newWidth = col.width + e.movementX;
-                    if (newWidth >= col.minWidth) {
-                        col.width = newWidth;
-                    }
-                    return newCols;
-                });
-            };
-
-            const onMouseUp = () => {
-                setIsResizing(false);
-                handleResizeEnd();
-            };
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-
-            return () => {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-                document.body.style.cursor = '';
-                document.body.style.userSelect = '';
-            };
-        }, [isResizing, index]);
-
-        return (
-            <div
-                className="w-1 hover:bg-cyan-500/50 cursor-col-resize absolute right-0 top-0 bottom-0 z-20 flex justify-center group"
-                onMouseDown={() => setIsResizing(true)}
-            >
-                <div className={`w-0.5 h-full ${isResizing ? 'bg-cyan-500' : 'bg-transparent group-hover:bg-cyan-500/30'}`} />
-            </div>
-        );
-    };
 
 
-    const SortableHeader = ({ col, index }: { col: ColumnDef; index: number }) => {
-        const isActive = sortConfig?.key === col.sortKey;
-        const direction = sortConfig?.direction;
 
-        return (
-            <div className={`relative flex items-center h-full px-3 border-r border-transparent ${col.id !== 'actions' ? 'border-zinc-800/50' : ''}`}>
-                <div
-                    onClick={() => col.sortKey && handleSort(col.sortKey)}
-                    className={`flex items-center gap-1 flex-1 truncate ${col.sortKey ? 'cursor-pointer hover:text-cyan-400 select-none' : ''}`}
-                >
-                    <span className="truncate">{col.label}</span>
-                    {col.sortKey && (
-                        <div className="flex flex-col">
-                            <ChevronDown size={10} className={`-mb-1 ${isActive && direction === 'asc' ? 'text-cyan-400' : 'text-gray-700'}`} style={{ transform: 'rotate(180deg)' }} />
-                            <ChevronDown size={10} className={`${isActive && direction === 'desc' ? 'text-cyan-400' : 'text-gray-700'}`} />
-                        </div>
-                    )}
-                </div>
-                {/* Resizer handle (except on last column) */}
-                {index < columns.length - 1 && <Resizer index={index} />}
-            </div>
-        );
-    };
+
 
     if (!resources && !isListLoading && isError) return <div className="p-8 text-center text-red-400">Error: {error ? String(error) : 'Unknown error'}</div>;
 
@@ -530,7 +631,16 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                 style={gridStyle}
             >
                 {columns.map((col, idx) => (
-                    <SortableHeader key={col.id} col={col} index={idx} />
+                    <SortableHeader
+                        key={col.id}
+                        col={col}
+                        index={idx}
+                        isLast={idx === columns.length - 1}
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                        onResize={(w) => handleColumnResize(idx, w)}
+                        onResizeEnd={handleResizeEnd}
+                    />
                 ))}
             </div>
 
@@ -558,7 +668,9 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                             const renderCell = (col: ColumnDef) => {
                                 switch (col.id) {
                                     case 'name':
-                                        return <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={isEvent ? (obj as any).reason : obj.name}>{isEvent ? (obj as any).reason || obj.name : obj.name}</div>;
+                                        // For Events, show Reason. Fallback to name (UID) if reason missing.
+                                        const reason = isEvent ? (obj.reason || obj.name) : obj.name;
+                                        return <div className="font-medium text-zinc-200 truncate group-hover:text-white transition-colors" title={reason}>{reason}</div>;
                                     case 'namespace':
                                         return <div className="text-zinc-500 truncate" title={obj.namespace}>{obj.namespace}</div>;
                                     case 'ready':
@@ -579,11 +691,15 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                         const iacStatus = getIaCStatus(obj.raw_json);
                                         return <IaCStatusBadge status={iacStatus.status} reason={iacStatus.reason} message={iacStatus.message} />;
                                     case 'type':
-                                        return <div className={`${(obj as any).type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{(obj as any).type || 'Normal'}</div>;
+                                        return <div className={`${obj.type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{obj.type || 'Normal'}</div>;
                                     case 'message':
-                                        return <div className="text-zinc-600 truncate" title={(obj as any).message}>{(obj as any).message || '-'}</div>;
+                                        return <div className="text-zinc-500 truncate" title={obj.message}>{obj.message || '-'}</div>;
                                     case 'count':
-                                        return <div className="text-zinc-500 font-mono text-xs">{(obj as any).count || 1}</div>;
+                                        return <div className="text-zinc-500 font-mono text-xs">{obj.count || 1}</div>;
+                                    case 'involvedObject':
+                                        return <div className="text-indigo-400/80 truncate text-xs font-mono" title={obj.involved_object}>{obj.involved_object || '-'}</div>;
+                                    case 'source':
+                                        return <div className="text-zinc-600 truncate text-xs" title={obj.source_component}>{obj.source_component || '-'}</div>;
                                     case 'actions':
                                         return (
                                             <ResourceContextMenu
@@ -609,7 +725,7 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                     `}
                                 >
                                     {columns.map(col => (
-                                        <div key={col.id} className="px-3 truncate overflow-hidden">
+                                        <div key={col.id} className={`px-3 ${col.id === 'actions' ? '' : 'truncate overflow-hidden'}`}>
                                             {renderCell(col)}
                                         </div>
                                     ))}

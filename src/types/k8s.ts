@@ -4,6 +4,10 @@ export interface NavResource {
     version: string;
     namespaced: boolean;
     title: string;
+    // Optional filter to apply when navigating (e.g., show only failed pods)
+    statusFilter?: string;
+    // Optional namespace filter
+    namespaceFilter?: string;
 }
 
 export interface NavGroup {
@@ -20,12 +24,19 @@ export interface K8sObject {
     group: string;
     version: string;
     age: string;
-    raw_json: string;
+    raw_json?: string;
     // Pod-specific fields (optional)
     ready?: string;
     restarts?: number;
     node?: string;
     ip?: string;
+    // Event-specific fields (optional)
+    reason?: string;
+    message?: string;
+    type?: string;
+    count?: number;
+    source_component?: string;
+    involved_object?: string;
 }
 
 export interface K8sEvent {

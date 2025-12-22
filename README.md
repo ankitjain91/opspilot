@@ -70,6 +70,11 @@ Create and manage virtual clusters directly from the UI.
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## 🧭 Design & Architecture
+
+- **Design Document:** [docs/presentation-design.md](docs/presentation-design.md)
+- **Diagram Exports:** See [docs/diagrams/README.md](docs/diagrams/README.md); run `npm run export:diagrams` to generate PNGs.
+
 ## 🛠️ Prerequisites
 
 - **Claude Code CLI** installed (`npm install -g @anthropic-ai/claude-code` or via Anthropic)

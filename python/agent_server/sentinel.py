@@ -46,7 +46,7 @@ class SentinelLoop:
                 v1 = client.CoreV1Api(api_client)
                 w = watch.Watch()
 
-                logger.info("🛡️ Watching for Warning events...")
+                logger.info(f"🛡️ Watching for Warning events on {self.kube_context or 'default'}...")
 
                 # Connection successful - reset backoff and failure count
                 self._backoff = 5
@@ -61,7 +61,16 @@ class SentinelLoop:
                     if getattr(obj, 'type', None) == "Warning":
                         await self.process_warning(obj)
 
+            except asyncio.CancelledError:
+                # Task was cancelled (e.g., context switch) - exit cleanly
+                logger.info(f"🛡️ Sentinel cancelled (context switch or shutdown)")
+                self.running = False
+                raise  # Re-raise to properly complete cancellation
             except Exception as e:
+                if not self.running:
+                    # We were asked to stop, don't log error
+                    break
+
                 # Exponential Backoff
                 backoff_time = getattr(self, '_backoff', 5)
                 self._consecutive_failures += 1
@@ -76,17 +85,28 @@ class SentinelLoop:
 
                 if should_log:
                     error_str = str(e)
+                    error_type = type(e).__name__
                     # Provide helpful context for common errors
                     if "Connection reset" in error_str or "Cannot connect" in error_str:
                         if self._consecutive_failures > 1:
                             logger.warning(f"🛡️ Sentinel: Cluster unreachable (attempt #{self._consecutive_failures}). Will keep retrying silently...")
                         else:
                             logger.warning(f"🛡️ Sentinel: Cluster appears unreachable - may require port-forward or VPN. Retrying in background...")
+                    elif "localhost" in (self.kube_context or "") or "127.0.0.1" in error_str:
+                        # vcluster or local cluster - connection might need port-forward
+                        logger.warning(f"🛡️ Sentinel: Local/vcluster connection failed ({error_type}). Ensure vcluster connect is running. Retrying in {backoff_time}s...")
+                    elif "SSL" in error_str or "certificate" in error_str.lower():
+                        logger.warning(f"🛡️ Sentinel: TLS/SSL error - {error_str[:100]}. Retrying in {backoff_time}s...")
                     else:
-                        logger.error(f"Sentinel connection failed: {e}. Retrying in {backoff_time}s...")
+                        logger.error(f"Sentinel connection failed ({error_type}): {error_str[:200]}. Retrying in {backoff_time}s...")
                     self._last_error_log_time = current_time
 
-                await asyncio.sleep(backoff_time)
+                try:
+                    await asyncio.sleep(backoff_time)
+                except asyncio.CancelledError:
+                    # Cancelled during sleep - exit cleanly
+                    self.running = False
+                    raise
                 self._backoff = min(backoff_time * 2, 300) # Max 5 min wait
             finally:
                 # Stop watcher and close underlying aiohttp session to prevent leaks

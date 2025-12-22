@@ -8,6 +8,7 @@ mod client;
 mod ai_local;
 mod agent_sidecar;
 mod embeddings;
+mod mcp;
 mod commands {
     pub mod context;
     pub mod discovery;
@@ -20,7 +21,8 @@ mod commands {
     pub mod vcluster;
     pub mod azure;
     pub mod helm;
-
+    pub mod argocd;
+    pub mod dependencies;
 }
 
 use commands::context::{list_contexts, delete_context, set_kube_config, reset_state, get_current_context_name};
@@ -28,16 +30,20 @@ use commands::discovery::{discover_api_resources, clear_discovery_cache, clear_a
 use commands::resources::{list_resources, delete_resource, get_resource_details, get_pod_logs, start_log_stream, stop_log_stream, start_resource_watch, stop_resource_watch, list_events, apply_yaml, get_resource_metrics, patch_resource, restart_resource, scale_resource};
 use commands::terminal::{start_local_shell, send_shell_input, resize_shell, stop_local_shell, send_exec_input, resize_exec, start_exec, execute_agent_command, start_terminal_agent, send_agent_input, resize_agent_terminal};
 use commands::networking::{start_port_forward, stop_port_forward, list_port_forwards};
-use commands::cluster::{get_cluster_stats, get_cluster_cockpit};
+use commands::cluster::{get_cluster_stats, get_cluster_cockpit, get_metrics_history, clear_metrics_history, get_initial_cluster_data};
 use commands::cost::get_cluster_cost_report;
-use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations, load_opspilot_config, save_opspilot_config, get_env_var, get_opspilot_env_vars};
+use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations, load_opspilot_config, save_opspilot_config, get_env_var, get_opspilot_env_vars, get_kb_directory_info, init_kb_directory, store_secret, retrieve_secret, remove_secret, get_workspace_dir};
 use commands::vcluster::{list_vclusters, connect_vcluster, disconnect_vcluster};
-use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials};
-use commands::helm::{helm_list, helm_uninstall, helm_get_details};
+use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials, detect_aks_cluster, get_aks_metrics_history};
+use commands::helm::{helm_list, helm_uninstall, helm_get_details, helm_history, helm_get_resources, helm_rollback};
+use commands::argocd::{argo_patch_helm_values, argo_patch_source, argo_sync_application, argo_refresh_application};
+use commands::dependencies::check_dependencies;
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
 use embeddings::{check_embedding_model_status, init_embedding_model};
+use mcp::commands::{connect_mcp_server, disconnect_mcp_server, list_mcp_tools, list_connected_mcp_servers, call_mcp_tool, check_command_exists, install_mcp_presets, install_uvx};
+use mcp::manager::McpManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -47,6 +53,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_state = AppState::new();
             app.manage(app_state);
@@ -54,6 +62,10 @@ pub fn run() {
             // Initialize agent sidecar state
             let agent_state = AgentSidecarState::new();
             app.manage(agent_state);
+
+            // Initialize MCP manager
+            let mcp_manager = McpManager::new();
+            app.manage(mcp_manager);
 
             // Start the agent sidecar automatically
             let app_handle = app.handle().clone();
@@ -119,7 +131,10 @@ pub fn run() {
             // Cluster Insights
             get_cluster_stats,
             get_cluster_cockpit,
+            get_initial_cluster_data,
             get_cluster_cost_report,
+            get_metrics_history,
+            clear_metrics_history,
 
             // AI Local
             check_llm_status,
@@ -143,6 +158,16 @@ pub fn run() {
             save_opspilot_config,
             get_env_var,
             get_opspilot_env_vars,
+            
+            // Secrets Management
+            store_secret,
+            retrieve_secret,
+            remove_secret,
+            get_workspace_dir,
+
+            // Knowledge Base
+            get_kb_directory_info,
+            init_kb_directory,
 
             // VCluster
             list_vclusters,
@@ -153,6 +178,8 @@ pub fn run() {
             azure_login,
             refresh_azure_data,
             get_aks_credentials,
+            detect_aks_cluster,
+            get_aks_metrics_history,
 
 
 
@@ -168,7 +195,29 @@ pub fn run() {
             // Helm
             helm_list,
             helm_uninstall,
-            helm_get_details
+            helm_get_details,
+            helm_history,
+            helm_get_resources,
+            helm_rollback,
+
+            // MCP (Model Context Protocol)
+            connect_mcp_server,
+            disconnect_mcp_server,
+            list_mcp_tools,
+            list_connected_mcp_servers,
+            call_mcp_tool,
+            check_command_exists,
+            install_mcp_presets,
+            install_uvx,
+
+            // ArgoCD
+            argo_patch_helm_values,
+            argo_patch_source,
+            argo_sync_application,
+            argo_refresh_application,
+
+            // Dependencies
+            check_dependencies
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

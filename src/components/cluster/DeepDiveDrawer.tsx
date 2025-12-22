@@ -4,8 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import {
     Eye, FileText, Terminal as TerminalIcon, Activity,
-    Maximize2, Minimize2, X, Trash2, EthernetPort, ChevronLeft, ChevronRight, FileCode, MessageSquare
+    Maximize2, Minimize2, X, Trash2, EthernetPort, ChevronLeft, ChevronRight, FileCode, MessageSquare, Bug
 } from 'lucide-react';
+import { createJiraIssue, isJiraConnected, formatInvestigationForJira, getJiraIssueUrl, extractResourceDebugContext } from '../../utils/jira';
 import { ClusterChatPanel } from '../ai/ClusterChatPanel';
 import { useToast } from '../ui/Toast';
 import yaml from 'js-yaml';
@@ -113,7 +114,8 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
 
     // Fetch full details for current resource
     // Fetch YAML once and derive structured object so we don't get cache collisions with YamlTab
-    const normalizedNamespace = resource?.namespace !== "-" ? resource?.namespace : null;
+    // Fix: Ensure empty string is treated as null to avoid invalid K8s API paths (e.g. /namespaces//...)
+    const normalizedNamespace = resource?.namespace && resource?.namespace !== "-" ? resource.namespace : null;
 
     const { data: resourceYaml, error: detailsError, isLoading: detailsLoading, isFetching } = useQuery({
         queryKey: ["resource_details", currentContext, normalizedNamespace, resource?.group, resource?.version, resource?.kind, resource?.name],
@@ -133,12 +135,12 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
             return result;
         },
         enabled: !!resource,
-        staleTime: 30000, // Keep data fresh for 30s
-        gcTime: 60000, // Keep in cache for 1 minute after last use
+        staleTime: 0, // Always fetch fresh data
+        gcTime: 0, // Don't cache when closed
         retry: 2,
-        refetchOnWindowFocus: false,
-        refetchOnMount: false, // Don't refetch when component remounts
-        refetchOnReconnect: false,
+        refetchOnWindowFocus: true,
+        refetchOnMount: true,
+        refetchOnReconnect: true,
     });
 
     // Parse YAML (or JSON) into an object for detail views; keep YAML string for YamlTab
@@ -166,6 +168,11 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
             return null;
         }
     }, [resourceYaml, resource?.name]);
+
+    // Extract rich debug context for AI Chat
+    const debugContext = useMemo(() => {
+        return fullObject ? extractResourceDebugContext(fullObject) : undefined;
+    }, [fullObject]);
 
     console.log("[DeepDiveDrawer Debug] Render state:", {
         resName: resource?.name,
@@ -205,12 +212,55 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                 namespace: resource.namespace !== "-" ? resource.namespace : null,
                 name: resource.name
             });
-            showToast(`${resource.kind} ${resource.name} deleted successfully`, "success");
+            // Note: For resources with finalizers, this just initiates deletion
+            showToast(`${resource.kind} ${resource.name} deletion initiated`, "success");
             onDelete();
             onTabClose(activeTabId);
         } catch (err) {
             console.error("Delete failed:", err);
             showToast(`Delete failed: ${err}`, 'error');
+        }
+    };
+
+    const handleCreateJiraIssue = async () => {
+        if (!resource) return;
+        try {
+            // Extract rich debug context from the full resource object
+            const debugContext = fullObject ? extractResourceDebugContext(fullObject) : undefined;
+
+            // Determine issue severity based on resource state
+            const hasIssues = debugContext?.phase === 'Failed' ||
+                debugContext?.containerStatuses?.some(cs => !cs.ready || cs.restartCount > 3) ||
+                debugContext?.conditions?.some(c => c.status === 'False');
+
+            const statusSummary = hasIssues ? ' (needs investigation)' : '';
+
+            const jiraInput = formatInvestigationForJira(
+                `[${kind}] ${resource.name}${statusSummary}`,
+                `Resource being investigated in cluster ${currentContext || 'unknown'}.`,
+                `User opened this resource for investigation. See Resource Debug Information below for full details.`,
+                currentContext,
+                debugContext
+            );
+
+            showToast('Creating JIRA issue...', 'info');
+            const issue = await createJiraIssue(jiraInput);
+            const url = getJiraIssueUrl(issue.key);
+
+            showToast(
+                <div className="flex flex-col gap-1">
+                    <span>JIRA issue created: {issue.key}</span>
+                    {url && (
+                        <a href={url} target="_blank" rel="noreferrer" className="text-cyan-400 underline text-[10px]">
+                            View in JIRA
+                        </a>
+                    )}
+                </div>,
+                "success"
+            );
+        } catch (err) {
+            console.error('Failed to create JIRA issue:', err);
+            showToast(`Failed to create JIRA issue: ${err}`, 'error');
         }
     };
 
@@ -386,6 +436,16 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                             <MessageSquare size={14} />
                         </button>
 
+                        {isJiraConnected() && (
+                            <button
+                                onClick={handleCreateJiraIssue}
+                                className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 rounded transition-colors"
+                                title="Create JIRA Issue"
+                            >
+                                <Bug size={14} />
+                            </button>
+                        )}
+
                         <button
                             onClick={() => setActiveContentTab(activeContentTab === 'yaml' ? 'overview' : 'yaml')}
                             className={`p-1.5 rounded transition-colors ${activeContentTab === 'yaml' ? 'text-cyan-400 bg-cyan-500/10' : 'text-zinc-400 hover:text-white hover:bg-white/10'}`}
@@ -450,7 +510,8 @@ export function DeepDiveDrawer({ tabs, activeTabId, onTabChange, onTabClose, onC
                             resourceContext={{
                                 kind: resource.kind,
                                 name: resource.name,
-                                namespace: resource.namespace
+                                namespace: resource.namespace,
+                                ...debugContext
                             }}
                             currentContext={currentContext}
                             onClose={() => setActiveContentTab('overview')}

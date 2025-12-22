@@ -50,6 +50,19 @@ pub struct ResourceSummary {
     pub ip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    // Event specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub type_: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub involved_object: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -386,4 +399,48 @@ pub struct AksCluster {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PowerState {
     pub code: String,
+}
+
+/// Historical snapshot of cluster metrics for timeline graphs
+#[derive(Serialize, Clone)]
+pub struct ClusterMetricsSnapshot {
+    pub timestamp: i64,  // Unix timestamp in seconds
+    pub total_nodes: usize,
+    pub healthy_nodes: usize,
+    pub total_pods: usize,
+    pub running_pods: usize,
+    pub pending_pods: usize,
+    pub failed_pods: usize,
+    pub total_deployments: usize,
+    pub cpu_usage_percent: f64,
+    pub memory_usage_percent: f64,
+}
+
+/// Container for metrics history with context tracking
+#[derive(Clone)]
+pub struct MetricsHistoryBuffer {
+    pub context: String,
+    pub snapshots: Vec<ClusterMetricsSnapshot>,
+    pub max_size: usize,
+}
+
+impl MetricsHistoryBuffer {
+    pub fn new(context: String, max_size: usize) -> Self {
+        Self {
+            context,
+            snapshots: Vec::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    pub fn push(&mut self, snapshot: ClusterMetricsSnapshot) {
+        if self.snapshots.len() >= self.max_size {
+            self.snapshots.remove(0);
+        }
+        self.snapshots.push(snapshot);
+    }
+
+    pub fn clear(&mut self) {
+        self.snapshots.clear();
+    }
 }

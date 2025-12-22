@@ -215,7 +215,7 @@ export function SecretDetails({ resource, fullObject }: SecretDetailsProps) {
                                         className={`w-full bg-black/20 border border-white/5 rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-purple-500/50 focus:bg-black/40 transition-all placeholder:text-zinc-700 min-h-[38px] resize-y ${showValues ? 'text-zinc-300' : 'text-zinc-700 blur-[4px] select-none cursor-default'
                                             } ${isRaw ? 'text-yellow-500/80 italic' : ''}`}
                                         placeholder="Value"
-                                        rows={Math.max(1, value.split('\n').length > 5 ? 5 : value.split('\n').length)}
+                                        rows={Math.max(1, String(value).split('\n').length > 5 ? 5 : String(value).split('\n').length)}
                                     />
                                     {!showValues && (
                                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

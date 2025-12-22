@@ -155,6 +155,15 @@ def _get_owner_reference(
             batch_v1 = client.BatchV1Api()
             obj = batch_v1.read_namespaced_job(name, namespace)
             metadata = obj.metadata
+        elif kind.lower() == "serviceaccount":
+            obj = v1.read_namespaced_service_account(name, namespace)
+            metadata = obj.metadata
+        elif kind.lower() == "secret":
+            obj = v1.read_namespaced_secret(name, namespace)
+            metadata = obj.metadata
+        elif kind.lower() == "configmap":
+            obj = v1.read_namespaced_config_map(name, namespace)
+            metadata = obj.metadata
         else:
             return None
 
@@ -269,6 +278,18 @@ def get_owned_resources(
                         namespace=namespace
                     ))
 
+        elif kind.lower() == "serviceaccount":
+            # Find pods that USE this ServiceAccount
+            pods = v1.list_namespaced_pod(namespace)
+            for pod in pods.items:
+                sa_name = pod.spec.service_account_name or pod.spec.service_account or "default"
+                if sa_name == name:
+                    owned.append(ResourceRef(
+                        kind="Pod",
+                        name=pod.metadata.name,
+                        namespace=namespace
+                    ))
+
     except Exception as e:
         print(f"[resource_chain] Error getting owned resources for {kind}/{name}: {e}")
 
@@ -317,6 +338,7 @@ def get_related_resources(
 
     For Pods: ConfigMaps, Secrets, PVCs, ServiceAccounts
     For Deployments: Same, extracted from pod template
+    For ServiceAccounts: Token Secrets, ImagePullSecrets, RoleBindings
     """
     related = []
 
@@ -336,6 +358,75 @@ def get_related_resources(
             apps_v1 = client.AppsV1Api()
             sts = apps_v1.read_namespaced_stateful_set(name, namespace)
             pod_spec = sts.spec.template.spec
+
+        elif kind.lower() == "serviceaccount":
+            # Find Secrets associated with this ServiceAccount
+            sa = v1.read_namespaced_service_account(name, namespace)
+
+            # Token secrets (for older k8s versions with auto-created tokens)
+            if sa.secrets:
+                for sec_ref in sa.secrets:
+                    related.append(ResourceRef(
+                        kind="Secret",
+                        name=sec_ref.name,
+                        namespace=namespace
+                    ))
+
+            # ImagePullSecrets
+            if sa.image_pull_secrets:
+                for sec_ref in sa.image_pull_secrets:
+                    related.append(ResourceRef(
+                        kind="Secret",
+                        name=sec_ref.name,
+                        namespace=namespace
+                    ))
+
+            # Find RoleBindings that reference this ServiceAccount
+            try:
+                rbac_v1 = client.RbacAuthorizationV1Api()
+
+                # Check namespace-scoped RoleBindings
+                rbs = rbac_v1.list_namespaced_role_binding(namespace)
+                for rb in rbs.items:
+                    if rb.subjects:
+                        for subj in rb.subjects:
+                            if subj.kind == "ServiceAccount" and subj.name == name:
+                                related.append(ResourceRef(
+                                    kind="RoleBinding",
+                                    name=rb.metadata.name,
+                                    namespace=namespace
+                                ))
+                                # Also add the Role it references
+                                if rb.role_ref:
+                                    related.append(ResourceRef(
+                                        kind=rb.role_ref.kind,  # Role or ClusterRole
+                                        name=rb.role_ref.name,
+                                        namespace=namespace if rb.role_ref.kind == "Role" else ""
+                                    ))
+                                break
+
+                # Check ClusterRoleBindings
+                crbs = rbac_v1.list_cluster_role_binding()
+                for crb in crbs.items:
+                    if crb.subjects:
+                        for subj in crb.subjects:
+                            if subj.kind == "ServiceAccount" and subj.name == name:
+                                # Check namespace matches (ClusterRoleBinding subjects have explicit namespace)
+                                if subj.namespace == namespace or not subj.namespace:
+                                    related.append(ResourceRef(
+                                        kind="ClusterRoleBinding",
+                                        name=crb.metadata.name,
+                                        namespace=""
+                                    ))
+                                    if crb.role_ref:
+                                        related.append(ResourceRef(
+                                            kind="ClusterRole",
+                                            name=crb.role_ref.name,
+                                            namespace=""
+                                        ))
+                                    break
+            except Exception as rbac_err:
+                print(f"[resource_chain] Error getting RBAC for ServiceAccount: {rbac_err}")
 
         if pod_spec:
             related.extend(_extract_related_from_pod_spec(pod_spec, namespace))

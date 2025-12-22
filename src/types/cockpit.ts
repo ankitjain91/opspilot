@@ -65,3 +65,26 @@ export interface ClusterCockpitData {
     critical_count: number;
     metrics_available: boolean;
 }
+
+// Historical snapshot of cluster metrics for timeline charts
+export interface ClusterMetricsSnapshot {
+    timestamp: number;  // Unix timestamp in seconds
+    total_nodes: number;
+    healthy_nodes: number;
+    total_pods: number;
+    running_pods: number;
+    pending_pods: number;
+    failed_pods: number;
+    total_deployments: number;
+    cpu_usage_percent: number;
+    memory_usage_percent: number;
+}
+
+// Azure Monitor metrics for AKS clusters
+export interface AksMetricPoint {
+    timestamp: number;
+    node_count: number | null;
+    pod_count: number | null;
+    cpu_usage_percent: number | null;
+    memory_usage_percent: number | null;
+}

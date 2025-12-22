@@ -16,38 +16,45 @@ interface SidebarGroupProps {
 export const SidebarGroup = ({ title, icon: Icon, items, activeRes, onSelect, isOpen, onToggle }: SidebarGroupProps) => {
     if (items.length === 0) return null;
 
+    // These colors work well on both light and dark
     const groupColors: Record<string, string> = {
-        "Cluster": "text-blue-400 group-hover:text-blue-300",
-        "Workloads": "text-purple-400 group-hover:text-purple-300",
-        "Config": "text-yellow-400 group-hover:text-yellow-300",
-        "Network": "text-green-400 group-hover:text-green-300",
-        "Storage": "text-orange-400 group-hover:text-orange-300",
-        "Access Control": "text-red-400 group-hover:text-red-300",
+        "Cluster": "text-blue-500",
+        "Workloads": "text-purple-500",
+        "Config": "text-amber-500",
+        "Network": "text-emerald-500",
+        "Storage": "text-orange-500",
+        "Access Control": "text-rose-500",
     };
 
     return (
         <div className="mb-1">
             <button
                 onClick={onToggle}
-                className="w-full flex items-center justify-between px-3 py-2.5 text-base font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition-all group"
+                className="w-full flex items-center justify-between px-3 py-2.5 text-base font-medium rounded-md transition-all group"
+                style={{
+                    color: 'var(--text-secondary)',
+                }}
             >
                 <div className="flex items-center gap-2.5">
-                    <Icon size={18} className={groupColors[title] || "text-cyan-400 group-hover:text-cyan-300"} />
-                    <span>{title}</span>
+                    <Icon size={18} className={groupColors[title] || "text-cyan-500"} />
+                    <span className="group-hover:opacity-100" style={{ color: 'var(--text-primary)' }}>{title}</span>
                 </div>
                 {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </button>
 
             {isOpen && (
-                <div className="mt-1 ml-3 pl-3 border-l border-gray-700 space-y-0.5">
+                <div className="mt-1 ml-3 pl-3 space-y-0.5" style={{ borderLeft: '1px solid var(--border-subtle)' }}>
                     {items.map((res: any) => (
                         <button
                             key={`${res.group}/${res.kind}`}
                             onClick={() => onSelect(res)}
                             className={`w-full text-left px-3 py-2 text-base rounded-md transition-all flex items-center gap-2.5 ${activeRes?.kind === res.kind
                                 ? "bg-gradient-to-r from-purple-600/80 to-blue-600/80 text-white font-medium shadow-lg shadow-purple-500/20"
-                                : "text-gray-400 hover:text-white hover:bg-gray-800"
+                                : ""
                                 }`}
+                            style={activeRes?.kind !== res.kind ? {
+                                color: 'var(--text-tertiary)',
+                            } : undefined}
                         >
                             {res.title}
                         </button>
@@ -71,17 +78,18 @@ export const SidebarSection = ({ title, icon: Icon, isOpen, onToggle, children }
         <div className="mb-1">
             <button
                 onClick={onToggle}
-                className="w-full flex items-center justify-between px-3 py-2.5 text-base font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition-all group"
+                className="w-full flex items-center justify-between px-3 py-2.5 text-base font-medium rounded-md transition-all group"
+                style={{ color: 'var(--text-secondary)' }}
             >
                 <div className="flex items-center gap-2.5">
-                    <Icon size={18} className="text-pink-400 group-hover:text-pink-300" />
-                    <span>{title}</span>
+                    <Icon size={18} className="text-pink-500" />
+                    <span style={{ color: 'var(--text-primary)' }}>{title}</span>
                 </div>
                 {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </button>
 
             {isOpen && (
-                <div className="mt-1 ml-3 pl-3 border-l border-gray-700 space-y-0.5">
+                <div className="mt-1 ml-3 pl-3 space-y-0.5" style={{ borderLeft: '1px solid var(--border-subtle)' }}>
                     {children}
                 </div>
             )}

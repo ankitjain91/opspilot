@@ -1,10 +1,10 @@
-
 use tauri::State;
 use kube::api::{Api, ListParams, DynamicObject};
 use crate::state::AppState;
-use crate::models::{ClusterStats, ClusterCockpitData, NodeHealth, NodeCondition, PodStatusBreakdown, DeploymentHealth, NamespaceUsage};
+use crate::models::{ClusterStats, ClusterCockpitData, NodeHealth, NodeCondition, PodStatusBreakdown, DeploymentHealth, NamespaceUsage, ClusterMetricsSnapshot, MetricsHistoryBuffer, InitialClusterData};
 use crate::client::create_client;
 use crate::utils::{parse_cpu_to_milli, parse_memory_to_bytes};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tauri::command]
 pub async fn get_cluster_stats(state: State<'_, AppState>) -> Result<ClusterStats, String> {
@@ -68,6 +68,9 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
             }
         }
     }
+
+    // Capture context at start to ensure consistency between data and history
+    let current_ctx = state.selected_context.lock().unwrap().clone().unwrap_or_default();
 
     let client = create_client(state.clone()).await?;
 
@@ -275,6 +278,11 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
     let warning_count = unhealthy_deps.len() + (nodes_items.len() - healthy_nodes); // Simple heuristic
     let critical_count = pods_breakdown.failed;
 
+    // Capture pod breakdown values for history before moving into struct
+    let running_pods_count = pods_breakdown.running;
+    let pending_pods_count = pods_breakdown.pending;
+    let failed_pods_count = pods_breakdown.failed;
+
     let data = ClusterCockpitData {
         total_nodes: nodes_items.len(),
         healthy_nodes,
@@ -289,7 +297,7 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
         total_memory_allocatable: total_mem_allocatable,
         total_memory_usage: total_mem_usage,
         total_pods_capacity,
-        pod_status: pods_breakdown,
+        pod_status: pods_breakdown.clone(),
         nodes: nodes_health,
         unhealthy_deployments: unhealthy_deps,
         top_namespaces: top_ns.into_iter().take(5).collect(),
@@ -303,5 +311,241 @@ pub async fn get_cluster_cockpit(state: State<'_, AppState>) -> Result<ClusterCo
         *cache = Some((std::time::Instant::now(), data.clone()));
     }
 
+    // Record snapshot for timeline history
+    let cpu_pct = if total_cpu_allocatable > 0 {
+        (total_cpu_usage as f64 / total_cpu_allocatable as f64) * 100.0
+    } else { 0.0 };
+    let mem_pct = if total_mem_allocatable > 0 {
+        (total_mem_usage as f64 / total_mem_allocatable as f64) * 100.0
+    } else { 0.0 };
+
+    let snapshot = ClusterMetricsSnapshot {
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64,
+        total_nodes: nodes_items.len(),
+        healthy_nodes,
+        total_pods: pods_items.len(),
+        running_pods: running_pods_count,
+        pending_pods: pending_pods_count,
+        failed_pods: failed_pods_count,
+        total_deployments: deployments_items.len(),
+        cpu_usage_percent: cpu_pct,
+        memory_usage_percent: mem_pct,
+    };
+
+    // Use current_ctx captured AT START of function
+    if let Ok(mut history) = state.metrics_history.try_lock() {
+        match &mut *history {
+            Some(buffer) if buffer.context == current_ctx => {
+                // Same context, append snapshot
+                buffer.push(snapshot);
+            }
+            _ => {
+                // New context or first time, create new buffer
+                let mut new_buffer = MetricsHistoryBuffer::new(current_ctx, 60); // Keep 60 snapshots (~30 min at 30s intervals)
+                new_buffer.push(snapshot);
+                *history = Some(new_buffer);
+            }
+        }
+    }
+
     Ok(data)
+}
+
+/// Get the metrics history for timeline charts
+#[tauri::command]
+pub async fn get_metrics_history(state: State<'_, AppState>) -> Result<Vec<ClusterMetricsSnapshot>, String> {
+    let current_ctx = state.selected_context.lock().unwrap().clone().unwrap_or_default();
+
+    if let Ok(history) = state.metrics_history.try_lock() {
+        if let Some(buffer) = &*history {
+            if buffer.context == current_ctx {
+                return Ok(buffer.snapshots.clone());
+            }
+        }
+    }
+
+    // No history for this context yet
+    Ok(Vec::new())
+}
+
+/// Clear metrics history (useful on context switch)
+#[tauri::command]
+pub async fn clear_metrics_history(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(mut history) = state.metrics_history.try_lock() {
+        *history = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_initial_cluster_data(state: State<'_, AppState>) -> Result<InitialClusterData, String> {
+    let client = create_client(state.clone()).await?;
+    
+    // We want to fetch everything needed for the first dashboard load
+    // This includes: stats (calculated locally), namespaces, and the first few resource lists
+    
+    // 1. Fetch Resources Needed for Cockpit
+    // Instead of calling get_cluster_stats (which does its own list calls),
+    // and then calling list_resources (which does the same list calls),
+    // we fetch the raw lists once and construct both stats and summaries from them.
+
+    let nodes: Api<k8s_openapi::api::core::v1::Node> = Api::all(client.clone());
+    let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::all(client.clone());
+    let deployments: Api<k8s_openapi::api::apps::v1::Deployment> = Api::all(client.clone());
+    let services: Api<k8s_openapi::api::core::v1::Service> = Api::all(client.clone());
+    let namespaces: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(client.clone());
+
+    let lp = ListParams::default();
+
+    let (nodes_res, pods_res, deployments_res, services_res, namespaces_res) = tokio::join!(
+        nodes.list(&lp),
+        pods.list(&lp),
+        deployments.list(&lp),
+        services.list(&lp),
+        namespaces.list(&lp)
+    );
+
+    // Filter results
+    let nodes_list = nodes_res.map_err(|e| format!("Failed to list nodes: {}", e))?;
+    let pods_list = pods_res.map_err(|e| format!("Failed to list pods: {}", e))?;
+    let deploy_list = deployments_res.map_err(|e| format!("Failed to list deployments: {}", e))?;
+    let svc_list = services_res.map_err(|e| format!("Failed to list services: {}", e))?;
+    let ns_list = namespaces_res.map_err(|e| format!("Failed to list namespaces: {}", e))?;
+
+    // 2. Calculate Stats Locally
+    let stats = ClusterStats {
+        nodes: nodes_list.items.len(),
+        pods: pods_list.items.len(),
+        deployments: deploy_list.items.len(),
+        services: svc_list.items.len(),
+        namespaces: ns_list.items.len(),
+    };
+
+    // Update Cache (optional but good for consistency)
+    if let Ok(mut cache) = state.cluster_stats_cache.try_lock() {
+        *cache = Some((std::time::Instant::now(), stats.clone()));
+    }
+
+    // 3. Convert to Summaries for Initial Tables
+    // Use the `to_summary` helper but we need to match what list_resources does
+    // Since list_resources converts DynamicObject, we should ideally use list_resources logic
+    // But re-implementing list_resources mapping here for typed objects is safer and faster than serialization round-trip
+    
+    // Actually, list_resources uses DynamicObject. These are typed.
+    // For simplicity and correctness with existing UI logic, we will convert these typed objects to summaries.
+    // However, `to_summary` takes DynamicObject.
+    // We can convert typed -> value -> dynamic or implement specific mappers.
+    // To save time and lines, we'll implement lightweight mappers here matching ResourceSummary.
+    
+    let to_summary_pods = |pod: k8s_openapi::api::core::v1::Pod| -> crate::models::ResourceSummary {
+        let name = pod.metadata.name.clone().unwrap_or_default();
+        let namespace = pod.metadata.namespace.clone().unwrap_or("-".into());
+        let age = pod.metadata.creation_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_default();
+        let phase = pod.status.as_ref().and_then(|s| s.phase.as_ref()).map(|s| s.to_string()).unwrap_or("Unknown".into());
+        
+        // Pod specific
+        let status_obj = pod.status.as_ref();
+        let ready_str = if let Some(container_statuses) = status_obj.and_then(|s| s.container_statuses.as_ref()) {
+             let ready_count = container_statuses.iter().filter(|c| c.ready).count();
+             let total_count = container_statuses.len();
+             Some(format!("{}/{}", ready_count, total_count))
+        } else { Some("0/0".to_string()) };
+        
+        let restart_count = if let Some(container_statuses) = status_obj.and_then(|s| s.container_statuses.as_ref()) {
+            Some(container_statuses.iter().map(|c| c.restart_count).sum())
+        } else { Some(0) };
+        
+        let node_name = pod.spec.as_ref().and_then(|s| s.node_name.clone());
+        let pod_ip = status_obj.and_then(|s| s.pod_ip.clone());
+
+        crate::models::ResourceSummary {
+           id: pod.metadata.uid.clone().unwrap_or_default(),
+           name, namespace, kind: "Pod".into(), group: "".into(), version: "v1".into(),
+           age, status: phase, raw_json: String::new(), // Not needed for cockpit list
+           ready: ready_str, restarts: restart_count, node: node_name, ip: pod_ip,
+           labels: pod.metadata.labels,
+           reason: None, message: None, type_: None, count: None, source_component: None, involved_object: None
+        }
+    };
+
+    let convert_nodes = |node: k8s_openapi::api::core::v1::Node| -> crate::models::ResourceSummary {
+         let name = node.metadata.name.clone().unwrap_or_default();
+         let age = node.metadata.creation_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_default();
+         
+         let mut status = "Unknown".to_string();
+         if let Some(s) = &node.status {
+             if let Some(conds) = &s.conditions {
+                 for c in conds {
+                     if c.type_ == "Ready" {
+                         status = if c.status == "True" { "Ready".to_string() } else { "NotReady".to_string() };
+                     }
+                 }
+             }
+         }
+
+         crate::models::ResourceSummary {
+            id: node.metadata.uid.clone().unwrap_or_default(),
+            name, namespace: "-".into(), kind: "Node".into(), group: "".into(), version: "v1".into(),
+            age, status, raw_json: String::new(),
+            ready: None, restarts: None, node: None, ip: None, labels: node.metadata.labels,
+            reason: None, message: None, type_: None, count: None, source_component: None, involved_object: None
+         }
+    };
+
+    let convert_deployments = |d: k8s_openapi::api::apps::v1::Deployment| -> crate::models::ResourceSummary {
+        let name = d.metadata.name.clone().unwrap_or_default();
+        let namespace = d.metadata.namespace.clone().unwrap_or("-".into());
+        let age = d.metadata.creation_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_default();
+        
+        let desired = d.spec.as_ref().and_then(|s| s.replicas).unwrap_or(0);
+        let status = d.status.as_ref();
+        let ready = status.and_then(|s| s.ready_replicas).unwrap_or(0);
+        let available = status.and_then(|s| s.available_replicas).unwrap_or(0);
+        
+        let status_str = if available >= desired && desired > 0 { "Running".to_string() } 
+                         else if available == 0 && desired > 0 { "Pending".to_string() }
+                         else if desired == 0 { "ScaledDown".to_string() }
+                         else { format!("{}/{} Ready", ready, desired) };
+
+        crate::models::ResourceSummary {
+           id: d.metadata.uid.clone().unwrap_or_default(),
+           name, namespace, kind: "Deployment".into(), group: "apps".into(), version: "v1".into(),
+           age, status: status_str, raw_json: String::new(),
+           ready: Some(format!("{}/{}", ready, desired)), restarts: None, node: None, ip: None,
+           labels: d.metadata.labels,
+           reason: None, message: None, type_: None, count: None, source_component: None, involved_object: None
+        }
+    };
+
+    let convert_services = |s: k8s_openapi::api::core::v1::Service| -> crate::models::ResourceSummary {
+        let name = s.metadata.name.clone().unwrap_or_default();
+        let namespace = s.metadata.namespace.clone().unwrap_or("-".into());
+        let age = s.metadata.creation_timestamp.map(|t| t.0.to_rfc3339()).unwrap_or_default();
+        let type_ = s.spec.as_ref().and_then(|sp| sp.type_.clone()).unwrap_or("ClusterIP".into());
+        let cluster_ip = s.spec.as_ref().and_then(|sp| sp.cluster_ip.clone()).unwrap_or("-".into());
+
+        crate::models::ResourceSummary {
+           id: s.metadata.uid.clone().unwrap_or_default(),
+           name, namespace, kind: "Service".into(), group: "".into(), version: "v1".into(),
+           age, status: type_, raw_json: String::new(), // Use status field for Type
+           ready: None, restarts: None, node: None, ip: Some(cluster_ip),
+           labels: s.metadata.labels,
+           reason: None, message: None, type_: None, count: None, source_component: None, involved_object: None
+        }
+    };
+
+    let pod_summaries: Vec<crate::models::ResourceSummary> = pods_list.items.into_iter().map(to_summary_pods).collect();
+    let node_summaries: Vec<crate::models::ResourceSummary> = nodes_list.items.into_iter().map(convert_nodes).collect();
+    let deploy_summaries: Vec<crate::models::ResourceSummary> = deploy_list.items.into_iter().map(convert_deployments).collect();
+    let svc_summaries: Vec<crate::models::ResourceSummary> = svc_list.items.into_iter().map(convert_services).collect();
+    let ns_names: Vec<String> = ns_list.items.into_iter().filter_map(|n| n.metadata.name).collect();
+
+    Ok(InitialClusterData {
+        stats,
+        namespaces: ns_names,
+        pods: pod_summaries,
+        nodes: node_summaries,
+        deployments: deploy_summaries,
+        services: svc_summaries,
+    })
 }

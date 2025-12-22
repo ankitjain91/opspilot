@@ -55,39 +55,164 @@ import {
 
 import { getAgentServerUrl, getProjectMappings } from '../../utils/config';
 
+// =============================================================================
+// RESILIENT FETCH UTILITIES
+// =============================================================================
+
+/**
+ * Fetch with automatic retry and timeout.
+ * Returns null on failure instead of throwing.
+ */
+async function resilientFetch(
+    url: string,
+    options: RequestInit = {},
+    config: { retries?: number; timeout?: number; retryDelay?: number } = {}
+): Promise<Response | null> {
+    const { retries = 2, timeout = 5000, retryDelay = 500 } = config;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal,
+            });
+
+            clearTimeout(timeoutId);
+
+            // If we got a response (even 500), return it
+            return response;
+        } catch (e: any) {
+            const isLastAttempt = attempt === retries;
+
+            if (e.name === 'AbortError') {
+                console.warn(`[AgentOrchestrator] Request to ${url} timed out (attempt ${attempt + 1}/${retries + 1})`);
+            } else {
+                console.warn(`[AgentOrchestrator] Request to ${url} failed (attempt ${attempt + 1}/${retries + 1}):`, e.message);
+            }
+
+            if (!isLastAttempt) {
+                await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Check if agent server is reachable and get its status.
+ */
+export async function getAgentServerStatus(): Promise<{
+    available: boolean;
+    status?: 'ok' | 'degraded';
+    components?: Record<string, string>;
+    error?: string;
+}> {
+    try {
+        const response = await resilientFetch(`${getAgentServerUrl()}/status`, { method: 'GET' }, { retries: 1, timeout: 3000 });
+
+        if (!response) {
+            return { available: false, error: 'Server unreachable' };
+        }
+
+        if (response.ok) {
+            const data = await response.json();
+            return {
+                available: true,
+                status: data.status,
+                components: data.components,
+            };
+        } else {
+            // Server responded but with error - it's still "available" but degraded
+            const errorData = await response.json().catch(() => ({}));
+            return {
+                available: true,
+                status: 'degraded',
+                error: errorData.detail || `HTTP ${response.status}`,
+            };
+        }
+    } catch (e: any) {
+        return { available: false, error: e.message };
+    }
+}
+
+/**
+ * Restart a specific server component (user-triggered recovery).
+ */
+export async function restartServerComponent(component: 'sentinel'): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+        const response = await resilientFetch(
+            `${getAgentServerUrl()}/restart-${component}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+            { retries: 1, timeout: 10000 }
+        );
+
+        if (!response) {
+            return { success: false, error: 'Server unreachable' };
+        }
+
+        const data = await response.json();
+        return data;
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+}
+
 /**
  * Trigger background KB preloading for a context.
  * Call this when user switches contexts to warm the cache before they ask questions.
  * Also updates the Sentinel to monitor the correct cluster.
+ *
+ * This function is RESILIENT:
+ * - Uses retries with exponential backoff
+ * - Never throws - always returns gracefully
+ * - Logs warnings but doesn't block the UI
  */
 export async function preloadKBForContext(kubeContext: string): Promise<void> {
     try {
-        // Update KB preload
-        const preloadPromise = fetch(`${getAgentServerUrl()}/preload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ kube_context: kubeContext }),
-        });
+        // Update KB preload (with retry)
+        const preloadPromise = resilientFetch(
+            `${getAgentServerUrl()}/preload`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kube_context: kubeContext }),
+            },
+            { retries: 2, timeout: 5000 }
+        );
 
-        // Update Sentinel context (so it monitors the right cluster)
-        const sentinelPromise = fetch(`${getAgentServerUrl()}/sentinel/context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ kube_context: kubeContext }),
-        });
+        // Update Sentinel context (with retry)
+        const sentinelPromise = resilientFetch(
+            `${getAgentServerUrl()}/sentinel/context`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kube_context: kubeContext }),
+            },
+            { retries: 2, timeout: 5000 }
+        );
 
         const [preloadResponse, sentinelResponse] = await Promise.all([preloadPromise, sentinelPromise]);
 
-        if (preloadResponse.ok) {
+        if (preloadResponse?.ok) {
             const data = await preloadResponse.json();
             console.log(`[AgentOrchestrator] KB preload triggered for ${kubeContext}:`, data);
+        } else if (preloadResponse) {
+            // Got a response but it wasn't ok - log but don't fail
+            console.warn(`[AgentOrchestrator] KB preload returned ${preloadResponse.status}`);
         }
-        if (sentinelResponse.ok) {
+
+        if (sentinelResponse?.ok) {
             const data = await sentinelResponse.json();
             console.log(`[AgentOrchestrator] Sentinel context updated to ${kubeContext}:`, data);
+        } else if (sentinelResponse) {
+            console.warn(`[AgentOrchestrator] Sentinel context update returned ${sentinelResponse.status}`);
         }
     } catch (e) {
-        // Silently fail - preloading is best-effort
+        // This should rarely happen due to resilientFetch, but handle anyway
         console.debug('[AgentOrchestrator] KB preload/Sentinel update failed (agent may not be running):', e);
     }
 }
@@ -110,6 +235,78 @@ async function checkPythonAgentAvailable(): Promise<boolean> {
 }
 
 /**
+ * Token usage data from Claude.
+ */
+export interface ClaudeUsageData {
+    session_tokens: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_tokens: number;
+        cache_creation_tokens: number;
+        total_tokens: number;
+    };
+    cost_info: string | null;
+    subscription_type: 'max' | 'api' | 'unknown';
+}
+
+/**
+ * Fetch current Claude usage status from the backend.
+ */
+export async function getClaudeUsage(): Promise<ClaudeUsageData | null> {
+    try {
+        const response = await fetch(`${getAgentServerUrl()}/claude/usage`);
+        if (response.ok) {
+            const data = await response.json();
+            return data.usage || null;
+        }
+    } catch (e) {
+        console.debug('[AgentOrchestrator] Failed to fetch Claude usage:', e);
+    }
+    return null;
+}
+
+/**
+ * MCP Server configuration to pass to Claude.
+ */
+interface McpServerConfig {
+    name: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+}
+
+/**
+ * Get connected MCP servers from localStorage.
+ */
+function getConnectedMcpServers(): McpServerConfig[] {
+    try {
+        const saved = localStorage.getItem('opspilot-mcp-servers');
+        if (!saved) return [];
+
+        const servers = JSON.parse(saved) as Array<{
+            name: string;
+            command: string;
+            args: string[];
+            env: Record<string, string>;
+            connected: boolean;
+        }>;
+
+        // Only return connected servers
+        return servers
+            .filter((s) => s.connected)
+            .map((s) => ({
+                name: s.name,
+                command: s.command,
+                args: s.args || [],
+                env: s.env || {}
+            }));
+    } catch (e) {
+        console.warn('[AgentOrchestrator] Failed to load MCP servers:', e);
+        return [];
+    }
+}
+
+/**
  * Direct Claude Code agent - bypasses LangGraph for faster responses.
  * Uses single Claude Code call with tool execution.
  */
@@ -120,8 +317,16 @@ async function runDirectAgent(
     onProgress?: (msg: string) => void,
     onStep?: (step: AgentStep) => void,
     abortSignal?: AbortSignal,
-    toolSubset?: string // "code_search", "k8s_only", etc.
+    toolSubset?: string, // "code_search", "k8s_only", etc.
+    fastMode: boolean = false,
+    resourceContext?: string
 ): Promise<string> {
+    // Get connected MCP servers to pass to Claude
+    const mcpServers = getConnectedMcpServers();
+    if (mcpServers.length > 0) {
+        console.log('[AgentOrchestrator] Passing MCP servers to Claude:', mcpServers.map(s => s.name));
+    }
+
     const response = await fetch(`${getAgentServerUrl()}/analyze-direct`, {
         method: 'POST',
         headers: {
@@ -132,7 +337,10 @@ async function runDirectAgent(
             query,
             kube_context: kubeContext || '',
             llm_provider: llmProvider,
-            tool_subset: toolSubset
+            tool_subset: toolSubset,
+            fast_mode: fastMode,
+            resource_context: resourceContext,
+            mcp_servers: mcpServers
         }),
         signal: abortSignal,
     });
@@ -261,7 +469,9 @@ async function runPythonAgent(
     embeddingModel?: string,
     approvedCommand?: boolean,
     onApprovalRequired?: (context: any) => void,
-    toolSubset?: string
+    toolSubset?: string,
+    fastMode: boolean = false,
+    resourceContext?: string
 ): Promise<string> {
     // Pre-flight check: ensure the Python agent is running (auto-start if needed)
     onProgress?.('🔍 Checking agent server...');
@@ -270,11 +480,11 @@ async function runPythonAgent(
         throw new Error("❌ **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
     }
 
-    // FAST PATH: Use direct agent for Claude Code/Codex provider (single LLM call)
-    if (llmProvider === 'claude-code' || llmProvider === 'codex-cli') {
-        console.log(`[AgentOrchestrator] Using direct agent for ${llmProvider} (fast path)`);
-        onProgress?.('🚀 Direct investigation...');
-        return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal, toolSubset);
+    // FAST PATH: Use direct agent if fastMode is requested OR for specific providers
+    if (fastMode || llmProvider === 'claude-code' || llmProvider === 'codex-cli') {
+        console.log(`[AgentOrchestrator] Using direct agent (Fast Mode: ${fastMode})`);
+        onProgress?.(fastMode ? '⚡ Fast Mode investigation...' : '🚀 Direct investigation...');
+        return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal, toolSubset, fastMode, resourceContext);
     }
 
     onProgress?.('🧠 Reasoning...');
@@ -581,7 +791,7 @@ export async function runAgentLoop(
     onStepCompleted?: (step: number, planSummary: string) => void,
     onStepFailed?: (step: number, error: string) => void,
     onPlanComplete?: (totalSteps: number) => void,
-    baseParams?: { thread_id?: string; approved?: boolean; onApprovalRequired?: (context: any) => void; tool_subset?: string }
+    baseParams?: { thread_id?: string; approved?: boolean; onApprovalRequired?: (context: any) => void; tool_subset?: string; fastMode?: boolean; resourceContext?: string }
 ): Promise<string> {
 
     try {
@@ -621,7 +831,9 @@ export async function runAgentLoop(
             config.embedding_model || undefined,
             baseParams?.approved,
             baseParams?.onApprovalRequired,
-            baseParams?.tool_subset
+            baseParams?.tool_subset,
+            baseParams?.fastMode,
+            baseParams?.resourceContext
         );
 
 

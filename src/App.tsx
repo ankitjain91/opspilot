@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
 import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializeConfig } from "./utils/config";
 
 import { Dashboard } from './components/dashboard/Dashboard';
@@ -86,7 +87,7 @@ function AppContent() {
   }, []);
 
   // Start Sentinel listener with auto-investigate handler
-  const { kbProgress, sentinelStatus } = useSentinel(handleAutoInvestigate);
+  const { kbProgress, sentinelStatus, reconnect: reconnectSentinel } = useSentinel(handleAutoInvestigate);
 
   // Initialize configuration on app startup (auto-detect agent URL, load config file, etc.)
   useEffect(() => {
@@ -105,12 +106,39 @@ function AppContent() {
 
   const prevContextRef = useRef<string | null>(null);
 
-  // Observe current context name globally
+  // Track document visibility for smart polling
+  const [isDocumentVisible, setIsDocumentVisible] = useState(!document.hidden);
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const nowVisible = !document.hidden;
+      setIsDocumentVisible(nowVisible);
+      // Reconnect Sentinel when user returns to the app
+      if (nowVisible && sentinelStatus !== 'connected') {
+        console.log('[App] Document became visible, triggering Sentinel reconnect');
+        reconnectSentinel();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [sentinelStatus, reconnectSentinel]);
+
+  // Observe current context name globally (single consolidated query)
   const { data: globalCurrentContext } = useQuery({
-    queryKey: ["current_context_boot"],
+    queryKey: ["current_context"],
     queryFn: async () => await invoke<string>("get_current_context_name"),
-    refetchInterval: 5000,
+    refetchInterval: isDocumentVisible ? 15000 : false, // 15s when visible, disabled when hidden
+    staleTime: 10000,
   });
+
+  // Reconnect Sentinel when context changes (ensures fresh connection)
+  const prevSentinelContextRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (globalCurrentContext && prevSentinelContextRef.current !== globalCurrentContext) {
+      console.log('[App] Context changed, triggering Sentinel reconnect');
+      reconnectSentinel();
+      prevSentinelContextRef.current = globalCurrentContext;
+    }
+  }, [globalCurrentContext, reconnectSentinel]);
 
   // After connection, gate UI on cluster details load
   const {
@@ -135,25 +163,19 @@ function AppContent() {
   }, [bootStats]);
 
 
-  // Watch current context and toast on changes
-  const { data: currentCtx } = useQuery({
-    queryKey: ["current_context_global"],
-    queryFn: async () => await invoke<string>("get_current_context_name"),
-    refetchInterval: 5000,
-  });
-
   // Always show home screen on app open - user must explicitly connect
   // (Removed auto-connect logic that was previously here)
 
+  // Watch for context changes and toast notifications
   useEffect(() => {
-    if (typeof currentCtx === 'string') {
-      if (prevContextRef.current && prevContextRef.current !== currentCtx) {
-        showToast(`Switched context to '${currentCtx}'`, 'info');
+    if (typeof globalCurrentContext === 'string') {
+      if (prevContextRef.current && prevContextRef.current !== globalCurrentContext) {
+        showToast(`Switched context to '${globalCurrentContext}'`, 'info');
         clearAll(); // Clear stale notifications from previous context
       }
-      prevContextRef.current = currentCtx;
+      prevContextRef.current = globalCurrentContext;
     }
-  }, [currentCtx, showToast]);
+  }, [globalCurrentContext, showToast, clearAll]);
 
   if (!isConnected) {
     return (
@@ -358,6 +380,9 @@ function AppContent() {
           setIsClusterChatMinimized(false);
         }}
         sentinelStatus={sentinelStatus}
+        onReconnectSentinel={reconnectSentinel}
+        currentContext={globalCurrentContext || ""}
+        onAutoInvestigate={handleAutoInvestigate}
       />
       <PortForwardList currentContext={globalCurrentContext} />
 
@@ -438,17 +463,19 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 export default function App() {
   return (
     <ErrorBoundary>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{ persister }}
-      >
-        <NotificationProvider>
-          <ToastProvider>
-            <AppContent />
-          </ToastProvider>
-        </NotificationProvider>
-        <Updater />
-      </PersistQueryClientProvider>
+      <ThemeProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister }}
+        >
+          <NotificationProvider>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
+          </NotificationProvider>
+          <Updater />
+        </PersistQueryClientProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

@@ -325,13 +325,17 @@ _query_coalescer: Optional[QueryCoalescer] = None
 
 
 def get_query_cache() -> SemanticQueryCache:
-    """Get or create the global query cache instance."""
+    """Get or create the global query cache instance.
+
+    Token Optimization: Lower similarity threshold (0.92) means more cache hits
+    for semantically similar queries like "failing pods" vs "pods that are failing".
+    """
     global _query_cache
     if _query_cache is None:
         _query_cache = SemanticQueryCache(
-            max_size=100,
+            max_size=200,  # Increased from 100 for better hit rate
             ttl_seconds=300,  # 5 minutes
-            similarity_threshold=0.95
+            similarity_threshold=0.92  # Lowered from 0.95 for more semantic matches
         )
     return _query_cache
 

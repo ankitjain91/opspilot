@@ -10,14 +10,130 @@ Key Features:
 3. JSON response extraction
 4. Session management for multi-turn conversations
 5. Tool use extraction for command execution
+6. Response caching for identical queries (token optimization)
 """
 
 import asyncio
 import json
 import re
 import subprocess
+import hashlib
+import time
 from typing import AsyncIterator, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
+from collections import OrderedDict
+
+
+# ============================================================================
+# RESPONSE CACHE - Token Optimization
+# ============================================================================
+
+class ResponseCache:
+    """
+    LRU cache for full Claude Code responses.
+
+    Caches responses for identical queries to avoid redundant LLM calls.
+    TTL-based expiration ensures fresh data for cluster state queries.
+    """
+
+    def __init__(self, max_size: int = 50, ttl_seconds: int = 120):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, Tuple[str, float]] = OrderedDict()
+        self._hits = 0
+        self._misses = 0
+
+    def _get_key(self, prompt: str, context: str = "") -> str:
+        """Generate cache key from prompt and context."""
+        combined = f"{prompt}|{context}"
+        return hashlib.sha256(combined.encode()).hexdigest()[:24]
+
+    def get(self, prompt: str, context: str = "") -> Optional[str]:
+        """Get cached response if available and not expired."""
+        key = self._get_key(prompt, context)
+
+        if key in self._cache:
+            response, timestamp = self._cache[key]
+            if time.time() - timestamp < self.ttl_seconds:
+                # Move to end (most recently used)
+                self._cache.move_to_end(key)
+                self._hits += 1
+                return response
+            else:
+                # Expired - remove
+                del self._cache[key]
+
+        self._misses += 1
+        return None
+
+    def set(self, prompt: str, response: str, context: str = ""):
+        """Store response in cache."""
+        key = self._get_key(prompt, context)
+
+        # Evict oldest if full
+        while len(self._cache) >= self.max_size:
+            self._cache.popitem(last=False)
+
+        self._cache[key] = (response, time.time())
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total = self._hits + self._misses
+        hit_rate = (self._hits / total * 100) if total > 0 else 0
+        return {
+            'hits': self._hits,
+            'misses': self._misses,
+            'size': len(self._cache),
+            'hit_rate_percent': round(hit_rate, 2)
+        }
+
+    def clear(self):
+        """Clear all cached responses."""
+        self._cache.clear()
+
+
+# Global response cache instance
+_response_cache: Optional[ResponseCache] = None
+
+
+def get_response_cache() -> ResponseCache:
+    """Get or create the global response cache."""
+    global _response_cache
+    if _response_cache is None:
+        _response_cache = ResponseCache(
+            max_size=50,  # Cache last 50 unique queries
+            ttl_seconds=120  # 2 minute TTL for cluster state freshness
+        )
+    return _response_cache
+
+
+@dataclass
+class TokenUsage:
+    """Token usage statistics."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def add(self, other: 'TokenUsage') -> None:
+        """Accumulate usage from another TokenUsage instance."""
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        self.cache_read_tokens += other.cache_read_tokens
+        self.cache_creation_tokens += other.cache_creation_tokens
+
+    def to_dict(self) -> Dict[str, int]:
+        return {
+            'input_tokens': self.input_tokens,
+            'output_tokens': self.output_tokens,
+            'cache_read_tokens': self.cache_read_tokens,
+            'cache_creation_tokens': self.cache_creation_tokens,
+            'total_tokens': self.total_tokens
+        }
 
 
 @dataclass
@@ -28,6 +144,7 @@ class ClaudeCodeResponse:
     thinking: str = ""
     is_complete: bool = False
     raw_output: str = ""
+    usage: Optional[TokenUsage] = None
 
 
 class ClaudeCodeBackend:
@@ -42,6 +159,7 @@ class ClaudeCodeBackend:
     def __init__(self, working_dir: str = None):
         self.working_dir = working_dir
         self.session_id: Optional[str] = None
+        self.session_usage: TokenUsage = TokenUsage()  # Accumulated usage for current session
         self._check_claude_installed()
 
     def _check_claude_installed(self) -> bool:
@@ -258,6 +376,68 @@ Example for respond:
 
         await process.wait()
 
+    async def compact(self) -> str:
+        """Run /compact slash command to reduce context size."""
+        if not self.session_id:
+            return "No active session to compact"
+        
+        print(f"[claude-code] 🧹 Compacting session {self.session_id}", flush=True)
+        return await self.call("/compact", continue_session=True, timeout=30.0)
+
+    async def get_usage(self) -> Dict[str, Any]:
+        """Get usage info including session token counts and /cost command output."""
+        result = {
+            "session_tokens": self.session_usage.to_dict(),
+            "cost_info": None,
+            "subscription_type": "unknown"
+        }
+
+        # Run /cost slash command to get billing info
+        cmd = ["claude", "-p", "/cost", "--output-format", "stream-json", "--verbose"]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
+                cwd=self.working_dir
+            )
+
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
+            output = stdout.decode('utf-8', errors='replace')
+
+            # Parse the output for cost info
+            for line in output.split('\n'):
+                if not line.strip(): continue
+                try:
+                    event = json.loads(line)
+                    if event.get('type') == 'user':
+                        content = event.get('message', {}).get('content', '')
+                        if '<local-command-stdout>' in content:
+                            cost_text = content.replace('<local-command-stdout>', '').replace('</local-command-stdout>', '').strip()
+                            result["cost_info"] = cost_text
+                            # Detect subscription type
+                            if "Claude Max subscription" in cost_text or "subscription includes" in cost_text:
+                                result["subscription_type"] = "max"
+                            elif "$" in cost_text or "cost" in cost_text.lower():
+                                result["subscription_type"] = "api"
+                except:
+                    continue
+
+        except Exception as e:
+            result["cost_info"] = f"Error fetching usage: {e}"
+
+        return result
+
+    def get_session_usage(self) -> Dict[str, int]:
+        """Get current session token usage."""
+        return self.session_usage.to_dict()
+
+    def reset_session_usage(self) -> None:
+        """Reset session token counters."""
+        self.session_usage = TokenUsage()
+
     async def call_streaming_with_tools(
         self,
         prompt: str,
@@ -268,7 +448,8 @@ Example for respond:
         session_id: str = None,
         conversation_history: List[Dict[str, str]] = None,
         mcp_config: dict = None,  # MCP server config to pass to Claude CLI
-        restricted_tools: bool = False  # If True, blocks kubectl and other non-search commands
+        restricted_tools: bool = False,  # If True, blocks kubectl and other non-search commands
+        working_dir: str = None  # Override working directory for this call
     ) -> AsyncIterator[dict]:
         """
         Stream responses from Claude Code CLI with native tool execution.
@@ -307,18 +488,114 @@ Example for respond:
             "--disallowedTools", "NotebookEdit",
         ]
 
-        # Add MCP server config if provided
+        # Add MCP server config if provided - merge with user's existing config
+        mcp_config_file = None
         if mcp_config:
-            mcp_json = json.dumps(mcp_config)
-            cmd.extend(["--mcp-config", mcp_json])
-            print(f"[claude-code-streaming] 🔌 MCP config added: {list(mcp_config.keys())}", flush=True)
+            import tempfile
+            import os as _os
+            try:
+                # Start with user's existing ~/.claude/settings.json
+                user_config_path = _os.path.expanduser("~/.claude/settings.json")
+                merged_config = {}
+
+                if _os.path.exists(user_config_path):
+                    try:
+                        with open(user_config_path, 'r') as f:
+                            merged_config = json.load(f)
+                        print(f"[claude-code-streaming] 📄 Loaded existing config from {user_config_path}", flush=True)
+                    except Exception as e:
+                        print(f"[claude-code-streaming] ⚠️ Could not read existing config: {e}", flush=True)
+
+                # Merge OpsPilot's MCP servers with existing ones (OpsPilot servers take precedence)
+                existing_mcp = merged_config.get('mcpServers', {})
+                opspilot_mcp = mcp_config.get('mcpServers', {})
+                merged_mcp = {**existing_mcp, **opspilot_mcp}
+                merged_config['mcpServers'] = merged_mcp
+
+                # Write merged config to a temp file
+                fd, mcp_config_file = tempfile.mkstemp(suffix='.json', prefix='opspilot_mcp_')
+                with _os.fdopen(fd, 'w') as f:
+                    json.dump(merged_config, f, indent=2)
+
+                cmd.extend(["--mcp-config", mcp_config_file])
+                # Use strict mode so Claude uses ONLY this merged config file
+                cmd.append("--strict-mcp-config")
+
+                print(f"[claude-code-streaming] 🔌 MCP config file: {mcp_config_file}", flush=True)
+                print(f"[claude-code-streaming] 🔌 Existing servers: {list(existing_mcp.keys())}", flush=True)
+                print(f"[claude-code-streaming] 🔌 OpsPilot servers: {list(opspilot_mcp.keys())}", flush=True)
+                print(f"[claude-code-streaming] 🔌 Merged total: {list(merged_mcp.keys())}", flush=True)
+            except Exception as e:
+                print(f"[claude-code-streaming] ⚠️ Failed to write MCP config file: {e}", flush=True)
+                mcp_config_file = None
 
         # Continue session if session_id provided
         if session_id and self.session_id:
             cmd.extend(["--resume", self.session_id])
 
+        # Block MCP write operations - common patterns across MCP servers
+        # Format: mcp__<server>__<tool> - we block dangerous patterns
+        mcp_write_patterns = [
+            # GitHub MCP write operations
+            "mcp__github__create_issue",
+            "mcp__github__create_pull_request",
+            "mcp__github__update_issue",
+            "mcp__github__create_or_update_file",
+            "mcp__github__push_files",
+            "mcp__github__create_branch",
+            "mcp__github__fork_repository",
+            "mcp__github__create_repository",
+            # Jira MCP write operations
+            "mcp__jira__create_issue",
+            "mcp__jira__update_issue",
+            "mcp__jira__add_comment",
+            "mcp__jira__transition_issue",
+            # Generic patterns for other MCPs (create/update/delete/write)
+            "mcp__*__create_*",
+            "mcp__*__update_*",
+            "mcp__*__delete_*",
+            "mcp__*__write_*",
+            "mcp__*__push_*",
+            "mcp__*__post_*",
+            "mcp__*__put_*",
+        ]
+        for pattern in mcp_write_patterns:
+            cmd.extend(["--disallowedTools", pattern])
+
         # Append system prompt if provided
-        strict_read_only = "\n\nCRITICAL SECURITY RULE: You are in STRICT READ-ONLY mode. You are FORBIDDEN from running any 'kubectl' commands that modify state (apply, delete, patch, edit, scale, etc.). You may only use 'get', 'describe', 'logs', 'top', and other non-mutating commands. ANY attempt to mutate will be BLOCKED and logged.\n\nEFFICIENCY RULE: Optimize for MINIMUM TOKEN USAGE. Combine commands (e.g., using pipes, xargs, or complex shell strings) to get the required information in as few turns as possible. Focus only on the end result."
+        # CRITICAL: Comprehensive read-only enforcement - kubectl mutations are STRICTLY FORBIDDEN
+        strict_read_only = """
+
+═══════════════════════════════════════════════════════════════════════════════
+🔒 CRITICAL SECURITY: STRICT READ-ONLY MODE - ENFORCED BY SYSTEM
+═══════════════════════════════════════════════════════════════════════════════
+
+You are in STRICT READ-ONLY mode. ALL mutation operations are BLOCKED.
+
+❌ KUBECTL MUTATIONS - ABSOLUTELY FORBIDDEN (will be rejected):
+   • kubectl apply, kubectl create, kubectl delete, kubectl patch
+   • kubectl edit, kubectl replace, kubectl set, kubectl annotate
+   • kubectl label, kubectl taint, kubectl cordon, kubectl drain
+   • kubectl scale, kubectl rollout, kubectl autoscale
+   • kubectl cp, kubectl run, kubectl expose
+
+❌ HELM MUTATIONS - FORBIDDEN:
+   • helm install, helm upgrade, helm uninstall, helm rollback
+
+❌ MCP WRITE OPERATIONS - FORBIDDEN:
+   • Any create_*, update_*, delete_*, push_*, post_*, put_* MCP tools
+
+✅ ALLOWED READ-ONLY OPERATIONS ONLY:
+   • kubectl get, kubectl describe, kubectl logs, kubectl events
+   • kubectl explain, kubectl api-resources, kubectl top
+   • helm list, helm status, helm get
+   • Any read/search/list/fetch MCP operations
+
+⚠️ IF USER ASKS FOR MODIFICATIONS: Explain that you are in read-only mode and can only provide guidance. Suggest the exact commands they would need to run manually.
+
+EFFICIENCY: Minimize token usage. Combine commands. Be concise.
+═══════════════════════════════════════════════════════════════════════════════
+"""
         if system_prompt:
             system_prompt += strict_read_only
             cmd.extend(["--append-system-prompt", system_prompt])
@@ -350,8 +627,13 @@ Example for respond:
             env = os.environ.copy()
             env['KUBECONFIG_CONTEXT'] = kube_context
 
+        # Use provided working_dir or fall back to instance default
+        effective_working_dir = working_dir or self.working_dir
+
         print(f"[claude-code-streaming] 🚀 Starting agentic call with native tools", flush=True)
         print(f"[claude-code-streaming] 📝 Prompt: {prompt[:200]}...", flush=True)
+        if effective_working_dir:
+            print(f"[claude-code-streaming] 📁 Working directory: {effective_working_dir}", flush=True)
 
         process = None
         try:
@@ -360,7 +642,7 @@ Example for respond:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.DEVNULL,
-                cwd=self.working_dir,
+                cwd=effective_working_dir,
                 env=env
             )
 
@@ -430,8 +712,24 @@ Example for respond:
                         yield {'type': 'tool_result', 'output': result, 'tool': current_tool}
 
                     elif event_type == 'result':
-                        # Final result
+                        # Final result - extract token usage
                         result_text = event.get('result', '')
+                        usage_data = event.get('usage', {})
+                        if usage_data:
+                            request_usage = TokenUsage(
+                                input_tokens=usage_data.get('input_tokens', 0),
+                                output_tokens=usage_data.get('output_tokens', 0),
+                                cache_read_tokens=usage_data.get('cache_read_input_tokens', 0),
+                                cache_creation_tokens=usage_data.get('cache_creation_input_tokens', 0)
+                            )
+                            self.session_usage.add(request_usage)
+                            yield {
+                                'type': 'usage',
+                                'input_tokens': request_usage.input_tokens,
+                                'output_tokens': request_usage.output_tokens,
+                                'total_tokens': request_usage.total_tokens,
+                                'session_total': self.session_usage.total_tokens
+                            }
                         if result_text:
                             # This is the final answer
                             yield {'type': 'done', 'final_text': result_text}
@@ -470,6 +768,14 @@ Example for respond:
                     process.kill()
                     await process.wait()
                     print(f"[claude-code-streaming] 🧹 Cleaned up subprocess", flush=True)
+                except Exception:
+                    pass
+            # Clean up temp MCP config file
+            if mcp_config_file:
+                try:
+                    import os as _os
+                    _os.unlink(mcp_config_file)
+                    print(f"[claude-code-streaming] 🧹 Cleaned up MCP config file", flush=True)
                 except Exception:
                     pass
 
@@ -836,19 +1142,40 @@ Example for respond:
             return f"Error searching files: {e}"
 
     async def _handle_grep_tool(self, input_data: Dict) -> str:
-        """Search file contents."""
+        """Search file contents using a portable Python implementation."""
         pattern = input_data.get('pattern', '')
         path = input_data.get('path', '.')
+        
+        if not pattern:
+            return "Error: No pattern provided"
 
+        import re
         try:
-            cmd = f"grep -rn '{pattern}' {path} | head -50"
-            process = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await process.communicate()
-            return stdout.decode('utf-8', errors='replace')
+            regex = re.compile(pattern, re.IGNORECASE)
+            results = []
+            max_results = 50
+            
+            # Walk directory
+            for root, _, files in os.walk(path):
+                for file in files:
+                    if len(results) >= max_results:
+                        break
+                    
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            for i, line in enumerate(f, 1):
+                                if regex.search(line):
+                                    results.append(f"{file_path}:{i}:{line.strip()}")
+                                    if len(results) >= max_results:
+                                        break
+                    except Exception:
+                        continue # Skip binaries or unreadable files
+                
+                if len(results) >= max_results:
+                    break
+            
+            return '\n'.join(results) if results else "No matches found."
         except Exception as e:
             return f"Error searching: {e}"
 

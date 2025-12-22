@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant UI as React UI
+  participant Agent as Python Agent
+  participant K8s as Cluster
+
+  UI->>Agent: GET /analyze-controllers?kube_context=<ctx>
+  Agent->>K8s: Discover controllers, CRDs
+  Agent-->>UI: status=scanning, progress
+  UI->>Agent: Poll every 2s (scan)
+  Agent-->>UI: Partial results (controllers, unhealthy CRs)
+  Agent-->>UI: status=complete
+  UI->>Agent: Stop scan polling
+  UI->>Agent: Start idle refresh (30-120s backoff)
