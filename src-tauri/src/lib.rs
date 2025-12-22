@@ -3,7 +3,7 @@ use crate::state::AppState;
 
 mod models;
 mod state;
-mod utils;
+pub mod utils;
 mod client;
 mod ai_local;
 mod agent_sidecar;
