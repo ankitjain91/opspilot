@@ -14,5 +14,11 @@ fn main() {
             env::set_var("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
         }
     }
+    
+    // Initialize logging
+    if let Err(e) = opspilot::utils::logging::init_logger() {
+        eprintln!("Failed to initialize logger: {}", e);
+    }
+
     opspilot::run()
 }

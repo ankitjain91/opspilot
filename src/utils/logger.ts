@@ -14,6 +14,8 @@ interface LogEntry {
     data?: any;
 }
 
+import { invoke } from '@tauri-apps/api/core';
+
 const MAX_LOG_ENTRIES = 2000; // Keep last 2000 log entries
 const logBuffer: LogEntry[] = [];
 
@@ -98,12 +100,28 @@ function formatTimestamp(): string {
     return new Date().toISOString();
 }
 
+const invokeLog = async (entry: LogEntry) => {
+    try {
+        await invoke('log_frontend_message', {
+            level: entry.level,
+            category: entry.category,
+            message: entry.message,
+            data: entry.data
+        });
+    } catch (e) {
+        // Silent fail to avoid loop
+    }
+};
+
 function addToBuffer(entry: LogEntry) {
     logBuffer.push(entry);
     // Keep buffer size limited
     if (logBuffer.length > MAX_LOG_ENTRIES) {
         logBuffer.shift();
     }
+
+    // Also send to backend for persistent file logging
+    invokeLog(entry);
 }
 
 function formatMessage(category: string, message: string, data?: any): string {

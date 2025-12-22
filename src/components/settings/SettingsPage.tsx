@@ -475,7 +475,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             const agentUrl = (config.agentServerUrl || getAgentServerUrl()).replace(/\/$/, '');
             const endpointParam = config.embeddingEndpoint ? `&embedding_endpoint=${encodeURIComponent(config.embeddingEndpoint)}` : '';
             const modelParam = config.embeddingModel ? `&model_name=${encodeURIComponent(config.embeddingModel)}` : '';
-            const resp = await fetch(`${agentUrl}/embedding-model/status?llm_endpoint=&${endpointParam}${modelParam}`);
+            const llmEndpoint = 'http://localhost:11434';
+            const resp = await fetch(`${agentUrl}/embedding-model/status?llm_endpoint=${encodeURIComponent(llmEndpoint)}${endpointParam}${modelParam}`);
             if (resp.ok) {
                 const data = await resp.json();
                 if (data?.available) {

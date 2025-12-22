@@ -38,6 +38,7 @@ use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials, dete
 use commands::helm::{helm_list, helm_uninstall, helm_get_details, helm_history, helm_get_resources, helm_rollback};
 use commands::argocd::{argo_patch_helm_values, argo_patch_source, argo_sync_application, argo_refresh_application};
 use commands::dependencies::check_dependencies;
+use utils::logging::log_frontend_message;
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text, auto_start_ollama};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status, read_server_info_file};
@@ -226,7 +227,10 @@ pub fn run() {
             argo_refresh_application,
 
             // Dependencies
-            check_dependencies
+            check_dependencies,
+
+            // Logging
+            log_frontend_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

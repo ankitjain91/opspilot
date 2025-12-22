@@ -111,6 +111,7 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
                     println!("[agent-sidecar] {}", line_str);
+                    crate::utils::logging::log_to_file("agent-sidecar", "INFO", &line_str);
                     
                     // If we see the port broadcast, we can trigger a refresh in the UI if needed
                     // but the reactive UI is already checking the file.
@@ -118,12 +119,17 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
                     eprintln!("[agent-sidecar] ERR: {}", line_str);
+                    crate::utils::logging::log_to_file("agent-sidecar", "ERROR", &line_str);
                 }
                 CommandEvent::Error(err) => {
                     eprintln!("[agent-sidecar] Error: {}", err);
+                    crate::utils::logging::log_to_file("agent-sidecar", "ERROR", &format!("Process Error: {}", err));
                 }
                 CommandEvent::Terminated(payload) => {
-                    println!("[agent-sidecar] Terminated with code: {:?}", payload.code);
+                    let msg = format!("Terminated with code: {:?}", payload.code);
+                    println!("[agent-sidecar] {}", msg);
+                    crate::utils::logging::log_to_file("agent-sidecar", "INFO", &msg);
+                    
                     // Clear the child reference
                     if let Some(state) = app_handle.try_state::<AgentSidecarState>() {
                         let mut guard = state.child.lock().await;
@@ -140,6 +146,7 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
 
     println!("[agent-sidecar] Started successfully (Port discovery active)");
+    crate::utils::logging::log_to_file("agent-sidecar", "INFO", "Agent sidecar started");
     Ok(())
 }
 

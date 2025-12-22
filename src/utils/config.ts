@@ -199,11 +199,13 @@ async function autoDetectAgentUrl(): Promise<string | null> {
     }
 
     // Also try to get network URL from agent
+    console.log(`[Config] Probing remaining URLs: ${[...new Set(urlsToTry)].join(', ')}`);
     for (const url of [...new Set(urlsToTry)]) {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
 
+            console.log(`[Config] Testing health at ${url}/health...`);
             const response = await fetch(`${url}/health`, {
                 method: 'GET',
                 signal: controller.signal,
@@ -212,24 +214,30 @@ async function autoDetectAgentUrl(): Promise<string | null> {
             clearTimeout(timeoutId);
 
             if (response.ok) {
+                console.log(`[Config] URL ${url} is healthy`);
                 // Agent is running, try to get network URL
                 try {
+                    console.log(`[Config] Fetching network info from ${url}/info...`);
                     const infoResp = await fetch(`${url}/info`);
                     if (infoResp.ok) {
                         const info = await infoResp.json();
                         if (info.network_url) {
+                            console.log(`[Config] Found advertised network URL: ${info.network_url}`);
                             return info.network_url;
                         }
                     }
-                } catch {
+                } catch (e) {
+                    console.debug(`[Config] Info check failed (legacy agent?), using base URL: ${e}`);
                     // Fall back to the URL that worked
                 }
                 return url;
             }
-        } catch {
+        } catch (e) {
+            console.debug(`[Config] Probe failed for ${url}: ${e}`);
             // Try next URL
         }
     }
+    console.warn('[Config] Auto-detection failed: no responsive agent found');
 
     return null;
 }

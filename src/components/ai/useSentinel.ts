@@ -118,11 +118,12 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
 
                     if (data.type === 'heartbeat') {
                         // Just a keepalive, no action needed - but we already updated lastMessageTime
+                        console.debug('[Sentinel] Heartbeat received');
                         return;
                     }
 
                     if (data.type === 'alert') {
-                        console.log("🛡️ Sentinel Alert:", data);
+                        console.log("🛡️ Sentinel Alert:", data.message, "on", data.resource);
                         // Use ref to get latest addNotification
                         addNotificationRef.current(
                             data.message,
@@ -132,6 +133,7 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                                 label: "Investigate",
                                 type: 'investigate',
                                 onClick: () => {
+                                    console.log(`[Sentinel] Investigation triggered for ${data.resource}`);
                                     if (onInvestigateRef.current) {
                                         const prompt = `Sentinel Alert: ${data.message}. RESOURCE: ${data.resource || 'unknown'}. Please analyze the root cause immediately.`;
                                         onInvestigateRef.current(prompt);
@@ -184,6 +186,10 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                 clearTimeout(connectionTimeout);
                 if (connectionIdRef.current !== thisConnectionId) return;
                 if (!mountedRef.current) return;
+
+                const stateString = eventSource.readyState === EventSource.CONNECTING ? 'CONNECTING' :
+                    eventSource.readyState === EventSource.OPEN ? 'OPEN' : 'CLOSED';
+                console.warn(`[Sentinel] EventSource error (state: ${stateString}):`, e);
 
                 // Check readyState to determine what happened
                 if (eventSource.readyState === EventSource.CLOSED) {

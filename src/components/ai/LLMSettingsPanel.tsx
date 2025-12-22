@@ -235,7 +235,8 @@ export function LLMSettingsPanel({
             const targetEndpoint = getEffectiveEmbeddingEndpoint();
             const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
 
-            const resp = await fetch(`${getAgentServerUrl()}/embedding-model/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`);
+            const baseUrl = localConfig.base_url || 'http://localhost:11434';
+            const resp = await fetch(`${getAgentServerUrl()}/embedding-model/status?llm_endpoint=${encodeURIComponent(baseUrl)}${modelParam}${endpointParam}`);
             if (resp.ok) {
                 setEmbeddingStatus(await resp.json());
             }

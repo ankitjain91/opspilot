@@ -4,6 +4,8 @@ use k8s_openapi::api::core::v1 as k8s_core;
 use k8s_openapi::api::apps::v1 as k8s_apps;
 use k8s_openapi::api::batch::v1 as k8s_batch;
 
+pub mod logging;
+
 pub fn topo_node_id(kind: &str, namespace: Option<&str>, name: &str) -> String {
     if let Some(ns) = namespace { format!("{}/{}/{}", kind, ns, name) } else { format!("{}/{}", kind, name) }
 }

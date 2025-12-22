@@ -849,10 +849,13 @@ def find_executable_path(exe_name: str) -> str | None:
     """Find executable in PATH or common locations."""
     import shutil
     import os
-    
+
+    print(f"[Discovery] Searching for executable: {exe_name}", flush=True)
     # 1. Check system PATH first
     path = shutil.which(exe_name)
-    if path: return path
+    if path:
+        print(f"[Discovery] Found '{exe_name}' in system PATH: {path}", flush=True)
+        return path
     
     # 2. Check common locations
     common_dirs = [
@@ -875,6 +878,7 @@ def find_executable_path(exe_name: str) -> str | None:
         # Check standard name
         p = os.path.join(d, exe_name)
         if os.path.exists(p) and os.access(p, os.X_OK):
+            print(f"[Discovery] Found '{exe_name}' in common dir: {p}", flush=True)
             return p
             
         # Check extensions (Windows/all)
@@ -882,8 +886,10 @@ def find_executable_path(exe_name: str) -> str | None:
         for ext in exts:
             p_ext = p + ext
             if os.path.exists(p_ext) and (sys.platform == "win32" or os.access(p_ext, os.X_OK)):
+                print(f"[Discovery] Found '{exe_name}' in common dir with extension: {p_ext}", flush=True)
                 return p_ext
             
+    print(f"[Discovery] Could not find '{exe_name}' in common locations or PATH", flush=True)
     return None
 
 async def _test_claude_code_connection(custom_path: str | None = None):
@@ -908,24 +914,38 @@ async def _test_claude_code_connection(custom_path: str | None = None):
             discovery_source = "path"
 
     # Lock 2: Granular Checks
+    print(f"[Claude-Test] Final binary path for test: {claude_bin} (Source: {discovery_source})", flush=True)
     error_code = None
     suggestion = None
     
     # Check 1: Existence (if absolute path)
-    if os.path.isabs(claude_bin) and not os.path.exists(claude_bin):
-        return {
-            "provider": "claude-code",
-            "connected": False,
-            "error_code": "ERR_NOT_FOUND",
-            "error": f"Claude binary not found at specified path: {claude_bin}",
-            "suggestion": "Double check the path or use 'claude' for auto-discovery.",
-            "path": claude_bin
-        }
+    if os.path.isabs(claude_bin):
+        if not os.path.exists(claude_bin):
+            print(f"[Claude-Test] Error: Absolute path does not exist: {claude_bin}", flush=True)
+            return {
+                "provider": "claude-code",
+                "connected": False,
+                "error_code": "ERR_NOT_FOUND",
+                "error": f"Claude binary not found at specified path: {claude_bin}",
+                "suggestion": "Double check the path or use 'claude' for auto-discovery.",
+                "path": claude_bin
+            }
+        
+        if not os.access(claude_bin, os.X_OK):
+            print(f"[Claude-Test] Error: Path exists but is not executable: {claude_bin}", flush=True)
+            return {
+                "provider": "claude-code",
+                "connected": False,
+                "error_code": "ERR_NO_PERM",
+                "error": f"Claude binary at {claude_bin} is not executable.",
+                "suggestion": f"Try running: chmod +x {claude_bin}",
+                "path": claude_bin
+            }
 
     # Check 2: Version and Connectivity
     try:
         # Quick check: run 'claude --version'
-        print(f"[Claude-Test] Testing: {claude_bin} --version", flush=True)
+        print(f"[Claude-Test] Executing version check: {claude_bin} --version", flush=True)
         process = await asyncio.create_subprocess_exec(
             claude_bin, "--version",
             stdout=asyncio.subprocess.PIPE,
@@ -937,42 +957,48 @@ async def _test_claude_code_connection(custom_path: str | None = None):
             timeout=10.0
         )
 
+        stdout_text = stdout.decode('utf-8', errors='replace').strip()
+        stderr_text = stderr.decode('utf-8', errors='replace').strip()
+
         if process.returncode == 0:
-            version_info = stdout.decode('utf-8', errors='replace').strip()
-            
-            # Sub-check: Auth (optional dry run)
-            # For now, if version works, we assume installed. 
-            # We could add 'claude help' but it's noisy.
+            print(f"[Claude-Test] Success: {stdout_text}", flush=True)
             
             return {
                 "provider": "claude-code",
                 "connected": True,
-                "version": version_info,
+                "version": stdout_text,
                 "path": claude_bin,
                 "discovery": discovery_source,
                 "error": None
             }
         else:
-            error_text = stderr.decode('utf-8', errors='replace').strip()
+            print(f"[Claude-Test] CLI failed with code {process.returncode}", flush=True)
+            print(f"[Claude-Test] STDOUT: {stdout_text}", flush=True)
+            print(f"[Claude-Test] STDERR: {stderr_text}", flush=True)
             
             # Actionable suggestions for common fails
-            if "not found" in error_text.lower() or "command not found" in error_text.lower():
+            if "not found" in stderr_text.lower() or "not found" in stdout_text.lower():
                 error_code = "ERR_NOT_FOUND"
                 suggestion = "Claude Code is not installed. Run: npm install -g @anthropic-ai/claude-code"
-            elif "permission" in error_text.lower():
+            elif "permission" in stderr_text.lower() or "permission" in stdout_text.lower():
                 error_code = "ERR_NO_PERM"
                 suggestion = f"Permission denied for {claude_bin}. Run: chmod +x {claude_bin}"
+            elif "login" in stderr_text.lower() or "auth" in stderr_text.lower() or "api key" in stderr_text.lower():
+                error_code = "ERR_NO_AUTH"
+                suggestion = "Claude Code requires authentication. Run 'claude login' in your terminal."
             else:
                 error_code = "ERR_CLI_FAIL"
-                suggestion = "Try running 'claude login' in your terminal."
+                suggestion = "Check system logs for details. Try running 'claude --version' manually."
 
             return {
                 "provider": "claude-code",
                 "connected": False,
                 "error_code": error_code,
-                "error": error_text or "CLI returned error",
+                "error": stderr_text or stdout_text or "CLI returned error",
                 "suggestion": suggestion,
-                "path": claude_bin
+                "path": claude_bin,
+                "stderr": stderr_text,
+                "stdout": stdout_text
             }
 
     except FileNotFoundError:
@@ -1462,6 +1488,9 @@ async def embedding_model_status(llm_endpoint: str = "http://localhost:11434", m
     # Use the shared state from search module (it manages the global var)
     # If embedding_endpoint is provided, use it; otherwise fallback to llm_endpoint (legacy)
     target_endpoint = embedding_endpoint or llm_endpoint
+    if not target_endpoint or not target_endpoint.strip():
+        return {"connected": False, "error": "No embedding endpoint configured"}
+        
     is_available = await search.check_embedding_model_available(target_endpoint, model_name=model_name)
     
     # We still need to get model size info for the UI
