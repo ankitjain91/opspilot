@@ -1751,21 +1751,21 @@ export function ClusterChatPanel({
                                             </div>
                                             <div className="bg-white/[0.03] border border-white/5 rounded-2xl rounded-tl-md overflow-hidden">
 
-                                                <div className="px-5 py-4 prose prose-invert prose-sm max-w-none break-words">
+                                                <div className="px-5 py-4 prose prose-invert prose-sm max-w-none break-words overflow-x-hidden">
                                                     <ReactMarkdown
                                                         remarkPlugins={[remarkGfm]}
                                                         components={{
                                                             p: ({ children }) => <p className="text-[14px] text-zinc-300 my-3 leading-relaxed opacity-90 break-words">{children}</p>,
                                                             strong: ({ children }) => <strong className="text-white font-bold tracking-tight">{children}</strong>,
                                                             em: ({ children }) => <em className="text-zinc-400 italic font-medium">{children}</em>,
-                                                            code: ({ children }) => <code className="text-[12px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono shadow-inner">{children}</code>,
+                                                            code: ({ children }) => <code className="text-[12px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono shadow-inner break-all">{children}</code>,
                                                             pre: ({ children }) => <pre className="text-[12px] bg-black/60 p-4 rounded-xl overflow-x-auto my-4 border border-white/5 shadow-inner font-mono leading-relaxed">{children}</pre>,
                                                             ul: ({ children }) => <ul className="text-[14px] list-none ml-0 my-3 space-y-2.5">{children}</ul>,
                                                             ol: ({ children }) => <ol className="text-[14px] list-decimal ml-5 my-3 space-y-2.5 text-zinc-400">{children}</ol>,
                                                             li: ({ children }) => (
-                                                                <li className="text-zinc-300 flex items-start group/li transition-all duration-300">
+                                                                <li className="text-zinc-300 flex items-start group/li transition-all duration-300 min-w-0">
                                                                     <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-500/40 group-hover/li:bg-emerald-500 mt-2 mr-3 transition-colors shadow-sm" />
-                                                                    <span>{children}</span>
+                                                                    <span className="min-w-0 break-words">{children}</span>
                                                                 </li>
                                                             ),
                                                             h1: ({ children }) => <h1 className="text-lg font-bold text-white mt-6 mb-4 flex items-center gap-3 border-b border-white/10 pb-3">{children}</h1>,
