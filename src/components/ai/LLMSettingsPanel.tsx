@@ -157,6 +157,12 @@ export function LLMSettingsPanel({
         setCheckingClaudeCode(true);
         try {
             const currentUrl = getAgentServerUrl();
+            if (!currentUrl || currentUrl.trim() === '') {
+                setClaudeCodeStatus({ connected: false, error: 'Agent server URL not configured. Please wait for auto-detection or configure manually.' });
+                setCheckingClaudeCode(false);
+                return;
+            }
+
             const resp = await fetch(`${currentUrl}/llm/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -180,14 +186,20 @@ export function LLMSettingsPanel({
                     });
                 } else {
                     const text = await resp.text();
-                    setClaudeCodeStatus({ connected: false, error: `Invalid response format: ${text.substring(0, 100)}` });
+                    setClaudeCodeStatus({ connected: false, error: `Invalid response format status=${resp.status}` });
                 }
             } else {
                 const errorText = await resp.text().catch(() => 'Unknown error');
                 setClaudeCodeStatus({ connected: false, error: `Server error (${resp.status}): ${errorText.substring(0, 100)}` });
             }
         } catch (e) {
-            setClaudeCodeStatus({ connected: false, error: `Connection failed: ${String(e)}` });
+            console.error("Claude check failed", e);
+            const errStr = String(e);
+            if (errStr.includes("TypeError") || errStr.includes("Load failed")) {
+                setClaudeCodeStatus({ connected: false, error: `Agent unreachable (Network Error). Check if agent server is running.` });
+            } else {
+                setClaudeCodeStatus({ connected: false, error: `Connection failed: ${errStr}` });
+            }
         }
         setCheckingClaudeCode(false);
     };
