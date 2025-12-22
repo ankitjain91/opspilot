@@ -3,10 +3,30 @@ import sys
 import os
 
 # Add the current directory to sys.path to ensure agent_server package can be imported
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# HOTFIX: Patch missing langgraph.cache module in langgraph 1.0.5
+import sys
+from types import ModuleType
+try:
+    import langgraph.cache
+except ImportError:
+    # Create dummy langgraph.cache.base module
+    m_base = ModuleType("langgraph.cache.base")
+    class BaseCache: pass
+    m_base.BaseCache = BaseCache
+    sys.modules["langgraph.cache.base"] = m_base
+    
+    # Create dummy langgraph.cache module
+    m_pkg = ModuleType("langgraph.cache")
+    m_pkg.base = m_base
+    sys.modules["langgraph.cache"] = m_pkg
+
 
 try:
     from agent_server.server import app, kill_process_on_port
+    import agent_server
+    print(f"Loaded agent_server from: {agent_server.__file__}", flush=True)
 except ImportError as e:
     print(f"Error importing agent_server package: {e}", flush=True)
     # Fallback debug info
