@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
 import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
+import { SentinelProvider } from "./components/ai/SentinelContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializeConfig } from "./utils/config";
 
@@ -25,6 +26,7 @@ import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
 import { PortForwardList } from './components/cluster/deep-dive/PortForward';
 import { AzurePage } from './components/azure/AzurePage';
 import { ConnectionScreen } from './components/cluster/ConnectionScreen';
+import { ConnectionDoctor } from './components/ai/ConnectionDoctor';
 import { ClusterStats, K8sObject } from './types/k8s';
 
 // --- Types ---
@@ -419,6 +421,8 @@ function AppContent() {
         </div>
       )}
 
+      <ConnectionDoctor />
+
     </>
   );
 }
@@ -470,7 +474,9 @@ export default function App() {
         >
           <NotificationProvider>
             <ToastProvider>
-              <AppContent />
+              <SentinelProvider>
+                <AppContent />
+              </SentinelProvider>
             </ToastProvider>
           </NotificationProvider>
           <Updater />

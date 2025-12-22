@@ -416,6 +416,39 @@ def trigger_background_preload(kube_context: str) -> bool:
 
 
 # --- startup ---
+async def claude_guardian():
+    """Background task to periodically check Claude Connection health."""
+    global CLAUDE_STATUS
+    import asyncio
+    import time
+    
+    print("[Guardian] Started Claude Connection Guardian", flush=True)
+    
+    # Wait a bit for server to settle
+    await asyncio.sleep(5)
+    
+    while True:
+        try:
+            # Re-use existing test logic
+            # This function is defined later in file, but resolved at runtime
+            status = await _test_claude_code_connection()
+            status["last_check"] = time.time()
+            CLAUDE_STATUS = status
+            
+            # If not connected, poll fast (1m). If connected, poll slow (5m).
+            sleep_time = 300 if status.get("connected") else 60
+            
+            await asyncio.sleep(sleep_time)
+        except Exception as e:
+            print(f"[Guardian] Error in loop: {e}", flush=True)
+            await asyncio.sleep(60)
+            
+            CLAUDE_STATUS = {
+                "connected": False,
+                "error": str(e),
+                "last_check": time.time()
+            }
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -435,6 +468,10 @@ async def lifespan(app: FastAPI):
     # Start Claude background compaction
     global global_compaction_task
     global_compaction_task = asyncio.create_task(background_claude_compaction())
+
+    # Start Claude Guardian
+    global global_claude_guardian_task
+    global_claude_guardian_task = asyncio.create_task(claude_guardian())
 
     # Write server info for frontend discovery
     import json
@@ -468,17 +505,31 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    if global_claude_guardian_task:
+        global_claude_guardian_task.cancel()
+        try:
+            await global_claude_guardian_task
+        except asyncio.CancelledError:
+            pass
+
     # Cancel any pending preload tasks
     for task in _preload_tasks.values():
         if not task.done():
             task.cancel()
 
 app = FastAPI(
-    title="K8s Troubleshooting Agent",
-    description="LangGraph-based Kubernetes troubleshooting agent (Dual Model, Embeddings RAG)",
-    version="3.0.0",
+    title="OpsPilot Agent Server",
+    description="Backend for OpsPilot AI capabilities",
+    version="0.2.63",
     lifespan=lifespan,
 )
+
+# Global Health State
+CLAUDE_STATUS = {
+    "connected": False,
+    "last_check": None,
+    "error": "Initializing..."
+}
 
 # --- Installer Endpoint ---
 class InstallRequest(BaseModel):
@@ -557,12 +608,14 @@ class SafeExceptionMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             print(f"[Server] ❌ Unhandled exception on {request.url.path}: {e}", flush=True)
             import traceback
+            full_trace = traceback.format_exc()
             traceback.print_exc()
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": "Internal server error",
                     "detail": str(e),
+                    "stack_trace": full_trace,
                     "path": str(request.url.path),
                     "recoverable": True
                 },

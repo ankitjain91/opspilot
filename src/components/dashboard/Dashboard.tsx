@@ -7,6 +7,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import {
     Activity,
     AlertCircle,
+    Archive,
     ArrowLeft,
     Box,
     ChevronDown,
@@ -56,6 +57,7 @@ import { NotificationCenter } from '../notifications/NotificationCenter';
 import { useKeyboardShortcuts, KeyboardShortcut } from '../../hooks/useKeyboardShortcuts';
 import { KeyboardShortcutsModal } from '../shared/KeyboardShortcutsModal';
 import { SettingsPage } from '../settings/SettingsPage';
+import { BundleDashboard } from '../bundle';
 
 // Define PersistQueryClientProvider in App, so queryClient is available via hook
 
@@ -101,6 +103,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false); // Keyboard shortcuts help
     const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Settings page
+    const [showBundleView, setShowBundleView] = useState(false); // Support Bundle Analyzer
     const qc = useQueryClient();
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -912,8 +915,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes(null);
                                     setActiveTabId(null);
                                     setSearchQuery("");
+                                    setShowBundleView(false); // Navigate away from bundle view
                                 }}
-                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes === null ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes === null && !showBundleView ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
                                 <div className="flex items-center gap-2.5">
                                     <LayoutDashboard size={18} className={activeRes === null ? "text-white" : "text-cyan-400 group-hover:text-cyan-300"} />
@@ -931,6 +935,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes({ kind: "CustomResourceHealth", group: "internal", version: "v1", namespaced: false, title: "CR Health" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
+                                    setShowBundleView(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "CustomResourceHealth" ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
@@ -950,6 +955,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes({ kind: "HelmReleases", group: "helm", version: "v1", namespaced: false, title: "Releases" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
+                                    setShowBundleView(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "HelmReleases" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
@@ -969,6 +975,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes({ kind: "ArgoApplications", group: "argoproj.io", version: "v1alpha1", namespaced: false, title: "Applications" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
+                                    setShowBundleView(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "ArgoApplications" ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
@@ -1019,7 +1026,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                                             grp === "IaC" ? Cloud : Box}
                                     items={filteredGroupedResources[grp]}
                                     activeRes={activeRes}
-                                    onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                                    onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); setShowBundleView(false); }}
                                     isOpen={expandedGroups[grp]}
                                     onToggle={() => toggleGroup(grp)}
                                 />
@@ -1050,7 +1057,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                         icon={FolderOpen}
                                         items={filteredGroupedResources[groupTitle]}
                                         activeRes={activeRes}
-                                        onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                                        onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); setShowBundleView(false); }}
                                         isOpen={expandedGroups[groupTitle]}
                                         onToggle={() => toggleGroup(groupTitle)}
                                     />
@@ -1081,11 +1088,25 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </button>
 
                     <button
-                        onClick={() => setIsSettingsOpen(true)}
+                        onClick={() => { setIsSettingsOpen(true); setShowBundleView(false); }}
                         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-md transition-all group"
                     >
                         <Settings size={18} className="text-zinc-500 group-hover:text-zinc-300" />
                         <span>Settings</span>
+                    </button>
+
+                    {/* Support Bundle Analyzer */}
+                    <button
+                        onClick={() => {
+                            setShowBundleView(true);
+                            setActiveRes(null);
+                            setActiveTabId(null);
+                            setSearchQuery("");
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${showBundleView ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                    >
+                        <Archive size={18} className={showBundleView ? "text-white" : "text-purple-400 group-hover:text-purple-300"} />
+                        <span>Support Bundle</span>
                     </button>
 
                     <button
@@ -1202,7 +1223,11 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </div>
                 )}
 
-                {activeRes?.kind === "CustomResourceHealth" ? (
+                {/* Support Bundle Dashboard - Always mounted to preserve state */}
+                <div className={showBundleView ? 'flex-1 min-h-0' : 'hidden'}>
+                    <BundleDashboard onClose={() => setShowBundleView(false)} />
+                </div>
+                {!showBundleView && activeRes?.kind === "CustomResourceHealth" ? (
                     <div className="flex-1 min-h-0 overflow-y-auto">
                         <CustomResourceHealth
                             currentContext={currentContext}
