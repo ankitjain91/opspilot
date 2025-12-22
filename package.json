@@ -3,7 +3,7 @@
   "private": true,
   "description": "Fast Kubernetes IDE with autonomous AI debugging. Tauri + Rust + Ollama for read-only incident analysis and native performance.",
   "license": "SEE LICENSE IN LICENSE",
-  "version": "0.2.60",
+  "version": "0.2.61",
   "type": "module",
   "keywords": [
     "kubernetes",
