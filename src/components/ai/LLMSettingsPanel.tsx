@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff, BookOpen, HardDrive, RefreshCw, Server, Network, ArrowRight, Info, ShieldCheck, Loader2, CheckCircle2, Github, Download, AlertCircle, Terminal, Check, Search, FileJson, Settings2, FileCode, Plus, Trash2, FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { Command } from '@tauri-apps/plugin-shell';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
 import { getAgentServerUrl, setAgentServerUrl, getAllConfigWithSources, ConfigSource } from '../../utils/config';
@@ -74,8 +75,6 @@ export function LLMSettingsPanel({
     );
     const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingModelStatus | null>(null);
     const [checkingEmbedding, setCheckingEmbedding] = useState(false);
-    const [downloadingEmbedding, setDownloadingEmbedding] = useState(false);
-    const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
     // KB State
     const [kbStatus, setKbStatus] = useState<KBEmbeddingsStatus | null>(null);
@@ -202,45 +201,6 @@ export function LLMSettingsPanel({
             setEmbeddingStatus(null);
         }
         setCheckingEmbedding(false);
-    };
-
-    const pullEmbeddingModel = async () => {
-        setDownloadingEmbedding(true);
-        setDownloadProgress(0);
-        try {
-            const modelParam = localConfig.embedding_model ? `&model_name=${encodeURIComponent(localConfig.embedding_model)}` : '';
-            const targetEndpoint = getEffectiveEmbeddingEndpoint();
-            const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
-
-            const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/pull?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`, {
-                method: 'POST'
-            });
-
-            if (!resp.body) throw new Error("No stream");
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const lines = decoder.decode(value).split('\n');
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.slice(6));
-                            if (data.percent) setDownloadProgress(data.percent);
-                            if (data.status === 'success') {
-                                setDownloadProgress(100);
-                                setTimeout(checkEmbeddingStatus, 1000);
-                            }
-                        } catch { }
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Pull failed", e);
-        }
-        setDownloadingEmbedding(false);
     };
 
     // --- KB LOGIC ---
@@ -925,9 +885,9 @@ export function LLMSettingsPanel({
                                     />
                                     {embeddingMode === 'local' && (
                                         <div className="absolute right-3 top-2.5 flex items-center gap-2 group/status cursor-help">
-                                            <StatusDot ok={embeddingStatus?.available} loading={checkingEmbedding || downloadingEmbedding} />
+                                            <StatusDot ok={embeddingStatus?.available} loading={checkingEmbedding} />
                                             <span className={`text-[10px] font-bold ${embeddingStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                                                {checkingEmbedding ? 'CHECK' : downloadingEmbedding ? `${downloadProgress}%` : embeddingStatus?.available ? 'READY' : 'MISSING'}
+                                                {checkingEmbedding ? 'CHECK' : embeddingStatus?.available ? 'READY' : 'MISSING'}
                                             </span>
                                         </div>
                                     )}
@@ -937,20 +897,69 @@ export function LLMSettingsPanel({
 
                         {/* Download Prompt (Local Only) */}
                         {embeddingMode === 'local' && !embeddingStatus?.available && !checkingEmbedding && (
-                            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4 flex items-center gap-4">
-                                <AlertCircle size={20} className="text-cyan-400 shrink-0" />
-                                <div className="flex-1">
-                                    <h4 className="text-xs font-bold text-white">Model Missing</h4>
-                                    <p className="text-[10px] text-zinc-400">Required for memory functions.</p>
+                            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4 space-y-3">
+                                <div className="flex items-center gap-4">
+                                    <AlertCircle size={20} className="text-cyan-400 shrink-0" />
+                                    <div className="flex-1">
+                                        <h4 className="text-xs font-bold text-white">
+                                            {embeddingStatus?.ollama_connected === true ? 'Model Missing' : 'Ollama Not Running'}
+                                        </h4>
+                                        <p className="text-[10px] text-zinc-400">
+                                            {embeddingStatus?.ollama_connected === true
+                                                ? 'Required for memory functions.'
+                                                : 'Install and run Ollama to use local embeddings.'}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={checkEmbeddingStatus}
+                                        disabled={checkingEmbedding}
+                                        className="p-2 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white rounded-lg border border-white/10 transition-all disabled:opacity-50"
+                                        title="Refresh status"
+                                    >
+                                        <RefreshCw size={14} className={checkingEmbedding ? "animate-spin" : ""} />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={pullEmbeddingModel}
-                                    disabled={downloadingEmbedding}
-                                    className="px-4 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-500/20 flex items-center gap-2 transition-all disabled:opacity-50 whitespace-nowrap"
-                                >
-                                    <Download size={14} className={downloadingEmbedding ? "animate-bounce" : ""} />
-                                    {downloadingEmbedding ? 'Pulling...' : 'Auto-Pull'}
-                                </button>
+                                {embeddingStatus?.ollama_connected !== true ? (
+                                    <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+                                        <p className="text-[10px] text-zinc-500 mb-2">Install Ollama:</p>
+                                        <code className="text-[10px] font-mono text-cyan-300 block">
+                                            {navigator.platform.toLowerCase().includes('mac')
+                                                ? 'brew install ollama && ollama serve'
+                                                : navigator.platform.toLowerCase().includes('win')
+                                                    ? 'winget install Ollama.Ollama'
+                                                    : 'curl -fsSL https://ollama.com/install.sh | sh && ollama serve'}
+                                        </code>
+                                        <div className="flex items-center justify-between mt-2">
+                                            <a
+                                                href="https://ollama.com/download"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] text-cyan-400 hover:text-cyan-300"
+                                            >
+                                                Or download from ollama.com →
+                                            </a>
+                                            <span className="text-[9px] text-zinc-600">Click refresh after installing</span>
+                                        </div>
+                                    </div>
+                                ) : embeddingStatus?.available !== true && (
+                                    <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+                                        <p className="text-[10px] text-zinc-500 mb-2">Pull embedding model:</p>
+                                        <code className="text-[10px] font-mono text-cyan-300 block">
+                                            ollama pull nomic-embed-text
+                                        </code>
+                                        <div className="flex items-center justify-between mt-2">
+                                            <a
+                                                href="https://ollama.com/library/nomic-embed-text"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] text-cyan-400 hover:text-cyan-300"
+                                            >
+                                                View model on ollama.com →
+                                            </a>
+                                            <span className="text-[9px] text-zinc-600">Click refresh after pulling</span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1068,9 +1077,18 @@ export function LLMSettingsPanel({
                                                 <button
                                                     onClick={async () => {
                                                         try {
-                                                            // Use Tauri opener plugin to open folder in file manager
-                                                            const { openPath } = await import('@tauri-apps/plugin-opener');
-                                                            await openPath(kbDirInfo.path);
+                                                            // Detect platform and use appropriate command
+                                                            const platform = navigator.platform.toLowerCase();
+                                                            let cmd;
+                                                            if (platform.includes('mac') || platform.includes('darwin')) {
+                                                                cmd = Command.create('open', [kbDirInfo.path]);
+                                                            } else if (platform.includes('win')) {
+                                                                cmd = Command.create('explorer', [kbDirInfo.path]);
+                                                            } else {
+                                                                // Linux
+                                                                cmd = Command.create('xdg-open', [kbDirInfo.path]);
+                                                            }
+                                                            await cmd.execute();
                                                         } catch (err) {
                                                             console.error("Failed to open folder:", err);
                                                             // Fallback: copy path to clipboard

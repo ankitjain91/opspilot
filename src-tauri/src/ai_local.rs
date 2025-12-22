@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use sysinfo::System;
 use tauri::Emitter;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 // Default configurations
 const DEFAULT_OLLAMA_URL: &str = "http://127.0.0.1:11434";
 const DEFAULT_OPENAI_URL: &str = "https://api.openai.com/v1";
@@ -1340,4 +1343,109 @@ pub async fn generate_investigation_commands(context: String) -> Result<Vec<Stri
         .collect();
 
     Ok(safe_commands)
+}
+
+/// Auto-start Ollama if it's installed but not running
+/// This is called on app startup to ensure Ollama is available for embeddings
+pub async fn auto_start_ollama() -> Result<(), String> {
+    // First check if Ollama is already running
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let check_result = client
+        .get(format!("{}/api/tags", DEFAULT_OLLAMA_URL))
+        .send()
+        .await;
+
+    if check_result.is_ok() {
+        println!("[ollama] Already running");
+        return Ok(());
+    }
+
+    // Ollama is not running, try to start it
+    println!("[ollama] Not running, attempting to start...");
+
+    // Check if ollama binary exists
+    let ollama_path = which::which("ollama");
+    if ollama_path.is_err() {
+        return Err("Ollama not installed".to_string());
+    }
+
+    // Start ollama serve in the background
+    #[cfg(target_os = "macos")]
+    {
+        // Check if Ollama.app exists (installed via .dmg)
+        let ollama_app_exists = std::path::Path::new("/Applications/Ollama.app").exists();
+
+        if ollama_app_exists {
+            // Use the app - it handles the menubar properly
+            let app_result = std::process::Command::new("open")
+                .args(["-a", "Ollama"])
+                .output(); // Use output() to wait for completion and check result
+
+            if let Ok(output) = app_result {
+                if output.status.success() {
+                    println!("[ollama] Started Ollama.app");
+                    // Wait a moment for it to initialize
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    return Ok(());
+                }
+            }
+        }
+
+        // Fallback to CLI (for Homebrew installs)
+        let result = std::process::Command::new("ollama")
+            .arg("serve")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        match result {
+            Ok(_) => {
+                println!("[ollama] Started via CLI (ollama serve)");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to start Ollama: {}", e)),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, try to start ollama serve
+        let result = std::process::Command::new("ollama")
+            .arg("serve")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .spawn();
+
+        match result {
+            Ok(_) => {
+                println!("[ollama] Started");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to start Ollama: {}", e)),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux, start ollama serve
+        let result = std::process::Command::new("ollama")
+            .arg("serve")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        match result {
+            Ok(_) => {
+                println!("[ollama] Started");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to start Ollama: {}", e)),
+        }
+    }
 }

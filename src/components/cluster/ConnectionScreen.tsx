@@ -1,6 +1,6 @@
 
 import { DependencyManager } from "../onboarding/DependencyManager";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
     Sparkles,
     FileCode,
@@ -257,12 +257,44 @@ interface ConnectionScreenProps {
     onOpenAzure: () => void;
 }
 
+interface DependencyStatus {
+    name: string;
+    installed: boolean;
+    version?: string;
+    path?: string;
+}
+
 export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenProps) {
     const [customPath, setCustomPath] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [activeTab, setActiveTab] = useState<"local" | "azure" | "setup">("local");
     const [connectionLogs, setConnectionLogs] = useState<Array<{ time: string; message: string; status: 'pending' | 'success' | 'error' | 'info' }>>([]);
+    const [missingDepsCount, setMissingDepsCount] = useState(0);
     const qc = useQueryClient();
+
+    // Check dependencies function
+    const checkDeps = async () => {
+        try {
+            const deps = await invoke<DependencyStatus[]>('check_dependencies');
+            const requiredTools = ['kubectl', 'helm', 'agent-server'];
+            const missing = deps.filter(d => requiredTools.includes(d.name) && !d.installed).length;
+            setMissingDepsCount(missing);
+        } catch (e) {
+            console.error('Failed to check dependencies:', e);
+        }
+    };
+
+    // Check dependencies on mount and when switching to Setup tab
+    useEffect(() => {
+        checkDeps();
+    }, []);
+
+    // Recheck when Setup tab is selected (agent-server may have started)
+    useEffect(() => {
+        if (activeTab === 'setup') {
+            checkDeps();
+        }
+    }, [activeTab]);
 
     const addLog = (message: string, status: 'pending' | 'success' | 'error' | 'info' = 'info') => {
         const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -501,6 +533,11 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                             <div className="flex items-center justify-center gap-2">
                                 <Terminal size={18} />
                                 <span>Setup</span>
+                                {missingDepsCount > 0 && (
+                                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold animate-pulse">
+                                        {missingDepsCount}
+                                    </span>
+                                )}
                             </div>
                             {activeTab === "setup" && (
                                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
@@ -715,7 +752,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                     ) : (
                         /* Setup Tab Content */
                         <div className="p-6">
-                            <DependencyManager />
+                            <DependencyManager onRefresh={checkDeps} />
                         </div>
                     )}
 

@@ -39,7 +39,7 @@ use commands::helm::{helm_list, helm_uninstall, helm_get_details, helm_history, 
 use commands::argocd::{argo_patch_helm_values, argo_patch_source, argo_sync_application, argo_refresh_application};
 use commands::dependencies::check_dependencies;
 
-use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text};
+use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text, auto_start_ollama};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
 use embeddings::{check_embedding_model_status, init_embedding_model};
 use mcp::commands::{connect_mcp_server, disconnect_mcp_server, list_mcp_tools, list_connected_mcp_servers, call_mcp_tool, check_command_exists, install_mcp_presets, install_uvx};
@@ -72,6 +72,14 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = agent_sidecar::start_agent_sidecar(&app_handle).await {
                     eprintln!("[startup] Failed to start agent sidecar: {}", e);
+                }
+            });
+
+            // Auto-start Ollama if installed but not running
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = auto_start_ollama().await {
+                    // Not an error - just means Ollama isn't installed or already running
+                    println!("[startup] Ollama: {}", e);
                 }
             });
 

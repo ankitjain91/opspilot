@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { CheckCircle, AlertTriangle, Download, Loader2, RefreshCw } from 'lucide-react';
-
-
+import { CheckCircle, AlertTriangle, RefreshCw, Terminal, Copy, CheckCircle2, ExternalLink } from 'lucide-react';
 
 interface DependencyStatus {
     name: string;
@@ -12,21 +9,33 @@ interface DependencyStatus {
     path?: string;
 }
 
-interface ProgressEvent {
-    id: string;
-    percentage: number;
-    status: string;
-    error?: string;
+interface ToolInfo {
+    label: string;
+    description: string;
+    purpose: string;
+    link: string;
+    required: boolean;
+    lookingFor: string;
+    installCommands: {
+        darwin: string;
+        linux: string;
+        windows: string;
+    };
 }
 
-const TOOL_INFO: Record<string, { label: string; description: string; purpose: string; link: string; required: boolean; lookingFor: string }> = {
+const TOOL_INFO: Record<string, ToolInfo> = {
     kubectl: {
         label: "kubectl",
         description: "Kubernetes command-line tool",
         purpose: "Connect to clusters, list resources, view logs, and execute commands",
         lookingFor: "kubectl binary in PATH",
         link: "https://kubernetes.io/docs/tasks/tools/",
-        required: true
+        required: true,
+        installCommands: {
+            darwin: "brew install kubectl",
+            linux: "curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\" && chmod +x kubectl && sudo mv kubectl /usr/local/bin/",
+            windows: "winget install -e --id Kubernetes.kubectl"
+        }
     },
     helm: {
         label: "Helm",
@@ -34,7 +43,12 @@ const TOOL_INFO: Record<string, { label: string; description: string; purpose: s
         purpose: "Install, upgrade, and manage Helm charts and releases",
         lookingFor: "helm binary in PATH",
         link: "https://helm.sh/docs/intro/install/",
-        required: true
+        required: true,
+        installCommands: {
+            darwin: "brew install helm",
+            linux: "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash",
+            windows: "winget install -e --id Helm.Helm"
+        }
     },
     vcluster: {
         label: "vcluster",
@@ -42,7 +56,12 @@ const TOOL_INFO: Record<string, { label: string; description: string; purpose: s
         purpose: "Create isolated virtual clusters for testing and development",
         lookingFor: "vcluster binary in PATH",
         link: "https://www.vcluster.com/docs/getting-started/setup",
-        required: false
+        required: false,
+        installCommands: {
+            darwin: "brew install loft-sh/tap/vcluster",
+            linux: "curl -L -o vcluster \"https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64\" && chmod +x vcluster && sudo mv vcluster /usr/local/bin/",
+            windows: "winget install -e --id loft-sh.vcluster"
+        }
     },
     "agent-server": {
         label: "Agent Server",
@@ -50,16 +69,59 @@ const TOOL_INFO: Record<string, { label: string; description: string; purpose: s
         purpose: "Powers AI chat, knowledge base, and intelligent analysis features",
         lookingFor: "Python sidecar running on port 8765",
         link: "https://github.com/ankitjain91/opspilot",
-        required: true
+        required: true,
+        installCommands: {
+            darwin: "# Starts automatically with OpsPilot",
+            linux: "# Starts automatically with OpsPilot",
+            windows: "# Starts automatically with OpsPilot"
+        }
+    },
+    ollama: {
+        label: "Ollama",
+        description: "Local AI model runtime",
+        purpose: "Required for local embeddings and knowledge base features",
+        lookingFor: "ollama binary in PATH",
+        link: "https://ollama.com/download",
+        required: false,
+        installCommands: {
+            darwin: "brew install ollama",
+            linux: "curl -fsSL https://ollama.com/install.sh | sh",
+            windows: "winget install Ollama.Ollama"
+        }
     }
 };
 
+// Quick setup commands for all tools at once
+const QUICK_SETUP_COMMANDS = {
+    darwin: `# Install all tools (macOS)
+brew install kubectl helm ollama
+ollama serve &
+ollama pull nomic-embed-text`,
+    linux: `# Install all tools (Linux)
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull nomic-embed-text`,
+    windows: `# Install all tools (Windows - run in PowerShell as Admin)
+winget install -e --id Kubernetes.kubectl
+winget install -e --id Helm.Helm
+winget install -e --id Ollama.Ollama
+ollama serve
+ollama pull nomic-embed-text`
+};
 
-export function DependencyManager() {
+interface DependencyManagerProps {
+    onRefresh?: () => void;
+}
+
+export function DependencyManager({ onRefresh }: DependencyManagerProps) {
     const [statuses, setStatuses] = useState<DependencyStatus[]>([]);
     const [loading, setLoading] = useState(false);
-    const [downloading, setDownloading] = useState<Record<string, number>>({}); // id -> percentage
-    const [osInfo, setOsInfo] = useState<{ os: string; arch: string }>({ os: 'linux', arch: 'amd64' });
+    const [osInfo, setOsInfo] = useState<{ os: 'darwin' | 'linux' | 'windows'; arch: string }>({ os: 'linux', arch: 'amd64' });
+    const [expandedTool, setExpandedTool] = useState<string | null>(null);
+    const [copiedTool, setCopiedTool] = useState<string | null>(null);
+    const [copiedQuickSetup, setCopiedQuickSetup] = useState(false);
 
     useEffect(() => {
         checkDeps();
@@ -67,19 +129,16 @@ export function DependencyManager() {
     }, []);
 
     const detectOS = async () => {
-        // Simple heuristic for now, assuming 64bit
         const userAgent = window.navigator.userAgent.toLowerCase();
-        let os = "linux";
+        let os: 'darwin' | 'linux' | 'windows' = "linux";
         let arch = "amd64";
 
         if (userAgent.includes("mac")) {
             os = "darwin";
             arch = userAgent.includes("arm") || userAgent.includes("apple") ? "arm64" : "amd64";
-            // Check for Apple Silicon explicitly if possible, mostly implied by 'mac' these days in modern envs or rosetta?
-            // Note: Chrome on M1 reports arm64.
         } else if (userAgent.includes("win")) {
             os = "windows";
-            arch = "amd64"; // exe
+            arch = "amd64";
         }
 
         setOsInfo({ os, arch });
@@ -90,6 +149,8 @@ export function DependencyManager() {
         try {
             const res = await invoke<DependencyStatus[]>('check_dependencies');
             setStatuses(res);
+            // Notify parent to update its badge
+            onRefresh?.();
         } catch (e) {
             console.error("Failed to check deps:", e);
         } finally {
@@ -97,61 +158,10 @@ export function DependencyManager() {
         }
     };
 
-    useEffect(() => {
-        let unlisten: UnlistenFn;
-        listen<ProgressEvent>('download_progress', (event) => {
-            const { id, percentage, status } = event.payload;
-            if (status === 'completed') {
-                setDownloading(prev => {
-                    const next = { ...prev };
-                    delete next[id];
-                    return next;
-                });
-                checkDeps(); // Refresh status
-            } else {
-                setDownloading(prev => ({ ...prev, [id]: percentage }));
-            }
-        }).then(u => unlisten = u);
-
-        return () => {
-            if (unlisten) unlisten();
-        };
-    }, []);
-
-    const getDownloadUrl = (name: string) => {
-        const { os, arch } = osInfo;
-        const ext = os === 'windows' ? '.exe' : '';
-
-        if (name === 'kubectl') {
-            return `https://dl.k8s.io/release/v1.30.0/bin/${os}/${arch}/kubectl${ext}`;
-        }
-        if (name === 'vcluster') {
-            // https://github.com/loft-sh/vcluster/releases/download/v0.19.5/vcluster-darwin-arm64
-            return `https://github.com/loft-sh/vcluster/releases/download/v0.19.5/vcluster-${os}-${arch}${ext}`;
-        }
-        // Helm requires extraction, skipping auto-download for now
-        return "";
-    };
-
-    const handleInstall = async (name: string) => {
-        const url = getDownloadUrl(name);
-        if (!url) {
-            alert("Auto-download not supported for this tool. Please install manually.");
-            return;
-        }
-
-        setDownloading(prev => ({ ...prev, [name]: 0 }));
-        try {
-            await invoke('download_dependency', { name, url });
-        } catch (e) {
-            console.error(e);
-            alert(`Download failed: ${e}`);
-            setDownloading(prev => {
-                const next = { ...prev };
-                delete next[name];
-                return next;
-            });
-        }
+    const copyCommand = async (toolName: string, command: string) => {
+        await navigator.clipboard.writeText(command);
+        setCopiedTool(toolName);
+        setTimeout(() => setCopiedTool(null), 2000);
     };
 
     const requiredCount = statuses.filter(s => TOOL_INFO[s.name]?.required).length;
@@ -193,24 +203,19 @@ export function DependencyManager() {
             {/* Tool list */}
             <div className="space-y-2">
                 {statuses.map(tool => {
-                    const info = TOOL_INFO[tool.name] || {
-                        label: tool.name,
-                        description: "System tool",
-                        purpose: "Required for system operations",
-                        lookingFor: `${tool.name} in PATH`,
-                        link: "#",
-                        required: false
-                    };
-                    const isDownloading = downloading[tool.name] !== undefined;
-                    const progress = downloading[tool.name];
-                    const canInstall = getDownloadUrl(tool.name) !== "";
+                    const info = TOOL_INFO[tool.name];
+                    if (!info) return null;
+
+                    const isExpanded = expandedTool === tool.name;
+                    const installCommand = info.installCommands[osInfo.os];
+                    const isCopied = copiedTool === tool.name;
 
                     return (
-                        <div key={tool.name} className={`p-3 rounded-xl border transition-all ${tool.installed
-                                ? 'bg-emerald-500/5 border-emerald-500/20'
-                                : 'bg-zinc-800/50 border-zinc-700'
+                        <div key={tool.name} className={`rounded-xl border transition-all ${tool.installed
+                            ? 'bg-emerald-500/5 border-emerald-500/20'
+                            : 'bg-zinc-800/50 border-zinc-700'
                             }`}>
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="p-3 flex items-center justify-between gap-3">
                                 {/* Left: Icon + Info */}
                                 <div className="flex items-center gap-3 min-w-0">
                                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${tool.installed
@@ -243,39 +248,124 @@ export function DependencyManager() {
                                 <div className="shrink-0">
                                     {tool.installed ? (
                                         <span className="text-xs text-emerald-400 font-medium">Ready</span>
-                                    ) : isDownloading ? (
-                                        <div className="flex items-center gap-2 min-w-[100px]">
-                                            <div className="flex-1">
-                                                <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }} />
-                                                </div>
-                                            </div>
-                                            <span className="text-[10px] text-blue-300 font-mono">{progress}%</span>
-                                        </div>
-                                    ) : canInstall ? (
+                                    ) : tool.name === 'agent-server' ? (
+                                        <span className="text-xs text-zinc-500">Auto-managed</span>
+                                    ) : (
                                         <button
-                                            onClick={() => handleInstall(tool.name)}
+                                            onClick={() => setExpandedTool(isExpanded ? null : tool.name)}
                                             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors"
                                         >
-                                            <Download size={12} />
-                                            Install
+                                            <Terminal size={12} />
+                                            {isExpanded ? 'Hide' : 'Install'}
                                         </button>
-                                    ) : (
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Expanded install instructions */}
+                            {isExpanded && !tool.installed && (
+                                <div className="px-3 pb-3 pt-1 border-t border-white/5 animate-in slide-in-from-top-2 duration-200">
+                                    <div className="bg-black/40 rounded-lg border border-white/10 overflow-hidden">
+                                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 bg-white/5">
+                                            <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                                <Terminal size={12} />
+                                                <span>
+                                                    {osInfo.os === 'darwin' ? 'macOS' : osInfo.os === 'windows' ? 'Windows' : 'Linux'}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={() => copyCommand(tool.name, installCommand)}
+                                                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                                            >
+                                                {isCopied ? (
+                                                    <>
+                                                        <CheckCircle2 size={12} className="text-green-400" />
+                                                        <span className="text-green-400">Copied!</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Copy size={12} />
+                                                        <span>Copy</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                        <div className="p-3">
+                                            <code className="text-xs font-mono text-cyan-300 whitespace-pre-wrap break-all">
+                                                {installCommand}
+                                            </code>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-2">
                                         <a
                                             href={info.link}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+                                            className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
                                         >
-                                            Install Guide ↗
+                                            <ExternalLink size={10} />
+                                            Official docs
                                         </a>
-                                    )}
+                                        <p className="text-[10px] text-zinc-600">
+                                            After installing, click refresh above
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     );
                 })}
             </div>
+
+            {/* Quick Setup Section */}
+            {!allRequiredInstalled && (
+                <div className="pt-4 border-t border-white/10">
+                    <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <Terminal size={16} className="text-cyan-400" />
+                                <span className="text-sm font-semibold text-white">Quick Setup</span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500 uppercase">
+                                {osInfo.os === 'darwin' ? 'macOS' : osInfo.os === 'windows' ? 'Windows' : 'Linux'}
+                            </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mb-3">
+                            Copy and run these commands to install all tools at once:
+                        </p>
+                        <div className="bg-black/40 rounded-lg border border-white/10 overflow-hidden">
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 bg-white/5">
+                                <span className="text-[10px] text-zinc-500 font-mono">Terminal</span>
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(QUICK_SETUP_COMMANDS[osInfo.os]);
+                                        setCopiedQuickSetup(true);
+                                        setTimeout(() => setCopiedQuickSetup(false), 2000);
+                                    }}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition-all"
+                                >
+                                    {copiedQuickSetup ? (
+                                        <>
+                                            <CheckCircle2 size={12} className="text-green-400" />
+                                            <span className="text-green-400">Copied!</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy size={12} />
+                                            <span>Copy All</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                            <div className="p-3 max-h-32 overflow-y-auto">
+                                <code className="text-[11px] font-mono text-cyan-300 whitespace-pre-wrap">
+                                    {QUICK_SETUP_COMMANDS[osInfo.os]}
+                                </code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Help text at bottom */}
             <div className="text-center pt-3 border-t border-white/5">

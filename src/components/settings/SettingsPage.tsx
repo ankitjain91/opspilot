@@ -552,21 +552,16 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                             {saveMessage}
                         </span>
                     )}
-                    <button
-                        onClick={async () => {
-                            try {
-                                const root = await invoke<string>('get_workspace_dir');
-                                await openLocalPath(`${root}/docs/presentation-design.md`);
-                            } catch (e) {
-                                (window as any).showToast?.('Unable to open design doc', 'error');
-                            }
-                        }}
+                    <a
+                        href="https://github.com/ankitjain91/opspilot/blob/main/docs/presentation-design.md"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors"
-                        title="Open Design & Architecture"
+                        title="View Design & Architecture on GitHub"
                     >
                         <ExternalLink size={14} />
                         Design & Architecture
-                    </button>
+                    </a>
                     <button
                         onClick={handleSave}
                         disabled={saving}
@@ -1053,37 +1048,27 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                                     <div className="flex-1">
                                         <h3 className="text-sm font-medium text-violet-300">Design & Architecture</h3>
                                         <p className="text-xs text-zinc-400 mt-1">
-                                            Open the presentation-grade design document and architecture diagrams for a high-level overview of OpsPilot’s system.
+                                            View the design document and architecture diagrams for a high-level overview of OpsPilot's system.
                                         </p>
                                         <div className="flex gap-2 mt-2">
-                                            <button
-                                                onClick={async () => {
-                                                    try {
-                                                        const root = await invoke<string>('get_workspace_dir');
-                                                        await openLocalPath(`${root}/docs/presentation-design.md`);
-                                                    } catch (e) {
-                                                        (window as any).showToast?.('Unable to open design doc', 'error');
-                                                    }
-                                                }}
+                                            <a
+                                                href="https://github.com/ankitjain91/opspilot/blob/main/docs/presentation-design.md"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-violet-300 text-xs font-medium rounded-lg transition-colors border border-violet-500/30"
                                             >
                                                 <ExternalLink size={12} />
-                                                Open Design Doc
-                                            </button>
-                                            <button
-                                                onClick={async () => {
-                                                    try {
-                                                        const root = await invoke<string>('get_workspace_dir');
-                                                        await openLocalPath(`${root}/docs/diagrams`);
-                                                    } catch (e) {
-                                                        (window as any).showToast?.('Unable to open diagrams folder', 'error');
-                                                    }
-                                                }}
+                                                Design Doc
+                                            </a>
+                                            <a
+                                                href="https://github.com/ankitjain91/opspilot/tree/main/docs/diagrams"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-violet-300 text-xs font-medium rounded-lg transition-colors border border-violet-500/30"
                                             >
                                                 <ExternalLink size={12} />
-                                                Open Diagrams
-                                            </button>
+                                                Diagrams
+                                            </a>
                                         </div>
                                     </div>
                                 </div>

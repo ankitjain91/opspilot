@@ -130,6 +130,7 @@ pub async fn check_dependencies() -> Result<Vec<DependencyStatus>, String> {
     results.push(check_tool("kubectl", &["version", "--client", "--short"]));
     results.push(check_tool("helm", &["version", "--short"]));
     results.push(check_tool("vcluster", &["--version"]));
+    results.push(check_tool("ollama", &["--version"]));
 
     // Check agent server
     results.push(check_agent_server().await);
