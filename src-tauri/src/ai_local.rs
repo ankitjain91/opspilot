@@ -558,6 +558,16 @@ pub async fn call_local_llm(prompt: String, system_prompt: Option<String>) -> Re
     call_local_llm_with_tools(prompt, system_prompt, vec![]).await
 }
 
+/// Alias for the frontend's ClusterChatPanel
+#[tauri::command]
+pub async fn llm_chat(
+    prompt: String,
+    system_prompt: Option<String>,
+    conversation_history: Vec<serde_json::Value>,
+) -> Result<String, String> {
+    call_local_llm_with_tools(prompt, system_prompt, conversation_history).await
+}
+
 // ============================================================================
 // Internal Implementation Functions
 // ============================================================================

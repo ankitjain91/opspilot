@@ -578,13 +578,22 @@ app.add_middleware(SafeExceptionMiddleware)
 
 
 # --- Robust Health & Status Endpoints ---
+@app.get("/info")
+async def get_info():
+    """Return basic agent info for discovery."""
+    return {
+        "status": "ok",
+        "version": "0.2.63",
+        "agent_type": "opspilot-agent"
+    }
+
 @app.get("/health")
 async def health_check():
     """
     Simple health check - ALWAYS returns 200 if server is running.
     Use this for connectivity checks before other operations.
     """
-    return {"status": "ok", "version": "0.2.55"}
+    return {"status": "ok", "version": "0.2.63"}
 
 
 @app.get("/status")
