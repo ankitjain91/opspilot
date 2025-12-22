@@ -1,196 +1,399 @@
-# OpsPilot
+# OpsPilot 🚀
 
-**OpsPilot** is an intelligent Kubernetes management platform powered by **Claude Code**. It combines a high-performance Rust/Tauri frontend with Anthropic's Claude to provide autonomous troubleshooting, deep cluster insights, and GitHub code search integration.
+<div align="center">
 
-## 🚀 Key Features
+**The Kubernetes IDE that actually understands your clusters.**
 
-### 🤖 Claude Code Integration
-OpsPilot uses **Claude Code** as its AI backbone - the same powerful coding agent from Anthropic. This means:
-- **Autonomous Investigation**: Claude runs kubectl commands, analyzes logs, and follows diagnostic chains automatically
-- **Read-Only Safety**: All cluster operations are read-only by default (no accidental deletes!)
-- **Streaming UI**: Watch Claude think and execute in real-time with a transparent command log
+*Because staring at `kubectl get pods` at 3 AM shouldn't be your only debugging option.*
 
-### 🔗 GitHub MCP Integration (NEW!)
-Connect your GitHub repos to let Claude search your source code when debugging K8s issues:
-- **Search for error patterns** in your codebase
-- **Read source files** to understand the code causing errors
-- **Check recent commits** to correlate issues with deployments
-- **Find related GitHub issues** for known bugs
+[![License](https://img.shields.io/badge/license-BUSL--1.1-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.61-green.svg)](https://github.com/ankitjain91/opspilot/releases)
+[![Claude Code](https://img.shields.io/badge/powered%20by-Claude%20Code-purple.svg)](https://claude.ai)
 
-Just add your GitHub Personal Access Token in Settings → GitHub Integration.
+[Features](#-features) • [Installation](#-installation) • [Quick Start](#-quick-start) • [Documentation](#-documentation)
 
-### ⚡ Performance
-- **Tauri/Rust** frontend - near-native speed, low memory
-- **Direct Kubernetes API** - no kubectl overhead for UI operations
-- **Conversation persistence** - continue debugging across app restarts
+</div>
 
-### 🧠 Context-Aware Deep Dive
-Open any resource (Pod, Deployment, Service) in the **Deep Dive Drawer**:
-- AI is automatically locked to that specific resource
-- Ask "why is this crashing?" - Claude knows which pod you mean
-- View logs, events, YAML all in one place
+---
+
+## 🤔 Why OpsPilot?
+
+Let's be honest. Kubernetes is amazing until something breaks. Then it's:
+
+```bash
+kubectl get pods -A | grep -v Running
+kubectl describe pod failing-pod-abc123
+kubectl logs failing-pod-abc123 --previous
+# *scrolls through 10,000 lines of logs*
+# *questions life choices*
+```
+
+**OpsPilot changes that.**
+
+Just ask: *"Why is my payment service crashing?"*
+
+And watch as Claude Code:
+1. Finds the failing pods
+2. Checks the logs
+3. Examines events
+4. Analyzes the crash reason
+5. Even searches your GitHub code for the bug
+
+All while you sip your coffee. ☕
+
+---
+
+## ✨ Features
+
+### 🤖 AI-Powered Debugging (Claude Code)
+
+OpsPilot uses **Claude Code** - Anthropic's autonomous coding agent - as its brain.
+
+- **Autonomous Investigation**: Claude runs kubectl commands, follows diagnostic chains, and actually *thinks* about the problem
+- **Streaming UI**: Watch Claude work in real-time. It's like pair programming, but your partner has read every K8s doc ever written
+- **Read-Only Safety**: Claude can look, but can't touch. No accidental `kubectl delete namespace production` moments
+
+```
+You: "Why is the auth-service returning 503s?"
+
+Claude: *runs 15 commands*
+        *analyzes logs*
+        *checks recent deployments*
+        *finds the OOMKilled container*
+
+"The auth-service is being OOMKilled because the memory limit
+is 256Mi but it's using 340Mi at peak. Here's the exact line
+in your deployment.yaml that needs changing..."
+```
+
+### 🔗 GitHub Code Search (MCP Integration)
+
+When Claude finds an error, it can search your actual source code:
+
+- **Find the bug**: Search for error strings in your repos
+- **Understand the code**: Read the source files causing issues
+- **Check recent commits**: Correlate issues with deployments
+- **Find related issues**: Check if it's a known bug
+
+*"The NullPointerException is thrown at line 47 of PaymentProcessor.java, introduced in commit abc123 two days ago."*
+
+### 🧠 Smart Knowledge Base
+
+OpsPilot comes with **57+ built-in troubleshooting patterns** for common K8s issues:
+
+- CrashLoopBackOff? Got it.
+- ImagePullBackOff? Covered.
+- OOMKilled? Yep.
+- That weird DNS issue that only happens on Thursdays? ...we're working on it.
+
+Plus it **auto-discovers CRDs** from your cluster and learns your custom resources.
+
+### 📊 Cluster Cockpit
+
+A beautiful dashboard that shows you:
+
+- **Resource utilization** across namespaces
+- **Health metrics** at a glance
+- **Cost insights** (know exactly which team is burning through your cloud budget)
+- **Real-time metrics history** with pretty charts
+
+### 🔍 Deep Dive Drawer
+
+Click any resource and get a context-aware AI panel:
+
+- AI automatically knows which resource you're looking at
+- Ask "why is this crashing?" - no need to specify the pod name
+- View logs, events, and YAML all in one place
+- One-click "Find related code" button
+
+### 🎯 Resource Management
+
+- **Live resource watching** with real-time updates
+- **Multi-namespace support**
+- **Custom resource filtering** and search
+- **YAML editor** with syntax highlighting
+- **Log streaming** with follow mode
+- **Exec into containers** right from the UI
+
+### ⛵ Helm Integration
+
+Full Helm release management:
+
+- List all releases across namespaces
+- View release history and values
+- One-click rollback (because we all make mistakes)
+- See all resources created by a release
+
+### 🔷 ArgoCD Integration
+
+For the GitOps enthusiasts:
+
+- View ArgoCD applications
+- Sync and refresh apps
+- Patch Helm values and sources
+- Visual dependency graphs
 
 ### 🌐 vCluster Support
-Create and manage virtual clusters directly from the UI.
 
-### 🔒 Privacy & Safety
-- **Read-only mode**: Claude cannot delete, apply, or edit resources
-- **Local history**: Conversation stored in your browser only
-- **Fine-grained GitHub tokens**: Read-only access to your repos
+Create virtual clusters for:
 
-## 🆕 What's New in v0.2.37
+- Development environments
+- Testing
+- Multi-tenant setups
+- Making your cluster look more impressive in demos
 
-- **GitHub MCP Integration**: Search your source code from the chat
-- **"Find Related Code" Button**: One-click GitHub search after any investigation
-- **Conversation Persistence**: Chat history survives app restarts (10 messages context)
-- **Improved Settings UX**: Better token management UI
+### ☁️ Azure AKS Integration
+
+First-class Azure support:
+
+- **One-click Azure login**
+- **Auto-discover AKS clusters** across subscriptions
+- **AKS-specific metrics** and insights
+- **Credential management** built-in
+
+### 🔌 MCP Server Support
+
+Extensible with Model Context Protocol servers:
+
+- **Presets for common tools** (GitHub, filesystem, etc.)
+- **Custom server support**
+- **Tool discovery** and management
+
+### 🖥️ Built-in Terminal
+
+Because sometimes you just need a shell:
+
+- Local terminal integration
+- Container exec support
+- AI-assisted terminal agent (coming soon™)
+
+### 🔐 Security First
+
+- **Read-only by default**: Claude observes but doesn't modify
+- **Local storage**: Your conversations stay on your machine
+- **Secure secrets**: API keys stored in system keyring
+- **Fine-grained permissions**: Control what the AI can access
+
+### 🎨 Beautiful UI
+
+- Dark mode (because we're not savages)
+- Smooth animations
+- Responsive design
+- Actually pleasant to look at at 3 AM
+
+---
+
+## 💻 Installation
+
+### Prerequisites
+
+| Tool | Required | Purpose |
+|------|----------|---------|
+| **kubectl** | ✅ Yes | Cluster communication |
+| **helm** | ✅ Yes | Helm release management |
+| **Claude Code CLI** | ✅ Yes | AI-powered debugging |
+| **Ollama** | Optional | Local embeddings for knowledge base |
+| **vcluster** | Optional | Virtual cluster support |
+
+### macOS
+
+```bash
+# Install dependencies
+brew install kubectl helm ollama
+
+# Start Ollama (OpsPilot auto-starts it, but just in case)
+ollama serve &
+
+# Pull the embedding model
+ollama pull nomic-embed-text
+
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+claude login
+
+# Download OpsPilot from releases
+# https://github.com/ankitjain91/opspilot/releases
+```
+
+After downloading, remove the quarantine attribute:
+```bash
+xattr -cr /Applications/OpsPilot.app
+```
+
+### Windows
+
+```powershell
+# Install dependencies (PowerShell as Admin)
+winget install -e --id Kubernetes.kubectl
+winget install -e --id Helm.Helm
+winget install -e --id Ollama.Ollama
+
+# Start Ollama
+ollama serve
+
+# Pull embedding model
+ollama pull nomic-embed-text
+
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+claude login
+
+# Download and run OpsPilot installer
+```
+
+### Linux
+
+```bash
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+ollama pull nomic-embed-text
+
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+claude login
+
+# Download AppImage and run
+chmod +x OpsPilot_*.AppImage
+./OpsPilot_*.AppImage
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Connect to a Cluster
+
+- Open OpsPilot
+- Select your kubeconfig file (defaults to `~/.kube/config`)
+- Click on a context to connect
+
+### 2. Ask Claude Anything
+
+Open the AI chat panel and try:
+
+- *"Show me all failing pods"*
+- *"Why is the payment-service crashing?"*
+- *"What changed in the last hour?"*
+- *"Find pods using more than 500Mi memory"*
+
+### 3. Deep Dive into Resources
+
+- Click any pod/deployment/service
+- The Deep Dive drawer opens with context-aware AI
+- Ask questions specific to that resource
+
+### 4. Enable GitHub Integration (Optional)
+
+1. Open Settings (gear icon)
+2. Go to GitHub Integration
+3. Add your Personal Access Token
+4. Now Claude can search your source code!
+
+---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    OpsPilot Desktop App                      │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │   Tauri/Rust    │    │         React Frontend          │ │
-│  │   - K8s API     │◄──►│   - Dashboard                   │ │
-│  │   - Window mgmt │    │   - Deep Dive Drawer            │ │
-│  │   - File I/O    │    │   - AI Chat Panel               │ │
-│  └─────────────────┘    └─────────────────────────────────┘ │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────┐
-│                Python Agent Server (Sidecar)                 │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │  Claude Code    │    │      MCP Servers                │ │
-│  │  - Bash/kubectl │◄──►│   - GitHub (code search)        │ │
-│  │  - Streaming    │    │   - Custom tools                │ │
-│  │  - Tool safety  │    │                                 │ │
-│  └─────────────────┘    └─────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    OpsPilot Desktop App                          │
+│  ┌─────────────────────┐    ┌─────────────────────────────────┐ │
+│  │   Tauri/Rust Core   │    │         React Frontend          │ │
+│  │   ─────────────────  │    │   ─────────────────────────────  │ │
+│  │   • K8s API client  │◄──►│   • Dashboard & Cockpit         │ │
+│  │   • Helm commands   │    │   • AI Chat Panel               │ │
+│  │   • Azure auth      │    │   • Deep Dive Drawer            │ │
+│  │   • System keyring  │    │   • Resource viewers            │ │
+│  │   • Auto-updater    │    │   • Helm/Argo managers          │ │
+│  └─────────────────────┘    └─────────────────────────────────┘ │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 Python Agent Server (Sidecar)                    │
+│  ┌─────────────────────┐    ┌─────────────────────────────────┐ │
+│  │   Claude Code       │    │      Integrations               │ │
+│  │   ─────────────────  │    │   ─────────────────────────────  │ │
+│  │   • Autonomous AI   │◄──►│   • MCP Servers (GitHub, etc)   │ │
+│  │   • Tool execution  │    │   • Knowledge Base (RAG)        │ │
+│  │   • Streaming       │    │   • Embeddings (Ollama)         │ │
+│  │   • Safety filters  │    │   • Pattern matching            │ │
+│  └─────────────────────┘    └─────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🧭 Design & Architecture
-
-- **Design Document:** [docs/presentation-design.md](docs/presentation-design.md)
-- **Diagram Exports:** See [docs/diagrams/README.md](docs/diagrams/README.md); run `npm run export:diagrams` to generate PNGs.
-
-## 🛠️ Prerequisites
-
-- **Claude Code CLI** installed (`npm install -g @anthropic-ai/claude-code` or via Anthropic)
-- **Node.js** (v18+)
-- **Rust** (latest stable)
-- **Python** (3.10+)
-- **kubectl** in your PATH
-
-## 📦 Quick Start
-
-### 1. Clone & Install
-
-```bash
-git clone https://github.com/ankitjain91/opspilot.git
-cd opspilot
-npm install
-```
-
-### 2. Set Up Python Environment
-
-```bash
-cd python
-pip install -r requirements.txt
-cd ..
-```
-
-### 3. Run Development Server
-
-```bash
-npm run tauri dev
-```
-
-This starts both the Tauri app and the Python agent sidecar.
+---
 
 ## ⚙️ Configuration
 
-### Claude Code (Required)
+### AI Provider Setup
 
-OpsPilot requires Claude Code CLI to be installed and authenticated:
+1. **Claude Code (Recommended)**
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   claude login
+   ```
+   Select "Claude Code" in Settings → AI Provider
+
+2. **Anthropic API**
+   - Get API key from [console.anthropic.com](https://console.anthropic.com)
+   - Add key in Settings
+
+3. **Ollama (Local/Offline)**
+   - Install Ollama
+   - Pull a model: `ollama pull llama3.2`
+   - Select "Ollama" in Settings
+
+### Knowledge Base Setup
 
 ```bash
-# Install Claude Code
-npm install -g @anthropic-ai/claude-code
+# Pull the embedding model
+ollama pull nomic-embed-text
 
-# Authenticate (opens browser)
-claude login
+# In OpsPilot Settings → Knowledge Base → Click "Initialize"
 ```
 
-Then in OpsPilot Settings, select **"Claude Code"** as your AI provider.
+### GitHub Integration
 
-### GitHub Integration (Optional)
+1. Create a [Fine-Grained PAT](https://github.com/settings/personal-access-tokens/new)
+2. Grant `Contents: Read-only` permission
+3. Add token in Settings → GitHub Integration
+4. Click Test to verify
 
-To enable code search during investigations:
+---
 
-1. Open **Settings** (gear icon)
-2. Scroll to **GitHub Integration**
-3. Create a [Fine-Grained Personal Access Token](https://github.com/settings/personal-access-tokens/new):
-   - Permission: `Contents` → Read-only
-   - Select repositories or "All repositories"
-4. Paste token and click **Save**
-5. Click **Test** to verify connection
+## 🛠️ Development
 
-Once connected, you'll see a **"Find related code"** button after each investigation.
-
-### Knowledge Base (Optional)
-
-OpsPilot includes 57+ Kubernetes troubleshooting patterns. To enable semantic search:
-
-1. Install embedding model: `ollama pull nomic-embed-text`
-2. Open Settings → Memory System
-3. Click **Generate** to index the knowledge base
-
-## 🎮 Usage
-
-### Connecting to Clusters
-
-- **Kubeconfig**: Browse to your `~/.kube/config`
-- **Azure AKS**: Sign in with Azure to auto-discover clusters
-- **vCluster**: Create virtual clusters from the Clusters tab
-
-### AI Chat
-
-Ask natural language questions:
-- "Show me all failing pods"
-- "Why is the auth-service crashing?"
-- "What events happened in the last hour?"
-- "Find pods with high restart counts"
-
-Claude will:
-1. Plan the investigation
-2. Run kubectl commands
-3. Analyze the output
-4. Provide a clear summary
-
-### Deep Dive Drawer
-
-Click any resource → Opens context-locked chat:
-- "Show me the logs" (knows which pod)
-- "What events are related?" (knows the namespace)
-- "Why is this pending?" (focuses on this specific resource)
-
-### GitHub Code Search
-
-After any investigation, click **"Find related code"** to:
-- Search for error strings in your repos
-- Find the source code causing exceptions
-- Check who made recent changes
-
-## 🔧 Development
-
-### Build for Production
+### Running from Source
 
 ```bash
-# Build the app
-npm run tauri build
+# Clone
+git clone https://github.com/ankitjain91/opspilot.git
+cd opspilot
 
+# Install dependencies
+npm install
+
+# Set up Python environment
+cd python
+pip install -r requirements.txt
+cd ..
+
+# Run in dev mode
+npm run tauri dev
+```
+
+### Building
+
+```bash
+npm run tauri build
 # Output in src-tauri/target/release/bundle/
 ```
 
@@ -198,25 +401,72 @@ npm run tauri build
 
 ```
 opspilot/
-├── src/                    # React frontend
+├── src/                      # React frontend
 │   ├── components/
-│   │   ├── ai/            # Chat panel, settings
-│   │   ├── cluster/       # Deep dive drawer
-│   │   └── dashboard/     # Main dashboard
-├── src-tauri/             # Rust backend
+│   │   ├── ai/              # AI chat, settings, orchestrator
+│   │   ├── cluster/         # Connection, deep dive, resources
+│   │   ├── dashboard/       # Main dashboard, cockpit
+│   │   ├── tools/           # Helm, ArgoCD, Terminal
+│   │   └── settings/        # Configuration panels
+├── src-tauri/               # Rust backend
 │   └── src/
-│       └── main.rs        # Tauri commands, K8s API
-├── python/                # Agent server
+│       ├── commands/        # Tauri command handlers
+│       ├── client.rs        # K8s client
+│       └── ai_local.rs      # Local AI integration
+├── python/                  # Agent server
 │   └── agent_server/
-│       ├── server.py      # FastAPI endpoints
-│       └── claude_code_backend.py  # Claude Code integration
-└── knowledge/             # K8s troubleshooting patterns
+│       ├── server.py        # FastAPI server
+│       ├── claude_code_backend.py
+│       └── knowledge_base.py
+└── knowledge/               # Built-in troubleshooting patterns
 ```
 
-## 🤝 Contributing
+---
 
-We welcome contributions! Please see `CONTRIBUTING.md` for guidelines.
+## 🆚 OpsPilot vs. The Competition
+
+| Feature | OpsPilot | Lens | K9s | kubectl |
+|---------|----------|------|-----|---------|
+| AI-Powered Debugging | ✅ Claude Code | ❌ | ❌ | ❌ |
+| Natural Language Queries | ✅ | ❌ | ❌ | ❌ |
+| GitHub Code Search | ✅ | ❌ | ❌ | ❌ |
+| Knowledge Base | ✅ 57+ patterns | ❌ | ❌ | ❌ |
+| Beautiful UI | ✅ | ✅ | 🟡 TUI | ❌ |
+| Fast Startup | ✅ ~1s | 🟡 ~5s | ✅ | ✅ |
+| Memory Usage | ~150MB | ~500MB+ | ~50MB | ~20MB |
+| Auto-Updates | ✅ | ✅ | ❌ | ❌ |
+| Price | Free | Freemium | Free | Free |
+
+---
+
+## 🙏 Acknowledgments
+
+- **[Anthropic](https://anthropic.com)** for Claude Code - the AI that actually understands code
+- **[Tauri](https://tauri.app)** for making native apps not terrible
+- **The K8s community** for building something we need to debug at 3 AM
+
+---
 
 ## 📄 License
 
-MIT License. See `LICENSE` for details.
+[BUSL-1.1](LICENSE) - Free for individual and internal business use.
+
+---
+
+## 🤝 Contributing
+
+Found a bug? Want a feature? PRs welcome!
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+<div align="center">
+
+**Built with 💜 and too much caffeine**
+
+*Because life's too short for `kubectl describe`*
+
+[⬆ Back to top](#opspilot-)
+
+</div>
