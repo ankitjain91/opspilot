@@ -1224,22 +1224,23 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 )}
 
                 {/* Support Bundle Dashboard - Always mounted to preserve state */}
-                <div className={showBundleView ? 'flex-1 min-h-0' : 'hidden'}>
+                <div className={showBundleView ? 'flex-1 min-h-0 h-full' : 'hidden'}>
                     <BundleDashboard onClose={() => setShowBundleView(false)} />
                 </div>
-                {!showBundleView && activeRes?.kind === "CustomResourceHealth" ? (
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                        <CustomResourceHealth
-                            currentContext={currentContext}
-                            onOpenResource={handleOpenRelatedResource}
-                            onAutoInvestigate={onAutoInvestigate}
-                        />
-                    </div>
-                ) : activeRes?.kind === "HelmReleases" ? (
-                    <HelmReleases currentContext={currentContext} />
-                ) : activeRes?.kind === "ArgoApplications" ? (
-                    <ArgoApplications currentContext={currentContext} onOpenResource={handleOpenResource} />
-                ) : (
+                {!showBundleView && (
+                    activeRes?.kind === "CustomResourceHealth" ? (
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                            <CustomResourceHealth
+                                currentContext={currentContext}
+                                onOpenResource={handleOpenRelatedResource}
+                                onAutoInvestigate={onAutoInvestigate}
+                            />
+                        </div>
+                    ) : activeRes?.kind === "HelmReleases" ? (
+                        <HelmReleases currentContext={currentContext} />
+                    ) : activeRes?.kind === "ArgoApplications" ? (
+                        <ArgoApplications currentContext={currentContext} onOpenResource={handleOpenResource} />
+                    ) : (
                     <>
                         {/* Header */}
                         <header className="h-14 glass-header flex items-center justify-between px-6 sticky top-0 z-20">
@@ -1381,6 +1382,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                             )}
                         </div>
                     </>
+                    )
                 )}
             </main>
 
