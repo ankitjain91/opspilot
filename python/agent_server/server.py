@@ -783,6 +783,7 @@ class TestRequest(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+    claude_cli_path: str | None = None
 
 @app.post("/llm/test")
 async def test_llm_connection(request: TestRequest):
@@ -795,7 +796,7 @@ async def test_llm_connection(request: TestRequest):
     try:
         # Special handling for Claude Code and Codex CLI
         if request.provider == "claude-code":
-            return await _test_claude_code_connection()
+            return await _test_claude_code_connection(request.claude_cli_path)
         if request.provider == "codex-cli":
             return await _test_codex_connection()
 
@@ -885,18 +886,46 @@ def find_executable_path(exe_name: str) -> str | None:
             
     return None
 
-async def _test_claude_code_connection():
-    """Quick test for Claude Code CLI availability."""
+async def _test_claude_code_connection(custom_path: str | None = None):
+    """
+    Quick test for Claude Code CLI availability with granular error reporting.
+    8-year-old child proofing: identifiable error codes and actionable suggestions.
+    """
     import asyncio
+    import os
 
+    # Lock 1: Smart Path Discovery
+    claude_bin = custom_path
+    discovery_source = "manual"
+    
+    if not claude_bin or claude_bin == "claude":
+        discovered = find_executable_path("claude")
+        if discovered:
+            claude_bin = discovered
+            discovery_source = "auto"
+        else:
+            claude_bin = "claude" # Fallback to PATH
+            discovery_source = "path"
+
+    # Lock 2: Granular Checks
+    error_code = None
+    suggestion = None
+    
+    # Check 1: Existence (if absolute path)
+    if os.path.isabs(claude_bin) and not os.path.exists(claude_bin):
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "error_code": "ERR_NOT_FOUND",
+            "error": f"Claude binary not found at specified path: {claude_bin}",
+            "suggestion": "Double check the path or use 'claude' for auto-discovery.",
+            "path": claude_bin
+        }
+
+    # Check 2: Version and Connectivity
     try:
-        config = load_opspilot_config()
-        # Prefer manually configured path, else auto-discover
-        claude_bin = config.get("claude_cli_path")
-        if not claude_bin or claude_bin == "claude":
-             claude_bin = find_executable_path("claude") or "claude"
-             
-        # Quick check: run 'claude --version' with short timeout
+        # Quick check: run 'claude --version'
+        print(f"[Claude-Test] Testing: {claude_bin} --version", flush=True)
         process = await asyncio.create_subprocess_exec(
             claude_bin, "--version",
             stdout=asyncio.subprocess.PIPE,
@@ -905,30 +934,65 @@ async def _test_claude_code_connection():
 
         stdout, stderr = await asyncio.wait_for(
             process.communicate(),
-            timeout=10.0  # 10 second timeout for version check
+            timeout=10.0
         )
 
         if process.returncode == 0:
             version_info = stdout.decode('utf-8', errors='replace').strip()
+            
+            # Sub-check: Auth (optional dry run)
+            # For now, if version works, we assume installed. 
+            # We could add 'claude help' but it's noisy.
+            
             return {
                 "provider": "claude-code",
                 "connected": True,
-                "models_count": 2,  # Claude Code supports multiple models
-                "completion_ok": True,
-                "error": None,
-                "completion_error": None,
                 "version": version_info,
+                "path": claude_bin,
+                "discovery": discovery_source,
+                "error": None
             }
         else:
-            error_msg = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
+            error_text = stderr.decode('utf-8', errors='replace').strip()
+            
+            # Actionable suggestions for common fails
+            if "not found" in error_text.lower() or "command not found" in error_text.lower():
+                error_code = "ERR_NOT_FOUND"
+                suggestion = "Claude Code is not installed. Run: npm install -g @anthropic-ai/claude-code"
+            elif "permission" in error_text.lower():
+                error_code = "ERR_NO_PERM"
+                suggestion = f"Permission denied for {claude_bin}. Run: chmod +x {claude_bin}"
+            else:
+                error_code = "ERR_CLI_FAIL"
+                suggestion = "Try running 'claude login' in your terminal."
+
             return {
                 "provider": "claude-code",
                 "connected": False,
-                "models_count": 0,
-                "completion_ok": False,
-                "error": error_msg,
-                "completion_error": error_msg,
+                "error_code": error_code,
+                "error": error_text or "CLI returned error",
+                "suggestion": suggestion,
+                "path": claude_bin
             }
+
+    except FileNotFoundError:
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "error_code": "ERR_NOT_FOUND",
+            "error": "Claude command not found in your system PATH.",
+            "suggestion": "Install Claude Code globally via npm or provide the full absolute path.",
+            "path": claude_bin
+        }
+    except Exception as e:
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "error_code": "ERR_UNKNOWN",
+            "error": str(e),
+            "suggestion": "Check your Claude Code installation and PATH.",
+            "path": claude_bin
+        }
 
     except asyncio.TimeoutError:
         return {
@@ -3385,15 +3449,95 @@ if __name__ == "__main__":
     import uvicorn
     import time
     import sys
+    import os
+    import socket
+    import signal
+    import atexit
 
-    PORT = 8765
+    # Dynamic Port Selection Strategy:
+    # 1. Try default port 8765
+    # 2. If busy, try to kill processes on that port and retry
+    # 3. If still busy or fails, try next ports in range 8765-8775
+    # 4. If range is busy, let OS pick an available port (port 0)
+    # 5. Save successful port to ~/.opspilot/agent_port for UI discovery
 
-    # Kill any zombie/unhealthy process on the port (but not ourselves)
-    if kill_process_on_port(PORT):
-        # Give the OS time to release the port
-        time.sleep(1.0)
+    BASE_PORT = 8765
+    PORT_RANGE = 10
+    SUCCESSFUL_PORT = None
+
+    home = os.path.expanduser("~")
+    opspilot_dir = os.path.join(home, ".opspilot")
+    os.makedirs(opspilot_dir, exist_ok=True)
+    port_file = os.path.join(opspilot_dir, "agent_port")
+
+    def cleanup_port_file():
+        if os.path.exists(port_file):
+            try:
+                os.remove(port_file)
+                print(f"[agent-server] Cleaned up port file: {port_file}", flush=True)
+            except:
+                pass
+
+    # Register cleanup handlers BEFORE starting the loop
+    atexit.register(cleanup_port_file)
     
-    print_access_urls(PORT)
+    def signal_handler(sig, frame):
+        cleanup_port_file()
+        sys.exit(0)
+        
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
-    # Run server
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    for port in range(BASE_PORT, BASE_PORT + PORT_RANGE):
+        print(f"[agent-server] Checking port {port}...", flush=True)
+        
+        # Kill any zombie/unhealthy process on the port (but not ourselves)
+        if kill_process_on_port(port):
+            # Give the OS time to release the port
+            time.sleep(1.0)
+        
+        try:
+            config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+            server = uvicorn.Server(config)
+            
+            # Quick hack: write port file
+            with open(port_file, "w") as f:
+                f.write(str(port))
+            
+            print(f"[agent-server] 🚀 Starting on port {port}...", flush=True)
+            print_access_urls(port)
+            SUCCESSFUL_PORT = port
+            server.run()
+            break 
+        except Exception as e:
+            if "address already in use" in str(e).lower() or port != BASE_PORT + PORT_RANGE - 1:
+                print(f"[agent-server] Port {port} busy, trying next...", flush=True)
+                continue
+            else:
+                print(f"[agent-server] ❌ Failed to start on port {port}: {e}", flush=True)
+                # If we reach here, the loop finished without success, proceed to ultimate fallback
+                break
+
+    # Ultimate Fallback: Let the OS pick an available port if the range is full
+    if not SUCCESSFUL_PORT:
+        print(f"[agent-server] ⚠️ Port range busy, letting OS pick a port... (attempting port 0)", flush=True)
+        try:
+            # Use port 0 to let the OS assign a free port
+            sock = socket.socket(socket.socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(('0.0.0.0', 0))
+            free_port = sock.getsockname()[1]
+            sock.close()
+            
+            with open(port_file, "w") as f:
+                f.write(str(free_port))
+            
+            print(f"[agent-server] 🚀 Starting on OS-picked port {free_port}... (via uvicorn)", flush=True)
+            SUCCESSFUL_PORT = free_port
+            # Run uvicorn directly with the determined port
+            uvicorn.run(app, host="0.0.0.0", port=free_port)
+        except Exception as e:
+            print(f"[agent-server] ❌ Ultimate fallback failed: {e}", flush=True)
+            sys.exit(1)
+
+    # Cleanup on exit (if it ever reaches here)
+    cleanup_port_file()

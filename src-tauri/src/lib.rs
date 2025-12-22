@@ -40,7 +40,7 @@ use commands::argocd::{argo_patch_helm_values, argo_patch_source, argo_sync_appl
 use commands::dependencies::check_dependencies;
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text, auto_start_ollama};
-use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
+use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status, read_server_info_file};
 use embeddings::{check_embedding_model_status, init_embedding_model};
 use mcp::commands::{connect_mcp_server, disconnect_mcp_server, list_mcp_tools, list_connected_mcp_servers, call_mcp_tool, check_command_exists, install_mcp_presets, install_uvx};
 use mcp::manager::McpManager;
@@ -195,6 +195,7 @@ pub fn run() {
             start_agent,
             stop_agent,
             check_agent_status,
+            read_server_info_file,
 
             // Embeddings (KB)
             check_embedding_model_status,

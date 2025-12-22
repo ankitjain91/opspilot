@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useToast } from '../ui/Toast';
 import { useNotifications } from '../notifications/NotificationContext';
-import { getAgentServerUrl } from '../../utils/config';
+import { getAgentServerUrl, onAgentUrlChange } from '../../utils/config';
 
 export interface KBProgress {
     current: number;
@@ -46,6 +46,8 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
     useEffect(() => {
         addNotificationRef.current = addNotification;
     }, [addNotification]);
+
+
 
     // Force reconnect - closes existing connection and starts fresh
     const forceReconnect = useCallback(() => {
@@ -238,7 +240,6 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
         const now = Date.now();
         const timeSinceLastMessage = now - lastMessageTimeRef.current;
 
-        // Check for stale connection (no messages in threshold period)
         if (es && es.readyState === EventSource.OPEN && timeSinceLastMessage > STALE_CONNECTION_THRESHOLD) {
             console.log(`[Sentinel] Connection stale (no message in ${Math.round(timeSinceLastMessage / 1000)}s), forcing reconnect`);
             forceReconnect();
@@ -271,6 +272,14 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                 }
             }
         }
+    }, [forceReconnect]);
+
+    // Listen for Agent URL changes to force reconnect
+    useEffect(() => {
+        return onAgentUrlChange(() => {
+            console.log('[Sentinel] Agent URL changed, forcing reconnect...');
+            forceReconnect();
+        });
     }, [forceReconnect]);
 
     // Initial connection and health check setup - runs once on mount

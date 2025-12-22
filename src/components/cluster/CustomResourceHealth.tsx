@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { useAgentUrl } from '../../hooks/useAgentUrl';
 import {
     CheckCircle2, RefreshCw, Loader2,
     ChevronDown, ChevronRight, Search, Layers,
@@ -112,6 +113,7 @@ export function CustomResourceHealth({
     onOpenResource?: (kind: string, name: string, namespace: string, apiVersion?: string) => void;
     onAutoInvestigate?: (prompt: string) => void;
 }) {
+    const agentUrl = useAgentUrl();
     const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -134,7 +136,7 @@ export function CustomResourceHealth({
             }
             abortControllerRef.current = new AbortController();
 
-            const url = `${getAgentServerUrl()}/custom-resource-health?kube_context=${encodeURIComponent(currentContext)}${forceRefresh ? '&force_refresh=true' : ''}`;
+            const url = `${agentUrl}/custom-resource-health?kube_context=${encodeURIComponent(currentContext)}${forceRefresh ? '&force_refresh=true' : ''}`;
 
             const res = await fetch(url, {
                 signal: abortControllerRef.current.signal,

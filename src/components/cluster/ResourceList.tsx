@@ -565,8 +565,8 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                     bVal = sortConfig.key === 'cpu' ? (bMetrics?.cpu_nano ?? 0) : (bMetrics?.memory_bytes ?? 0);
                 } else if (sortConfig.key === 'sync') {
                     const statusOrder = { 'Failed': 0, 'Reconciling': 1, 'Unknown': 2, 'Reconciled': 3 };
-                    const aStatus = getIaCStatus(a.raw_json).status;
-                    const bStatus = getIaCStatus(b.raw_json).status;
+                    const aStatus = getIaCStatus(a.raw_json || '').status;
+                    const bStatus = getIaCStatus(b.raw_json || '').status;
                     aVal = statusOrder[aStatus];
                     bVal = statusOrder[bStatus];
                 }
@@ -688,7 +688,7 @@ export function ResourceList({ resourceType, onSelect, namespaceFilter, searchQu
                                     case 'age':
                                         return <div className="text-zinc-600 font-mono text-xs">{formatAge(obj.age)}</div>;
                                     case 'sync':
-                                        const iacStatus = getIaCStatus(obj.raw_json);
+                                        const iacStatus = getIaCStatus(obj.raw_json || '');
                                         return <IaCStatusBadge status={iacStatus.status} reason={iacStatus.reason} message={iacStatus.message} />;
                                     case 'type':
                                         return <div className={`${obj.type === 'Warning' ? 'text-red-400' : 'text-zinc-500'}`}>{obj.type || 'Normal'}</div>;

@@ -14,6 +14,7 @@ import {
     Database,
     User
 } from 'lucide-react';
+import { useAgentUrl } from '../../../hooks/useAgentUrl';
 
 interface ResourceRef {
     kind: string;
@@ -44,7 +45,6 @@ interface ResourceChainCardProps {
     onNavigate?: (kind: string, name: string, namespace: string, apiVersion?: string) => void;
 }
 
-const AGENT_SERVER_URL = 'http://127.0.0.1:8765';
 
 // Icon mapping for resource types
 const getResourceIcon = (kind: string) => {
@@ -102,11 +102,12 @@ const ResourcePill = ({
 
 export function ResourceChainCard({ kind, name, namespace, currentContext, onNavigate }: ResourceChainCardProps) {
     const [expanded, setExpanded] = useState(true);
+    const agentUrl = useAgentUrl();
 
     const { data, isLoading, error } = useQuery<ResourceChainData>({
         queryKey: ['resource-chain', kind, name, namespace, currentContext],
         queryFn: async () => {
-            const response = await fetch(`${AGENT_SERVER_URL}/resource-chain`, {
+            const response = await fetch(`${agentUrl}/resource-chain`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -93,7 +93,25 @@ class SmartLLMClient:
             print(f"⚠️ Primary provider ({provider}) error: {e}", flush=True)
             self.provider_health[provider] = False
         
-        # 2. First Fallback: Groq (Fast & Cheap)
+        # 2. Lock 3: Protocol Fallback (Specific for Claude Code)
+        # If Claude Code (CLI) fails, pivot to Anthropic (API) if a key is available
+        if provider == "claude-code" and not self.provider_health["claude-code"]:
+            effective_anthropic_key = api_key or self.anthropic_api_key
+            if effective_anthropic_key and self.provider_health.get("anthropic", True):
+                print(f"🔄 Protocol Fallback: Claude Code CLI failed. Pivoting to direct Anthropic API...", flush=True)
+                try:
+                    # Map to a comparable model
+                    return await self._call_anthropic(
+                        prompt, 
+                        model="claude-3-5-sonnet-20241022", # Best matching model for Claude Code
+                        temperature=temperature, 
+                        force_json=force_json, 
+                        api_key=effective_anthropic_key
+                    )
+                except Exception as e:
+                    print(f"⚠️ Protocol Fallback to Anthropic API failed: {e}", flush=True)
+
+        # 3. First Fallback: Groq (Fast & Cheap)
         # Note: We probably don't have a fallback key if the primary key failed, but we check env
         if provider != "groq" and self.provider_health["groq"] and self.groq_api_key:
             print(f"🔄 Attempting fallback to Groq (llama3-70b-8192)...", flush=True)
@@ -104,7 +122,7 @@ class SmartLLMClient:
                 print(f"⚠️ Groq fallback failed: {e}", flush=True)
                 self.provider_health["groq"] = False
 
-        # 3. Final Fallback: OpenAI (Reliable)
+        # 4. Final Fallback: OpenAI (Reliable)
         if provider != "openai" and self.provider_health["openai"] and self.openai_api_key:
             print(f"🔄 Attempting fallback to OpenAI (gpt-4o-mini)...", flush=True)
             try:

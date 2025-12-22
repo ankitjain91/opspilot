@@ -17,6 +17,7 @@ import { fixMarkdownHeaders } from '../../utils/markdown';
 import { stripAnsi } from '../../utils/ansi';
 import { loadLLMConfig } from './utils';
 import { getAgentServerUrl } from '../../utils/config';
+import { useAgentUrl } from '../../hooks/useAgentUrl';
 import { LLMSettingsPanel } from './LLMSettingsPanel';
 import { SearchCodeDialog } from './SearchCodeDialog';
 import {
@@ -149,6 +150,7 @@ export function ClusterChatPanel({
     /** Callback when processing state changes (for background tracking) */
     onProcessingChange?: (isProcessing: boolean) => void
 }) {
+    const agentUrl = useAgentUrl();
     const messagesContainerRef = useRef<HTMLDivElement>(null);
 
     // Trigger auto-investigation if initialPrompt is provided
