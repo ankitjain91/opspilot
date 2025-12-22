@@ -3172,7 +3172,7 @@ dependencies = [
 
 [[package]]
 name = "opspilot"
-version = "0.2.58"
+version = "0.2.59"
 dependencies = [
  "chrono",
  "dirs 5.0.1",

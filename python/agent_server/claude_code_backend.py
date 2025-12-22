@@ -683,6 +683,20 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                                 current_tool = tool_name
                                 yield {'type': 'tool_use', 'tool': tool_name, 'input': tool_input}
 
+                    elif event_type == 'error':
+                        # Internal Claude Code error (like rate limits)
+                        error_data = event.get('error', {})
+                        message = error_data.get('message', '')
+                        if not message:
+                            message = event.get('message', 'Unknown Claude Code Error')
+                        
+                        # Log the full error for debugging
+                        print(f"[claude-code-streaming] ❌ Claude Code Error: {message}", flush=True)
+                        if 'error' in event:
+                            print(f"[claude-code-streaming] ❌ Error details: {event['error']}", flush=True)
+                        
+                        yield {'type': 'error', 'message': f"Claude Code: {message}"}
+
                     elif event_type == 'content_block_delta':
                         # Streaming delta
                         delta = event.get('delta', {})
@@ -758,9 +772,25 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 except Exception:
                     pass
             raise
+        except BrokenPipeError:
+            print(f"[claude-code-streaming] ❌ Broken pipe error - CLI likely crashed", flush=True)
+            # Try to see if there's anything in stderr
+            error_msg = "Claude Code CLI disconnected unexpectedly (Broken Pipe)."
+            if process:
+                try:
+                    stderr = await process.stderr.read()
+                    if stderr:
+                        stderr_text = stderr.decode('utf-8', errors='replace')
+                        error_msg = f"Claude Code CLI crashed: {stderr_text}"
+                except:
+                    pass
+            yield {'type': 'error', 'message': error_msg}
         except Exception as e:
-            print(f"[claude-code-streaming] ❌ Error: {e}", flush=True)
-            yield {'type': 'error', 'message': str(e)}
+            print(f"[claude-code-streaming] ❌ Error in tool loop: {e}", flush=True)
+            msg = str(e)
+            if "broken pipe" in msg.lower():
+                msg = "Claude Code connection lost (Broken Pipe). This usually happens when the CLI reaches a limit or crashes."
+            yield {'type': 'error', 'message': f"Unexpected Error: {msg}"}
         finally:
             # Ensure process is cleaned up
             if process and process.returncode is None:
@@ -837,6 +867,14 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                         'name': event.get('name'),
                         'input': event.get('input', {})
                     })
+
+                elif event_type == 'error':
+                    # Extract error message for the structured response
+                    error_data = event.get('error', {})
+                    msg = error_data.get('message', '')
+                    if not msg:
+                        msg = event.get('message', 'Unknown Claude Code Error')
+                    content_parts.append(f"Claude Code Error: {msg}")
 
             except json.JSONDecodeError:
                 # Not JSON, might be raw text output
