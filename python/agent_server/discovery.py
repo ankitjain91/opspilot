@@ -234,7 +234,7 @@ def scan_cr_health(crd_name: str, context: str = "") -> List[CRInstance]:
         status_obj = item.get("status") or {}
 
         name = metadata.get("name", "unknown")
-        ns = metadata.get("namespace", "default")
+        ns = metadata.get("namespace", "")
         kind = item.get("kind", crd_name)
 
         health = "Unknown"
