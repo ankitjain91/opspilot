@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { ToastProvider, useToast } from "./components/ui/Toast";
 import { NotificationProvider, useNotifications } from "./components/notifications/NotificationContext";
-import { SentinelProvider } from "./components/ai/SentinelContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializeConfig } from "./utils/config";
 
@@ -26,7 +25,7 @@ import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
 import { PortForwardList } from './components/cluster/deep-dive/PortForward';
 import { AzurePage } from './components/azure/AzurePage';
 import { ConnectionScreen } from './components/cluster/ConnectionScreen';
-import { ConnectionDoctor } from './components/ai/ConnectionDoctor';
+import { BundleDashboard, PreloadedBundleData } from './components/bundle';
 import { ClusterStats, K8sObject } from './types/k8s';
 
 // --- Types ---
@@ -67,6 +66,9 @@ function AppContent() {
   const qc = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const [showAzure, setShowAzure] = useState(false);
+  const [showOfflineBundle, setShowOfflineBundle] = useState(false);
+  const [bundlePath, setBundlePath] = useState<string | null>(null);
+  const [preloadedBundleData, setPreloadedBundleData] = useState<PreloadedBundleData | null>(null);
   const { showToast } = useToast();
   const { clearAll } = useNotifications();
 
@@ -200,10 +202,26 @@ function AppContent() {
               <AzurePage onConnect={() => setIsConnected(true)} />
             </div>
           </div>
+        ) : showOfflineBundle && bundlePath && preloadedBundleData ? (
+          <div className="h-screen w-screen overflow-hidden">
+            <BundleDashboard
+              onClose={() => {
+                setShowOfflineBundle(false);
+                setBundlePath(null);
+                setPreloadedBundleData(null);
+              }}
+              preloadedData={preloadedBundleData}
+            />
+          </div>
         ) : (
           <ConnectionScreen
             onConnect={() => setIsConnected(true)}
             onOpenAzure={() => setShowAzure(true)}
+            onOpenBundle={(path, data) => {
+              setBundlePath(path);
+              setPreloadedBundleData(data);
+              setShowOfflineBundle(true);
+            }}
           />
         )}
       </>
@@ -421,8 +439,6 @@ function AppContent() {
         </div>
       )}
 
-      <ConnectionDoctor />
-
     </>
   );
 }
@@ -474,9 +490,7 @@ export default function App() {
         >
           <NotificationProvider>
             <ToastProvider>
-              <SentinelProvider>
-                <AppContent />
-              </SentinelProvider>
+              <AppContent />
             </ToastProvider>
           </NotificationProvider>
           <Updater />

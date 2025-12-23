@@ -6,10 +6,9 @@ import { Command } from '@tauri-apps/plugin-shell';
 import { LLMConfig } from '../../types/ai';
 import { DEFAULT_LLM_CONFIG } from './constants';
 import { getAgentServerUrl, setAgentServerUrl, getAllConfigWithSources, ConfigSource } from '../../utils/config';
-import { useAgentUrl } from '../../hooks/useAgentUrl';
 import { KBProgress } from './useSentinel';
 
-// getAgentServerUrl() is now resolved dynamically inside the component to ensure reactivity
+const AGENT_SERVER_URL = getAgentServerUrl();
 
 interface EmbeddingModelStatus {
     model: string;
@@ -32,10 +31,6 @@ interface KBEmbeddingsStatus {
 interface ClaudeCodeStatus {
     connected: boolean;
     error?: string;
-    error_code?: string;
-    suggestion?: string;
-    version?: string;
-    path?: string;
 }
 
 interface CodexStatus {
@@ -106,13 +101,7 @@ export function LLMSettingsPanel({
     const [githubConfigLoaded, setGithubConfigLoaded] = useState(false); // Track if initial load is complete
 
     // Agent Config State
-    const currentAgentUrl = useAgentUrl();
-    const [agentUrl, setAgentUrl] = useState(currentAgentUrl);
-
-    // Sync local agentUrl state when hook URL changes
-    useEffect(() => {
-        setAgentUrl(currentAgentUrl);
-    }, [currentAgentUrl]);
+    const [agentUrl, setAgentUrl] = useState(getAgentServerUrl());
     const [claudeCliPath, setClaudeCliPath] = useState('claude');
     const [showAgentSettings, setShowAgentSettings] = useState(false);
 
@@ -156,50 +145,17 @@ export function LLMSettingsPanel({
     const checkClaudeCodeStatus = async () => {
         setCheckingClaudeCode(true);
         try {
-            const currentUrl = getAgentServerUrl();
-            if (!currentUrl || currentUrl.trim() === '') {
-                setClaudeCodeStatus({ connected: false, error: 'Agent server URL not configured. Please wait for auto-detection or configure manually.' });
-                setCheckingClaudeCode(false);
-                return;
-            }
-
-            const resp = await fetch(`${currentUrl}/llm/test`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    provider: 'claude-code',
-                    claude_cli_path: claudeCliPath
-                })
+                body: JSON.stringify({ provider: 'claude-code' })
             });
-
             if (resp.ok) {
-                const contentType = resp.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    const data = await resp.json();
-                    setClaudeCodeStatus({
-                        connected: data.connected,
-                        error: data.error,
-                        error_code: data.error_code,
-                        suggestion: data.suggestion,
-                        version: data.version,
-                        path: data.path
-                    });
-                } else {
-                    const text = await resp.text();
-                    setClaudeCodeStatus({ connected: false, error: `Invalid response format status=${resp.status}` });
-                }
-            } else {
-                const errorText = await resp.text().catch(() => 'Unknown error');
-                setClaudeCodeStatus({ connected: false, error: `Server error (${resp.status}): ${errorText.substring(0, 100)}` });
+                const data = await resp.json();
+                setClaudeCodeStatus({ connected: data.connected, error: data.error });
             }
         } catch (e) {
-            console.error("Claude check failed", e);
-            const errStr = String(e);
-            if (errStr.includes("TypeError") || errStr.includes("Load failed")) {
-                setClaudeCodeStatus({ connected: false, error: `Agent unreachable (Network Error). Check if agent server is running.` });
-            } else {
-                setClaudeCodeStatus({ connected: false, error: `Connection failed: ${errStr}` });
-            }
+            setClaudeCodeStatus({ connected: false, error: String(e) });
         }
         setCheckingClaudeCode(false);
     };
@@ -207,28 +163,17 @@ export function LLMSettingsPanel({
     const checkCodexStatus = async () => {
         setCheckingCodex(true);
         try {
-            const currentUrl = getAgentServerUrl();
-            const resp = await fetch(`${currentUrl}/llm/test`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ provider: 'codex-cli' })
             });
-
             if (resp.ok) {
-                const contentType = resp.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    const data = await resp.json();
-                    setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
-                } else {
-                    const text = await resp.text();
-                    setCodexStatus({ connected: false, error: `Invalid response format: ${text.substring(0, 100)}` });
-                }
-            } else {
-                const errorText = await resp.text().catch(() => 'Unknown error');
-                setCodexStatus({ connected: false, error: `Server error (${resp.status}): ${errorText.substring(0, 100)}` });
+                const data = await resp.json();
+                setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
             }
         } catch (e) {
-            setCodexStatus({ connected: false, error: `Connection failed: ${String(e)}` });
+            setCodexStatus({ connected: false, error: String(e) });
         }
         setCheckingCodex(false);
     };
@@ -247,8 +192,7 @@ export function LLMSettingsPanel({
             const targetEndpoint = getEffectiveEmbeddingEndpoint();
             const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
 
-            const baseUrl = localConfig.base_url || 'http://localhost:11434';
-            const resp = await fetch(`${getAgentServerUrl()}/embedding-model/status?llm_endpoint=${encodeURIComponent(baseUrl)}${modelParam}${endpointParam}`);
+            const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`);
             if (resp.ok) {
                 setEmbeddingStatus(await resp.json());
             }
@@ -265,7 +209,7 @@ export function LLMSettingsPanel({
         try {
             const targetEndpoint = getEffectiveEmbeddingEndpoint();
             const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
-            const resp = await fetch(`${getAgentServerUrl()}/kb-embeddings/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${endpointParam}`);
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/status?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${endpointParam}`);
             if (resp.ok) setKbStatus(await resp.json());
         } catch (e) {
             console.error("KB status failed", e);
@@ -281,7 +225,7 @@ export function LLMSettingsPanel({
             const targetEndpoint = getEffectiveEmbeddingEndpoint();
             const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
 
-            const resp = await fetch(`${getAgentServerUrl()}/kb-embeddings/generate?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/generate?llm_endpoint=${encodeURIComponent(localConfig.base_url || '')}${modelParam}${endpointParam}`, {
                 method: 'POST'
             });
 
@@ -336,7 +280,7 @@ export function LLMSettingsPanel({
 
     const loadGithubConfig = async () => {
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github-config`);
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`);
             if (resp.ok) {
                 const data = await resp.json();
                 setGithubConfigured(data.configured);
@@ -355,7 +299,7 @@ export function LLMSettingsPanel({
 
     const saveGithubConfig = async () => {
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github-config`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -379,7 +323,7 @@ export function LLMSettingsPanel({
 
     const handleDisconnectGithub = async () => {
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github-config`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -405,7 +349,7 @@ export function LLMSettingsPanel({
         setTestingGithub(true);
         try {
             const testToken = tokenToTest || (githubPat && githubPat !== 'replace' ? githubPat : undefined);
-            const resp = await fetch(`${getAgentServerUrl()}/github-config/test`, {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pat_token: testToken })
@@ -433,7 +377,7 @@ export function LLMSettingsPanel({
         if (loadingGroups) return;
         setLoadingGroups(true);
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github/orgs`);
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/orgs`);
             if (resp.ok) {
                 const data = await resp.json();
                 setGithubGroups(data);
@@ -452,7 +396,7 @@ export function LLMSettingsPanel({
         if (!groupId || loadingRepos) return;
         setLoadingRepos(true);
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github/repos/${groupId}`);
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/repos/${groupId}`);
             if (resp.ok) {
                 const data = await resp.json();
                 setAvailableRepos(data);
@@ -499,7 +443,7 @@ export function LLMSettingsPanel({
 
         const saveTimeout = setTimeout(async () => {
             try {
-                await fetch(`${getAgentServerUrl()}/github-config`, {
+                await fetch(`${AGENT_SERVER_URL}/github-config`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -710,71 +654,7 @@ export function LLMSettingsPanel({
                                                 'Claude Code Not Available'}
                                     </div>
                                     {claudeCodeStatus?.error && !checkingClaudeCode && (
-                                        <div className="text-[10px] text-red-100/60 mt-1.5 leading-relaxed bg-red-500/10 p-2 rounded-lg border border-red-500/10">
-                                            <div className="font-bold flex items-center gap-1.5 mb-0.5">
-                                                <AlertCircle size={10} />
-                                                <span>{claudeCodeStatus.error_code || 'ERROR'}:</span> {claudeCodeStatus.error}
-                                            </div>
-                                            {claudeCodeStatus.suggestion && (
-                                                <div className="text-emerald-300 font-medium flex items-start gap-1.5 mt-1 pb-1">
-                                                    <span className="shrink-0">👉</span>
-                                                    <span>{claudeCodeStatus.suggestion}</span>
-                                                </div>
-                                            )}
-
-                                            {/* Actionable Fix Buttons */}
-                                            <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-white/5">
-                                                {claudeCodeStatus.error_code === 'ERR_NOT_FOUND' && (
-                                                    <button
-                                                        onClick={() => window.open('https://github.com/anthropic-ai/claude-code', '_blank')}
-                                                        className="px-2 py-1 bg-violet-500/30 hover:bg-violet-500/50 border border-violet-500/30 rounded text-[9px] font-bold transition-all text-violet-200"
-                                                    >
-                                                        Installation Guide
-                                                    </button>
-                                                )}
-                                                {claudeCodeStatus.error_code === 'ERR_NO_AUTH' && (
-                                                    <button
-                                                        onClick={async () => {
-                                                            try {
-                                                                const cmd = Command.create('open', ['-a', 'Terminal', '.']);
-                                                                await cmd.execute();
-                                                                // Provide instructions in clipboard
-                                                                await navigator.clipboard.writeText('claude login');
-                                                                alert('Opening Terminal... "claude login" has been copied to your clipboard. Paste and run it there.');
-                                                            } catch (e) {
-                                                                console.error(e);
-                                                            }
-                                                        }}
-                                                        className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/40 border border-emerald-500/30 rounded text-[9px] font-bold transition-all text-emerald-200"
-                                                    >
-                                                        Run 'claude login'
-                                                    </button>
-                                                )}
-                                                {claudeCodeStatus.path && claudeCodeStatus.path !== claudeCliPath && (
-                                                    <button
-                                                        onClick={() => setClaudeCliPath(claudeCodeStatus.path!)}
-                                                        className="px-2 py-1 bg-white/10 hover:bg-white/20 border border-white/10 rounded text-[9px] font-bold transition-all text-zinc-300"
-                                                    >
-                                                        Use Detected Path
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Auto-detection success info */}
-                                    {claudeCodeStatus?.connected && claudeCodeStatus.path && claudeCodeStatus.path !== claudeCliPath && (
-                                        <div className="mt-2 p-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg flex items-center justify-between">
-                                            <div className="text-[10px] text-emerald-300">
-                                                <strong>Detected path:</strong> <code className="bg-black/20 px-1 rounded">{claudeCodeStatus.path}</code>
-                                            </div>
-                                            <button
-                                                onClick={() => setClaudeCliPath(claudeCodeStatus.path!)}
-                                                className="text-[9px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 px-2 py-0.5 rounded transition-all text-emerald-400"
-                                            >
-                                                Update Path
-                                            </button>
-                                        </div>
+                                        <div className="text-[10px] text-red-400/80 mt-1">{claudeCodeStatus.error}</div>
                                     )}
                                 </div>
                                 <button

@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "opspilot"
-version = "0.2.67"
+version = "0.2.68"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -3186,7 +3186,6 @@ dependencies = [
  "k8s-openapi",
  "keyring",
  "kube",
- "lazy_static",
  "portable-pty",
  "regex",
  "reqwest",

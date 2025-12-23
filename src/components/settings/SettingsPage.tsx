@@ -13,7 +13,6 @@ import { MCPSettings } from './MCPSettings';
 import { getLogs, getLogStats, exportLogsAsText, clearLogs } from '../../utils/logger';
 import { useTheme, Theme } from '../../contexts/ThemeContext';
 import { getAgentServerStatus, restartServerComponent } from '../ai/agentOrchestrator';
-import { getAgentServerUrl } from '../../utils/config';
 
 interface OpsPilotConfig {
     agentServerUrl?: string;
@@ -448,7 +447,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         setAgentTesting(true);
         setAgentTestMessage(null);
         try {
-            const url = (config.agentServerUrl || getAgentServerUrl()).replace(/\/$/, '');
+            const url = (config.agentServerUrl || 'http://127.0.0.1:8765').replace(/\/$/, '');
             // Use LLM test endpoint to confirm reachability regardless of provider state
             const resp = await fetch(`${url}/llm/test`, {
                 method: 'POST',
@@ -472,11 +471,10 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         setEmbeddingTesting(true);
         setEmbeddingTestMessage(null);
         try {
-            const agentUrl = (config.agentServerUrl || getAgentServerUrl()).replace(/\/$/, '');
+            const agentUrl = (config.agentServerUrl || 'http://127.0.0.1:8765').replace(/\/$/, '');
             const endpointParam = config.embeddingEndpoint ? `&embedding_endpoint=${encodeURIComponent(config.embeddingEndpoint)}` : '';
             const modelParam = config.embeddingModel ? `&model_name=${encodeURIComponent(config.embeddingModel)}` : '';
-            const llmEndpoint = 'http://localhost:11434';
-            const resp = await fetch(`${agentUrl}/embedding-model/status?llm_endpoint=${encodeURIComponent(llmEndpoint)}${endpointParam}${modelParam}`);
+            const resp = await fetch(`${agentUrl}/embedding-model/status?llm_endpoint=&${endpointParam}${modelParam}`);
             if (resp.ok) {
                 const data = await resp.json();
                 if (data?.available) {
@@ -720,7 +718,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                                     type="text"
                                     value={config.agentServerUrl || ''}
                                     onChange={(e) => setConfig({ ...config, agentServerUrl: e.target.value })}
-                                    placeholder={`${getAgentServerUrl()} (detected)`}
+                                    placeholder="http://127.0.0.1:8765 (default)"
                                     className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
                                 />
                                 <div className="flex items-center gap-2 mt-1">

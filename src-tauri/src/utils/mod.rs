@@ -1,4 +1,3 @@
-
 #![allow(dead_code)]
 use k8s_openapi::api::core::v1 as k8s_core;
 use k8s_openapi::api::apps::v1 as k8s_apps;
