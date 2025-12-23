@@ -27,6 +27,10 @@ import {
     Lock,
     Ban,
     RefreshCw,
+    Package,
+    FileSearch,
+    Activity,
+    Clock,
 } from "lucide-react";
 
 // Error type definitions for structured error handling
@@ -248,13 +252,26 @@ function ConnectionErrorPanel({ error, onDismiss, onRetry }: { error: string; on
 }
 
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { LoadingScreen } from "../shared/LoadingScreen";
 
+import type { SupportBundle, BundleResource, BundleEvent, BundleAlerts, BundleHealthSummary } from '../bundle/types';
+
+// Pre-loaded bundle data to pass to BundleDashboard
+interface PreloadedBundleData {
+    bundle: SupportBundle;
+    healthSummary: BundleHealthSummary;
+    events: BundleEvent[];
+    alerts: BundleAlerts | null;
+    allResources: Map<string, BundleResource[]>;
+}
+
 interface ConnectionScreenProps {
     onConnect: () => void;
     onOpenAzure: () => void;
+    onOpenBundle?: (bundlePath: string, data: PreloadedBundleData) => void;
 }
 
 interface DependencyStatus {
@@ -264,13 +281,24 @@ interface DependencyStatus {
     path?: string;
 }
 
-export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenProps) {
+export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: ConnectionScreenProps) {
     const [customPath, setCustomPath] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [activeTab, setActiveTab] = useState<"local" | "azure" | "setup">("local");
+    const [activeTab, setActiveTab] = useState<"local" | "azure" | "bundle" | "setup">("local");
     const [connectionLogs, setConnectionLogs] = useState<Array<{ time: string; message: string; status: 'pending' | 'success' | 'error' | 'info' }>>([]);
     const [missingDepsCount, setMissingDepsCount] = useState(0);
+    const [appVersion, setAppVersion] = useState<string>("");
     const qc = useQueryClient();
+
+    // Bundle loading state
+    const [bundleLoading, setBundleLoading] = useState(false);
+    const [bundleProgress, setBundleProgress] = useState('');
+    const [bundleError, setBundleError] = useState<string | null>(null);
+
+    // Fetch app version on mount
+    useEffect(() => {
+        getVersion().then(v => setAppVersion(v)).catch(() => setAppVersion(""));
+    }, []);
 
     // Check dependencies function
     const checkDeps = async () => {
@@ -295,6 +323,92 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
             checkDeps();
         }
     }, [activeTab]);
+
+    // Load support bundle with ALL data
+    const loadBundle = async () => {
+        try {
+            setBundleError(null);
+            setBundleProgress('Select a bundle folder...');
+
+            const path = await open({ directory: true, multiple: false, title: 'Select Support Bundle Folder' });
+            if (!path) {
+                setBundleProgress('');
+                return;
+            }
+
+            setBundleLoading(true);
+            setBundleProgress('Loading bundle...');
+
+            // Load the bundle
+            const bundle = await invoke<SupportBundle>('load_support_bundle', { path });
+            setBundleProgress('Analyzing health...');
+
+            // Get health summary
+            const healthSummary = await invoke<BundleHealthSummary>('get_bundle_health_summary', { bundlePath: path });
+
+            // Load alerts if available
+            let alerts: BundleAlerts | null = null;
+            if (bundle.has_alerts) {
+                setBundleProgress('Loading alerts...');
+                try {
+                    alerts = await invoke<BundleAlerts>('get_bundle_alerts', { bundlePath: path });
+                } catch {
+                    // Alerts may not exist
+                }
+            }
+
+            // Load events if available
+            let events: BundleEvent[] = [];
+            if (bundle.has_events) {
+                setBundleProgress('Loading events...');
+                try {
+                    events = await invoke<BundleEvent[]>('get_bundle_events', { bundlePath: path, namespace: null, involvedObject: null });
+                } catch {
+                    // Events may not exist
+                }
+            }
+
+            // Index all resources per namespace
+            setBundleProgress('Indexing resources...');
+            const allResources = new Map<string, BundleResource[]>();
+            for (let i = 0; i < bundle.namespaces.length; i++) {
+                const ns = bundle.namespaces[i];
+                setBundleProgress(`Indexing ${ns}... (${i + 1}/${bundle.namespaces.length})`);
+                try {
+                    const types = await invoke<string[]>('get_bundle_resource_types', { bundlePath: path, namespace: ns });
+                    const nsResources: BundleResource[] = [];
+                    for (const t of types) {
+                        try {
+                            const res = await invoke<BundleResource[]>('get_bundle_resources', { bundlePath: path, namespace: ns, resourceType: t });
+                            nsResources.push(...res);
+                        } catch {
+                            // Skip on error
+                        }
+                    }
+                    allResources.set(ns, nsResources);
+                } catch {
+                    // Skip namespace on error
+                }
+            }
+
+            setBundleProgress('Ready!');
+
+            // Open the bundle dashboard with all pre-loaded data
+            onOpenBundle?.(path, {
+                bundle,
+                healthSummary,
+                events,
+                alerts,
+                allResources
+            });
+        } catch (e: any) {
+            console.error('Failed to load bundle:', e);
+            setBundleError(e?.message || String(e) || 'Failed to load bundle');
+        } finally {
+            setBundleLoading(false);
+            setBundleProgress('');
+        }
+    };
 
     const addLog = (message: string, status: 'pending' | 'success' | 'error' | 'info' = 'info') => {
         const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -527,6 +641,18 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                             )}
                         </button>
                         <button
+                            onClick={() => setActiveTab("bundle")}
+                            className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${activeTab === "bundle" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        >
+                            <div className="flex items-center justify-center gap-2">
+                                <Package size={18} />
+                                <span>Offline Bundle</span>
+                            </div>
+                            {activeTab === "bundle" && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-500 to-orange-500" />
+                            )}
+                        </button>
+                        <button
                             onClick={() => setActiveTab("setup")}
                             className={`flex-1 px-6 py-4 text-sm font-medium transition-all relative ${activeTab === "setup" ? "text-white" : "text-zinc-500 hover:text-zinc-300"}`}
                         >
@@ -749,6 +875,74 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
                                 </div>
                             </div>
                         </div>
+                    ) : activeTab === "bundle" ? (
+                        /* Offline Bundle Tab Content */
+                        <div className="p-8">
+                            <div className="text-center">
+                                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
+                                    {bundleLoading ? (
+                                        <Loader2 size={40} className="text-amber-400 animate-spin" />
+                                    ) : (
+                                        <Package size={40} className="text-amber-400" />
+                                    )}
+                                </div>
+                                <h3 className="text-xl font-semibold text-white mb-2">
+                                    {bundleLoading ? 'Loading Bundle...' : 'Analyze Support Bundle'}
+                                </h3>
+                                <p className="text-zinc-400 text-sm mb-6 max-w-sm mx-auto">
+                                    {bundleLoading ? bundleProgress : 'Open a Kubernetes support bundle for offline analysis without requiring a live cluster connection'}
+                                </p>
+
+                                {bundleError && (
+                                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-left max-w-sm mx-auto">
+                                        <AlertCircle size={16} className="text-red-400 inline mr-2" />
+                                        <span className="text-red-400 text-sm">{bundleError}</span>
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={loadBundle}
+                                    disabled={bundleLoading}
+                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium transition-all shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                                >
+                                    {bundleLoading ? (
+                                        <>
+                                            <Loader2 size={18} className="animate-spin" />
+                                            Analyzing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FolderOpen size={18} />
+                                            Open Support Bundle
+                                        </>
+                                    )}
+                                </button>
+
+                                <div className="mt-8 pt-6 border-t border-white/5">
+                                    <p className="text-xs text-zinc-600 mb-4">Features</p>
+                                    <div className="grid grid-cols-3 gap-4 text-center">
+                                        <div className="p-3 rounded-lg bg-white/5">
+                                            <div className="text-amber-400 mb-1">
+                                                <FileSearch size={20} className="mx-auto" />
+                                            </div>
+                                            <p className="text-xs text-zinc-400">Resource Explorer</p>
+                                        </div>
+                                        <div className="p-3 rounded-lg bg-white/5">
+                                            <div className="text-orange-400 mb-1">
+                                                <Activity size={20} className="mx-auto" />
+                                            </div>
+                                            <p className="text-xs text-zinc-400">Health Analysis</p>
+                                        </div>
+                                        <div className="p-3 rounded-lg bg-white/5">
+                                            <div className="text-yellow-400 mb-1">
+                                                <Clock size={20} className="mx-auto" />
+                                            </div>
+                                            <p className="text-xs text-zinc-400">Event Timeline</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     ) : (
                         /* Setup Tab Content */
                         <div className="p-6">
@@ -758,7 +952,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure }: ConnectionScreenPro
 
                     {/* Footer */}
                     <div className="px-6 py-3 bg-zinc-900/50 border-t border-white/5 flex items-center justify-between">
-                        <p className="text-[10px] text-zinc-600 font-mono">OpsPilot v1.0.0</p>
+                        <p className="text-[10px] text-zinc-600 font-mono">OpsPilot {appVersion ? `v${appVersion}` : ''}</p>
                         <div className="flex items-center gap-1.5 text-[10px] text-zinc-600">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                             Ready

@@ -8,7 +8,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { LLMConfig, LLMStatus } from '../../../types/ai';
 import { loadLLMConfig } from '../utils';
 import { registerMcpTools } from '../tools';
-import { getAgentServerUrl } from '../../../utils/config';
 
 export function useLLMConnection() {
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig);
@@ -52,7 +51,7 @@ export function useLLMConnection() {
     // Check GitHub configuration
     const checkGithubConfig = useCallback(async () => {
         try {
-            const resp = await fetch(`${getAgentServerUrl()}/github-config`);
+            const resp = await fetch('http://127.0.0.1:8765/github-config');
             if (resp.ok) {
                 const data = await resp.json();
                 setGithubConfigured(data.configured === true);

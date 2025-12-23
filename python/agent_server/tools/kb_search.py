@@ -997,13 +997,7 @@ async def check_embedding_model_available(endpoint: str, model_name: str | None 
     # Strip tag for looser matching if specific version not found
     base_name = target_model.split(':')[0]
     
-    if not endpoint or not endpoint.strip():
-        return False
-        
     clean_endpoint = endpoint.rstrip('/').removesuffix('/v1').rstrip('/')
-    if not clean_endpoint:
-        return False
-        
     url = f"{clean_endpoint}/api/tags"
 
     try:

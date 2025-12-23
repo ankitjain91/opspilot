@@ -46,26 +46,6 @@ export interface OpsPilotConfig {
 let cachedConfig: OpsPilotConfig | null = null;
 let configLoadPromise: Promise<OpsPilotConfig> | null = null;
 
-// Reactive URL Cache
-let activeAgentUrl: string = DEFAULTS.AGENT_URL;
-const urlListeners: Set<(url: string) => void> = new Set();
-
-/**
- * Subscribe to Agent URL changes.
- */
-export function onAgentUrlChange(callback: (url: string) => void): () => void {
-    urlListeners.add(callback);
-    callback(activeAgentUrl);
-    return () => urlListeners.delete(callback);
-}
-
-function notifyUrlChange(newUrl: string) {
-    if (newUrl === activeAgentUrl) return;
-    activeAgentUrl = newUrl;
-    console.log(`[Config] Agent URL updated: ${newUrl}`);
-    urlListeners.forEach(cb => cb(newUrl));
-}
-
 /**
  * Load configuration from file via Tauri backend.
  * Looks for .opspilot.json in home directory and current project.
@@ -114,62 +94,49 @@ interface ConfigValue<T> {
 
 /**
  * Get the configured Agent Server URL.
- * Priority: localStorage > Default
- * 
- * NOTE: This is the synchronous version. Users should prefer getAgentServerUrlAsync
- * for more robust detection on startup.
- */
-/**
- * Get the configured Agent Server URL.
- * Priority: Memory Cache > localStorage > Default
+ * Priority: ENV > Config File > localStorage > Auto-detect > Default
  */
 export function getAgentServerUrl(): string {
     if (typeof window === 'undefined') return DEFAULTS.AGENT_URL;
 
-    // We clean the URL to ensure no trailing slashes
     const stored = localStorage.getItem(STORAGE_KEYS.AGENT_URL);
-    const url = activeAgentUrl || stored || DEFAULTS.AGENT_URL;
-    return url.trim().replace(/\/+$/, '');
+    if (stored) return stored.replace(/\/$/, '');
+
+    return DEFAULTS.AGENT_URL;
 }
 
 /**
- * Async version that checks all config sources and updates the cache.
+ * Async version that checks all config sources.
  */
 export async function getAgentServerUrlAsync(): Promise<ConfigValue<string>> {
-    let finalUrl = DEFAULTS.AGENT_URL;
-    let finalSource: ConfigSource = 'default';
-
     // 1. Check environment variable
     const envUrl = await getEnvVar('OPSPILOT_AGENT_URL');
     if (envUrl) {
-        finalUrl = envUrl;
-        finalSource = 'env';
-    } else {
-        // 2. Check config file
-        const config = await loadConfigFile();
-        if (config.agentServerUrl) {
-            finalUrl = config.agentServerUrl;
-            finalSource = 'file';
-        } else {
-            // 3. Try auto-detection (check broadcast file)
-            const autoDetected = await autoDetectAgentUrl();
-            if (autoDetected) {
-                finalUrl = autoDetected;
-                finalSource = 'auto-detected';
-            } else if (typeof window !== 'undefined') {
-                // 4. Check localStorage
-                const stored = localStorage.getItem(STORAGE_KEYS.AGENT_URL);
-                if (stored) {
-                    finalUrl = stored;
-                    finalSource = 'localStorage';
-                }
-            }
+        return { value: envUrl.replace(/\/$/, ''), source: 'env' };
+    }
+
+    // 2. Check config file
+    const config = await loadConfigFile();
+    if (config.agentServerUrl) {
+        return { value: config.agentServerUrl.replace(/\/$/, ''), source: 'file' };
+    }
+
+    // 3. Check localStorage
+    if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(STORAGE_KEYS.AGENT_URL);
+        if (stored) {
+            return { value: stored.replace(/\/$/, ''), source: 'localStorage' };
         }
     }
 
-    const value = finalUrl.replace(/\/$/, '');
-    notifyUrlChange(value);
-    return { value, source: finalSource };
+    // 4. Try auto-detection (check if agent is running)
+    const autoDetected = await autoDetectAgentUrl();
+    if (autoDetected) {
+        return { value: autoDetected, source: 'auto-detected' };
+    }
+
+    // 5. Fall back to default
+    return { value: DEFAULTS.AGENT_URL, source: 'default' };
 }
 
 /**
@@ -181,31 +148,33 @@ async function autoDetectAgentUrl(): Promise<string | null> {
         'http://localhost:8765',
     ];
 
-    // 0. Try to read from agent_port file (most reliable) with retries for startup delay
-    for (let i = 0; i < 5; i++) {
-        try {
-            const serverInfo = await invoke<{ port: number, url: string }>('read_server_info_file');
-            if (serverInfo && serverInfo.port) {
-                console.log(`[Config] Found server info file: port ${serverInfo.port} (attempt ${i + 1})`);
-                const detectedUrl = serverInfo.url || `http://127.0.0.1:${serverInfo.port}`;
-                urlsToTry.unshift(detectedUrl);
-                // If we found it via file, prioritize it and break early from info check
-                break;
-            }
-        } catch (e) {
-            // Only wait if it's not the last attempt
-            if (i < 4) await new Promise(r => setTimeout(r, 1000));
+    // 0. Try to read from server-info.json (most reliable)
+    try {
+        const { readTextFile, BaseDirectory } = await import('@tauri-apps/plugin-fs');
+        const homeDir = await invoke<string>('get_home_dir'); // We need backend helper or just standard path
+        // Tauri 2.0 fs plugin uses BaseDirectory enum or absolute paths if configured
+        // We'll try to read from ~/.opspilot/server-info.json using absolute path
+
+        // Since we don't have easy absolute path access in frontend without backend help,
+        // let's try a backend invoke to get the content if possible, OR
+        // use the network scan fallback which is robust.
+
+        // Actually best way: invoke a command to read the info file
+        const serverInfo = await invoke<{ port: number, pid: number }>('read_server_info_file');
+        if (serverInfo && serverInfo.port) {
+            console.log(`[Config] Found server info file: port ${serverInfo.port}`);
+            urlsToTry.unshift(`http://127.0.0.1:${serverInfo.port}`);
         }
+    } catch (e) {
+        // Ignore file read errors (maybe file doesn't exist yet)
     }
 
     // Also try to get network URL from agent
-    console.log(`[Config] Probing remaining URLs: ${[...new Set(urlsToTry)].join(', ')}`);
-    for (const url of [...new Set(urlsToTry)]) {
+    for (const url of urlsToTry) {
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-            console.log(`[Config] Testing health at ${url}/health...`);
             const response = await fetch(`${url}/health`, {
                 method: 'GET',
                 signal: controller.signal,
@@ -214,30 +183,24 @@ async function autoDetectAgentUrl(): Promise<string | null> {
             clearTimeout(timeoutId);
 
             if (response.ok) {
-                console.log(`[Config] URL ${url} is healthy`);
                 // Agent is running, try to get network URL
                 try {
-                    console.log(`[Config] Fetching network info from ${url}/info...`);
                     const infoResp = await fetch(`${url}/info`);
                     if (infoResp.ok) {
                         const info = await infoResp.json();
                         if (info.network_url) {
-                            console.log(`[Config] Found advertised network URL: ${info.network_url}`);
                             return info.network_url;
                         }
                     }
-                } catch (e) {
-                    console.debug(`[Config] Info check failed (legacy agent?), using base URL: ${e}`);
+                } catch {
                     // Fall back to the URL that worked
                 }
                 return url;
             }
-        } catch (e) {
-            console.debug(`[Config] Probe failed for ${url}: ${e}`);
+        } catch {
             // Try next URL
         }
     }
-    console.warn('[Config] Auto-detection failed: no responsive agent found');
 
     return null;
 }

@@ -11,7 +11,6 @@ import remarkGfm from 'remark-gfm';
 import { useToast } from '../../ui/Toast';
 import { K8sObject } from '../../../types/k8s';
 import { getAgentServerUrl } from '../../../utils/config';
-import { useAgentUrl } from '../../../hooks/useAgentUrl';
 
 // --- Smart Log Analysis Constants & Types ---
 
@@ -147,7 +146,6 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
     const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
     const { showToast } = useToast();
-    const agentUrl = useAgentUrl();
     const logsEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const virtuosoRef = useRef<any>(null);
@@ -300,6 +298,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
         try {
             // Take last 200 lines for analysis (balance between context and token limits)
             const logsToAnalyze = logs.slice(-200).join('\n');
+            const agentUrl = getAgentServerUrl();
 
             const response = await fetch(`${agentUrl}/analyze-logs`, {
                 method: 'POST',

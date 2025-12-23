@@ -129,9 +129,12 @@ pub struct BundleIndex {
 }
 
 // Global index storage
-use std::sync::Mutex;
-lazy_static::lazy_static! {
-    static ref BUNDLE_INDEX: Mutex<Option<(String, BundleIndex)>> = Mutex::new(None);
+use std::sync::{Mutex, OnceLock};
+
+static BUNDLE_INDEX: OnceLock<Mutex<Option<(String, BundleIndex)>>> = OnceLock::new();
+
+fn get_bundle_index() -> &'static Mutex<Option<(String, BundleIndex)>> {
+    BUNDLE_INDEX.get_or_init(|| Mutex::new(None))
 }
 
 // ============================================================================
@@ -197,7 +200,7 @@ pub async fn load_support_bundle(path: String) -> Result<SupportBundle, String> 
     let index = build_bundle_index(&path).await?;
 
     // Store in global state
-    let mut guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+    let mut guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
     *guard = Some((path.clone(), index));
 
     namespaces.sort();
@@ -485,11 +488,12 @@ pub async fn get_bundle_alerts(bundle_path: String) -> Result<BundleAlerts, Stri
 pub async fn get_bundle_health_summary(bundle_path: String) -> Result<BundleHealthSummary, String> {
     // Check if we have cached health summary
     {
-        let guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+        let guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
         if let Some((indexed_path, index)) = guard.as_ref() {
             if indexed_path == &bundle_path {
                 if let Some(ref summary) = index.health_summary {
-                    return Ok(summary.clone());
+                    let result: BundleHealthSummary = summary.clone();
+                    return Ok(result);
                 }
             }
         }
@@ -510,7 +514,7 @@ pub async fn search_bundle(
     let query_lower = query.to_lowercase();
     let mut results = Vec::new();
 
-    let guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+    let guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
 
     if let Some((indexed_path, index)) = guard.as_ref() {
         if indexed_path == &bundle_path {
@@ -571,7 +575,7 @@ pub async fn get_bundle_pods_by_status(
     bundle_path: String,
     status: String,
 ) -> Result<Vec<BundleResource>, String> {
-    let guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+    let guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
 
     let status_lower = status.to_lowercase();
 
@@ -594,7 +598,7 @@ pub async fn get_bundle_pods_by_status(
 /// Close/unload a bundle
 #[tauri::command]
 pub async fn close_support_bundle() -> Result<(), String> {
-    let mut guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+    let mut guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
     *guard = None;
     Ok(())
 }
@@ -903,10 +907,11 @@ async fn compute_health_summary(bundle_path: &str) -> Result<BundleHealthSummary
     // Load and index if not already done
     let _bundle = load_support_bundle(bundle_path.to_string()).await?;
 
-    let guard = BUNDLE_INDEX.lock().map_err(|e| e.to_string())?;
+    let guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
     if let Some((_, index)) = guard.as_ref() {
         if let Some(ref summary) = index.health_summary {
-            return Ok(summary.clone());
+            let result: BundleHealthSummary = summary.clone();
+            return Ok(result);
         }
     }
 

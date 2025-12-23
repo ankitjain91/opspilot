@@ -441,21 +441,33 @@ button > svg:only-child {
 }
 
 /* Elegant scrollbar */
-.cyber-scrollbar::-webkit-scrollbar {
+.cyber-scrollbar::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
-.cyber-scrollbar::-webkit-scrollbar-track {
+.cyber-scrollbar::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.cyber-scrollbar::-webkit-scrollbar-thumb {
+.cyber-scrollbar::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
-.cyber-scrollbar::-webkit-scrollbar-thumb:hover {
+.cyber-scrollbar::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+/* Ensure custom-scrollbar containers scroll properly */
+.custom-scrollbar {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 /* Subtle grid background (optional, less visible) */

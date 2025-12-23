@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Loader2, Code2, FolderOpen, Settings, Trash2, Plus } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getAgentServerUrl } from '../../utils/config';
 
 interface SearchCodeDialogProps {
     isOpen: boolean;
@@ -51,8 +50,7 @@ export function SearchCodeDialog({ isOpen, onClose, onSearch, initialQuery }: Se
             // In this app, `agentOrchestrator.ts` uses `BASE_URL = 'http://localhost:8000'`.
             // I should use that or look for a helper. `ClusterChatPanel` uses `fetch`.
 
-            const agentUrl = getAgentServerUrl();
-            const res = await fetch(`${agentUrl}/local-repos-config`);
+            const res = await fetch('http://localhost:8765/local-repos-config');
             if (res.ok) {
                 const data = await res.json();
                 setLocalRepos(data.local_repos || []);
@@ -66,8 +64,7 @@ export function SearchCodeDialog({ isOpen, onClose, onSearch, initialQuery }: Se
 
     const saveLocalRepos = async (repos: string[]) => {
         try {
-            const agentUrl = getAgentServerUrl();
-            await fetch(`${agentUrl}/local-repos-config`, {
+            await fetch('http://localhost:8765/local-repos-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ local_repos: repos })
