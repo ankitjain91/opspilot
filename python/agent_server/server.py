@@ -1811,14 +1811,16 @@ async def analyze(request: AgentRequest):
                     await asyncio.sleep(5)  # Every 5 seconds
                     dots = (dots % 3) + 1
                     elapsed = int(time.time() - start_time)
-                    await heartbeat_queue.put(f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Loading model{"." * dots} ({elapsed}s)'}))}\n\n")
+                    msg = '🧠 Loading model' + '.' * dots + ' (' + str(elapsed) + 's)'
+                    await heartbeat_queue.put(f"data: {json.dumps(emit_event('progress', {'message': msg}))}\n\n")
 
             try:
                 for attempt in range(max_attempts):
                     # If retrying, inject a hint into the query
                     if attempt > 0:
                      print(f"🔄 Backtracking Attempt {attempt+1}/{max_attempts}...", flush=True)
-                     yield f"data: {json.dumps(emit_event('status', {'message': f'Previous path failed. Backtracking (Attempt {attempt+1})...', 'type': 'retry'}))}\n\n"
+                     retry_msg = 'Previous path failed. Backtracking (Attempt ' + str(attempt+1) + ')...'
+                     yield f"data: {json.dumps(emit_event('status', {'message': retry_msg, 'type': 'retry'}))}\n\n"
 
                      # Append hint to query to guide Supervisor
                      # We use a distinct separator so we can strip it later if needed, but LLM understanding is key.
@@ -1856,7 +1858,8 @@ async def analyze(request: AgentRequest):
                             thinking_dots = (thinking_dots % 3) + 1
                             dots = "." * thinking_dots
                             elapsed = int(current_time - start_time)
-                            yield f"data: {json.dumps(emit_event('progress', {'message': f'🧠 Thinking{dots} ({elapsed}s)'}))}\n\n"
+                            thinking_msg = '🧠 Thinking' + dots + ' (' + str(elapsed) + 's)'
+                            yield f"data: {json.dumps(emit_event('progress', {'message': thinking_msg}))}\n\n"
                             last_heartbeat = current_time
 
                         # Handle Tool Starts for "Glass Box" transparency
@@ -2105,12 +2108,14 @@ async def analyze(request: AgentRequest):
                 print(f"❌ Error in event_generator: {e}", flush=True)
                 print(f"❌ Full traceback:\n{traceback.format_exc()}", flush=True)
                 # Ensure we yield a final error event if something crashed
-                yield f"data: {json.dumps(emit_event('status', {'message': f'Internal Error: {str(e)}', 'type': 'error'}))}\n\n"
+                err_msg = 'Internal Error: ' + str(e)
+                yield f"data: {json.dumps(emit_event('status', {'message': err_msg, 'type': 'error'}))}\n\n"
 
             except Exception as e:
                 # Handle errors in backtracking/retry loop
                 print(f"[event_generator] Error during graph execution: {e}", flush=True)
-                yield f"data: {json.dumps(emit_event('error', {'message': f'Investigation error: {str(e)}'}))}\n\n"
+                err_msg = 'Investigation error: ' + str(e)
+                yield f"data: {json.dumps(emit_event('error', {'message': err_msg}))}\n\n"
 
         async def event_generator_with_cleanup():
             """Wrapper to ensure heartbeat task cleanup"""
@@ -2157,8 +2162,9 @@ async def analyze(request: AgentRequest):
         except:
             pass
 
+        err_msg = 'Server Error: ' + str(e)
         return StreamingResponse(
-            iter([f"data: {json.dumps(emit_event('error', {'message': f'Server Error: {str(e)}'}))}\n\n"]),
+            iter([f"data: {json.dumps(emit_event('error', {'message': err_msg}))}\n\n"]),
             media_type="text/event-stream"
         )
 
@@ -2958,7 +2964,8 @@ Protocol:
             import traceback
             print(f"[direct-agent] ❌ Error: {e}", flush=True)
             print(traceback.format_exc(), flush=True)
-            yield f"data: {json.dumps(emit_event('error', {'message': f'Investigation failed: {str(e)}'}))}\n\n"
+            err_msg = 'Investigation failed: ' + str(e)
+            yield f"data: {json.dumps(emit_event('error', {'message': err_msg}))}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
