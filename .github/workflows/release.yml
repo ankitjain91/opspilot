@@ -67,6 +67,7 @@ jobs:
       - name: Install Python (x86_64 for macOS)
         if: matrix.platform == 'macos-latest'
         uses: actions/setup-python@v4
+        id: py_x64
         with:
           python-version: "3.11"
           architecture: "x64"
@@ -76,16 +77,21 @@ jobs:
         shell: bash
         env:
           TARGET_ARCH: "x86_64"
+          PYTHON_CMD: ${{ steps.py_x64.outputs.python-path }}
         run: |
+          # Clean previous build artifacts to prevent PyInstaller cache issues
+          rm -rf python/build python/dist
+
           # Verify we are running x64 python
-          python3 -c "import platform; print(f'Python architecture: {platform.machine()}')"
+          echo "Using Python: $PYTHON_CMD"
+          $PYTHON_CMD -c "import platform; print(f'Python architecture: {platform.machine()}')"
 
           cd python
           # Re-install dependencies for this architecture
           # FORCE reinstall to ensure we get x86_64 wheels, avoiding cached arm64 wheels
-          pip install --force-reinstall --no-cache-dir -r requirements.txt
-          pip install --force-reinstall --no-cache-dir pyinstaller
-          python3 build.py
+          $PYTHON_CMD -m pip install --force-reinstall --no-cache-dir -r requirements.txt
+          $PYTHON_CMD -m pip install --force-reinstall --no-cache-dir pyinstaller
+          $PYTHON_CMD build.py
 
       - name: Verify sidecar binaries
         shell: bash
