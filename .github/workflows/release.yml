@@ -30,8 +30,9 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
-          # On macOS, explicitly request arm64 for native build
-          architecture: ${{ matrix.platform == 'macos-latest' && 'arm64' || 'x64' }}
+          # Don't specify architecture - let it default to the host architecture
+          # On macOS arm64 runners, this will get arm64 Python
+          # On x64 runners (Linux/Windows), this will get x64 Python
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -58,12 +59,11 @@ jobs:
 
       - name: Build Python agent sidecar (Native)
         shell: bash
-        env:
-          TARGET_ARCH: ${{ matrix.platform == 'macos-latest' && 'arm64' || 'x86_64' }}
         run: |
           cd python
           pip install -r requirements.txt
           pip install pyinstaller
+          # Don't set TARGET_ARCH - let build.py auto-detect from the running Python
           python build.py
 
       - name: Install Python (x86_64 for macOS)

@@ -33,6 +33,7 @@ def init_system_path():
         ]
     else: # Linux/Other
         new_paths = [
+            "/opt/homebrew/bin",  # Homebrew on Apple Silicon
             "/usr/local/bin",
             "/usr/bin",
             "/bin",
@@ -895,7 +896,9 @@ async def _test_claude_code_connection():
         claude_bin = config.get("claude_cli_path")
         if not claude_bin or claude_bin == "claude":
              claude_bin = find_executable_path("claude") or "claude"
-             
+
+        print(f"[claude-test] Testing Claude CLI at: {claude_bin}", flush=True)
+
         # Quick check: run 'claude --version' with short timeout
         process = await asyncio.create_subprocess_exec(
             claude_bin, "--version",
@@ -948,7 +951,20 @@ async def _test_claude_code_connection():
             "error": "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code",
             "completion_error": "CLI not installed",
         }
+    except BrokenPipeError as e:
+        print(f"[claude-test] BrokenPipeError: {e}", flush=True)
+        return {
+            "provider": "claude-code",
+            "connected": False,
+            "models_count": 0,
+            "completion_ok": False,
+            "error": f"Broken pipe when running Claude CLI. This may be a PyInstaller bundling issue.",
+            "completion_error": str(e),
+        }
     except Exception as e:
+        print(f"[claude-test] Exception: {type(e).__name__}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return {
             "provider": "claude-code",
             "connected": False,
