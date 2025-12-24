@@ -262,14 +262,6 @@ pub async fn stop_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
 
     Ok(())
 }
-
-/// Check if the agent sidecar is running
-pub async fn is_agent_running(app: &tauri::AppHandle) -> bool {
-    let state = app.state::<AgentSidecarState>();
-    let child_guard = state.child.lock().await;
-    child_guard.is_some()
-}
-
 /// Tauri commands for sidecar management
 
 #[tauri::command]
