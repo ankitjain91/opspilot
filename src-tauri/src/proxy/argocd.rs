@@ -35,6 +35,7 @@ pub async fn start_proxy(target_argocd_port: u16) -> Result<u16, String> {
     };
 
     let app = Router::new()
+        .route("/", any(proxy_handler))
         .route("/{*path}", any(proxy_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
