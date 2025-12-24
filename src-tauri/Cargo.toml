@@ -1,6 +1,6 @@
 [package]
 name = "opspilot"
-version = "0.2.82"
+version = "0.2.83"
 description = "Fast Kubernetes IDE with autonomous AI debugging. Tauri + Rust + Ollama for read-only incident analysis."
 authors = ["you"]
 license = "BUSL-1.1"
@@ -42,6 +42,9 @@ tauri-plugin-opener = "2"
 keyring = "3.6.3"
 which = "6"
 base64 = "0.22.1"
+axum = "0.8.8"
+tower = "0.5.2"
+tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 
 [features]
 default = ["custom-protocol"]

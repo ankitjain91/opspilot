@@ -85,8 +85,27 @@ pub async fn get_argocd_server_info(
         .unwrap_or_default()
         .as_secs();
 
+    // Start the proxy if not running (or ensure it's pointing to right port)
+    // We do this lazily here or explicitly in start_argocd_port_forward
+    // But since get_server_info returns the URL, we must ensure proxy is ready or planned
+    // Let's assume start_argocd_port_forward is called before this or we call it here?
+    // The current flow calls start_argocd_port_forward then get_argocd_server_info.
+    
+    // We need to know the proxy port.
+    // Ideally start_argocd_port_forward returns it or we store it in state.
+    // Let's check our proxy::argocd implementation. It uses a static RUNNING_PORT.
+    // We can call start_proxy again, it's idempotent-ish (returns existing port).
+    
+    // We need the target port (local kubectl port) to start the proxy.
+    // We can assume it's ARGOCD_LOCAL_PORT (9080).
+    
+    use crate::proxy::argocd::start_proxy;
+    let proxy_port = start_proxy(ARGOCD_LOCAL_PORT).await
+        .map_err(|e| format!("Failed to start proxy: {}", e))?;
+
     Ok(ArgoCDServerInfo {
-        url: format!("{}://localhost:{}?t={}", protocol, ARGOCD_LOCAL_PORT, timestamp),
+        // Return Proxy URL instead of direct
+        url: format!("http://localhost:{}?t={}", proxy_port, timestamp),
         username: "admin".to_string(),
         password,
         namespace,
@@ -365,6 +384,11 @@ pub async fn start_argocd_port_forward(
         let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
         *guard = Some(child);
     }
+
+    // Start the proxy immediately so it's ready
+    use crate::proxy::argocd::start_proxy;
+    let _ = start_proxy(ARGOCD_LOCAL_PORT).await
+        .map_err(|e| format!("Failed to start proxy: {}", e))?;
 
     Ok(format!("Port-forward started on localhost:{}", ARGOCD_LOCAL_PORT))
 }

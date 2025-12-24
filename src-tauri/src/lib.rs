@@ -9,6 +9,7 @@ mod ai_local;
 mod agent_sidecar;
 mod embeddings;
 mod mcp;
+pub mod proxy;
 mod commands {
     pub mod context;
     pub mod discovery;

@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
     Loader2, AlertCircle, RefreshCw, Copy, Check,
-    Eye, EyeOff, Lock, Key, Server, X, Database, CheckCircle2,
-    Maximize2, Minimize2, ExternalLink
+    Eye, EyeOff, Lock, Key, Server, X, ExternalLink
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -15,7 +14,7 @@ function cn(...inputs: ClassValue[]) {
 
 // --- Types ---
 interface ArgoCDServerInfo {
-    url: string;
+    url: string; // Now points to Proxy
     username: string;
     password: string;
     namespace: string;
@@ -27,56 +26,6 @@ interface ArgoCDWebViewProps {
     kubeContext?: string;
 }
 
-// --- Constants ---
-const ARGOCD_SESSION_KEY = 'argocd_session';
-
-interface ArgoCDSession {
-    serverInfo: ArgoCDServerInfo;
-    timestamp: number;
-    isConnected: boolean;
-    kubeContext: string;
-}
-
-// --- Helper Functions ---
-function loadSession(currentContext: string): ArgoCDSession | null {
-    try {
-        const stored = sessionStorage.getItem(ARGOCD_SESSION_KEY);
-        if (!stored) return null;
-        const session = JSON.parse(stored) as ArgoCDSession;
-        if (session.kubeContext !== currentContext) {
-            sessionStorage.removeItem(ARGOCD_SESSION_KEY);
-            return null;
-        }
-        // Session valid for 60 minutes
-        const maxAge = 60 * 60 * 1000;
-        if (Date.now() - session.timestamp > maxAge) {
-            sessionStorage.removeItem(ARGOCD_SESSION_KEY);
-            return null;
-        }
-        return session;
-    } catch {
-        return null;
-    }
-}
-
-function saveSession(serverInfo: ArgoCDServerInfo, kubeContext: string): void {
-    try {
-        const session: ArgoCDSession = {
-            serverInfo,
-            timestamp: Date.now(),
-            isConnected: true,
-            kubeContext
-        };
-        sessionStorage.setItem(ARGOCD_SESSION_KEY, JSON.stringify(session));
-    } catch (e) {
-        console.error('Failed to save ArgoCD session:', e);
-    }
-}
-
-function clearSession(): void {
-    sessionStorage.removeItem(ARGOCD_SESSION_KEY);
-}
-
 export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebViewProps) {
     // --- State ---
     const [serverInfo, setServerInfo] = useState<ArgoCDServerInfo | null>(null);
@@ -85,12 +34,9 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     const [error, setError] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
-    const [webviewReady, setWebviewReady] = useState(false);
-    const [isFromCache, setIsFromCache] = useState(false);
-    const [isSessionPreserved, setIsSessionPreserved] = useState(false);
+    const [iframeLoaded, setIframeLoaded] = useState(false);
 
     // --- Refs ---
-    const containerRef = useRef<HTMLDivElement>(null);
     const initializingRef = useRef(false);
     const previousContextRef = useRef<string>(kubeContext);
     const mountedRef = useRef(true);
@@ -102,18 +48,14 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     useEffect(() => {
         if (previousContextRef.current !== kubeContext) {
             console.log(`[ArgoCD] Context changed: ${previousContextRef.current} -> ${kubeContext}`);
-            // Force reset everything
             setStatusMessage(`Disconnecting from ${previousContextRef.current}...`);
-            invoke('force_close_argocd_webview').catch(console.error);
-            clearSession();
-            setWebviewReady(false);
+            // Stop port forward for old context
+            invoke('stop_argocd_port_forward').catch(console.error);
+
             setServerInfo(null);
-            setIsFromCache(false);
-            setIsSessionPreserved(false);
+            setIframeLoaded(false);
             previousContextRef.current = kubeContext;
             setStatus('idle');
-            // Re-init happens in the next effect due to dependency change or manual trigger
-            // But we actually want to trigger init immediately
             retryCountRef.current = 0;
             initializeArgoCD(true);
         }
@@ -122,118 +64,24 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     // 2. Initial Load
     useEffect(() => {
         mountedRef.current = true;
-        const session = loadSession(kubeContext);
-
-        if (session && session.isConnected) {
-            console.log('[ArgoCD] Restoring valid session');
-            setServerInfo(session.serverInfo);
-            setIsFromCache(true);
-            setStatus('port-forwarding'); // Fast track
-            setStatusMessage('Restoring active session...');
-            verifyAndReconnect(session.serverInfo);
-        } else {
-            initializeArgoCD();
-        }
+        initializeArgoCD();
 
         return () => {
             mountedRef.current = false;
-            // On unmount, close the webview handle in backend so it doesn't float
-            // But we try to keep port-forward alive for a bit if user returns
-            invoke('close_argocd_webview').catch(console.error);
+            // Clean up port forward on unmount
+            invoke('stop_argocd_port_forward').catch(console.error);
         };
     }, []);
 
-    // 3. Resize Handling - The "White Screen" Fixer
-    // We only attach the observer when we believe we are ready
-    useEffect(() => {
-        if (!containerRef.current || !webviewReady) return;
-
-        let resizeTimeout: ReturnType<typeof setTimeout>;
-        let pollInterval: ReturnType<typeof setInterval>;
-
-        const updateBounds = () => {
-            if (!containerRef.current) return;
-            const rect = containerRef.current.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) return;
-
-            // Using invoke directly for immediate updates
-            invoke('update_argocd_webview_bounds', {
-                x: rect.left,
-                y: rect.top,
-                width: rect.width,
-                height: rect.height,
-            }).catch(e => console.warn("Failed to update bounds", e));
-        };
-
-        const observer = new ResizeObserver(() => {
-            // Immediate update for responsiveness
-            updateBounds();
-
-            // Debounced update for final settlement
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(updateBounds, 100);
-        });
-
-        observer.observe(containerRef.current);
-
-        // Initial sync
-        updateBounds();
-
-        // Poll for 1 second to catch any CSS transitions (header animations etc)
-        // This fixes the "overlapped header" issue if the header expands/shrinks on load
-        let polls = 0;
-        pollInterval = setInterval(() => {
-            updateBounds();
-            polls++;
-            if (polls > 10) clearInterval(pollInterval); // Stop after ~1s
-        }, 100);
-
-        return () => {
-            observer.disconnect();
-            clearTimeout(resizeTimeout);
-            clearInterval(pollInterval);
-        };
-    }, [webviewReady]);
-
     // --- Core Logic ---
-
-    const verifyAndReconnect = async (info: ArgoCDServerInfo) => {
-        if (initializingRef.current) return;
-        initializingRef.current = true;
-
-        try {
-            // Even with cached info, ensure port forward is active
-            setStatus('port-forwarding');
-            setStatusMessage('Verifying secure tunnel...');
-            await invoke('start_argocd_port_forward');
-
-            setStatus('connecting');
-            setStatusMessage('Checking server connectivity...');
-            // We can skip getting server info if we trust the cache, but good to verify
-            // For now, trust cache to be fast
-
-            initializingRef.current = false;
-        } catch (e: any) {
-            console.error("Failed to restore session", e);
-            // Fallback to full init
-            initializingRef.current = false;
-            if (mountedRef.current) {
-                setStatusMessage('Session verification failed, restarting...');
-            }
-            initializeArgoCD(true);
-        }
-    };
 
     const initializeArgoCD = async (forceRefresh = false) => {
         if (initializingRef.current && !forceRefresh) return;
         initializingRef.current = true;
 
         if (forceRefresh) {
-            setStatusMessage('Cleaning up previous session...');
-            clearSession();
-            setIsFromCache(false);
-            setWebviewReady(false);
-            invoke('force_close_argocd_webview').catch(console.error);
+            setServerInfo(null);
+            setIframeLoaded(false);
             await invoke('stop_argocd_port_forward').catch(console.error);
         }
 
@@ -243,22 +91,21 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
 
         try {
             setStatus('port-forwarding');
-            setStatusMessage('Establishing secure port-forward to cluster...');
+            setStatusMessage('Establishing secure port-forward & proxy...');
+            // This now starts both kubectl port-forward AND the axum proxy
             await invoke('start_argocd_port_forward');
 
             setStatus('connecting');
-            setStatusMessage('Retrieving ArgoCD credentials & server info...');
+            setStatusMessage('Retrieving ArgoCD credentials...');
             const info = await invoke<ArgoCDServerInfo>('get_argocd_server_info');
 
             if (!mountedRef.current) return;
 
+            console.log("[ArgoCD] Proxy Info:", info);
             setServerInfo(info);
-            setIsFromCache(false);
-            saveSession(info, kubeContext);
+            setStatusMessage('Loading Interface...');
+            // Status will switch to 'ready' when iframe loads
 
-            setStatusMessage('Credentials acquired. Preparing interface...');
-
-            // Auto-open happens via effect when serverInfo is present
         } catch (e: any) {
             console.error("ArgoCD Init Error:", e);
             if (mountedRef.current) {
@@ -271,56 +118,11 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         }
     };
 
-    // Effect to trigger webview opening once we have server info
-    useEffect(() => {
-        if (serverInfo && containerRef.current && !webviewReady && status !== 'error') {
-            openEmbeddedWebview();
-        }
-    }, [serverInfo, status]);
-
-    const openEmbeddedWebview = async () => {
-        if (!containerRef.current || !serverInfo) return;
-
-        const rect = containerRef.current.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) {
-            // Wait for layout
-            setTimeout(openEmbeddedWebview, 100);
-            return;
-        }
-
-        try {
-            if (!webviewReady) {
-                setStatusMessage('Launching ArgoCD interface...');
-            }
-            console.log(`[ArgoCD] Opening webview at ${rect.left},${rect.top} ${rect.width}x${rect.height}`);
-            const result = await invoke<string>('open_argocd_webview', {
-                x: rect.left,
-                y: rect.top,
-                width: rect.width,
-                height: rect.height,
-            });
-
-            if (!mountedRef.current) return;
-
-            const preserved = result.includes('session preserved');
-            setIsSessionPreserved(preserved);
-            setWebviewReady(true);
-            setStatus('ready');
-            setStatusMessage('Connected');
-
-        } catch (e: any) {
-            console.error('Failed to open embedded webview:', e);
-            if (retryCountRef.current < 2) {
-                retryCountRef.current++;
-                setStatusMessage(`Webview launch failed, retrying (${retryCountRef.current}/2)...`);
-                console.log(`[ArgoCD] Retrying webview open (${retryCountRef.current}/2)...`);
-                setTimeout(openEmbeddedWebview, 500);
-            } else {
-                setError(e?.toString() || 'Failed to open ArgoCD webview UI');
-                setStatus('error');
-                setStatusMessage('Failed to launch interface');
-            }
-        }
+    const handleIframeLoad = () => {
+        console.log("[ArgoCD] IFrame Loaded");
+        setIframeLoaded(true);
+        setStatus('ready');
+        setStatusMessage('Connected');
     };
 
     const handleRetry = () => {
@@ -361,14 +163,14 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         );
     }
 
-    const isLoading = status === 'initializing' || status === 'port-forwarding' || status === 'connecting';
+    const isLoading = status === 'initializing' || status === 'port-forwarding' || status === 'connecting' || (status !== 'error' && !iframeLoaded);
 
     return (
         <div className="flex flex-col h-full bg-zinc-950 relative overflow-hidden group">
-            {/* Background Texture/Gradient for Premium Feel */}
+            {/* Background Texture */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-orange-900/10 via-zinc-950 to-zinc-950 pointer-events-none" />
 
-            {/* Header: Glassmorphism */}
+            {/* Header */}
             <div className="shrink-0 relative z-20 border-b border-white/5 bg-zinc-900/60 backdrop-blur-md px-4 py-3 shadow-sm transition-all duration-300">
                 <div className="flex items-center justify-between">
                     {/* Left: Branding & Status */}
@@ -385,7 +187,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                                         status === 'ready' ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-orange-400 animate-pulse"
                                     )} />
                                     <span className="text-[10px] uppercase font-medium text-zinc-400 tracking-wider">
-                                        {status === 'ready' ? (isSessionPreserved ? 'Active Session' : 'Connected') : status}
+                                        {status === 'ready' ? 'Connected' : status}
                                     </span>
                                 </div>
                             </div>
@@ -464,31 +266,37 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                 </div>
             </div>
 
-            {/* Webview Container */}
-            <div
-                ref={containerRef}
-                className="flex-1 relative bg-zinc-950 isolate"
-            >
-                {/* Loader Overlay - sits behind webview, visible when webview is transparent or loading */}
-                <div className={cn(
-                    "absolute inset-0 flex items-center justify-center bg-zinc-950 transition-opacity duration-700",
-                    status === 'ready' ? "opacity-0 pointer-events-none" : "opacity-100 z-10"
-                )}>
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="relative">
-                            <div className="absolute inset-0 bg-orange-500/20 blur-xl rounded-full animate-pulse" />
-                            <Loader2 size={40} className="relative z-10 animate-spin text-orange-400" />
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                            <span className="text-zinc-200 font-medium tracking-wide">Connecting to ArgoCD</span>
-                            <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest">{statusMessage}</span>
+            {/* IFrame Container */}
+            <div className="flex-1 relative bg-zinc-950 isolate">
+                {/* Loader Overlay */}
+                {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-zinc-950 z-20">
+                        <div className="flex flex-col items-center gap-4">
+                            <div className="relative">
+                                <div className="absolute inset-0 bg-orange-500/20 blur-xl rounded-full animate-pulse" />
+                                <Loader2 size={40} className="relative z-10 animate-spin text-orange-400" />
+                            </div>
+                            <div className="flex flex-col items-center gap-1">
+                                <span className="text-zinc-200 font-medium tracking-wide">Connecting to ArgoCD</span>
+                                <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest animate-pulse">{statusMessage}</span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
-                {/* The Webview Placeholder - keeps space, but Tauri overlays the actual webview on top */}
-                {/* The background ensures we don't see white flashes if the webview lags */}
-                <div className="absolute inset-0 bg-zinc-950" />
+                {/* The Magic IFrame */}
+                {serverInfo && (
+                    <iframe
+                        src={serverInfo.url}
+                        className={cn(
+                            "w-full h-full border-none transition-opacity duration-500",
+                            iframeLoaded ? "opacity-100" : "opacity-0"
+                        )}
+                        onLoad={handleIframeLoad}
+                        title="ArgoCD Interface"
+                        sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                    />
+                )}
             </div>
         </div>
     );
