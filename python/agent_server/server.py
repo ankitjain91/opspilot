@@ -1476,7 +1476,8 @@ async def pull_embedding_model(
                 ) as response:
                     if response.status_code != 200:
                         error_text = await response.aread()
-                        yield f"data: {json.dumps({'status': 'error', 'message': f'HTTP {response.status_code}: {error_text.decode()}'})}\n\n"
+                        err_msg = 'HTTP ' + str(response.status_code) + ': ' + error_text.decode()
+                        yield f"data: {json.dumps({'status': 'error', 'message': err_msg})}\n\n"
                         return
 
                     async for line in response.aiter_lines():
@@ -1498,10 +1499,12 @@ async def pull_embedding_model(
 
                     # Mark as available after successful pull (update search module state)
                     search.embedding_model_available = True
-                    yield f"data: {json.dumps({'status': 'success', 'message': f'Model {target_model} ready'})}\n\n"
+                    success_msg = 'Model ' + target_model + ' ready'
+                    yield f"data: {json.dumps({'status': 'success', 'message': success_msg})}\n\n"
 
             except httpx.ConnectError as e:
-                yield f"data: {json.dumps({'status': 'error', 'message': f'Cannot connect to Ollama at {clean_endpoint}. Is Ollama running?'})}\n\n"
+                err_msg = 'Cannot connect to Ollama at ' + clean_endpoint + '. Is Ollama running?'
+                yield f"data: {json.dumps({'status': 'error', 'message': err_msg})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
 
