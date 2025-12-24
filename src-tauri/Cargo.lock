@@ -3237,7 +3237,7 @@ dependencies = [
 
 [[package]]
 name = "opspilot"
-version = "0.2.97"
+version = "0.2.98"
 dependencies = [
  "axum",
  "base64 0.22.1",

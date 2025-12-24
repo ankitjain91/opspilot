@@ -8,6 +8,7 @@ import subprocess
 import sys
 import platform
 import shutil
+import os
 from pathlib import Path
 
 def build():
@@ -20,6 +21,36 @@ def build():
 
     # Get the directory of this script
     script_dir = Path(__file__).parent
+
+    # ARCHITECTURE CHECK
+    # Ensure the running Python/OS architecture matches what we expect.
+    # This prevents creating an "x86_64" binary that is actually "arm64" (which crashes 'lipo')
+    target_arch_env = os.environ.get("TARGET_ARCH", "").lower()
+    current_arch = platform.machine().lower()
+
+    # Normalize arch names
+    if current_arch in ["amd64", "x86_64"]:
+        current_arch = "x86_64"
+    elif current_arch in ["arm64", "aarch64"]:
+        current_arch = "arm64"
+    
+    if target_arch_env:
+        if target_arch_env in ["amd64", "x86_64"]:
+             target_arch_env = "x86_64"
+        elif target_arch_env in ["arm64", "aarch64"]:
+             target_arch_env = "arm64"
+        
+        print(f"[Build] Target Arch: {target_arch_env} | Current Python Arch: {current_arch}")
+        
+        if target_arch_env != current_arch:
+            # On macOS, we can check if we are running under Rosetta (proc translation)
+            # But generally PyInstaller builds for the running interpreter.
+            # If they don't match, we are building the wrong thing.
+            print(f"Error: Architecture mismatch! TARGET_ARCH={target_arch_env} but running on {current_arch}")
+            print("Please run this script with the correct Python architecture (e.g. use 'arch -x86_64 python3' on macOS)")
+            sys.exit(1)
+    else:
+        print(f"[Build] No TARGET_ARCH set. converting to {current_arch}")
 
     # PyInstaller command
     cmd = [
@@ -83,7 +114,6 @@ def build():
 
     # Tauri expects platform-specific naming: name-target_triple
     # e.g., agent-server-x86_64-apple-darwin
-    import os
     if system == "darwin":
         # Allow overriding architecture via environment variable for CI (cross-building)
         arch = os.environ.get("TARGET_ARCH", platform.machine()).lower()

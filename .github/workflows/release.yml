@@ -82,8 +82,9 @@ jobs:
 
           cd python
           # Re-install dependencies for this architecture
-          pip install -r requirements.txt
-          pip install pyinstaller
+          # FORCE reinstall to ensure we get x86_64 wheels, avoiding cached arm64 wheels
+          pip install --force-reinstall --no-cache-dir -r requirements.txt
+          pip install --force-reinstall --no-cache-dir pyinstaller
           python3 build.py
 
       - name: Verify sidecar binaries
