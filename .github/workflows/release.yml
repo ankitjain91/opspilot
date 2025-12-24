@@ -66,34 +66,56 @@ jobs:
           # Don't set TARGET_ARCH - let build.py auto-detect from the running Python
           python build.py
 
-      - name: Install Python (x86_64 for macOS)
-        if: matrix.platform == 'macos-latest'
-        uses: actions/setup-python@v4
-        id: py_x64
-        with:
-          python-version: "3.11"
-          architecture: "x64"
-
-      - name: Build Python agent sidecar (x86_64 for macOS)
+      - name: Build Python agent sidecar (x86_64 for macOS via Rosetta)
         if: matrix.platform == 'macos-latest'
         shell: bash
         env:
           TARGET_ARCH: "x86_64"
-          PYTHON_CMD: ${{ steps.py_x64.outputs.python-path }}
         run: |
           # Clean previous build artifacts to prevent PyInstaller cache issues
           rm -rf python/build python/dist
 
-          # Verify we are running x64 python
-          echo "Using Python: $PYTHON_CMD"
-          $PYTHON_CMD -c "import platform; print(f'Python architecture: {platform.machine()}')"
+          # Use Rosetta to run Python in x86_64 mode
+          # This creates a genuine x86_64 binary via PyInstaller
+          echo "Building x86_64 sidecar using Rosetta emulation..."
 
-          cd python
-          # Re-install dependencies for this architecture
-          # FORCE reinstall to ensure we get x86_64 wheels, avoiding cached arm64 wheels
-          $PYTHON_CMD -m pip install --force-reinstall --no-cache-dir -r requirements.txt
-          $PYTHON_CMD -m pip install --force-reinstall --no-cache-dir pyinstaller
-          $PYTHON_CMD build.py
+          # Install x86_64 Python via Homebrew under Rosetta
+          arch -x86_64 /bin/bash -c '
+            # Install Homebrew for x86_64 if not present
+            if [ ! -f /usr/local/bin/brew ]; then
+              echo "Installing x86_64 Homebrew..."
+              /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            fi
+
+            # Install Python via x86_64 Homebrew
+            /usr/local/bin/brew install python@3.11 || true
+
+            # Get the x86_64 Python path
+            X86_PYTHON=$(/usr/local/bin/brew --prefix python@3.11)/bin/python3.11
+
+            echo "Using x86_64 Python: $X86_PYTHON"
+            $X86_PYTHON --version
+            file $X86_PYTHON
+
+            # Verify it is actually x86_64
+            ARCH=$($X86_PYTHON -c "import platform; print(platform.machine())")
+            echo "Python reports architecture: $ARCH"
+
+            if [ "$ARCH" != "x86_64" ]; then
+              echo "::error::Python is not x86_64! Got: $ARCH"
+              exit 1
+            fi
+
+            cd python
+            $X86_PYTHON -m pip install --upgrade pip
+            $X86_PYTHON -m pip install --force-reinstall --no-cache-dir -r requirements.txt
+            $X86_PYTHON -m pip install --force-reinstall --no-cache-dir pyinstaller
+            $X86_PYTHON build.py
+          '
+
+          # Verify the output binary is x86_64
+          echo "Verifying x86_64 binary..."
+          file src-tauri/binaries/agent-server-x86_64-apple-darwin
 
       - name: Verify sidecar binaries
         shell: bash
@@ -110,6 +132,24 @@ jobs:
               echo "::error::Missing x86_64 sidecar binary agent-server-x86_64-apple-darwin (build under Rosetta or use an x86_64 runner)"
               exit 1
             fi
+
+            # Verify actual architectures using lipo/file
+            echo "Verifying binary architectures..."
+            ARM_ARCH=$(file agent-server-aarch64-apple-darwin | grep -o 'arm64\|x86_64')
+            X86_ARCH=$(file agent-server-x86_64-apple-darwin | grep -o 'arm64\|x86_64')
+
+            echo "agent-server-aarch64-apple-darwin: $ARM_ARCH"
+            echo "agent-server-x86_64-apple-darwin: $X86_ARCH"
+
+            if [ "$ARM_ARCH" != "arm64" ]; then
+              echo "::error::arm64 binary has wrong architecture: $ARM_ARCH"
+              exit 1
+            fi
+            if [ "$X86_ARCH" != "x86_64" ]; then
+              echo "::error::x86_64 binary has wrong architecture: $X86_ARCH"
+              exit 1
+            fi
+            echo "✅ Both binaries have correct architectures"
           elif [[ "${{ matrix.platform }}" == "ubuntu-latest" ]]; then
             if [ ! -f agent-server-x86_64-unknown-linux-gnu ]; then
               echo "::error::Missing linux sidecar binary agent-server-x86_64-unknown-linux-gnu"
