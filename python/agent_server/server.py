@@ -2927,12 +2927,8 @@ Protocol:
 
                 elif event_type == 'usage':
                     # Token usage data from the request
-                    yield f"data: {json.dumps(emit_event('usage', {
-                        'input_tokens': event.get('input_tokens', 0),
-                        'output_tokens': event.get('output_tokens', 0),
-                        'total_tokens': event.get('total_tokens', 0),
-                        'session_total': event.get('session_total', 0)
-                    }))}\n\n"
+                    usage_data = {'input_tokens': event.get('input_tokens', 0), 'output_tokens': event.get('output_tokens', 0), 'total_tokens': event.get('total_tokens', 0), 'session_total': event.get('session_total', 0)}
+                    yield f"data: {json.dumps(emit_event('usage', usage_data))}\n\n"
 
                 elif event_type == 'error':
                     yield f"data: {json.dumps(emit_event('error', {'message': event.get('message', 'Unknown error')}))}\n\n"
