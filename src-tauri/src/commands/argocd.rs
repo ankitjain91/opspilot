@@ -71,8 +71,17 @@ pub async fn get_argocd_server_info(
         guard.is_some()
     };
 
+    // Determine protocol based on target port
+    // We need to re-check the port to decide protocol
+    let target_port = get_argocd_http_port(&client, &namespace).await.unwrap_or(80);
+    let protocol = if target_port == 80 || target_port == 8080 {
+        "http"
+    } else {
+        "https"
+    };
+
     Ok(ArgoCDServerInfo {
-        url: "https://localhost:9080".to_string(), // ArgoCD usually requires HTTPS
+        url: format!("{}://localhost:{}", protocol, ARGOCD_LOCAL_PORT),
         username: "admin".to_string(),
         password,
         namespace,

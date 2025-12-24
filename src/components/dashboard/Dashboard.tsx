@@ -1043,7 +1043,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                         icon={FolderOpen}
                                         items={filteredGroupedResources[groupTitle]}
                                         activeRes={activeRes}
-                                        onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); setShowBundleView(false); }}
+                                        onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
                                         isOpen={expandedGroups[groupTitle]}
                                         onToggle={() => toggleGroup(groupTitle)}
                                     />
