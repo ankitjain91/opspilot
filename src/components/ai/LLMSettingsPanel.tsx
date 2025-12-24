@@ -142,38 +142,58 @@ export function LLMSettingsPanel({
 
     // --- CLAUDE CODE STATUS ---
 
-    const checkClaudeCodeStatus = async () => {
+    const checkClaudeCodeStatus = async (retries = 3) => {
         setCheckingClaudeCode(true);
-        try {
-            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: 'claude-code' })
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                setClaudeCodeStatus({ connected: data.connected, error: data.error });
+
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: 'claude-code' })
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    setClaudeCodeStatus({ connected: data.connected, error: data.error });
+                    setCheckingClaudeCode(false);
+                    return;
+                }
+            } catch (e) {
+                // On last attempt, set the error
+                if (attempt === retries - 1) {
+                    setClaudeCodeStatus({ connected: false, error: 'Agent server starting...' });
+                } else {
+                    // Wait before retry (agent may still be starting)
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
             }
-        } catch (e) {
-            setClaudeCodeStatus({ connected: false, error: String(e) });
         }
         setCheckingClaudeCode(false);
     };
 
-    const checkCodexStatus = async () => {
+    const checkCodexStatus = async (retries = 3) => {
         setCheckingCodex(true);
-        try {
-            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: 'codex-cli' })
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
+
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: 'codex-cli' })
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
+                    setCheckingCodex(false);
+                    return;
+                }
+            } catch (e) {
+                if (attempt === retries - 1) {
+                    setCodexStatus({ connected: false, error: 'Agent server starting...' });
+                } else {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
             }
-        } catch (e) {
-            setCodexStatus({ connected: false, error: String(e) });
         }
         setCheckingCodex(false);
     };
