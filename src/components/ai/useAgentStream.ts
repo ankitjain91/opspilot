@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AgentPhase, CommandExecution } from './chat/StreamingProgressCard';
+import { getAgentServerUrl } from '../../utils/config';
 
 interface SSEEvent {
     type: string;
@@ -24,7 +25,7 @@ export function useAgentStream(queryId: string | null) {
     const eventSourceRef = useRef<EventSource | null>(null);
     const lastUpdateRef = useRef<number>(0);
     const pendingUpdateRef = useRef<AgentPhase | null>(null);
-    const throttleTimerRef = useRef<number | null>(null);
+    const throttleTimerRef = useRef<any>(null);
     const commandHistoryRef = useRef<CommandExecution[]>([]); // Track all commands
 
     // Throttle phase updates to prevent UI jank
@@ -47,7 +48,7 @@ export function useAgentStream(queryId: string | null) {
             }
 
             // Schedule delayed update
-            throttleTimerRef.current = setTimeout(() => {
+            throttleTimerRef.current = window.setTimeout(() => {
                 if (pendingUpdateRef.current) {
                     setCurrentPhase(pendingUpdateRef.current);
                     lastUpdateRef.current = Date.now();
@@ -239,7 +240,7 @@ export function useAgentStream(queryId: string | null) {
         commandHistoryRef.current = [];
 
         // Connect to agent SSE stream
-        const eventSource = new EventSource(`http://localhost:8765/analyze?query_id=${queryId}`);
+        const eventSource = new EventSource(`${getAgentServerUrl()}/analyze?query_id=${queryId}`);
         eventSourceRef.current = eventSource;
 
         eventSource.onmessage = (event) => {

@@ -152,7 +152,36 @@ pub async fn get_aks_credentials(subscription_id: String, resource_group: String
         .map_err(|e| format!("Failed to get credentials: {}", e))?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        // Use our structured error formatter (borrowed from context.rs logic, but we'll inline a simple version or share it if possible)
+        // For now, let's implement a specific formatter for this command
+        let err_str = String::from_utf8_lossy(&output.stderr).to_string();
+        let name_clone = name.clone();
+        
+        let err_lower = err_str.to_lowercase();
+        
+        // Check for common Azure errors
+        if err_lower.contains("device is required to be compliant") {
+             return Err(format!(
+                "AZURE_DEVICE_COMPLIANCE|{}|Azure AD device compliance required.|az login",
+                name_clone
+            ));
+        }
+        
+        if err_lower.contains("devicecodecredential") || err_lower.contains("sign in, use a web browser") {
+             return Err(format!(
+                "AZURE_LOGIN_REQUIRED|{}|Azure authentication required (Device Code).|az login",
+                name_clone
+            ));
+        }
+
+        if err_lower.contains("refresh token has expired") {
+             return Err(format!(
+                "AZURE_TOKEN_EXPIRED|{}|Azure AD refresh token has expired.|az login",
+                name_clone
+            ));
+        }
+
+        return Err(format!("UNKNOWN_ERROR|{}|{}|", name_clone, err_str));
     }
     
     // Auto-convert to azurecli login mode to respect the user's "az login" in terminal

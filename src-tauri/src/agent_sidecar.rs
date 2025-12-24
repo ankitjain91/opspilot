@@ -4,6 +4,7 @@
 //! The sidecar is started automatically when the app launches and stopped on exit.
 
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
@@ -28,6 +29,48 @@ impl Default for AgentSidecarState {
     }
 }
 
+/// Poll the agent's health endpoint until it responds OK or retries are exhausted
+async fn wait_for_agent_ready_with_retries(
+    url: &str,
+    attempts: u32,
+    delay: Duration,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(800))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    for attempt in 1..=attempts {
+        match client.get(url).send().await {
+            Ok(resp) if resp.status().is_success() => return Ok(()),
+            Ok(resp) => {
+                eprintln!(
+                    "[agent-sidecar] Health check attempt {} failed: {} {}",
+                    attempt,
+                    resp.status(),
+                    resp.text().await.unwrap_or_default()
+                );
+            }
+            Err(err) => {
+                eprintln!("[agent-sidecar] Health check attempt {} errored: {}", attempt, err);
+            }
+        }
+
+        if attempt != attempts {
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    Err(format!(
+        "Agent did not become ready after {} attempts at {}",
+        attempts, url
+    ))
+}
+
+async fn wait_for_agent_ready(url: &str) -> Result<(), String> {
+    wait_for_agent_ready_with_retries(url, 10, Duration::from_millis(300)).await
+}
+
 /// Start the agent sidecar process
 pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AgentSidecarState>();
@@ -43,7 +86,7 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
 
     // Get the sidecar command
     let sidecar = app.shell().sidecar("agent-server")
-        .map_err(|e| format!("Failed to get sidecar: {}", e))?;
+        .map_err(|e| format!("Failed to get sidecar: {}. Is the agent binary packaged for this platform?", e))?;
 
     // Determine writable path for ChromaDB
     let chroma_path = app.path().app_data_dir()
@@ -106,8 +149,20 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
         }
     });
 
-    // Wait a moment for the server to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // Drop lock before awaiting health checks
+    drop(child_guard);
+
+    // Wait for health
+    if let Err(e) = wait_for_agent_ready("http://127.0.0.1:8765/health").await {
+        eprintln!("[agent-sidecar] Health check failed: {}", e);
+        if let Some(state) = app.try_state::<AgentSidecarState>() {
+            let mut guard = state.child.lock().await;
+            if let Some(child) = guard.take() {
+                let _ = child.kill();
+            }
+        }
+        return Err(e);
+    }
 
     println!("[agent-sidecar] Started successfully on http://127.0.0.1:8765");
     Ok(())
@@ -148,5 +203,91 @@ pub async fn stop_agent(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn check_agent_status(app: tauri::AppHandle) -> Result<bool, String> {
-    Ok(is_agent_running(&app).await)
+    if !is_agent_running(&app).await {
+        return Ok(false);
+    }
+
+    // Quick health probe (single attempt, short timeout) so UI can surface unhealthy agent
+    match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 1, Duration::from_millis(50)).await {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            eprintln!("[agent-sidecar] Agent process is running but health check failed: {}", e);
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wait_for_agent_ready_with_retries;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn start_dummy_health_server() -> Option<(u16, tokio::task::JoinHandle<()>)> {
+        let listener = match TcpListener::bind("127.0.0.1:0").await {
+            Ok(l) => l,
+            Err(e) => {
+                // CI or sandbox might block binding; skip test in that case
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return None;
+                }
+                panic!("failed to bind dummy server: {}", e);
+            }
+        };
+        let port = listener.local_addr().unwrap().port();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok((mut socket, _)) => {
+                        let mut buf = [0u8; 1024];
+                        let _ = socket.read(&mut buf).await;
+                        let _ = socket
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length:2\r\n\r\nOK")
+                            .await;
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        Some((port, handle))
+    }
+
+    #[tokio::test]
+    async fn wait_for_agent_ready_succeeds() {
+        let Some((port, handle)) = start_dummy_health_server().await else {
+            // Environment blocked socket bind; skip
+            return;
+        };
+        let url = format!("http://127.0.0.1:{}/health", port);
+
+        let result = wait_for_agent_ready_with_retries(&url, 3, Duration::from_millis(50)).await;
+        assert!(result.is_ok(), "expected health check to succeed");
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_for_agent_ready_times_out() {
+        // Bind and drop to get an unused port (no server running)
+        let port = match TcpListener::bind("127.0.0.1:0").await {
+            Ok(l) => {
+                let p = l.local_addr().unwrap().port();
+                drop(l);
+                p
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return; // skip in restricted envs
+                }
+                panic!("failed to bind port: {}", e);
+            }
+        };
+
+        let url = format!("http://127.0.0.1:{}/health", port);
+        let result = wait_for_agent_ready_with_retries(&url, 3, Duration::from_millis(50)).await;
+        assert!(result.is_err(), "expected health check to fail");
+    }
 }

@@ -33,11 +33,11 @@ use commands::terminal::{start_local_shell, send_shell_input, resize_shell, stop
 use commands::networking::{start_port_forward, stop_port_forward, list_port_forwards};
 use commands::cluster::{get_cluster_stats, get_cluster_cockpit, get_metrics_history, clear_metrics_history, get_initial_cluster_data};
 use commands::cost::get_cluster_cost_report;
-use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations, load_opspilot_config, save_opspilot_config, get_env_var, get_opspilot_env_vars, get_kb_directory_info, init_kb_directory, store_secret, retrieve_secret, remove_secret, get_workspace_dir};
+use commands::ai_utilities::{load_llm_config, save_llm_config, store_investigation_pattern, find_similar_investigations, load_opspilot_config, save_opspilot_config, get_env_var, get_opspilot_env_vars, get_kb_directory_info, init_kb_directory, store_secret, retrieve_secret, remove_secret, get_workspace_dir, read_server_info_file};
 use commands::vcluster::{list_vclusters, connect_vcluster, disconnect_vcluster};
 use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials, detect_aks_cluster, get_aks_metrics_history};
 use commands::helm::{helm_list, helm_uninstall, helm_get_details, helm_history, helm_get_resources, helm_rollback};
-use commands::argocd::{argo_patch_helm_values, argo_patch_source, argo_sync_application, argo_refresh_application};
+use commands::argocd::{get_argocd_server_info, start_argocd_port_forward, stop_argocd_port_forward, check_argocd_exists, open_argocd_webview, close_argocd_webview, force_close_argocd_webview, is_argocd_webview_active};
 use commands::dependencies::check_dependencies;
 use commands::support_bundle::{load_support_bundle, get_bundle_resource_types, get_bundle_resources, get_bundle_resource_yaml, get_bundle_events, get_bundle_log_files, get_bundle_logs, get_bundle_alerts, get_bundle_health_summary, search_bundle, get_bundle_pods_by_status, close_support_bundle};
 
@@ -174,6 +174,7 @@ pub fn run() {
             retrieve_secret,
             remove_secret,
             get_workspace_dir,
+            read_server_info_file,
 
             // Knowledge Base
             get_kb_directory_info,
@@ -221,10 +222,14 @@ pub fn run() {
             install_uvx,
 
             // ArgoCD
-            argo_patch_helm_values,
-            argo_patch_source,
-            argo_sync_application,
-            argo_refresh_application,
+            get_argocd_server_info,
+            start_argocd_port_forward,
+            stop_argocd_port_forward,
+            check_argocd_exists,
+            open_argocd_webview,
+            close_argocd_webview,
+            force_close_argocd_webview,
+            is_argocd_webview_active,
 
             // Dependencies
             check_dependencies,

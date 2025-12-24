@@ -7,7 +7,6 @@ import { getVersion } from '@tauri-apps/api/app';
 import {
     Activity,
     AlertCircle,
-    Archive,
     ArrowLeft,
     Box,
     ChevronDown,
@@ -45,7 +44,7 @@ import { SidebarGroup, SidebarSection } from '../layout/Sidebar';
 import { LocalTerminalTab } from '../tools/LocalTerminalTab';
 import { AzurePage } from '../azure/AzurePage';
 import { HelmReleases } from '../tools/HelmReleases';
-import { ArgoApplications } from '../tools/ArgoApplications';
+import { ArgoCDWebView } from '../tools/ArgoCDWebView';
 import { ResourceList } from '../cluster/ResourceList';
 import { ClusterCockpit } from './ClusterCockpit';
 import { CustomResourceHealth } from '../cluster/CustomResourceHealth';
@@ -57,7 +56,6 @@ import { NotificationCenter } from '../notifications/NotificationCenter';
 import { useKeyboardShortcuts, KeyboardShortcut } from '../../hooks/useKeyboardShortcuts';
 import { KeyboardShortcutsModal } from '../shared/KeyboardShortcutsModal';
 import { SettingsPage } from '../settings/SettingsPage';
-import { BundleDashboard } from '../bundle';
 
 // Define PersistQueryClientProvider in App, so queryClient is available via hook
 
@@ -103,7 +101,6 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false); // Keyboard shortcuts help
     const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Settings page
-    const [showBundleView, setShowBundleView] = useState(false); // Support Bundle Analyzer
     const qc = useQueryClient();
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -638,22 +635,18 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
         initialData: initialData?.namespaces?.sort(),
     });
 
-    // 2.1 Fetch Argo CD Applications (if present in cluster)
-    const { data: argoApps } = useQuery({
-        queryKey: ["argo_applications", currentContext],
+    // 2.1 Check if ArgoCD exists in the cluster
+    const { data: argocdExists } = useQuery({
+        queryKey: ["argocd_exists", currentContext],
         queryFn: async () => {
             try {
-                const apps = await invoke<K8sObject[]>("list_resources", {
-                    req: { group: "argoproj.io", version: "v1alpha1", kind: "Application", namespace: null }
-                });
-                return apps;
+                return await invoke<boolean>("check_argocd_exists");
             } catch {
-                // Argo CD not installed or no permissions - return empty
-                return [];
+                return false;
             }
         },
-        staleTime: 30000,
-        retry: false, // Don't retry if Argo CD isn't installed
+        staleTime: 1000 * 60 * 5, // 5 minutes - ArgoCD install status rarely changes
+        retry: false,
     });
 
     // 2.5 Background Prefetching
@@ -915,9 +908,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes(null);
                                     setActiveTabId(null);
                                     setSearchQuery("");
-                                    setShowBundleView(false); // Navigate away from bundle view
                                 }}
-                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes === null && !showBundleView ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes === null ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
                                 <div className="flex items-center gap-2.5">
                                     <LayoutDashboard size={18} className={activeRes === null ? "text-white" : "text-cyan-400 group-hover:text-cyan-300"} />
@@ -935,7 +927,6 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes({ kind: "CustomResourceHealth", group: "internal", version: "v1", namespaced: false, title: "CR Health" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
-                                    setShowBundleView(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "CustomResourceHealth" ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
@@ -955,7 +946,6 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                     setActiveRes({ kind: "HelmReleases", group: "helm", version: "v1", namespaced: false, title: "Releases" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
-                                    setShowBundleView(false);
                                 }}
                                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "HelmReleases" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
@@ -967,25 +957,21 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                         </div>
                     )}
 
-                    {/* Argo CD Applications Button - Only show if apps exist */}
-                    {argoApps && argoApps.length > 0 && (!sidebarSearchQuery || "argo".includes(sidebarSearchQuery.toLowerCase()) || "application".includes(sidebarSearchQuery.toLowerCase()) || "gitops".includes(sidebarSearchQuery.toLowerCase())) && (
+                    {/* Argo CD Button - Only show if ArgoCD is installed */}
+                    {argocdExists && (!sidebarSearchQuery || "argo".includes(sidebarSearchQuery.toLowerCase()) || "application".includes(sidebarSearchQuery.toLowerCase()) || "gitops".includes(sidebarSearchQuery.toLowerCase())) && (
                         <div className="mb-1">
                             <button
                                 onClick={() => {
-                                    setActiveRes({ kind: "ArgoApplications", group: "argoproj.io", version: "v1alpha1", namespaced: false, title: "Applications" });
+                                    setActiveRes({ kind: "ArgoCD", group: "argoproj.io", version: "v1alpha1", namespaced: false, title: "Argo CD" });
                                     setActiveTabId(null);
                                     setSearchQuery("");
-                                    setShowBundleView(false);
                                 }}
-                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "ArgoApplications" ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${activeRes?.kind === "ArgoCD" ? "bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg shadow-orange-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
                             >
                                 <div className="flex items-center gap-2.5">
-                                    <GitBranch size={18} className={activeRes?.kind === "ArgoApplications" ? "text-white" : "text-orange-400 group-hover:text-orange-300"} />
+                                    <GitBranch size={18} className={activeRes?.kind === "ArgoCD" ? "text-white" : "text-orange-400 group-hover:text-orange-300"} />
                                     <span>Argo CD</span>
                                 </div>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${activeRes?.kind === "ArgoApplications" ? "bg-white/20 text-white" : "bg-zinc-800/50 text-zinc-500"}`}>
-                                    {argoApps.length}
-                                </span>
                             </button>
                         </div>
                     )}
@@ -1026,7 +1012,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                                             grp === "IaC" ? Cloud : Box}
                                     items={filteredGroupedResources[grp]}
                                     activeRes={activeRes}
-                                    onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); setShowBundleView(false); }}
+                                    onSelect={(res: any) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
                                     isOpen={expandedGroups[grp]}
                                     onToggle={() => toggleGroup(grp)}
                                 />
@@ -1088,25 +1074,11 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </button>
 
                     <button
-                        onClick={() => { setIsSettingsOpen(true); setShowBundleView(false); }}
+                        onClick={() => setIsSettingsOpen(true)}
                         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-zinc-400 hover:text-white hover:bg-white/5 rounded-md transition-all group"
                     >
                         <Settings size={18} className="text-zinc-500 group-hover:text-zinc-300" />
                         <span>Settings</span>
-                    </button>
-
-                    {/* Support Bundle Analyzer */}
-                    <button
-                        onClick={() => {
-                            setShowBundleView(true);
-                            setActiveRes(null);
-                            setActiveTabId(null);
-                            setSearchQuery("");
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-md transition-all group ${showBundleView ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/30" : "text-zinc-400 hover:text-white hover:bg-white/5"}`}
-                    >
-                        <Archive size={18} className={showBundleView ? "text-white" : "text-purple-400 group-hover:text-purple-300"} />
-                        <span>Support Bundle</span>
                     </button>
 
                     <button
@@ -1223,12 +1195,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </div>
                 )}
 
-                {/* Support Bundle Dashboard - Always mounted to preserve state */}
-                <div className={showBundleView ? 'flex-1 min-h-0 h-full' : 'hidden'}>
-                    <BundleDashboard onClose={() => setShowBundleView(false)} />
-                </div>
-                {!showBundleView && (
-                    activeRes?.kind === "CustomResourceHealth" ? (
+                {activeRes?.kind === "CustomResourceHealth" ? (
                         <div className="flex-1 min-h-0 overflow-y-auto">
                             <CustomResourceHealth
                                 currentContext={currentContext}
@@ -1238,8 +1205,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                         </div>
                     ) : activeRes?.kind === "HelmReleases" ? (
                         <HelmReleases currentContext={currentContext} />
-                    ) : activeRes?.kind === "ArgoApplications" ? (
-                        <ArgoApplications currentContext={currentContext} onOpenResource={handleOpenResource} />
+                    ) : activeRes?.kind === "ArgoCD" ? (
+                        <ArgoCDWebView onClose={() => setActiveRes(null)} />
                     ) : (
                         <>
                             {/* Header */}
@@ -1382,8 +1349,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                 )}
                             </div>
                         </>
-                    )
-                )}
+                    )}
             </main>
 
             {/* Deep Dive Drawer with integrated tabs */}

@@ -30,6 +30,21 @@ export function AzurePage({ onConnect }: AzurePageProps) {
     const [realtimeSubscriptions, setRealtimeSubscriptions] = useState<AzureSubscription[]>([]);
     const [statusMessage, setStatusMessage] = useState("Fetching Azure Data...");
 
+    // Error parsing logic
+    const parseError = (err: any) => {
+        const msg = err?.message || String(err);
+        if (msg.includes('|')) {
+            const parts = msg.split('|');
+            return {
+                code: parts[0],
+                context: parts[1],
+                message: parts[2],
+                command: parts[3]
+            };
+        }
+        return { code: 'UNKNOWN', message: msg };
+    };
+
     // Real-time Event Listener
     useEffect(() => {
         let unlistenUpdate: () => void;
@@ -130,8 +145,9 @@ export function AzurePage({ onConnect }: AzurePageProps) {
     if (isLoading && realtimeSubscriptions.length === 0) return <LoadingScreen message={statusMessage} />;
 
     if (error) {
-        const errorMessage = (error as any).message || String(error);
-        const isLoginError = errorMessage.toLowerCase().includes("login");
+        const errObj = parseError(error);
+        const isLoginError = ['AZURE_LOGIN_REQUIRED', 'AZURE_TOKEN_EXPIRED', 'AZURE_DEVICE_CODE'].includes(errObj.code) ||
+            errObj.message.toLowerCase().includes("login");
 
         return (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-zinc-900 to-zinc-950">
@@ -140,7 +156,7 @@ export function AzurePage({ onConnect }: AzurePageProps) {
                         <AlertCircle size={32} className="text-red-400" />
                     </div>
                     <h3 className="text-xl font-bold text-white mb-3">Azure Connection Error</h3>
-                    <p className="text-zinc-400 text-sm mb-6 leading-relaxed">{error.message}</p>
+                    <p className="text-zinc-400 text-sm mb-6 leading-relaxed">{errObj.message}</p>
 
                     {isLoginError ? (
                         <button

@@ -3381,6 +3381,173 @@ async def save_solution_endpoint(request: SolutionRequest):
     return {"status": "saved", "id": solution_data["id"]}
 
 
+# ============================================================================
+# BUNDLE AI ANALYSIS (Token-Efficient)
+# ============================================================================
+
+class BundleAnalysisRequest(BaseModel):
+    """Request for AI-powered support bundle analysis."""
+    summary: str  # Pre-computed summary from frontend (500-1000 tokens)
+    mode: Literal["initial_analysis", "question"] = "initial_analysis"
+    question: str | None = None  # User question for follow-up
+    conversation_history: list[dict] | None = None
+    health_score: int | None = None
+    failing_pods_count: int | None = None
+    critical_alerts_count: int | None = None
+
+
+BUNDLE_ANALYSIS_SYSTEM_PROMPT = """You are an expert Kubernetes SRE analyzing an OFFLINE support bundle snapshot.
+
+CRITICAL: This is STATIC DATA from a support bundle file - NOT a live cluster.
+- You CANNOT execute kubectl, helm, or any commands
+- You CANNOT query the cluster - it may not even exist anymore
+- You can ONLY analyze the data provided in the summary below
+- Do NOT suggest running diagnostic commands - the user cannot run them on this bundle
+
+Your role:
+1. Identify root causes of failures from the provided data
+2. Prioritize issues by severity
+3. Provide actionable recommendations (what to fix when they have cluster access)
+4. Be concise - the user already sees the raw data
+
+Rules:
+- Focus on actionable insights, not obvious observations
+- Prioritize critical issues (CrashLoopBackOff, OOMKilled, FailedScheduling)
+- Be specific about namespaces and resource names when mentioned
+- Base ALL analysis on the provided summary data only
+"""
+
+BUNDLE_ANALYSIS_JSON_FORMAT = """{
+  "summary": "1-2 sentence overview of cluster health",
+  "rootCauses": [
+    {"issue": "Brief description", "likelihood": "high|medium|low", "explanation": "Why this is likely"}
+  ],
+  "recommendations": [
+    {"priority": "critical|high|medium|low", "action": "What to do", "rationale": "Why"}
+  ],
+  "affectedComponents": ["namespace/resource", ...]
+}"""
+
+
+@app.post("/analyze/bundle")
+async def analyze_bundle(request: BundleAnalysisRequest):
+    """
+    Token-efficient AI analysis of support bundles.
+
+    The frontend pre-computes a summary (~500-1000 tokens) from the bundle,
+    so we only send the condensed context to the LLM instead of raw YAML.
+
+    Modes:
+    - initial_analysis: Generate structured root cause analysis
+    - question: Answer a specific user question about the bundle
+    """
+    from .claude_code_backend import get_claude_code_backend
+
+    print(f"[bundle-ai] 🔍 Analyzing bundle (mode: {request.mode})", flush=True)
+    print(f"[bundle-ai] 📊 Summary size: {len(request.summary)} chars", flush=True)
+
+    try:
+        backend = get_claude_code_backend()
+
+        if request.mode == "initial_analysis":
+            # Initial analysis - request structured JSON response
+            # IMPORTANT: We use force_json=False because force_json=True triggers
+            # the K8s agent prompt which tells Claude to use kubectl/tools.
+            # Instead, we embed the JSON format request directly in the prompt.
+            prompt = f"""{BUNDLE_ANALYSIS_SYSTEM_PROMPT}
+
+## Support Bundle Data:
+
+{request.summary}
+
+## Metrics:
+- Health Score: {request.health_score}/100
+- Failing Pods: {request.failing_pods_count}
+- Critical Alerts: {request.critical_alerts_count}
+
+## Task:
+Analyze this support bundle snapshot and provide your analysis as JSON in this exact format:
+{BUNDLE_ANALYSIS_JSON_FORMAT}
+
+Output ONLY the JSON object, no markdown code blocks, no explanation text.
+Focus on the most impactful issues first."""
+
+            response = await backend.call(
+                prompt=prompt,
+                system_prompt=None,  # System prompt is embedded in the prompt
+                force_json=False,  # Don't use K8s agent JSON mode - it triggers tool use
+                timeout=60.0
+            )
+
+            # Parse JSON response - strip any markdown if present
+            response = response.strip()
+            if response.startswith("```"):
+                # Strip markdown code blocks
+                lines = response.split('\n')
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                response = '\n'.join(lines)
+
+            try:
+                result = json.loads(response)
+                print(f"[bundle-ai] ✅ Analysis complete: {len(result.get('rootCauses', []))} root causes found", flush=True)
+                return result
+            except json.JSONDecodeError as e:
+                # If JSON parsing fails, return the raw response as summary
+                print(f"[bundle-ai] ⚠️ JSON parse failed: {e}", flush=True)
+                print(f"[bundle-ai] 📄 Raw response: {response[:500]}...", flush=True)
+                return {
+                    "summary": response[:500] if response else "Analysis failed",
+                    "rootCauses": [],
+                    "recommendations": [],
+                    "affectedComponents": []
+                }
+
+        elif request.mode == "question":
+            # Follow-up question - natural language response
+            if not request.question:
+                return {"error": "Question required for question mode"}
+
+            # Build conversation context
+            history_context = ""
+            if request.conversation_history:
+                history_context = "\n\nPrevious conversation:\n"
+                for msg in request.conversation_history[-5:]:  # Last 5 messages
+                    role = msg.get("role", "user").upper()
+                    content = msg.get("content", "")[:500]  # Truncate long messages
+                    history_context += f"[{role}]: {content}\n"
+
+            # Use the same strong system prompt for questions to prevent tool suggestions
+            prompt = f"""{BUNDLE_ANALYSIS_SYSTEM_PROMPT}
+
+## Support Bundle Data:
+
+{request.summary}
+{history_context}
+
+## User Question:
+{request.question}
+
+Provide a direct, helpful answer based ONLY on the bundle data above.
+Do NOT suggest running kubectl or any other commands - this is static data from a bundle file."""
+
+            response = await backend.call(
+                prompt=prompt,
+                system_prompt=None,  # System prompt is embedded
+                force_json=False,  # Natural language response
+                timeout=45.0
+            )
+
+            print(f"[bundle-ai] ✅ Question answered: {len(response)} chars", flush=True)
+            return {"answer": response}
+
+    except Exception as e:
+        print(f"[bundle-ai] ❌ Error: {e}", flush=True)
+        return {"error": str(e)}
+
+
 if __name__ == "__main__":
     import uvicorn
     import time

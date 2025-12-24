@@ -477,6 +477,40 @@ pub fn get_opspilot_env_vars() -> std::collections::HashMap<String, String> {
     result
 }
 
+// -----------------------------------------------------------------------------
+// SERVER INFO DISCOVERY
+// -----------------------------------------------------------------------------
+
+/// Server information stored by the agent sidecar
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+    pub port: u16,
+    pub pid: u32,
+    pub version: Option<String>,
+}
+
+/// Read the server info file written by the agent sidecar.
+/// This allows the frontend to discover the actual port being used.
+#[tauri::command]
+pub async fn read_server_info_file() -> Result<Option<ServerInfo>, String> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| "Could not find home directory".to_string())?;
+    
+    let info_path = home.join(".opspilot").join("server-info.json");
+
+    if !info_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&info_path).await
+        .map_err(|e| format!("Failed to read server info: {}", e))?;
+
+    let info: ServerInfo = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse server info: {}", e))?;
+
+    Ok(Some(info))
+}
+
 // =============================================================================
 // KNOWLEDGE BASE INITIALIZATION
 // =============================================================================

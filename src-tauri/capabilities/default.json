@@ -3,9 +3,15 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": [
-    "main"
+    "main",
+    "argocd-ui",
+    "argocd-embedded"
   ],
   "permissions": [
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:webview:allow-create-webview-window",
     "core:default",
     "shell:allow-execute",
     "shell:allow-open",

@@ -10,8 +10,9 @@ import {
     Info, Flame, HardDrive, MemoryStick, Cpu, Download,
     Filter, BarChart3, GitBranch, Calendar, TrendingUp,
     Shield, AlertCircle, Target, Gauge, FileDown, PanelRightOpen,
-    PanelRightClose, Timer, Hash, Tag, Crosshair
+    PanelRightClose, Timer, Hash, Tag, Crosshair, Brain, Sparkles
 } from 'lucide-react';
+import { BundleAIAnalyzer } from './BundleAIAnalyzer';
 import type {
     SupportBundle, BundleResource, BundleEvent, BundleHealthSummary,
     BundleAlerts, BundleLogFile, PodHealthInfo, DeploymentHealthInfo
@@ -842,9 +843,8 @@ function IssueCard({ issue, onClick, isSelected }: {
     return (
         <button
             onClick={onClick}
-            className={`w-full text-left p-4 rounded-xl border transition-all ${style.border} ${style.bg} ${
-                isSelected ? 'ring-2 ring-violet-500/50' : 'hover:bg-white/5'
-            }`}
+            className={`w-full text-left p-4 rounded-xl border transition-all ${style.border} ${style.bg} ${isSelected ? 'ring-2 ring-violet-500/50' : 'hover:bg-white/5'
+                }`}
         >
             <div className="flex items-start gap-3">
                 <div className={`w-10 h-10 rounded-lg ${style.icon} flex items-center justify-center flex-shrink-0`}>
@@ -895,10 +895,9 @@ function DetailPanel({ issue, bundle, events, onClose, onNavigateToResource }: {
                 <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                            <span className={`w-2 h-2 rounded-full ${
-                                issue.severity === 'critical' ? 'bg-red-500' :
+                            <span className={`w-2 h-2 rounded-full ${issue.severity === 'critical' ? 'bg-red-500' :
                                 issue.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
-                            }`} />
+                                }`} />
                             <h2 className="text-lg font-semibold text-white truncate">{issue.title}</h2>
                         </div>
                         <p className="text-sm text-zinc-400">{issue.resourceKind}: {issue.affectedResource}</p>
@@ -969,16 +968,14 @@ function DetailPanel({ issue, bundle, events, onClose, onNavigateToResource }: {
                             {issue.relatedEvents.slice(0, 10).map((e, i) => (
                                 <div
                                     key={i}
-                                    className={`p-3 rounded-lg border ${
-                                        e.event_type === 'Warning'
-                                            ? 'bg-amber-500/5 border-amber-500/20'
-                                            : 'bg-zinc-800/50 border-white/5'
-                                    }`}
+                                    className={`p-3 rounded-lg border ${e.event_type === 'Warning'
+                                        ? 'bg-amber-500/5 border-amber-500/20'
+                                        : 'bg-zinc-800/50 border-white/5'
+                                        }`}
                                 >
                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${
-                                            e.event_type === 'Warning' ? 'bg-amber-500' : 'bg-blue-500'
-                                        }`} />
+                                        <span className={`w-1.5 h-1.5 rounded-full ${e.event_type === 'Warning' ? 'bg-amber-500' : 'bg-blue-500'
+                                            }`} />
                                         <span className="text-xs font-medium text-white">{e.reason}</span>
                                         {e.count > 1 && (
                                             <span className="text-[10px] text-zinc-500">×{e.count}</span>
@@ -1089,9 +1086,8 @@ function ResourceDetail({ resource, yaml, logs, logFiles, events, onClose, onLoa
                         <button
                             key={t.id}
                             onClick={() => setTab(t.id as typeof tab)}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${
-                                tab === t.id ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'
-                            }`}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5 ${tab === t.id ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'
+                                }`}
                         >
                             {t.label}
                             {t.count !== undefined && t.count > 0 && (
@@ -1117,23 +1113,21 @@ function ResourceDetail({ resource, yaml, logs, logFiles, events, onClose, onLoa
                                     {resource.conditions.map((c, i) => (
                                         <div
                                             key={i}
-                                            className={`p-3 rounded-xl border ${
-                                                c.status === 'True'
-                                                    ? 'bg-emerald-500/5 border-emerald-500/20'
-                                                    : c.status === 'False'
-                                                        ? 'bg-red-500/5 border-red-500/20'
-                                                        : 'bg-zinc-800/50 border-white/5'
-                                            }`}
+                                            className={`p-3 rounded-xl border ${c.status === 'True'
+                                                ? 'bg-emerald-500/5 border-emerald-500/20'
+                                                : c.status === 'False'
+                                                    ? 'bg-red-500/5 border-red-500/20'
+                                                    : 'bg-zinc-800/50 border-white/5'
+                                                }`}
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium text-white">{c.condition_type}</span>
-                                                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                                    c.status === 'True'
-                                                        ? 'bg-emerald-500/20 text-emerald-400'
-                                                        : c.status === 'False'
-                                                            ? 'bg-red-500/20 text-red-400'
-                                                            : 'bg-zinc-700 text-zinc-400'
-                                                }`}>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full ${c.status === 'True'
+                                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                                    : c.status === 'False'
+                                                        ? 'bg-red-500/20 text-red-400'
+                                                        : 'bg-zinc-700 text-zinc-400'
+                                                    }`}>
                                                     {c.status}
                                                 </span>
                                             </div>
@@ -1169,11 +1163,10 @@ function ResourceDetail({ resource, yaml, logs, logFiles, events, onClose, onLoa
                             resourceEvents.map((e, i) => (
                                 <div
                                     key={i}
-                                    className={`p-3 rounded-xl border ${
-                                        e.event_type === 'Warning'
-                                            ? 'bg-amber-500/5 border-amber-500/20'
-                                            : 'bg-zinc-800/50 border-white/5'
-                                    }`}
+                                    className={`p-3 rounded-xl border ${e.event_type === 'Warning'
+                                        ? 'bg-amber-500/5 border-amber-500/20'
+                                        : 'bg-zinc-800/50 border-white/5'
+                                        }`}
                                 >
                                     <div className="flex items-center gap-2">
                                         <span className={`w-2 h-2 rounded-full ${e.event_type === 'Warning' ? 'bg-amber-500' : 'bg-blue-500'}`} />
@@ -1199,11 +1192,10 @@ function ResourceDetail({ resource, yaml, logs, logFiles, events, onClose, onLoa
                                     <button
                                         key={lf.file_path}
                                         onClick={() => onLoadLog(lf)}
-                                        className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                                            selectedLogFile?.file_path === lf.file_path
-                                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                                                : 'bg-zinc-800 text-zinc-400 hover:text-white border border-transparent'
-                                        }`}
+                                        className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${selectedLogFile?.file_path === lf.file_path
+                                            ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                            : 'bg-zinc-800 text-zinc-400 hover:text-white border border-transparent'
+                                            }`}
                                     >
                                         {lf.container}
                                     </button>
@@ -1238,13 +1230,12 @@ function ResourceDetail({ resource, yaml, logs, logFiles, events, onClose, onLoa
                                     {filteredLogs.map((l, i) => (
                                         <div
                                             key={i}
-                                            className={`px-3 py-0.5 text-[11px] font-mono border-l-2 ${
-                                                l.level === 'error' ? 'bg-red-500/10 text-red-300 border-red-500' :
+                                            className={`px-3 py-0.5 text-[11px] font-mono border-l-2 ${l.level === 'error' ? 'bg-red-500/10 text-red-300 border-red-500' :
                                                 l.level === 'warn' ? 'bg-amber-500/5 text-amber-300 border-amber-500' :
-                                                l.level === 'info' ? 'text-blue-300 border-blue-500/50' :
-                                                l.level === 'debug' ? 'text-zinc-500 border-zinc-700' :
-                                                'text-zinc-400 border-transparent'
-                                            }`}
+                                                    l.level === 'info' ? 'text-blue-300 border-blue-500/50' :
+                                                        l.level === 'debug' ? 'text-zinc-500 border-zinc-700' :
+                                                            'text-zinc-400 border-transparent'
+                                                }`}
                                         >
                                             <span className="text-zinc-600 mr-2 select-none">{l.index + 1}</span>
                                             {l.line}
@@ -1317,6 +1308,7 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
     const [logContent, setLogContent] = useState('');
     const [selectedLogFile, setSelectedLogFile] = useState<BundleLogFile | undefined>();
     const [showRightPanel, setShowRightPanel] = useState(true);
+    const [showAIChat, setShowAIChat] = useState(false);
 
     // Explore state - initialize selectedNs from preloaded bundle if available
     const [selectedNs, setSelectedNs] = useState<string | null>(preloadedData?.bundle.namespaces[0] ?? null);
@@ -1345,6 +1337,9 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
     const [timelineFilter, setTimelineFilter] = useState<'all' | 'critical' | 'warning'>('all');
     const [graphNamespace, setGraphNamespace] = useState<string | null>(null);
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+    // Explore view status filter
+    const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'pending' | 'failed' | 'issues'>('all');
 
     // Computed values
     const detectedIssues = useMemo(() =>
@@ -1486,9 +1481,36 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
         // Resource will be selected once it loads
     };
 
-    const filteredResources = useMemo(() =>
-        search ? resources.filter(r => r.name.toLowerCase().includes(search.toLowerCase())) : resources
-    , [resources, search]);
+    const filteredResources = useMemo(() => {
+        let result = resources;
+
+        // Apply search filter
+        if (search) {
+            result = result.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
+        }
+
+        // Apply status filter
+        if (statusFilter !== 'all') {
+            result = result.filter(r => {
+                const phase = (r.status_phase || '').toLowerCase();
+                switch (statusFilter) {
+                    case 'running':
+                        return phase === 'running' || phase === 'succeeded' || phase === 'active' || phase === 'bound' || phase === 'ready';
+                    case 'pending':
+                        return phase === 'pending' || phase === 'waiting' || phase === 'containercreating';
+                    case 'failed':
+                        return phase.includes('crash') || phase.includes('error') || phase.includes('failed') ||
+                            phase.includes('oom') || phase === 'evicted' || phase === 'terminated';
+                    case 'issues':
+                        return detectedIssues.some(i => i.affectedResource === r.name);
+                    default:
+                        return true;
+                }
+            });
+        }
+
+        return result;
+    }, [resources, search, statusFilter, detectedIssues]);
 
     // =========================================================================
     // RENDER: No bundle (shouldn't happen with preloadedData)
@@ -1572,11 +1594,10 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                         className="w-full p-3 text-left hover:bg-white/5 border-b border-white/5 last:border-0"
                                     >
                                         <div className="flex items-center gap-2">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                r.type === 'resource' ? 'bg-violet-500/20 text-violet-400' :
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${r.type === 'resource' ? 'bg-violet-500/20 text-violet-400' :
                                                 r.type === 'event' ? 'bg-amber-500/20 text-amber-400' :
-                                                'bg-red-500/20 text-red-400'
-                                            }`}>{r.type}</span>
+                                                    'bg-red-500/20 text-red-400'
+                                                }`}>{r.type}</span>
                                             <span className="text-sm text-white truncate">{r.name}</span>
                                         </div>
                                         <p className="text-xs text-zinc-500 mt-1 truncate">{r.snippet}</p>
@@ -1585,6 +1606,23 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                             </div>
                         )}
                     </div>
+                    <button
+                        onClick={() => {
+                            setShowAIChat(!showAIChat);
+                            if (!showAIChat) {
+                                setShowRightPanel(true);
+                                setSelectedIssue(null);
+                                setSelectedResource(null);
+                            }
+                        }}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${showAIChat
+                            ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                            : 'bg-zinc-800/50 border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                    >
+                        <Sparkles size={14} />
+                        <span className="text-xs font-medium">Ask AI</span>
+                    </button>
                     <button
                         onClick={exportReport}
                         className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white"
@@ -1610,15 +1648,20 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                     { id: 'graph', label: 'Graph', icon: GitBranch },
                     { id: 'events', label: 'Events', icon: Activity, count: warningEvents.length, color: 'amber' },
                     { id: 'explore', label: 'Explore', icon: Search },
+                    { id: 'issues', label: 'Issues', icon: AlertOctagon, count: detectedIssues.length, color: 'red' },
+                    { id: 'overview', label: 'Overview', icon: BarChart3 },
+                    { id: 'timeline', label: 'Timeline', icon: Calendar },
+                    { id: 'graph', label: 'Graph', icon: GitBranch },
+                    { id: 'events', label: 'Events', icon: Activity, count: warningEvents.length, color: 'amber' },
+                    { id: 'explore', label: 'Explore', icon: Search },
                 ].map(nav => (
                     <button
                         key={nav.id}
                         onClick={() => setView(nav.id as typeof view)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                            view === nav.id
-                                ? `bg-${nav.color || 'white'}-500/20 text-${nav.color ? nav.color + '-400' : 'white'}`
-                                : 'text-zinc-500 hover:text-white hover:bg-white/5'
-                        }`}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${view === nav.id
+                            ? `bg-${nav.color || 'white'}-500/20 text-${nav.color ? nav.color + '-400' : 'white'}`
+                            : 'text-zinc-500 hover:text-white hover:bg-white/5'
+                            }`}
                     >
                         <nav.icon size={14} />
                         {nav.label}
@@ -1634,7 +1677,7 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
             {/* Main Content */}
             <div className="flex-1 min-h-0 flex overflow-hidden">
                 {/* Left Content */}
-                <div className={`flex-1 min-h-0 overflow-hidden flex flex-col ${showRightPanel && (selectedIssue || selectedResource) ? 'w-2/3' : 'w-full'}`}>
+                <div className={`flex-1 min-h-0 overflow-hidden flex flex-col ${showRightPanel && (selectedIssue || selectedResource || showAIChat) ? 'w-2/3' : 'w-full'}`}>
                     {/* ISSUES VIEW */}
                     {view === 'issues' && (
                         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-6">
@@ -1776,13 +1819,12 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                             <button
                                                 key={f}
                                                 onClick={() => setTimelineFilter(f)}
-                                                className={`px-3 py-1 text-xs rounded-lg ${
-                                                    timelineFilter === f
-                                                        ? f === 'critical' ? 'bg-red-500/20 text-red-400' :
-                                                          f === 'warning' ? 'bg-amber-500/20 text-amber-400' :
-                                                          'bg-white/10 text-white'
-                                                        : 'text-zinc-500 hover:text-white'
-                                                }`}
+                                                className={`px-3 py-1 text-xs rounded-lg ${timelineFilter === f
+                                                    ? f === 'critical' ? 'bg-red-500/20 text-red-400' :
+                                                        f === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                                                            'bg-white/10 text-white'
+                                                    : 'text-zinc-500 hover:text-white'
+                                                    }`}
                                             >
                                                 {f.charAt(0).toUpperCase() + f.slice(1)}
                                             </button>
@@ -1793,16 +1835,14 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                     <div className="absolute left-3 top-0 bottom-0 w-px bg-zinc-800" />
                                     {filteredTimeline.slice(0, 100).map((item, i) => (
                                         <div key={item.id} className="relative">
-                                            <div className={`absolute left-[-20px] w-2 h-2 rounded-full ${
-                                                item.severity === 'critical' ? 'bg-red-500' :
+                                            <div className={`absolute left-[-20px] w-2 h-2 rounded-full ${item.severity === 'critical' ? 'bg-red-500' :
                                                 item.severity === 'warning' ? 'bg-amber-500' :
-                                                item.severity === 'info' ? 'bg-blue-500' : 'bg-zinc-500'
-                                            }`} />
-                                            <div className={`p-4 rounded-xl border ${
-                                                item.severity === 'critical' ? 'bg-red-500/5 border-red-500/20' :
+                                                    item.severity === 'info' ? 'bg-blue-500' : 'bg-zinc-500'
+                                                }`} />
+                                            <div className={`p-4 rounded-xl border ${item.severity === 'critical' ? 'bg-red-500/5 border-red-500/20' :
                                                 item.severity === 'warning' ? 'bg-amber-500/5 border-amber-500/20' :
-                                                'bg-zinc-900/50 border-white/5'
-                                            }`}>
+                                                    'bg-zinc-900/50 border-white/5'
+                                                }`}>
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="text-sm font-medium text-white">{item.title}</span>
                                                     {item.count && item.count > 1 && (
@@ -1888,16 +1928,14 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                         {events.slice(0, 200).map((e, i) => (
                                             <div
                                                 key={i}
-                                                className={`p-4 rounded-xl border ${
-                                                    e.event_type === 'Warning'
-                                                        ? 'bg-amber-500/5 border-amber-500/20'
-                                                        : 'bg-zinc-900/50 border-white/5'
-                                                }`}
+                                                className={`p-4 rounded-xl border ${e.event_type === 'Warning'
+                                                    ? 'bg-amber-500/5 border-amber-500/20'
+                                                    : 'bg-zinc-900/50 border-white/5'
+                                                    }`}
                                             >
                                                 <div className="flex items-start gap-3">
-                                                    <span className={`w-2 h-2 mt-2 rounded-full flex-shrink-0 ${
-                                                        e.event_type === 'Warning' ? 'bg-amber-500' : 'bg-blue-500'
-                                                    }`} />
+                                                    <span className={`w-2 h-2 mt-2 rounded-full flex-shrink-0 ${e.event_type === 'Warning' ? 'bg-amber-500' : 'bg-blue-500'
+                                                        }`} />
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2 flex-wrap">
                                                             <span className="text-sm font-medium text-white">{e.reason}</span>
@@ -1938,11 +1976,10 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                         <button
                                             key={ns}
                                             onClick={() => setSelectedNs(ns)}
-                                            className={`w-full px-3 py-2 text-left text-sm rounded-lg truncate flex items-center justify-between ${
-                                                selectedNs === ns
-                                                    ? 'bg-violet-500/20 text-violet-300'
-                                                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
-                                            }`}
+                                            className={`w-full px-3 py-2 text-left text-sm rounded-lg truncate flex items-center justify-between ${selectedNs === ns
+                                                ? 'bg-violet-500/20 text-violet-300'
+                                                : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                                                }`}
                                         >
                                             <span className="truncate">{ns}</span>
                                             {hasIssues && <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />}
@@ -1959,11 +1996,10 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                             <button
                                                 key={type}
                                                 onClick={() => setSelectedType(type)}
-                                                className={`px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                                                    selectedType === type
-                                                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                                                        : 'text-zinc-400 hover:text-white bg-zinc-800/50 border border-transparent'
-                                                }`}
+                                                className={`px-3 py-1.5 text-xs font-medium rounded-full whitespace-nowrap ${selectedType === type
+                                                    ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                                                    : 'text-zinc-400 hover:text-white bg-zinc-800/50 border border-transparent'
+                                                    }`}
                                             >
                                                 {type}
                                             </button>
@@ -1985,6 +2021,58 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                     </div>
                                 </div>
 
+                                {/* Status Filters */}
+                                <div className="flex-none px-4 py-2 border-b border-white/10">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Status:</span>
+                                        <button
+                                            onClick={() => setStatusFilter('all')}
+                                            className={`px-2.5 py-1 text-xs rounded-full transition-all ${statusFilter === 'all'
+                                                ? 'bg-zinc-700 text-white'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                }`}
+                                        >
+                                            All
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('running')}
+                                            className={`px-2.5 py-1 text-xs rounded-full transition-all ${statusFilter === 'running'
+                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                }`}
+                                        >
+                                            Running
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('pending')}
+                                            className={`px-2.5 py-1 text-xs rounded-full transition-all ${statusFilter === 'pending'
+                                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                }`}
+                                        >
+                                            Pending
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('failed')}
+                                            className={`px-2.5 py-1 text-xs rounded-full transition-all ${statusFilter === 'failed'
+                                                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                }`}
+                                        >
+                                            Failed
+                                        </button>
+                                        <button
+                                            onClick={() => setStatusFilter('issues')}
+                                            className={`px-2.5 py-1 text-xs rounded-full transition-all ${statusFilter === 'issues'
+                                                ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                                                }`}
+                                        >
+                                            Has Issues
+                                        </button>
+                                    </div>
+                                </div>
+
                                 {/* Resource list */}
                                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4">
                                     {filteredResources.length === 0 ? (
@@ -1998,11 +2086,10 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                                     <button
                                                         key={r.file_path}
                                                         onClick={() => setSelectedResource(r)}
-                                                        className={`w-full p-4 rounded-xl border text-left transition-colors ${
-                                                            selectedResource?.file_path === r.file_path
-                                                                ? 'bg-violet-500/10 border-violet-500/30'
-                                                                : 'bg-zinc-900/50 border-white/5 hover:border-white/10'
-                                                        }`}
+                                                        className={`w-full p-4 rounded-xl border text-left transition-colors ${selectedResource?.file_path === r.file_path
+                                                            ? 'bg-violet-500/10 border-violet-500/30'
+                                                            : 'bg-zinc-900/50 border-white/5 hover:border-white/10'
+                                                            }`}
                                                     >
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-2">
@@ -2022,10 +2109,12 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                             </div>
                         </div>
                     )}
+
+                    {/* AI ANALYSIS VIEW REMOVED - NOW IN SIDE PANEL */}
                 </div>
 
                 {/* Right Panel */}
-                {showRightPanel && (selectedIssue || selectedResource) && (
+                {showRightPanel && (selectedIssue || selectedResource || showAIChat) && (
                     <div className="w-1/3 min-w-[400px] max-w-[500px] min-h-0 flex flex-col border-l border-white/10">
                         {selectedResource ? (
                             <ResourceDetail
@@ -2046,6 +2135,27 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                                 onClose={() => setSelectedIssue(null)}
                                 onNavigateToResource={navigateToResource}
                             />
+                        ) : showAIChat ? (
+                            <div className="h-full flex flex-col">
+                                <BundleAIAnalyzer
+                                    bundlePath={bundle.path}
+                                    context={{
+                                        healthSummary,
+                                        alerts,
+                                        events,
+                                        overview: {
+                                            healthScore: clusterOverview.healthScore,
+                                            totalPods: clusterOverview.totalPods,
+                                            failingPods: clusterOverview.failingPods,
+                                            pendingPods: clusterOverview.pendingPods,
+                                            warningEvents: clusterOverview.warningEvents,
+                                            criticalAlerts: clusterOverview.criticalAlerts
+                                        },
+                                        namespaces: bundle.namespaces
+                                    }}
+                                    onClose={() => setShowAIChat(false)}
+                                />
+                            </div>
                         ) : null}
                     </div>
                 )}
@@ -2077,9 +2187,8 @@ function ResourceNodeComponent({ node, depth, expanded, onToggle }: {
         <div style={{ marginLeft: depth * 24 }}>
             <button
                 onClick={() => hasChildren && onToggle(node.id)}
-                className={`w-full flex items-center gap-2 p-3 rounded-lg border transition-colors ${
-                    node.hasIssue ? 'bg-red-500/5 border-red-500/20' : 'bg-zinc-900/50 border-white/5 hover:border-white/10'
-                }`}
+                className={`w-full flex items-center gap-2 p-3 rounded-lg border transition-colors ${node.hasIssue ? 'bg-red-500/5 border-red-500/20' : 'bg-zinc-900/50 border-white/5 hover:border-white/10'
+                    }`}
             >
                 {hasChildren ? (
                     isExpanded ? <ChevronDown size={14} className="text-zinc-500" /> : <ChevronRight size={14} className="text-zinc-500" />

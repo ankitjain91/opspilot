@@ -485,7 +485,7 @@ export function ClusterChatPanel({
     useEffect(() => {
         const checkGithubConfig = async () => {
             try {
-                const resp = await fetch('http://127.0.0.1:8765/github-config');
+                const resp = await fetch(`${getAgentServerUrl()}/github-config`);
                 if (resp.ok) {
                     const data = await resp.json();
                     setGithubConfigured(data.configured === true);

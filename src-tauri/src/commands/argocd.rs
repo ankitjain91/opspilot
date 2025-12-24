@@ -1,263 +1,526 @@
 use tauri::State;
-use kube::{
-    api::{Api, DynamicObject, GroupVersionKind, Patch, PatchParams},
-    Discovery,
-};
+use kube::api::Api;
+use k8s_openapi::api::core::v1::{Secret, Service};
 use crate::state::AppState;
 use crate::client::create_client;
-use std::process::Command;
+use std::process::{Command, Child, Stdio};
+use std::sync::Mutex;
+use std::net::TcpListener;
+use serde::Serialize;
 
-/// Patch Helm values on an ArgoCD Application
-#[tauri::command]
-pub async fn argo_patch_helm_values(
-    state: State<'_, AppState>,
-    namespace: String,
-    name: String,
-    values: String,
-) -> Result<String, String> {
-    let client = create_client(state).await?;
+/// Global state for port-forward process
+static ARGOCD_PORT_FORWARD: Mutex<Option<Child>> = Mutex::new(None);
 
-    let gvk = GroupVersionKind::gvk("argoproj.io", "v1alpha1", "Application");
-    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
-    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("ArgoCD Application CRD not found")?;
+/// Port used for ArgoCD port-forward
+const ARGOCD_LOCAL_PORT: u16 = 9080;
 
-    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
-
-    // First, get the current application to check if it uses sources or source
-    let current = api.get(&name).await.map_err(|e| format!("Failed to get application: {}", e))?;
-
-    let uses_sources = current.data.get("spec")
-        .and_then(|s| s.get("sources"))
-        .map(|s| s.is_array())
-        .unwrap_or(false);
-
-    let patch_json = if uses_sources {
-        // Multi-source app - patch first source
-        serde_json::json!({
-            "spec": {
-                "sources": [{
-                    "helm": {
-                        "values": values
-                    }
-                }]
-            }
-        })
-    } else {
-        // Single source app
-        serde_json::json!({
-            "spec": {
-                "source": {
-                    "helm": {
-                        "values": values
-                    }
-                }
-            }
-        })
-    };
-
-    let pp = PatchParams::apply("opspilot");
-    let patch = Patch::Merge(&patch_json);
-
-    api.patch(&name, &pp, &patch)
-        .await
-        .map_err(|e| format!("Failed to patch helm values: {}", e))?;
-
-    Ok("Helm values updated successfully".to_string())
+/// ArgoCD server connection info
+#[derive(Serialize)]
+pub struct ArgoCDServerInfo {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+    pub namespace: String,
+    pub port_forward_active: bool,
 }
 
-/// Patch source configuration (targetRevision, chart, repoURL)
-#[tauri::command]
-pub async fn argo_patch_source(
-    state: State<'_, AppState>,
-    namespace: String,
-    name: String,
-    target_revision: Option<String>,
-    chart: Option<String>,
-    repo_url: Option<String>,
-) -> Result<String, String> {
-    let client = create_client(state).await?;
+/// Find ArgoCD namespace
+async fn find_argocd_namespace(client: &kube::Client) -> Option<String> {
+    let namespaces = vec!["argocd", "argo-cd", "argocd-system"];
 
-    let gvk = GroupVersionKind::gvk("argoproj.io", "v1alpha1", "Application");
-    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
-    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("ArgoCD Application CRD not found")?;
-
-    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
-
-    // Build patch with only provided fields
-    let mut source_patch = serde_json::Map::new();
-
-    if let Some(rev) = target_revision {
-        source_patch.insert("targetRevision".to_string(), serde_json::Value::String(rev));
+    for ns in &namespaces {
+        let services: Api<Service> = Api::namespaced(client.clone(), ns);
+        if services.get("argocd-server").await.is_ok() {
+            return Some(ns.to_string());
+        }
     }
-    if let Some(c) = chart {
-        source_patch.insert("chart".to_string(), serde_json::Value::String(c));
-    }
-    if let Some(url) = repo_url {
-        source_patch.insert("repoURL".to_string(), serde_json::Value::String(url));
-    }
-
-    if source_patch.is_empty() {
-        return Err("No changes provided".to_string());
-    }
-
-    // Check if app uses sources or source
-    let current = api.get(&name).await.map_err(|e| format!("Failed to get application: {}", e))?;
-
-    let uses_sources = current.data.get("spec")
-        .and_then(|s| s.get("sources"))
-        .map(|s| s.is_array())
-        .unwrap_or(false);
-
-    let patch_json = if uses_sources {
-        serde_json::json!({
-            "spec": {
-                "sources": [serde_json::Value::Object(source_patch)]
-            }
-        })
-    } else {
-        serde_json::json!({
-            "spec": {
-                "source": serde_json::Value::Object(source_patch)
-            }
-        })
-    };
-
-    let pp = PatchParams::apply("opspilot");
-    let patch = Patch::Merge(&patch_json);
-
-    api.patch(&name, &pp, &patch)
-        .await
-        .map_err(|e| format!("Failed to patch source: {}", e))?;
-
-    Ok("Source configuration updated successfully".to_string())
+    None
 }
 
-/// Sync an ArgoCD application
-///
-/// This uses the ArgoCD CLI if available for full sync options,
-/// otherwise falls back to annotation-based refresh
+/// Get ArgoCD server info and start port-forward if needed
 #[tauri::command]
-pub async fn argo_sync_application(
+pub async fn get_argocd_server_info(
     state: State<'_, AppState>,
-    namespace: String,
-    name: String,
-    prune: bool,
-    force: bool,
-    dry_run: bool,
-) -> Result<String, String> {
-    // First, try using ArgoCD CLI for full sync capabilities
-    let argocd_available = Command::new("which")
-        .arg("argocd")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+) -> Result<ArgoCDServerInfo, String> {
+    let client = create_client(state).await?;
 
-    if argocd_available {
-        let mut args = vec!["app", "sync", &name];
+    let namespace = find_argocd_namespace(&client).await
+        .ok_or("ArgoCD not found in cluster. Checked namespaces: argocd, argo-cd, argocd-system")?;
 
-        if prune {
-            args.push("--prune");
-        }
-        if force {
-            args.push("--force");
-        }
-        if dry_run {
-            args.push("--dry-run");
-        }
+    // Get admin password from secret
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), &namespace);
 
-        let output = Command::new("argocd")
-            .args(&args)
+    let password = match secrets.get("argocd-initial-admin-secret").await {
+        Ok(admin_secret) => {
+            admin_secret.data
+                .and_then(|data| data.get("password").cloned())
+                .and_then(|pw| String::from_utf8(pw.0).ok())
+                .map(|p| p.trim().to_string())
+        }
+        Err(_) => None
+    };
+
+    let password = password.ok_or_else(|| {
+        "ArgoCD admin password not found. The 'argocd-initial-admin-secret' may have been deleted.".to_string()
+    })?;
+
+    // Check if port-forward is already running
+    let port_forward_active = {
+        let guard = ARGOCD_PORT_FORWARD.lock().unwrap();
+        guard.is_some()
+    };
+
+    Ok(ArgoCDServerInfo {
+        url: "http://localhost:9080".to_string(), // We use HTTP on our forwarded port
+        username: "admin".to_string(),
+        password,
+        namespace,
+        port_forward_active,
+    })
+}
+
+/// Check if port is available (platform-agnostic, pure Rust)
+fn is_port_available(port: u16) -> bool {
+    // Try binding to both IPv4 and IPv6
+    TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
+}
+
+/// Kill process by PID (platform-agnostic)
+fn kill_process(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(&["-9", &pid.to_string()])
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/PID", &pid.to_string()])
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+    }
+}
+
+/// Get PIDs using a specific port (platform-agnostic)
+fn get_pids_using_port(port: u16) -> Vec<u32> {
+    let mut pids = Vec::new();
+
+    #[cfg(unix)]
+    {
+        // Use lsof (available on macOS and most Linux)
+        if let Ok(output) = Command::new("lsof")
+            .args(&[&format!("-ti:{}", port)])
             .output()
-            .map_err(|e| format!("Failed to execute argocd sync: {}", e))?;
-
-        if output.status.success() {
+        {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            return Ok(format!("Sync initiated successfully\n{}", stdout));
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Fall through to annotation-based approach
-            eprintln!("ArgoCD CLI sync failed: {}, falling back to annotation", stderr);
+            for line in stdout.trim().lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    pids.push(pid);
+                }
+            }
         }
     }
 
-    // Fallback: Use annotation-based refresh
-    // This triggers ArgoCD controller to refresh and sync
-    let client = create_client(state).await?;
-
-    let gvk = GroupVersionKind::gvk("argoproj.io", "v1alpha1", "Application");
-    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
-    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("ArgoCD Application CRD not found")?;
-
-    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
-
-    // Set refresh annotation to trigger sync
-    let patch_json = serde_json::json!({
-        "metadata": {
-            "annotations": {
-                "argocd.argoproj.io/refresh": "hard"
-            }
-        },
-        "operation": {
-            "initiatedBy": {
-                "username": "opspilot"
-            },
-            "sync": {
-                "prune": prune,
-                "syncStrategy": {
-                    "apply": {
-                        "force": force
+    #[cfg(windows)]
+    {
+        // Use netstat on Windows
+        if let Ok(output) = Command::new("netstat")
+            .args(&["-aon"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let port_str = format!(":{}", port);
+            for line in stdout.lines() {
+                if line.contains(&port_str) && line.contains("LISTENING") {
+                    // Last column is PID
+                    if let Some(pid_str) = line.split_whitespace().last() {
+                        if let Ok(pid) = pid_str.parse::<u32>() {
+                            pids.push(pid);
+                        }
                     }
                 }
             }
         }
-    });
+    }
 
-    let pp = PatchParams::apply("opspilot");
-    let patch = Patch::Merge(&patch_json);
+    pids
+}
 
-    api.patch(&name, &pp, &patch)
-        .await
-        .map_err(|e| format!("Failed to trigger sync: {}", e))?;
+/// Kill any existing port-forward processes on the ArgoCD port - IRONCLAD version
+fn cleanup_stale_port_forwards() {
+    // Method 1: Kill by port (most reliable, platform-agnostic)
+    let pids = get_pids_using_port(ARGOCD_LOCAL_PORT);
+    for pid in &pids {
+        eprintln!("[argocd] Killing process {} using port {}", pid, ARGOCD_LOCAL_PORT);
+        kill_process(*pid);
+    }
 
-    if dry_run {
-        Ok("Dry run: Sync would be triggered (annotation-based sync does not support dry-run)".to_string())
-    } else {
-        Ok("Sync triggered via refresh annotation. Check ArgoCD for sync status.".to_string())
+    // Method 2: Kill kubectl port-forward processes by pattern
+    #[cfg(unix)]
+    {
+        // pkill by pattern
+        let _ = Command::new("pkill")
+            .args(&["-9", "-f", &format!("kubectl.*port-forward.*{}", ARGOCD_LOCAL_PORT)])
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+
+        let _ = Command::new("pkill")
+            .args(&["-9", "-f", "kubectl.*port-forward.*argocd"])
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, we can use wmic or taskkill with filters
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/IM", "kubectl.exe"])
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .status();
+    }
+
+    // Wait for OS to release the port
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Final verification - if still occupied, try once more
+    if !is_port_available(ARGOCD_LOCAL_PORT) {
+        let pids = get_pids_using_port(ARGOCD_LOCAL_PORT);
+        if !pids.is_empty() {
+            eprintln!("[argocd] Port {} still in use by PIDs: {:?}, retrying kill", ARGOCD_LOCAL_PORT, pids);
+            for pid in pids {
+                kill_process(pid);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
     }
 }
 
-/// Refresh an ArgoCD application (re-fetch from git)
-#[tauri::command]
-pub async fn argo_refresh_application(
-    state: State<'_, AppState>,
-    namespace: String,
-    name: String,
-    hard: bool,
-) -> Result<String, String> {
-    let client = create_client(state).await?;
+/// Get the HTTP port for ArgoCD server service
+async fn get_argocd_http_port(client: &kube::Client, namespace: &str) -> Result<i32, String> {
+    let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let svc = services.get("argocd-server").await
+        .map_err(|e| format!("Failed to get argocd-server service: {}", e))?;
 
-    let gvk = GroupVersionKind::gvk("argoproj.io", "v1alpha1", "Application");
-    let discovery = Discovery::new(client.clone()).run().await.map_err(|e| e.to_string())?;
-    let (ar, _) = discovery.resolve_gvk(&gvk).ok_or("ArgoCD Application CRD not found")?;
-
-    let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
-
-    let refresh_type = if hard { "hard" } else { "normal" };
-
-    let patch_json = serde_json::json!({
-        "metadata": {
-            "annotations": {
-                "argocd.argoproj.io/refresh": refresh_type
+    // Look for HTTP port (usually named "http" or port 80 or 8080)
+    if let Some(spec) = svc.spec {
+        if let Some(ports) = spec.ports {
+            // Prefer port named "http", fallback to port 80, then 8080
+            for port in &ports {
+                if port.name.as_deref() == Some("http") {
+                    return Ok(port.port);
+                }
+            }
+            for port in &ports {
+                if port.port == 80 {
+                    return Ok(80);
+                }
+            }
+            for port in &ports {
+                if port.port == 8080 {
+                    return Ok(8080);
+                }
+            }
+            // Fallback to first non-443 port
+            for port in &ports {
+                if port.port != 443 {
+                    return Ok(port.port);
+                }
             }
         }
-    });
+    }
 
-    let pp = PatchParams::apply("opspilot");
-    let patch = Patch::Merge(&patch_json);
+    // Default to 80 if we can't determine
+    Ok(80)
+}
 
-    api.patch(&name, &pp, &patch)
-        .await
-        .map_err(|e| format!("Failed to refresh application: {}", e))?;
+/// Start port-forward to ArgoCD server
+#[tauri::command]
+pub async fn start_argocd_port_forward(
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    // First, stop any existing port-forward we're tracking
+    {
+        let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait(); // Reap the zombie process
+        }
+    }
 
-    Ok(format!("Application refresh ({}) triggered successfully", refresh_type))
+    // Clean up any orphaned port-forwards from previous sessions
+    cleanup_stale_port_forwards();
+
+    // Verify port is available with retries
+    let max_retries = 3;
+    for attempt in 1..=max_retries {
+        if is_port_available(ARGOCD_LOCAL_PORT) {
+            break;
+        }
+        if attempt == max_retries {
+            return Err(format!(
+                "Port {} is still in use after {} cleanup attempts. Please manually kill the process.",
+                ARGOCD_LOCAL_PORT, max_retries
+            ));
+        }
+        eprintln!("[argocd] Port {} still in use, cleanup attempt {}/{}", ARGOCD_LOCAL_PORT, attempt, max_retries);
+        cleanup_stale_port_forwards();
+    }
+
+    let client = create_client(state).await?;
+    let namespace = find_argocd_namespace(&client).await
+        .ok_or("ArgoCD not found in cluster")?;
+
+    // Get the HTTP port from the service
+    let target_port = get_argocd_http_port(&client, &namespace).await?;
+    eprintln!("[argocd] Using target port {} for ArgoCD server", target_port);
+
+    // Start kubectl port-forward in background
+    let port_mapping = format!("{}:{}", ARGOCD_LOCAL_PORT, target_port);
+    let child = Command::new("kubectl")
+        .args(&[
+            "port-forward",
+            "-n", &namespace,
+            "svc/argocd-server",
+            &port_mapping,
+        ])
+        .stderr(Stdio::piped()) // Capture stderr to check for errors
+        .spawn()
+        .map_err(|e| format!("Failed to start port-forward: {}", e))?;
+
+    // Store the child process
+    {
+        let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
+        *guard = Some(child);
+    }
+
+    // Wait for port-forward to establish
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+
+    // Verify the port-forward is working by checking if port is now in use
+    if is_port_available(ARGOCD_LOCAL_PORT) {
+        // Port is still available means port-forward failed to bind
+        let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
+        if let Some(ref mut child) = *guard {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // Process exited - read stderr for error message
+                    let child = guard.take().unwrap();
+                    let output = child.wait_with_output();
+                    let stderr = output.map(|o| String::from_utf8_lossy(&o.stderr).to_string())
+                        .unwrap_or_default();
+                    return Err(format!("Port-forward failed (exit {}): {}", status, stderr.trim()));
+                }
+                Ok(None) => {
+                    // Process still running, give it more time
+                    drop(guard);
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                }
+                Err(e) => {
+                    return Err(format!("Failed to check port-forward status: {}", e));
+                }
+            }
+        }
+    }
+
+    Ok(format!("Port-forward started on localhost:{}", ARGOCD_LOCAL_PORT))
+}
+
+/// Stop ArgoCD port-forward
+#[tauri::command]
+pub async fn stop_argocd_port_forward() -> Result<String, String> {
+    // Stop the tracked process
+    {
+        let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait(); // Reap the zombie process
+        }
+    }
+
+    // Also cleanup any orphaned processes (defensive)
+    cleanup_stale_port_forwards();
+
+    Ok("Port-forward stopped".to_string())
+}
+
+/// Check if ArgoCD exists in the cluster
+#[tauri::command]
+pub async fn check_argocd_exists(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let client = create_client(state).await?;
+    Ok(find_argocd_namespace(&client).await.is_some())
+}
+
+/// Open ArgoCD in an embedded webview within the main window
+/// Reuses existing webview if available to preserve login state
+#[tauri::command]
+pub async fn open_argocd_webview(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<String, String> {
+    use tauri::Manager;
+    use tauri::WebviewUrl;
+    use tauri::WebviewWindowBuilder;
+
+    // Frontend sends CSS pixel coordinates (logical units); convert once for reuse on resize
+    let logical_size = tauri::Size::Logical(tauri::LogicalSize { width, height });
+
+    // Compute absolute screen position so the child webview lines up with the content area
+    let main_window = app.get_webview_window("main")
+        .or_else(|| app.get_webview_window("opspilot")) // Try fallback name just in case
+        .ok_or("Failed to find main window for parenting")?;
+    let scale = main_window.scale_factor().unwrap_or(1.0);
+    let inner_pos = main_window
+        .inner_position()
+        .map(|p| p.to_logical::<f64>(scale))
+        .unwrap_or(tauri::LogicalPosition { x: 0.0, y: 0.0 });
+    let abs_x = inner_pos.x + x;
+    let abs_y = inner_pos.y + y;
+    let logical_position = tauri::Position::Logical(tauri::LogicalPosition { x: abs_x, y: abs_y });
+    println!(
+        "[argocd] Positioning webview: rel=({}, {}) size=({}, {}), inner_pos=({}, {}), abs=({}, {}), scale={}",
+        x, y, width, height, inner_pos.x, inner_pos.y, abs_x, abs_y, scale
+    );
+
+    // Make sure port-forward is running
+    start_argocd_port_forward(state.clone()).await?;
+
+    // Check if argocd webview already exists - reuse it to preserve login state
+    if let Some(existing) = app.get_webview_window("argocd-embedded") {
+        // Reposition and resize the existing webview
+        // START FIX: Use LogicalPosition/LogicalSize instead of Physical
+        // The frontend sends CSS pixels (getBoundingClientRect), which correspond to Logical types in Tauri
+        // Physical types multiply by scale factor again, causing double-scaling or incorrect offsets on Retina/High-DPI
+        let _ = existing.set_position(logical_position);
+        let _ = existing.set_size(logical_size);
+
+        // Show the hidden webview
+        existing.show().map_err(|e| format!("Failed to show webview: {}", e))?;
+        existing.set_focus().map_err(|e| format!("Failed to focus webview: {}", e))?;
+
+        return Ok("ArgoCD webview restored (session preserved)".to_string());
+    }
+
+    // Get server info for URL
+    let info = get_argocd_server_info(state).await?;
+
+    // Create the webview URL
+    let url = info.url.parse::<tauri::Url>().map_err(|e| format!("Invalid URL: {}", e))?;
+
+    // Login automation script
+    // We use a React-compatible input setter to ensure the state updates
+    let init_script = format!(
+        r#"
+        window.addEventListener('DOMContentLoaded', () => {{
+            const checkAndLogin = () => {{
+                const usernameInput = document.querySelector('input[name="username"]');
+                const passwordInput = document.querySelector('input[name="password"]');
+                const loginButton = document.querySelector('button[type="submit"]');
+
+                if (usernameInput && passwordInput && loginButton) {{
+                    // Only autofill if empty (to avoid fighting with user)
+                    if (usernameInput.value === "") {{
+                        // React 16+ hack to trigger onChange by calling native value setter
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                        
+                        nativeInputValueSetter.call(usernameInput, "{}");
+                        usernameInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+                        nativeInputValueSetter.call(passwordInput, "{}");
+                        passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+                        console.log("[ArgoCD Login] Credentials filled, submitting...");
+                        setTimeout(() => loginButton.click(), 500);
+                        return true;
+                    }}
+                }}
+                return false;
+            }};
+
+            // Try immediately and then retry a few times in case of dynamic loading
+            if (!checkAndLogin()) {{
+                const interval = setInterval(() => {{
+                    if (checkAndLogin()) {{
+                        clearInterval(interval);
+                    }}
+                }}, 500);
+                
+                // Stop trying after 10 seconds
+                setTimeout(() => clearInterval(interval), 10000);
+            }}
+        }});
+        "#,
+        info.username, info.password
+    );
+
+    // Build a new webview window positioned at the specified location
+    // This creates a child window that appears embedded
+    let _webview = WebviewWindowBuilder::new(
+        &app,
+        "argocd-embedded",
+        WebviewUrl::External(url),
+    )
+    .title("ArgoCD")
+    .inner_size(width, height)
+    .position(abs_x, abs_y)
+    .decorations(false) // No title bar - makes it look embedded
+    .always_on_top(false)
+    .resizable(true)
+    .parent(&main_window).map_err(|e| format!("Failed to parent window: {}", e))? // Parent to main window so it moves with the app
+    .initialization_script(&init_script) // Inject auto-login script
+    .build()
+    .map_err(|e| format!("Failed to create webview: {}", e))?;
+
+    Ok("ArgoCD webview opened".to_string())
+}
+
+/// Close the embedded ArgoCD webview
+#[tauri::command]
+pub async fn close_argocd_webview(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+
+    if let Some(webview) = app.get_webview_window("argocd-embedded") {
+        // Hide instead of close to preserve login state
+        webview.hide().map_err(|e| format!("Failed to hide webview: {}", e))?;
+        Ok("ArgoCD webview hidden".to_string())
+    } else {
+        Ok("No ArgoCD webview found".to_string())
+    }
+}
+
+/// Force close the ArgoCD webview (when context changes)
+#[tauri::command]
+pub async fn force_close_argocd_webview(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+
+    if let Some(webview) = app.get_webview_window("argocd-embedded") {
+        webview.close().map_err(|e| format!("Failed to close webview: {}", e))?;
+        Ok("ArgoCD webview closed".to_string())
+    } else {
+        Ok("No ArgoCD webview found".to_string())
+    }
+}
+
+/// Check if ArgoCD webview exists and is visible
+#[tauri::command]
+pub async fn is_argocd_webview_active(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri::Manager;
+
+    if let Some(webview) = app.get_webview_window("argocd-embedded") {
+        Ok(webview.is_visible().unwrap_or(false))
+    } else {
+        Ok(false)
+    }
 }
