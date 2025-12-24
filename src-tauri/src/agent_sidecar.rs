@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use std::process::Command;
 
 /// State for managing the agent sidecar process
 pub struct AgentSidecarState {
@@ -92,16 +93,75 @@ async fn start_agent_sidecar_with_retry(app: &tauri::AppHandle) -> Result<(), St
     Err("Agent failed to start after retries".to_string())
 }
 
+/// Kill any process listening on the specified port
+fn kill_process_on_port(port: u16) {
+    println!("[agent-sidecar] Checking for processes on port {}...", port);
+    
+    // Use lsof to find the PID
+    // -t: terse mode (PID only)
+    // -i: select internet address
+    let output = match Command::new("lsof")
+        .args(&["-t", "-i", &format!(":{}", port)])
+        .output() 
+    {
+        Ok(out) => out,
+        Err(_) => {
+            // lsof might not be available or fail, just ignore
+            return;
+        }
+    };
+
+    if !output.status.success() {
+        return;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Ok(pid) = line.trim().parse::<i32>() {
+            println!("[agent-sidecar] Killing process {} on port {}", pid, port);
+            let _ = Command::new("kill")
+                .args(&["-9", &pid.to_string()])
+                .output();
+        }
+    }
+}
+
 /// Start the agent sidecar process
 pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AgentSidecarState>();
     let mut child_guard = state.child.lock().await;
 
-    // Check if already running
+    // Check if already running (we have a tracked child process)
     if child_guard.is_some() {
-        println!("[agent-sidecar] Already running");
+        // Verify the tracked process is actually healthy before returning early
+        // Drop lock temporarily to do health check
+        drop(child_guard);
+        if wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 2, Duration::from_millis(500)).await.is_ok() {
+            println!("[agent-sidecar] Already running and healthy");
+            return Ok(());
+        }
+        // Re-acquire lock - agent is tracked but unhealthy, will restart
+        child_guard = state.child.lock().await;
+        if let Some(child) = child_guard.take() {
+            println!("[agent-sidecar] Killing unhealthy tracked process");
+            let _ = child.kill();
+        }
+    }
+
+    // Check if there's already a healthy agent on the port (perhaps from a previous app instance)
+    // Don't kill it if it's working fine
+    if wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 2, Duration::from_millis(500)).await.is_ok() {
+        println!("[agent-sidecar] Found existing healthy agent on port 8765, reusing it");
+        // We don't have a child handle for this external process, but it's working
+        // The supervisor will keep checking health and restart if needed
         return Ok(());
     }
+
+    // Force cleanup port 8765 to avoid "Address already in use" errors from zombie python processes
+    kill_process_on_port(8765);
+
+    // Give the OS time to release the port after killing
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     println!("[agent-sidecar] Starting LangGraph agent server...");
 
@@ -229,7 +289,7 @@ pub async fn check_agent_status(app: tauri::AppHandle) -> Result<bool, String> {
     }
 
     // Quick health probe (single attempt, short timeout) so UI can surface unhealthy agent
-    match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 1, Duration::from_millis(50)).await {
+    match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 1, Duration::from_millis(1000)).await {
         Ok(_) => Ok(true),
         Err(e) => {
             eprintln!("[agent-sidecar] Agent process is running but health check failed: {}", e);
@@ -240,6 +300,10 @@ pub async fn check_agent_status(app: tauri::AppHandle) -> Result<bool, String> {
 
 /// Background supervisor: periodically ensure the agent is healthy; restart if needed
 pub async fn supervise_agent(app: tauri::AppHandle) {
+    // Wait for initial startup to complete before starting supervision loop
+    // This prevents racing with the initial start_agent_sidecar call
+    tokio::time::sleep(Duration::from_secs(15)).await;
+
     loop {
         // If already healthy, wait and recheck later
         match check_agent_status(app.clone()).await {

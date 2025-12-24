@@ -280,6 +280,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
             setActiveRes(null);
             setSelectedNamespace("All Namespaces");
             setSearchQuery("");
+            // Reset ArgoCD state to force fresh connection on new context
+            setHasOpenedArgoCD(false);
         }
         // Trigger background KB preload on initial load and context changes
         if (currentContext && prevContextRef.current !== currentContext) {
@@ -287,7 +289,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 preloadKBForContext(currentContext);
             });
         }
-        prevContextRef.current = currentContext;
+        if (currentContext) {
+            prevContextRef.current = currentContext;
+        }
     }, [currentContext, qc]);
 
     // Define all keyboard shortcuts

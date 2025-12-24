@@ -24,7 +24,7 @@ except ImportError:
 
 
 try:
-    from agent_server.server import app, kill_process_on_port
+    from agent_server.server import app
     import agent_server
     print(f"Loaded agent_server from: {agent_server.__file__}", flush=True)
 except ImportError as e:
@@ -39,16 +39,14 @@ except ImportError as e:
 
 if __name__ == "__main__":
     import uvicorn
-    import time
-    
+
     PORT = 8765
-    
+
     print(f"Starting Agent Server on port {PORT}...")
-    
-    # Kill any zombie/unhealthy process on the port (but not ourselves)
-    if kill_process_on_port(PORT):
-        # Give the OS time to release the port
-        time.sleep(1.0)
-    
+
+    # NOTE: Port cleanup is handled by the Rust supervisor (agent_sidecar.rs)
+    # Do NOT kill processes here - it causes race conditions where a newly
+    # healthy agent gets killed by a second spawned instance
+
     # Run server
     uvicorn.run(app, host="0.0.0.0", port=PORT)

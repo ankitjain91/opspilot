@@ -9,6 +9,7 @@ import sys
 import platform
 import shutil
 import os
+import struct
 from pathlib import Path
 
 def build():
@@ -23,10 +24,39 @@ def build():
     script_dir = Path(__file__).parent
 
     # ARCHITECTURE CHECK
-    # Ensure the running Python/OS architecture matches what we expect.
+    # Ensure the running Python interpreter's architecture matches what we expect.
     # This prevents creating an "x86_64" binary that is actually "arm64" (which crashes 'lipo')
+    #
+    # IMPORTANT: We check the Python interpreter architecture via struct.calcsize,
+    # NOT platform.machine() which returns the OS architecture.
+    # On macOS with Rosetta, x86_64 Python can run on arm64 OS.
     target_arch_env = os.environ.get("TARGET_ARCH", "").lower()
-    current_arch = platform.machine().lower()
+
+    # Detect Python interpreter's architecture (not OS architecture)
+    # struct.calcsize("P") returns pointer size: 8 bytes on 64-bit
+    # platform.machine() returns OS arch, but for Python we need the interpreter arch
+    pointer_size = struct.calcsize("P") * 8  # 32 or 64 bit
+
+    # On macOS, we can detect if Python is x86_64 or arm64 by checking the binary
+    if system == "darwin":
+        try:
+            # Get the actual architecture of the running Python binary
+            result = subprocess.run(
+                ["file", sys.executable],
+                capture_output=True,
+                text=True
+            )
+            if "x86_64" in result.stdout:
+                current_arch = "x86_64"
+            elif "arm64" in result.stdout:
+                current_arch = "arm64"
+            else:
+                # Fallback to platform.machine()
+                current_arch = platform.machine().lower()
+        except Exception:
+            current_arch = platform.machine().lower()
+    else:
+        current_arch = platform.machine().lower()
 
     # Normalize arch names
     if current_arch in ["amd64", "x86_64"]:
