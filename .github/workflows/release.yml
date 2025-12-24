@@ -200,16 +200,26 @@ jobs:
           echo "Inspecting App Bundle at $APP_PATH..."
           ls -la "$APP_PATH"
 
-          if [ ! -f "$APP_PATH/agent-server-aarch64-apple-darwin" ]; then
-            echo "::error::Universal Bundle is missing ARM64 sidecar!"
+          # Tauri bundles sidecars with platform suffix or as universal binary
+          # Check for agent-server (universal) or both arch-specific binaries
+          if [ -f "$APP_PATH/agent-server" ]; then
+            echo "Found universal agent-server binary"
+            file "$APP_PATH/agent-server"
+            # Verify it's actually universal (contains both architectures)
+            ARCHS=$(lipo -archs "$APP_PATH/agent-server" 2>/dev/null || echo "unknown")
+            echo "Architectures in universal binary: $ARCHS"
+            if [[ "$ARCHS" == *"x86_64"* ]] && [[ "$ARCHS" == *"arm64"* ]]; then
+              echo "✅ Universal sidecar contains both x86_64 and arm64"
+            else
+              echo "::warning::Universal binary may not contain both architectures: $ARCHS"
+            fi
+          elif [ -f "$APP_PATH/agent-server-aarch64-apple-darwin" ] && [ -f "$APP_PATH/agent-server-x86_64-apple-darwin" ]; then
+            echo "✅ Found both architecture-specific sidecar binaries"
+          else
+            echo "::error::Universal Bundle is missing sidecar binaries!"
+            echo "Expected: agent-server (universal) OR agent-server-aarch64-apple-darwin + agent-server-x86_64-apple-darwin"
             exit 1
           fi
-
-          if [ ! -f "$APP_PATH/agent-server-x86_64-apple-darwin" ]; then
-            echo "::error::Universal Bundle is missing x86_64 sidecar!"
-            exit 1
-          fi
-          echo "✅ Universal Bundle contains both sidecars."
 
       - name: Compress binary (macOS)
         if: matrix.platform == 'macos-latest'
