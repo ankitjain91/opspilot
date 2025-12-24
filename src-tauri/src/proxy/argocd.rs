@@ -132,27 +132,19 @@ async fn proxy_handler(
         .build()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Execute request
-    // We convert axum request to reqwest request
-    // Requires copying method, headers, body
-    let method = req.method().clone();
-    let headers = req.headers().clone();
+    // Pass all headers directly
+    // Remove 'host' to let reqwest calculate it from the URL
+    let method = req.method().clone(); // Restore this
+    let mut headers = req.headers().clone();
+    headers.remove("host");
     
-    // Stream body? For simplicity, read body (ArgoCD UI payloads are small)
-    // For robust proxying, streaming is better, but 'reqwest::Client' can take 'req::into_body()' if compatible.
-    // Axum Body is http_body::Body. Reqwest Body is different.
-    // Let's just collect bytes for now to avoid stream compat mess without extra crates.
+    // Create request with body and headers
     let body_bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024).await // 100MB limit
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let mut request_builder = client.request(method, uri_string)
+    let request_builder = client.request(method, uri_string)
+        .headers(headers)
         .body(body_bytes);
-    
-    for (name, value) in headers {
-        if name != "host" {
-            request_builder = request_builder.header(name, value);
-        }
-    }
 
     let response = request_builder.send().await
         .map_err(|e| {

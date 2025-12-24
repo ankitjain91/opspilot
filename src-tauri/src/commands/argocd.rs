@@ -74,11 +74,8 @@ pub async fn get_argocd_server_info(
     // Determine protocol based on target port
     // We need to re-check the port to decide protocol
     let target_port = get_argocd_http_port(&client, &namespace).await.unwrap_or(80);
-    let protocol = if target_port == 80 || target_port == 8080 {
-        "http"
-    } else {
-        "https"
-    };
+    // Protocol is determined by proxy connection now, but we kept this logic in case we need it
+    // let protocol = if target_port == 80 || target_port == 8080 { "http" } else { "https" };
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
