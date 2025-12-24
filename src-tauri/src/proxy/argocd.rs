@@ -17,13 +17,20 @@ pub struct ProxyState {
     pub target_port: Arc<Mutex<Option<u16>>>,
     pub protocol: String, // "http" or "https"
     pub client: reqwest::Client,
+    pub username: String,
+    pub password: String,
 }
 
 // Global handle to stop the server
 static SHUTDOWN_TX: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
 static RUNNING_PORT: Mutex<Option<u16>> = Mutex::new(None);
 
-pub async fn start_proxy(target_argocd_port: u16, protocol: &str) -> Result<u16, String> {
+pub async fn start_proxy(
+    target_argocd_port: u16, 
+    protocol: &str,
+    username: &str,
+    password: &str
+) -> Result<u16, String> {
     // Check if already running on same port?
     // Actually we might need to restart if protocol changed, but let's assume one instance for now
     {
@@ -45,6 +52,8 @@ pub async fn start_proxy(target_argocd_port: u16, protocol: &str) -> Result<u16,
         target_port: Arc::new(Mutex::new(Some(target_argocd_port))),
         protocol: protocol.to_string(),
         client,
+        username: username.to_string(),
+        password: password.to_string(),
     };
 
     let app = Router::new()
@@ -158,7 +167,15 @@ async fn proxy_handler(
     let status = response.status();
     let resp_headers = response.headers().clone();
 
-    println!("[ArgoCD Proxy] Upstream Response: {} {}", method, status);
+    // Check content type to decide whether to inject script
+    let content_type = resp_headers.get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    let is_html = content_type.contains("text/html");
+
+    println!("[ArgoCD Proxy] Upstream Response: {} {} [HTML={}]", method, status, is_html);
 
     // Build response
     let mut builder = Response::builder().status(status);
@@ -191,15 +208,123 @@ async fn proxy_handler(
         headers_mut.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     }
 
-    // Stream the body instead of buffering
-    // This allows large files (main.js) to flow through immediately
-    use futures::TryStreamExt;
-    let stream = response.bytes_stream().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
-    let body = Body::from_stream(stream);
+    if is_html {
+        // For HTML, we MUST buffer to inject the script
+        let body_bytes = response.bytes().await.map_err(|e| {
+            eprintln!("[ArgoCD Proxy] Failed to buffer HTML body: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
+        
+        let mut html = String::from_utf8_lossy(&body_bytes).to_string();
+        
+        // Inject script before </body>
+        // Simple string injection
+        let script = format!(
+            r#"
+            <script>
+            (function() {{
+                const USERNAME = "{}";
+                const PASSWORD = "{}";
+                const ATTEMPT_DURATION_MS = 15000;
+                const START_TIME = Date.now();
+        
+                function log(msg) {{
+                    console.log(`[OpPilot AutoLogin] ${{msg}}`);
+                }}
+        
+                window.addEventListener('load', () => {{
+                    log("Window Loaded - Starting Auto Login attempt");
+        
+                    const checkAndLogin = () => {{
+                        if (Date.now() - START_TIME > ATTEMPT_DURATION_MS) return false;
+        
+                        try {{
+                            // ArgoCD Login Form Selectors
+                            const usernameInput = document.querySelector('input[name="username"]') || document.querySelector('input[class*="login-username"]');
+                            const passwordInput = document.querySelector('input[name="password"]') || document.querySelector('input[class*="login-password"]');
+                            const loginButton = document.querySelector('button[type="submit"]') || document.querySelector('button[class*="login-button"]');
+        
+                            if (usernameInput && passwordInput && loginButton) {{
+                                log("Found login fields");
+                                
+                                // Only fill if empty
+                                if (usernameInput.value === "") {{
+                                    log("Filling credentials...");
+                                    
+                                    // Helper to trigger React/Native change events
+                                    function setNativeValue(element, value) {{
+                                        const valueSetter = Object.getOwnPropertyDescriptor(element, 'value').set;
+                                        const prototype = Object.getPrototypeOf(element);
+                                        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
+                                        
+                                        if (valueSetter && valueSetter !== prototypeValueSetter) {{
+                                            prototypeValueSetter.call(element, value);
+                                        }} else {{
+                                            valueSetter.call(element, value);
+                                        }}
+                                        element.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    }}
+        
+                                    try {{
+                                        setNativeValue(usernameInput, USERNAME);
+                                        setNativeValue(passwordInput, PASSWORD);
+                                    }} catch (e) {{
+                                        // Fallback if esoteric getter/setter fails
+                                        usernameInput.value = USERNAME;
+                                        passwordInput.value = PASSWORD;
+                                        usernameInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                        passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    }}
+        
+                                    log("Credentials filled, submitting...");
+                                    setTimeout(() => {{
+                                        loginButton.click();
+                                        log("Login button clicked");
+                                    }}, 300);
+                                    return true;
+                                }}
+                            }}
+                        }} catch (e) {{
+                            log(`Error: ${{e}}`);
+                        }}
+                        return false;
+                    }};
+        
+                    if (!checkAndLogin()) {{
+                        const interval = setInterval(() => {{
+                            if (checkAndLogin() || (Date.now() - START_TIME > ATTEMPT_DURATION_MS)) {{
+                                clearInterval(interval);
+                            }}
+                        }}, 500);
+                    }}
+                }});
+            }})();
+            </script>
+            </body>
+            "#,
+            state.username, state.password
+        );
+        
+        if let Some(idx) = html.rfind("</body>") {
+            html.replace_range(idx..idx+7, &script);
+        } else {
+            // Append if no body tag found
+            html.push_str(&script);
+        }
+        
+        builder.body(Body::from(html))
+             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 
-    builder.body(body)
-        .map_err(|e| {
-             eprintln!("[ArgoCD Proxy] Failed to build response: {}", e);
-             StatusCode::INTERNAL_SERVER_ERROR
-        })
+    } else {
+        // Non-HTML: Stream as before
+        use futures::TryStreamExt;
+        let stream = response.bytes_stream().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+        let body = Body::from_stream(stream);
+    
+        builder.body(body)
+            .map_err(|e| {
+                 eprintln!("[ArgoCD Proxy] Failed to build response: {}", e);
+                 StatusCode::INTERNAL_SERVER_ERROR
+            })
+    }
 }

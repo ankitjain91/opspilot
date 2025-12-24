@@ -107,7 +107,7 @@ pub async fn get_argocd_server_info(
     // However, usually protocol doesn't change mid-session.
     
     use crate::proxy::argocd::start_proxy;
-    let proxy_port = start_proxy(ARGOCD_LOCAL_PORT, protocol).await
+    let proxy_port = start_proxy(ARGOCD_LOCAL_PORT, protocol, "admin", &password).await
         .map_err(|e| format!("Failed to start proxy: {}", e))?;
 
     Ok(ArgoCDServerInfo {
@@ -396,8 +396,29 @@ pub async fn start_argocd_port_forward(
     let protocol = if target_port == 80 || target_port == 8080 { "http" } else { "https" };
 
     // Start the proxy immediately so it's ready
+    // We need logic to fetch password if we want to update the proxy with credentials
+    // But this function `start_argocd_port_forward` is primarily for port forwarding process.
+    // `get_argocd_server_info` is called by frontend to get the URL, and THAT calls start_proxy with credentials.
+    // If we call start_proxy here without credentials, we might reset the proxy state to have empty credentials if these calls race or overwrite.
+    
+    // Strategy: Let's NOT call start_proxy here with empty creds if we can avoid it, OR fetch credentials here too.
+    // Fetching credentials is safer.
+    
+    // Re-use find logic?
+    // Let's just do a quick lookup
+    // Or better: define empty string for now, and let `get_argocd_server_info` update it?
+    // But `start_proxy` checks `already running`. If it returns early, it won't update credentials!
+    // We need `start_proxy` to support updating credentials if they are provided.
+    
+    // For now, let's just fetch the password here to be safe and consistent.
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), &namespace);
+    let password = match secrets.get("argocd-initial-admin-secret").await {
+         Ok(s) => s.data.and_then(|d| d.get("password").cloned()).and_then(|p| String::from_utf8(p.0).ok()).unwrap_or_default(),
+         Err(_) => "".to_string()
+    };
+    
     use crate::proxy::argocd::start_proxy;
-    let _ = start_proxy(ARGOCD_LOCAL_PORT, protocol).await
+    let _ = start_proxy(ARGOCD_LOCAL_PORT, protocol, "admin", &password).await
         .map_err(|e| format!("Failed to start proxy: {}", e))?;
 
     Ok(format!("Port-forward started on localhost:{}", ARGOCD_LOCAL_PORT))
