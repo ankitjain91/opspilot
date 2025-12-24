@@ -199,11 +199,7 @@ function AppContent() {
   if (!isConnected) {
     return (
       <>
-        {agentHealthy === false && (
-          <div className="bg-red-600 text-white px-4 py-2 text-sm font-medium">
-            Agent not reachable. It should start automatically; if this persists, restart the app.
-          </div>
-        )}
+
         {showAzure ? (
           <div className="h-screen flex flex-col bg-[#1e1e1e]">
             <div className="h-14 border-b border-[#3e3e42] flex items-center justify-between px-4 bg-[#252526] shrink-0">
@@ -390,19 +386,21 @@ function AppContent() {
     );
   }
 
+  // Debounce the agent warning to avoid flashing on reload/context switch
+  const [showAgentWarning, setShowAgentWarning] = useState(false);
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (agentHealthy === false) {
+      // Wait 5s before showing warning to allow for restarts/transient failures
+      timer = setTimeout(() => setShowAgentWarning(true), 5000);
+    } else {
+      setShowAgentWarning(false);
+    }
+    return () => clearTimeout(timer);
+  }, [agentHealthy]);
+
   return (
     <>
-      {agentHealthy === false && (
-        <div className="bg-red-600 text-white px-4 py-2 text-sm font-medium flex items-center justify-between">
-          <span>Agent not reachable. It should start automatically; if this persists, restart the app.</span>
-          <button
-            className="text-white/80 hover:text-white text-xs underline"
-            onClick={() => qc.invalidateQueries({ queryKey: ["agent_health"] })}
-          >
-            Retry
-          </button>
-        </div>
-      )}
       <Dashboard
         isConnected={isConnected}
         setIsConnected={setIsConnected}
@@ -435,6 +433,24 @@ function AppContent() {
         currentContext={globalCurrentContext || ""}
         onAutoInvestigate={handleAutoInvestigate}
       />
+
+      {/* Agent Health Warning - Floating, Non-Blocking, Subtle */}
+      {showAgentWarning && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-4 fade-in duration-500">
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-amber-950/80 border border-amber-500/30 backdrop-blur-md shadow-xl shadow-black/20">
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-sm font-medium text-amber-200">
+              Agent connecting...
+            </span>
+            <button
+              className="ml-2 text-xs font-semibold text-amber-400 hover:text-amber-100 transition-colors px-2 py-1 rounded-md bg-amber-500/10 hover:bg-amber-500/20"
+              onClick={() => qc.invalidateQueries({ queryKey: ["agent_health"] })}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
       <PortForwardList currentContext={globalCurrentContext} />
 
 
