@@ -280,8 +280,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
             setActiveRes(null);
             setSelectedNamespace("All Namespaces");
             setSearchQuery("");
-            // Reset ArgoCD state to force fresh connection on new context
-            setHasOpenedArgoCD(false);
+            // NOTE: Don't reset hasOpenedArgoCD here - the ArgoCDWebView component
+            // has its own context change detection and will reconnect automatically.
+            // Unmounting/remounting causes unnecessary reconnection flicker.
         }
         // Trigger background KB preload on initial load and context changes
         if (currentContext && prevContextRef.current !== currentContext) {
@@ -1208,6 +1209,19 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                     </div>
                 )}
 
+                {/* Persistent ArgoCD View - Rendered outside conditional to stay mounted */}
+                {argocdExists && hasOpenedArgoCD && (
+                    <div
+                        className={`absolute inset-0 z-10 bg-zinc-950 ${activeRes?.kind === "ArgoCD" ? "flex flex-col" : "hidden"}`}
+                        style={{ display: activeRes?.kind === "ArgoCD" ? 'flex' : 'none' }}
+                    >
+                        <ArgoCDWebView
+                            onClose={() => setActiveRes(null)}
+                            kubeContext={currentContext}
+                        />
+                    </div>
+                )}
+
                 {activeRes?.kind === "CustomResourceHealth" ? (
                     <div className="flex-1 min-h-0 overflow-y-auto">
                         <CustomResourceHealth
@@ -1219,7 +1233,8 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 ) : activeRes?.kind === "HelmReleases" ? (
                     <HelmReleases currentContext={currentContext} />
                 ) : activeRes?.kind === "ArgoCD" ? (
-                    <ArgoCDWebView onClose={() => setActiveRes(null)} kubeContext={currentContext} />
+                    // ArgoCD is rendered persistently above - just show empty container here
+                    <div className="flex-1" />
                 ) : (
                     <>
                         {/* Header */}
@@ -1337,16 +1352,6 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
 
                         {/* Content */}
                         <div className="flex-1 overflow-hidden relative">
-                            {/* Persistent ArgoCD View - Kept alive to maintain proxy connection */}
-                            {argocdExists && hasOpenedArgoCD && (
-                                <div className={`absolute inset-0 z-10 bg-zinc-950 ${activeRes?.kind === "ArgoCD" ? "block" : "hidden"}`}>
-                                    <ArgoCDWebView
-                                        onClose={() => setActiveRes(null)}
-                                        kubeContext={currentContext}
-                                    />
-                                </div>
-                            )}
-
                             {activeRes?.kind === "Azure" ? (
                                 <AzurePage onConnect={() => setActiveRes(null)} />
                             ) : activeRes?.kind === "HelmReleases" ? (
