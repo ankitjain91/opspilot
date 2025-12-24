@@ -130,6 +130,24 @@ jobs:
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
+      - name: Verify Universal Bundle Sidecars (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/OpsPilot.app/Contents/MacOS"
+          echo "Inspecting App Bundle at $APP_PATH..."
+          ls -la "$APP_PATH"
+
+          if [ ! -f "$APP_PATH/agent-server-aarch64-apple-darwin" ]; then
+            echo "::error::Universal Bundle is missing ARM64 sidecar!"
+            exit 1
+          fi
+
+          if [ ! -f "$APP_PATH/agent-server-x86_64-apple-darwin" ]; then
+            echo "::error::Universal Bundle is missing x86_64 sidecar!"
+            exit 1
+          fi
+          echo "✅ Universal Bundle contains both sidecars."
+
       - name: Compress binary (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
