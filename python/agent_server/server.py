@@ -518,6 +518,7 @@ async def install_package(req: InstallRequest):
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -900,8 +901,10 @@ async def _test_claude_code_connection():
         print(f"[claude-test] Testing Claude CLI at: {claude_bin}", flush=True)
 
         # Quick check: run 'claude --version' with short timeout
+        # Use DEVNULL for stdin to prevent broken pipe errors
         process = await asyncio.create_subprocess_exec(
             claude_bin, "--version",
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -981,9 +984,11 @@ async def _test_codex_connection():
     try:
         # Quick check: run 'codex --version'
         codex_bin = find_executable_path("codex") or "codex"
-        
+
+        # Use DEVNULL for stdin to prevent broken pipe errors
         process = await asyncio.create_subprocess_exec(
             codex_bin, "--version",
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
