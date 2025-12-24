@@ -81,6 +81,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     // --- State ---
     const [serverInfo, setServerInfo] = useState<ArgoCDServerInfo | null>(null);
     const [status, setStatus] = useState<'idle' | 'initializing' | 'port-forwarding' | 'connecting' | 'ready' | 'error'>('idle');
+    const [statusMessage, setStatusMessage] = useState<string>('Ready');
     const [error, setError] = useState<string | null>(null);
     const [showPassword, setShowPassword] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -102,6 +103,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         if (previousContextRef.current !== kubeContext) {
             console.log(`[ArgoCD] Context changed: ${previousContextRef.current} -> ${kubeContext}`);
             // Force reset everything
+            setStatusMessage(`Disconnecting from ${previousContextRef.current}...`);
             invoke('force_close_argocd_webview').catch(console.error);
             clearSession();
             setWebviewReady(false);
@@ -127,6 +129,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             setServerInfo(session.serverInfo);
             setIsFromCache(true);
             setStatus('port-forwarding'); // Fast track
+            setStatusMessage('Restoring active session...');
             verifyAndReconnect(session.serverInfo);
         } else {
             initializeArgoCD();
@@ -201,9 +204,11 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         try {
             // Even with cached info, ensure port forward is active
             setStatus('port-forwarding');
+            setStatusMessage('Verifying secure tunnel...');
             await invoke('start_argocd_port_forward');
 
             setStatus('connecting');
+            setStatusMessage('Checking server connectivity...');
             // We can skip getting server info if we trust the cache, but good to verify
             // For now, trust cache to be fast
 
@@ -212,6 +217,9 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             console.error("Failed to restore session", e);
             // Fallback to full init
             initializingRef.current = false;
+            if (mountedRef.current) {
+                setStatusMessage('Session verification failed, restarting...');
+            }
             initializeArgoCD(true);
         }
     };
@@ -221,6 +229,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         initializingRef.current = true;
 
         if (forceRefresh) {
+            setStatusMessage('Cleaning up previous session...');
             clearSession();
             setIsFromCache(false);
             setWebviewReady(false);
@@ -229,13 +238,16 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         }
 
         setStatus('initializing');
+        setStatusMessage('Initializing ArgoCD connection...');
         setError(null);
 
         try {
             setStatus('port-forwarding');
+            setStatusMessage('Establishing secure port-forward to cluster...');
             await invoke('start_argocd_port_forward');
 
             setStatus('connecting');
+            setStatusMessage('Retrieving ArgoCD credentials & server info...');
             const info = await invoke<ArgoCDServerInfo>('get_argocd_server_info');
 
             if (!mountedRef.current) return;
@@ -244,12 +256,15 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             setIsFromCache(false);
             saveSession(info, kubeContext);
 
+            setStatusMessage('Credentials acquired. Preparing interface...');
+
             // Auto-open happens via effect when serverInfo is present
         } catch (e: any) {
             console.error("ArgoCD Init Error:", e);
             if (mountedRef.current) {
                 setError(e?.toString() || 'Failed to connect to ArgoCD');
                 setStatus('error');
+                setStatusMessage('Connection failed');
             }
         } finally {
             initializingRef.current = false;
@@ -274,6 +289,9 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         }
 
         try {
+            if (!webviewReady) {
+                setStatusMessage('Launching ArgoCD interface...');
+            }
             console.log(`[ArgoCD] Opening webview at ${rect.left},${rect.top} ${rect.width}x${rect.height}`);
             const result = await invoke<string>('open_argocd_webview', {
                 x: rect.left,
@@ -288,16 +306,19 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             setIsSessionPreserved(preserved);
             setWebviewReady(true);
             setStatus('ready');
+            setStatusMessage('Connected');
 
         } catch (e: any) {
             console.error('Failed to open embedded webview:', e);
             if (retryCountRef.current < 2) {
                 retryCountRef.current++;
+                setStatusMessage(`Webview launch failed, retrying (${retryCountRef.current}/2)...`);
                 console.log(`[ArgoCD] Retrying webview open (${retryCountRef.current}/2)...`);
                 setTimeout(openEmbeddedWebview, 500);
             } else {
                 setError(e?.toString() || 'Failed to open ArgoCD webview UI');
                 setStatus('error');
+                setStatusMessage('Failed to launch interface');
             }
         }
     };
@@ -460,7 +481,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                         </div>
                         <div className="flex flex-col items-center gap-1">
                             <span className="text-zinc-200 font-medium tracking-wide">Connecting to ArgoCD</span>
-                            <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest">{status}...</span>
+                            <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest">{statusMessage}</span>
                         </div>
                     </div>
                 </div>
