@@ -54,26 +54,33 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Python agent sidecar
+      - name: Build Python agent sidecar (Native)
         shell: bash
         run: |
           cd python
           pip install -r requirements.txt
           pip install pyinstaller
-          # Build native sidecar for this host arch
           python build.py
 
-          # On macOS runners, attempt to also build x86_64 under Rosetta if available
-          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
-            if command -v arch >/dev/null; then
-              echo "Attempting x86_64 sidecar build under Rosetta..."
-              if arch -x86_64 python3 --version >/dev/null 2>&1; then
-                arch -x86_64 python3 build.py || echo "Rosetta x86_64 build failed (will validate presence below)."
-              else
-                echo "No x86_64 python available under Rosetta; skipping cross build."
-              fi
-            fi
-          fi
+      - name: Install Python (x86_64 for macOS)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          architecture: "x64"
+
+      - name: Build Python agent sidecar (x86_64 for macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          # Verify we are running x64 python
+          python3 -c "import platform; print(f'Python architecture: {platform.machine()}')"
+
+          cd python
+          # Re-install dependencies for this architecture
+          pip install -r requirements.txt
+          pip install pyinstaller
+          python3 build.py
 
       - name: Verify sidecar binaries
         shell: bash
