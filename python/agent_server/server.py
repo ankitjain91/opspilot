@@ -1918,7 +1918,8 @@ async def analyze(request: AgentRequest):
                                     }
                                     phase_name = phase_map.get(event['name'])
                                     if phase_name:
-                                        yield f"data: {json.dumps(emit_phase_event(phase_name, detail=f'node={event['name']}'))}\n\n"
+                                        detail_str = 'node=' + event['name']
+                                        yield f"data: {json.dumps(emit_phase_event(phase_name, detail=detail_str))}\n\n"
 
                                     if node_update.get('events'):
                                         events_list = node_update.get('events', [])
