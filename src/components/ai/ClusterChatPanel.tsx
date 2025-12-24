@@ -1086,7 +1086,7 @@ export function ClusterChatPanel({
             } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout") || errorMsg.includes("Unreachable") || errorMsg.includes("unavailable")) {
                 // Set connection error state for retry UI
                 setConnectionError({
-                    message: `Cannot reach the agent server. The server may be starting up or experiencing issues.`,
+                    message: `Cannot reach the agent server. It may still be starting up (~10s on first launch).`,
                     canRetry: true
                 });
                 setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach the agent server. Use the retry button below to reconnect.` }]);

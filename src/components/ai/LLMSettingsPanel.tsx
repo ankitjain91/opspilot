@@ -161,7 +161,7 @@ export function LLMSettingsPanel({
             } catch (e) {
                 // On last attempt, set the error
                 if (attempt === retries - 1) {
-                    setClaudeCodeStatus({ connected: false, error: 'Agent server starting...' });
+                    setClaudeCodeStatus({ connected: false, error: 'Agent starting (~10s)...' });
                 } else {
                     // Wait before retry (agent may still be starting)
                     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -189,7 +189,7 @@ export function LLMSettingsPanel({
                 }
             } catch (e) {
                 if (attempt === retries - 1) {
-                    setCodexStatus({ connected: false, error: 'Agent server starting...' });
+                    setCodexStatus({ connected: false, error: 'Agent starting (~10s)...' });
                 } else {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                 }

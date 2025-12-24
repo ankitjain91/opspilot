@@ -249,7 +249,10 @@ export function DependencyManager({ onRefresh }: DependencyManagerProps) {
                                     {tool.installed ? (
                                         <span className="text-xs text-emerald-400 font-medium">Ready</span>
                                     ) : tool.name === 'agent-server' ? (
-                                        <span className="text-xs text-zinc-500">Auto-managed</span>
+                                        <span className="text-xs text-amber-400 flex items-center gap-1.5">
+                                            <RefreshCw size={10} className="animate-spin" />
+                                            Starting (~10s)
+                                        </span>
                                     ) : (
                                         <button
                                             onClick={() => setExpandedTool(isExpanded ? null : tool.name)}

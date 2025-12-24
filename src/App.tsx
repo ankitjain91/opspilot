@@ -438,19 +438,25 @@ function AppContent() {
         onAutoInvestigate={handleAutoInvestigate}
       />
 
-      {/* Agent Health Warning - Floating, Non-Blocking, Subtle */}
+      {/* Agent Health Warning - Floating, Non-Blocking, Informative */}
       {showAgentWarning && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-4 fade-in duration-500">
-          <div className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-amber-950/80 border border-amber-500/30 backdrop-blur-md shadow-xl shadow-black/20">
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            <span className="text-sm font-medium text-amber-200">
-              Agent connecting...
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-full bg-zinc-900/90 border border-zinc-700/50 backdrop-blur-md shadow-xl shadow-black/30">
+            <svg className="w-4 h-4 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span className="text-sm font-medium text-zinc-200">
+              AI Agent starting up
+            </span>
+            <span className="text-xs text-zinc-500">
+              ~10s
             </span>
             <button
-              className="ml-2 text-xs font-semibold text-amber-400 hover:text-amber-100 transition-colors px-2 py-1 rounded-md bg-amber-500/10 hover:bg-amber-500/20"
+              className="ml-1 text-xs font-medium text-zinc-400 hover:text-white transition-colors px-2 py-1 rounded-md hover:bg-zinc-700/50"
               onClick={() => qc.invalidateQueries({ queryKey: ["agent_health"] })}
             >
-              Retry
+              Check
             </button>
           </div>
         </div>
