@@ -154,30 +154,29 @@ async fn proxy_handler(
             StatusCode::BAD_GATEWAY
         })?;
 
-    let status = response.status();
-    let resp_headers = response.headers().clone();
-    let resp_bytes = response.bytes().await
-        .map_err(|e| {
-            eprintln!("[ArgoCD Proxy] Failed to read response body: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
-
-    println!("[ArgoCD Proxy] Upstream Response: {} {} | {} bytes", method, status, resp_bytes.len());
+    println!("[ArgoCD Proxy] Upstream Response: {} {}", method, status);
 
     // Build response
     let mut builder = Response::builder().status(status);
     
-    // Copy headers but STRIP blocking ones AND encoding headers (since we decoded body)
+    // Copy headers but STRIP hop-by-hop and blocking headers
     if let Some(headers_mut) = builder.headers_mut() {
         for (name, value) in resp_headers {
             if let Some(name) = name {
                 let name_lower = name.as_str().to_lowercase();
-                // STRIP HEADERS THAT BLOCK IFRAMES OR BREAK ENCODING
-                if name_lower == "x-frame-options" 
-                   || name_lower == "content-security-policy" 
-                   || name_lower == "content-encoding"
-                   || name_lower == "content-length"
+                // Standard hop-by-hop headers + Proxy specific
+                if name_lower == "connection"
+                   || name_lower == "keep-alive"
+                   || name_lower == "proxy-authenticate"
+                   || name_lower == "proxy-authorization"
+                   || name_lower == "te"
+                   || name_lower == "trailer"
                    || name_lower == "transfer-encoding"
+                   || name_lower == "upgrade"
+                   || name_lower == "content-length" 
+                   || name_lower == "content-encoding" // Let browser handle decoding if any
+                   || name_lower == "x-frame-options"
+                   || name_lower == "content-security-policy"
                 {
                     continue;
                 }
@@ -186,10 +185,15 @@ async fn proxy_handler(
         }
         // Force permissive headers
         headers_mut.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
-        // headers_mut.insert("Content-Security-Policy", HeaderValue::from_static("frame-ancestors *;")); 
     }
 
-    builder.body(Body::from(resp_bytes))
+    // Stream the body instead of buffering
+    // This allows large files (main.js) to flow through immediately
+    use futures_util::TryStreamExt;
+    let stream = response.bytes_stream().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let body = Body::from_stream(stream);
+
+    builder.body(body)
         .map_err(|e| {
              eprintln!("[ArgoCD Proxy] Failed to build response: {}", e);
              StatusCode::INTERNAL_SERVER_ERROR
