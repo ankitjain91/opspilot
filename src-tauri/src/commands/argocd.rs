@@ -96,8 +96,18 @@ pub async fn get_argocd_server_info(
     // We need the target port (local kubectl port) to start the proxy.
     // We can assume it's ARGOCD_LOCAL_PORT (9080).
     
+    // Determine protocol based on target port
+    // We need to re-check the port to decide protocol
+    let target_port = get_argocd_http_port(&client, &namespace).await.unwrap_or(80);
+    // Protocol is determined by proxy connection now, but we kept this logic in case we need it
+    let protocol = if target_port == 80 || target_port == 8080 { "http" } else { "https" };
+    
+    // Update proxy state with detected protocol
+    // But start_proxy is idempotent-ish. If we call it again with different protocol, it currently won't update.
+    // However, usually protocol doesn't change mid-session.
+    
     use crate::proxy::argocd::start_proxy;
-    let proxy_port = start_proxy(ARGOCD_LOCAL_PORT).await
+    let proxy_port = start_proxy(ARGOCD_LOCAL_PORT, protocol).await
         .map_err(|e| format!("Failed to start proxy: {}", e))?;
 
     Ok(ArgoCDServerInfo {
@@ -382,9 +392,12 @@ pub async fn start_argocd_port_forward(
         *guard = Some(child);
     }
 
+    // Determine protocol based on target port (we calculated it earlier)
+    let protocol = if target_port == 80 || target_port == 8080 { "http" } else { "https" };
+
     // Start the proxy immediately so it's ready
     use crate::proxy::argocd::start_proxy;
-    let _ = start_proxy(ARGOCD_LOCAL_PORT).await
+    let _ = start_proxy(ARGOCD_LOCAL_PORT, protocol).await
         .map_err(|e| format!("Failed to start proxy: {}", e))?;
 
     Ok(format!("Port-forward started on localhost:{}", ARGOCD_LOCAL_PORT))

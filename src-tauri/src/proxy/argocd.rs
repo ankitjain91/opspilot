@@ -10,28 +10,41 @@ use axum::{
 use tower_http::cors::CorsLayer;
 use tokio::sync::oneshot;
 
-// Shared state to hold the target ArgoCD port
-// This allows us to update the target if port-forward restarts on a different port (unlikely but good practice)
+// Shared state to hold the target ArgoCD port and client
+// This allows us to update the target if port-forward restarts
 #[derive(Clone)]
 pub struct ProxyState {
     pub target_port: Arc<Mutex<Option<u16>>>,
+    pub protocol: String, // "http" or "https"
+    pub client: reqwest::Client,
 }
 
 // Global handle to stop the server
 static SHUTDOWN_TX: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
 static RUNNING_PORT: Mutex<Option<u16>> = Mutex::new(None);
 
-pub async fn start_proxy(target_argocd_port: u16) -> Result<u16, String> {
-    // Check if already running
+pub async fn start_proxy(target_argocd_port: u16, protocol: &str) -> Result<u16, String> {
+    // Check if already running on same port?
+    // Actually we might need to restart if protocol changed, but let's assume one instance for now
     {
         let guard = RUNNING_PORT.lock().unwrap();
         if let Some(port) = *guard {
+            println!("[ArgoCD Proxy] Already running on port {}", port);
             return Ok(port);
         }
     }
 
+    // Create a shared client efficiently
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .redirect(reqwest::redirect::Policy::none()) // Don't follow redirects automatically, let browser handle
+        .build()
+        .map_err(|e| format!("Failed to build proxy client: {}", e))?;
+
     let state = ProxyState {
         target_port: Arc::new(Mutex::new(Some(target_argocd_port))),
+        protocol: protocol.to_string(),
+        client,
     };
 
     let app = Router::new()
@@ -59,7 +72,7 @@ pub async fn start_proxy(target_argocd_port: u16) -> Result<u16, String> {
         *guard = Some(port);
     }
 
-    println!("[ArgoCD Proxy] Starting on port {}", port);
+    println!("[ArgoCD Proxy] Started HTTP->{} proxy on 127.0.0.1:{} -> target:{}", protocol, port, target_argocd_port);
 
     // Spawn server in background
     tokio::spawn(async move {
@@ -99,64 +112,55 @@ async fn proxy_handler(
     // Get target port
     let target_port = {
         let guard = state.target_port.lock().unwrap();
-        guard.ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+        if let Some(p) = *guard {
+            p
+        } else {
+            eprintln!("[ArgoCD Proxy] Error: Target port not set");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
     };
 
-    // Construct target URL
-    // ArgoCD is usually HTTP on localhost port-forward, or HTTPS with self-signed
-    // Our port-forward logic currently maps 8080 (or sim) to target. 
-    // Usually it talks standard HTTP locally unless we are forwarding 443 strictly.
-    // Let's assume HTTP for localhost forwarding for now as 'kubectl port-forward' to a Service often handles protocol.
-    // Wait, earlier logic in argocd.rs determines if it's HTTPS. We should probably respect that or blindly try.
-    // For simplicity, let's assume valid URL construction.
+    let uri_string = format!("{}://localhost:{}{}{}", state.protocol, target_port, path, query);
     
-    // NOTE: argocd.rs determines protocol. We might need to pass that in state too.
-    // For now, let's hardcode http://localhost:PORT because kubectl port-forward usually exposes plaintext on local end 
-    // UNLESS the pod itself forces HTTPS. The 'argocd-server' usually listens on 8080 (http) and 8083 (http) side by side with 443.
-    // But our port forwarder maps to the Service port.
-    
-    // Let's use the same logic as argocd.rs or just pass the full base URL.
-    // For now, assuming HTTP is safest if we target the HTTP port.
-    
-    let uri_string = format!("https://localhost:{}{}{}", target_port, path, query);
-    // Note: Using HTTPS and insecure client because ArgoCD server is almost always HTTPS-only by default.
-    let url = uri_string.parse::<Uri>().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    println!("[ArgoCD Proxy] Forwarding: {} -> {}", path, uri_string);
+
+    let url = uri_string.parse::<Uri>().map_err(|e| {
+        eprintln!("[ArgoCD Proxy] Invalid URI constructed: {} ({})", uri_string, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     *req.uri_mut() = url;
     
-    // remove host header so reqwest calculates it
-    req.headers_mut().remove("host");
-
-    // Client with dangerous_accept_invalid_certs
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    // Pass all headers directly
-    // Remove 'host' to let reqwest calculate it from the URL
-    let method = req.method().clone(); // Restore this
+    // Remove host header so reqwest calculates it
+    let method = req.method().clone();
     let mut headers = req.headers().clone();
     headers.remove("host");
+    headers.remove("connection"); // Avoid 'connection: close' issues?
     
     // Create request with body and headers
     let body_bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024).await // 100MB limit
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+        .map_err(|_e| {
+            eprintln!("[ArgoCD Proxy] Failed to read request body");
+            StatusCode::BAD_REQUEST
+        })?;
 
-    let request_builder = client.request(method, uri_string)
+    let request_builder = state.client.request(method.clone(), uri_string.clone())
         .headers(headers)
         .body(body_bytes);
 
     let response = request_builder.send().await
         .map_err(|e| {
-            eprintln!("Proxy Request Error: {}", e);
+            eprintln!("[ArgoCD Proxy] Upstream Request Error: {} ({} {})", e, method, uri_string);
             StatusCode::BAD_GATEWAY
         })?;
 
     let status = response.status();
     let resp_headers = response.headers().clone();
     let resp_bytes = response.bytes().await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|e| {
+            eprintln!("[ArgoCD Proxy] Failed to read response body: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
 
     // Build response
     let mut builder = Response::builder().status(status);
@@ -179,5 +183,8 @@ async fn proxy_handler(
     }
 
     builder.body(Body::from(resp_bytes))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|e| {
+             eprintln!("[ArgoCD Proxy] Failed to build response: {}", e);
+             StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
