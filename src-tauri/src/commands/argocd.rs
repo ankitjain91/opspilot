@@ -7,6 +7,7 @@ use std::process::{Command, Child, Stdio};
 use std::sync::Mutex;
 use std::net::TcpListener;
 use serde::Serialize;
+use std::time::Duration;
 
 /// Global state for port-forward process
 static ARGOCD_PORT_FORWARD: Mutex<Option<Child>> = Mutex::new(None);
@@ -71,7 +72,7 @@ pub async fn get_argocd_server_info(
     };
 
     Ok(ArgoCDServerInfo {
-        url: "http://localhost:9080".to_string(), // We use HTTP on our forwarded port
+        url: "https://localhost:9080".to_string(), // ArgoCD usually requires HTTPS
         username: "admin".to_string(),
         password,
         namespace,
@@ -227,11 +228,9 @@ async fn get_argocd_http_port(client: &kube::Client, namespace: &str) -> Result<
                     return Ok(8080);
                 }
             }
-            // Fallback to first non-443 port
-            for port in &ports {
-                if port.port != 443 {
-                    return Ok(port.port);
-                }
+            // Fallback to the first port (even if 443) rather than guessing 80
+            if let Some(port) = ports.first() {
+                return Ok(port.port);
             }
         }
     }
@@ -283,7 +282,7 @@ pub async fn start_argocd_port_forward(
 
     // Start kubectl port-forward in background
     let port_mapping = format!("{}:{}", ARGOCD_LOCAL_PORT, target_port);
-    let child = Command::new("kubectl")
+    let mut child = Command::new("kubectl")
         .args(&[
             "port-forward",
             "-n", &namespace,
@@ -294,39 +293,47 @@ pub async fn start_argocd_port_forward(
         .spawn()
         .map_err(|e| format!("Failed to start port-forward: {}", e))?;
 
+    // Wait for port-forward to bind to the local port; if it never binds, surface an error
+    const BIND_RETRIES: u8 = 15;
+    for attempt in 1..=BIND_RETRIES {
+        if !is_port_available(ARGOCD_LOCAL_PORT) {
+            break;
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Process exited early; capture stderr for diagnostics
+                let stderr = match child.wait_with_output() {
+                    Ok(output) => String::from_utf8_lossy(&output.stderr).to_string(),
+                    Err(e) => format!("(failed to read stderr: {})", e),
+                };
+                return Err(format!(
+                    "Port-forward failed (exit {}): {}",
+                    status,
+                    stderr.trim()
+                ));
+            }
+            Ok(None) => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+            Err(e) => {
+                return Err(format!("Failed to check port-forward status: {}", e));
+            }
+        }
+
+        if attempt == BIND_RETRIES && is_port_available(ARGOCD_LOCAL_PORT) {
+            let _ = child.kill();
+            return Err(format!(
+                "Port-forward did not bind to localhost:{} after {} attempts",
+                ARGOCD_LOCAL_PORT, BIND_RETRIES
+            ));
+        }
+    }
+
     // Store the child process
     {
         let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
         *guard = Some(child);
-    }
-
-    // Wait for port-forward to establish
-    std::thread::sleep(std::time::Duration::from_millis(2000));
-
-    // Verify the port-forward is working by checking if port is now in use
-    if is_port_available(ARGOCD_LOCAL_PORT) {
-        // Port is still available means port-forward failed to bind
-        let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
-        if let Some(ref mut child) = *guard {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    // Process exited - read stderr for error message
-                    let child = guard.take().unwrap();
-                    let output = child.wait_with_output();
-                    let stderr = output.map(|o| String::from_utf8_lossy(&o.stderr).to_string())
-                        .unwrap_or_default();
-                    return Err(format!("Port-forward failed (exit {}): {}", status, stderr.trim()));
-                }
-                Ok(None) => {
-                    // Process still running, give it more time
-                    drop(guard);
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                }
-                Err(e) => {
-                    return Err(format!("Failed to check port-forward status: {}", e));
-                }
-            }
-        }
     }
 
     Ok(format!("Port-forward started on localhost:{}", ARGOCD_LOCAL_PORT))
@@ -423,46 +430,76 @@ pub async fn open_argocd_webview(
     // We use a React-compatible input setter to ensure the state updates
     let init_script = format!(
         r#"
+        const ATTEMPT_DURATION_MS = 15000;
+        const START_TIME = Date.now();
+
+        function log(msg) {{
+            console.log(`[OpPilot AutoLogin] ${{msg}}`);
+        }}
+
         window.addEventListener('DOMContentLoaded', () => {{
+            log("DOM Content Loaded - Starting Auto Login attempt");
+
             const checkAndLogin = () => {{
-                const usernameInput = document.querySelector('input[name="username"]');
-                const passwordInput = document.querySelector('input[name="password"]');
-                const loginButton = document.querySelector('button[type="submit"]');
+                // Stop if timed out
+                if (Date.now() - START_TIME > ATTEMPT_DURATION_MS) {{
+                    return false;
+                }}
 
-                if (usernameInput && passwordInput && loginButton) {{
-                    // Only autofill if empty (to avoid fighting with user)
-                    if (usernameInput.value === "") {{
-                        // React 16+ hack to trigger onChange by calling native value setter
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                try {{
+                    // Selectors for ArgoCD login form
+                    const usernameInput = document.querySelector('input[name="username"]') || document.querySelector('input[class*="login-username"]');
+                    const passwordInput = document.querySelector('input[name="password"]') || document.querySelector('input[class*="login-password"]');
+                    const loginButton = document.querySelector('button[type="submit"]') || document.querySelector('button[class*="login-button"]');
+
+                    if (usernameInput && passwordInput && loginButton) {{
+                        log("Found login fields");
                         
-                        nativeInputValueSetter.call(usernameInput, "{}");
-                        usernameInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        // Only autofill if empty (to avoid fighting with user)
+                        if (usernameInput.value === "") {{
+                            log("Filling credentials...");
+                            
+                            // React 16+ hack to trigger onChange by calling native value setter
+                            // granular error handling for setter discovery
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                            
+                            if (nativeInputValueSetter) {{
+                                nativeInputValueSetter.call(usernameInput, "{}");
+                                usernameInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
 
-                        nativeInputValueSetter.call(passwordInput, "{}");
-                        passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                nativeInputValueSetter.call(passwordInput, "{}");
+                                passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            }} else {{
+                                // Fallback
+                                usernameInput.value = "{}";
+                                passwordInput.value = "{}";
+                            }}
 
-                        console.log("[ArgoCD Login] Credentials filled, submitting...");
-                        setTimeout(() => loginButton.click(), 500);
-                        return true;
+                            log("Credentials filled, submitting in 500ms...");
+                            setTimeout(() => {{
+                                loginButton.click();
+                                log("Login button clicked");
+                            }}, 500);
+                            return true;
+                        }}
                     }}
+                }} catch (e) {{
+                    log(`Error during auto-login: ${{e}}`);
                 }}
                 return false;
             }};
 
-            // Try immediately and then retry a few times in case of dynamic loading
+            // Try immediately and then retry periodically
             if (!checkAndLogin()) {{
                 const interval = setInterval(() => {{
-                    if (checkAndLogin()) {{
+                    if (checkAndLogin() || (Date.now() - START_TIME > ATTEMPT_DURATION_MS)) {{
                         clearInterval(interval);
                     }}
-                }}, 500);
-                
-                // Stop trying after 10 seconds
-                setTimeout(() => clearInterval(interval), 10000);
+                }}, 800);
             }}
         }});
         "#,
-        info.username, info.password
+        info.username, info.password, info.username, info.password
     );
 
     // Build a new webview window positioned at the specified location

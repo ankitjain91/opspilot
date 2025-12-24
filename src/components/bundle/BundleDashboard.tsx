@@ -1648,12 +1648,6 @@ export function BundleDashboard({ onClose, preloadedData }: BundleDashboardProps
                     { id: 'graph', label: 'Graph', icon: GitBranch },
                     { id: 'events', label: 'Events', icon: Activity, count: warningEvents.length, color: 'amber' },
                     { id: 'explore', label: 'Explore', icon: Search },
-                    { id: 'issues', label: 'Issues', icon: AlertOctagon, count: detectedIssues.length, color: 'red' },
-                    { id: 'overview', label: 'Overview', icon: BarChart3 },
-                    { id: 'timeline', label: 'Timeline', icon: Calendar },
-                    { id: 'graph', label: 'Graph', icon: GitBranch },
-                    { id: 'events', label: 'Events', icon: Activity, count: warningEvents.length, color: 'amber' },
-                    { id: 'explore', label: 'Explore', icon: Search },
                 ].map(nav => (
                     <button
                         key={nav.id}

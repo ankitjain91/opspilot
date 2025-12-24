@@ -42,7 +42,7 @@ use commands::dependencies::check_dependencies;
 use commands::support_bundle::{load_support_bundle, get_bundle_resource_types, get_bundle_resources, get_bundle_resource_yaml, get_bundle_events, get_bundle_log_files, get_bundle_logs, get_bundle_alerts, get_bundle_health_summary, search_bundle, get_bundle_pods_by_status, close_support_bundle};
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text, auto_start_ollama};
-use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status};
+use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status, supervise_agent, start_agent_sidecar};
 use embeddings::{check_embedding_model_status, init_embedding_model};
 use mcp::commands::{connect_mcp_server, disconnect_mcp_server, list_mcp_tools, list_connected_mcp_servers, call_mcp_tool, check_command_exists, install_mcp_presets, install_uvx};
 use mcp::manager::McpManager;
@@ -72,9 +72,15 @@ pub fn run() {
             // Start the agent sidecar automatically
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = agent_sidecar::start_agent_sidecar(&app_handle).await {
+                if let Err(e) = start_agent_sidecar(&app_handle).await {
                     eprintln!("[startup] Failed to start agent sidecar: {}", e);
                 }
+            });
+
+            // Start background supervisor to keep agent healthy
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                supervise_agent(app_handle).await;
             });
 
             // Auto-start Ollama if installed but not running

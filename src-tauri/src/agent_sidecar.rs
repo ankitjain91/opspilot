@@ -71,6 +71,27 @@ async fn wait_for_agent_ready(url: &str) -> Result<(), String> {
     wait_for_agent_ready_with_retries(url, 10, Duration::from_millis(300)).await
 }
 
+/// Attempt to start the agent sidecar with retries/backoff to avoid transient launch failures
+async fn start_agent_sidecar_with_retry(app: &tauri::AppHandle) -> Result<(), String> {
+    const MAX_ATTEMPTS: u8 = 3;
+    const BACKOFF: Duration = Duration::from_millis(800);
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match start_agent_sidecar(app).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                eprintln!("[agent-sidecar] Attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e);
+                if attempt == MAX_ATTEMPTS {
+                    return Err(e);
+                }
+                tokio::time::sleep(BACKOFF * attempt as u32).await;
+            }
+        }
+    }
+
+    Err("Agent failed to start after retries".to_string())
+}
+
 /// Start the agent sidecar process
 pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AgentSidecarState>();
@@ -214,6 +235,27 @@ pub async fn check_agent_status(app: tauri::AppHandle) -> Result<bool, String> {
             eprintln!("[agent-sidecar] Agent process is running but health check failed: {}", e);
             Ok(false)
         }
+    }
+}
+
+/// Background supervisor: periodically ensure the agent is healthy; restart if needed
+pub async fn supervise_agent(app: tauri::AppHandle) {
+    loop {
+        // If already healthy, wait and recheck later
+        match check_agent_status(app.clone()).await {
+            Ok(true) => {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+            Ok(false) | Err(_) => {
+                eprintln!("[agent-sidecar] Agent unhealthy, attempting restart");
+                if let Err(e) = start_agent_sidecar_with_retry(&app).await {
+                    eprintln!("[agent-sidecar] Supervisor failed to restart agent: {}", e);
+                }
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 

@@ -60,27 +60,46 @@ jobs:
           cd python
           pip install -r requirements.txt
           pip install pyinstaller
+          # Build native sidecar for this host arch
           python build.py
-          # For macOS universal build, Tauri expects:
-          # - agent-server-universal-apple-darwin (for the universal target)
-          # - agent-server-x86_64-apple-darwin (for x86_64 component)
-          # - agent-server-aarch64-apple-darwin (for aarch64 component)
-          # Since we're on ARM Mac, copy the native binary to all targets
+
+          # On macOS runners, attempt to also build x86_64 under Rosetta if available
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
-            cd ../src-tauri/binaries
-            NATIVE_BIN=$(ls agent-server-*-apple-darwin 2>/dev/null | head -1)
-            if [ -n "$NATIVE_BIN" ]; then
-              echo "Found native binary: $NATIVE_BIN"
-              # Copy to targets that don't match the native binary name
-              for target in universal-apple-darwin x86_64-apple-darwin aarch64-apple-darwin; do
-                target_file="agent-server-$target"
-                if [ "$NATIVE_BIN" != "$target_file" ]; then
-                  cp "$NATIVE_BIN" "$target_file"
-                  echo "Created $target_file"
-                fi
-              done
+            if command -v arch >/dev/null; then
+              echo "Attempting x86_64 sidecar build under Rosetta..."
+              if arch -x86_64 python3 --version >/dev/null 2>&1; then
+                arch -x86_64 python3 build.py || echo "Rosetta x86_64 build failed (will validate presence below)."
+              else
+                echo "No x86_64 python available under Rosetta; skipping cross build."
+              fi
             fi
-            ls -la
+          fi
+
+      - name: Verify sidecar binaries
+        shell: bash
+        run: |
+          cd src-tauri/binaries
+          ls -la
+
+          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            if [ ! -f agent-server-aarch64-apple-darwin ]; then
+              echo "::error::Missing arm64 sidecar binary agent-server-aarch64-apple-darwin"
+              exit 1
+            fi
+            if [ ! -f agent-server-x86_64-apple-darwin ]; then
+              echo "::error::Missing x86_64 sidecar binary agent-server-x86_64-apple-darwin (build under Rosetta or use an x86_64 runner)"
+              exit 1
+            fi
+          elif [[ "${{ matrix.platform }}" == "ubuntu-latest" ]]; then
+            if [ ! -f agent-server-x86_64-unknown-linux-gnu ]; then
+              echo "::error::Missing linux sidecar binary agent-server-x86_64-unknown-linux-gnu"
+              exit 1
+            fi
+          elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+            if [ ! -f agent-server-x86_64-pc-windows-msvc.exe ] && [ ! -f agent-server-x86_64-pc-windows-msvc ]; then
+              echo "::error::Missing windows sidecar binary agent-server-x86_64-pc-windows-msvc"
+              exit 1
+            fi
           fi
 
       - name: Debug Secrets

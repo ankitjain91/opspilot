@@ -134,6 +134,21 @@ function AppContent() {
     staleTime: 10000,
   });
 
+  // Agent health check (global)
+  const { data: agentHealthy } = useQuery({
+    queryKey: ["agent_health"],
+    queryFn: async () => {
+      try {
+        return await invoke<boolean>("check_agent_status");
+      } catch (e) {
+        console.warn("[Agent] Health check failed:", e);
+        return false;
+      }
+    },
+    refetchInterval: isDocumentVisible ? 10000 : false,
+    staleTime: 5000,
+  });
+
   // Reconnect Sentinel when context changes (ensures fresh connection)
   const prevSentinelContextRef = useRef<string | null>(null);
   useEffect(() => {
@@ -184,6 +199,11 @@ function AppContent() {
   if (!isConnected) {
     return (
       <>
+        {agentHealthy === false && (
+          <div className="bg-red-600 text-white px-4 py-2 text-sm font-medium">
+            Agent not reachable. It should start automatically; if this persists, restart the app.
+          </div>
+        )}
         {showAzure ? (
           <div className="h-screen flex flex-col bg-[#1e1e1e]">
             <div className="h-14 border-b border-[#3e3e42] flex items-center justify-between px-4 bg-[#252526] shrink-0">
@@ -372,6 +392,17 @@ function AppContent() {
 
   return (
     <>
+      {agentHealthy === false && (
+        <div className="bg-red-600 text-white px-4 py-2 text-sm font-medium flex items-center justify-between">
+          <span>Agent not reachable. It should start automatically; if this persists, restart the app.</span>
+          <button
+            className="text-white/80 hover:text-white text-xs underline"
+            onClick={() => qc.invalidateQueries({ queryKey: ["agent_health"] })}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       <Dashboard
         isConnected={isConnected}
         setIsConnected={setIsConnected}
