@@ -672,7 +672,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                     </div>
 
                     {activeTab === "local" ? (
-                        <div className="p-6 space-y-5">
+                        <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
                             {/* Kubeconfig Path */}
                             <div className="space-y-2">
                                 <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
@@ -833,7 +833,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                         </div>
                     ) : activeTab === "azure" ? (
                         /* Azure Tab Content */
-                        <div className="p-8">
+                        <div className="p-8 max-h-[60vh] overflow-y-auto">
                             <div className="text-center">
                                 <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/30 flex items-center justify-center">
                                     <Cloud size={40} className="text-blue-400" />
@@ -877,7 +877,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                         </div>
                     ) : activeTab === "bundle" ? (
                         /* Offline Bundle Tab Content */
-                        <div className="p-8">
+                        <div className="p-8 max-h-[60vh] overflow-y-auto">
                             <div className="text-center">
                                 <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
                                     {bundleLoading ? (
@@ -945,7 +945,7 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                         </div>
                     ) : (
                         /* Setup Tab Content */
-                        <div className="p-6">
+                        <div className="p-6 max-h-[60vh] overflow-y-auto">
                             <DependencyManager onRefresh={checkDeps} />
                         </div>
                     )}
