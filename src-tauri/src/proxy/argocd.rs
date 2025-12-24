@@ -136,6 +136,7 @@ async fn proxy_handler(
     let mut headers = req.headers().clone();
     headers.remove("host");
     headers.remove("connection"); // Avoid 'connection: close' issues?
+    headers.remove("accept-encoding"); // Let reqwest negotiate compression, or just get plain text
     
     // Create request with body and headers
     let body_bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024).await // 100MB limit
