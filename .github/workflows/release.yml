@@ -134,9 +134,10 @@ jobs:
             fi
 
             # Verify actual architectures using lipo/file
+            # Note: Use tail -1 because grep -o matches arch in filename AND file output
             echo "Verifying binary architectures..."
-            ARM_ARCH=$(file agent-server-aarch64-apple-darwin | grep -o 'arm64\|x86_64')
-            X86_ARCH=$(file agent-server-x86_64-apple-darwin | grep -o 'arm64\|x86_64')
+            ARM_ARCH=$(file agent-server-aarch64-apple-darwin | grep -o 'arm64\|x86_64' | tail -1)
+            X86_ARCH=$(file agent-server-x86_64-apple-darwin | grep -o 'arm64\|x86_64' | tail -1)
 
             echo "agent-server-aarch64-apple-darwin: $ARM_ARCH"
             echo "agent-server-x86_64-apple-darwin: $X86_ARCH"
