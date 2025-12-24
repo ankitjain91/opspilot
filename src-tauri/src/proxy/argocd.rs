@@ -148,11 +148,8 @@ async fn proxy_handler(
         .headers(headers)
         .body(body_bytes);
 
-    let response = request_builder.send().await
-        .map_err(|e| {
-            eprintln!("[ArgoCD Proxy] Upstream Request Error: {} ({} {})", e, method, uri_string);
-            StatusCode::BAD_GATEWAY
-        })?;
+    let status = response.status();
+    let resp_headers = response.headers().clone();
 
     println!("[ArgoCD Proxy] Upstream Response: {} {}", method, status);
 

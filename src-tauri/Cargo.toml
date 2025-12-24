@@ -1,6 +1,6 @@
 [package]
 name = "opspilot"
-version = "0.2.91"
+version = "0.2.92"
 description = "Fast Kubernetes IDE with autonomous AI debugging. Tauri + Rust + Ollama for read-only incident analysis."
 authors = ["you"]
 license = "BUSL-1.1"
@@ -27,6 +27,7 @@ tokio = { version = "1", features = ["full"] }
 kube = { version = "0.96", features = ["runtime", "derive", "client", "ws", "config"] }
 k8s-openapi = { version = "0.23", features = ["v1_30", "schemars"] }
 futures = "0.3"
+futures-util = "0.3"
 portable-pty = "0.8"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
