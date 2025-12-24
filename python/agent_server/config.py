@@ -1,7 +1,8 @@
 
 import os
 from datetime import datetime, timezone
-from typing import TypedDict, Literal, List, Dict, Optional, Any
+from typing import Literal, List, Dict, Optional, Any
+from typing_extensions import TypedDict
 
 # Prompts removed from config to avoid circular imports / legacy usage
 from .prompts_examples import SUPERVISOR_EXAMPLES_FULL

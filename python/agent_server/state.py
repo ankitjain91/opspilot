@@ -1,5 +1,6 @@
 
-from typing import TypedDict, Annotated, List, Dict, Any, Union, Optional, Literal
+from typing import Annotated, List, Dict, Any, Union, Optional, Literal
+from typing_extensions import TypedDict
 
 class CommandHistory(TypedDict):
     """Stores the execution and reflection result of a single command."""
