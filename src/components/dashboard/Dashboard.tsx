@@ -1219,7 +1219,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 ) : activeRes?.kind === "HelmReleases" ? (
                     <HelmReleases currentContext={currentContext} />
                 ) : activeRes?.kind === "ArgoCD" ? (
-                    <ArgoCDWebView onClose={() => setActiveRes(null)} />
+                    <ArgoCDWebView onClose={() => setActiveRes(null)} kubeContext={currentContext} />
                 ) : (
                     <>
                         {/* Header */}

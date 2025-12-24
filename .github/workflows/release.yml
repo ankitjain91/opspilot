@@ -30,6 +30,8 @@ jobs:
         with:
           python-version: "3.10"
           cache: "pip"
+          # On macOS, explicitly request arm64 for native build
+          architecture: ${{ matrix.platform == 'macos-latest' && 'arm64' || 'x64' }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

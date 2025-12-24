@@ -283,18 +283,12 @@ pub async fn stop_agent(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn check_agent_status(app: tauri::AppHandle) -> Result<bool, String> {
-    if !is_agent_running(&app).await {
-        return Ok(false);
-    }
-
-    // Quick health probe (single attempt, short timeout) so UI can surface unhealthy agent
+pub async fn check_agent_status(_app: tauri::AppHandle) -> Result<bool, String> {
+    // Check the actual health endpoint directly - don't rely on tracked child process
+    // because we may be reusing an existing healthy agent from a previous app instance
     match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 1, Duration::from_millis(1000)).await {
         Ok(_) => Ok(true),
-        Err(e) => {
-            eprintln!("[agent-sidecar] Agent process is running but health check failed: {}", e);
-            Ok(false)
-        }
+        Err(_) => Ok(false),
     }
 }
 
