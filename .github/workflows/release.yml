@@ -113,6 +113,15 @@ jobs:
             fi
           fi
 
+      - name: Create Universal Sidecar (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          cd src-tauri/binaries
+          echo "Creating universal binary for agent-server..."
+          lipo -create -output agent-server-universal-apple-darwin agent-server-x86_64-apple-darwin agent-server-aarch64-apple-darwin
+          chmod +x agent-server-universal-apple-darwin
+          ls -la agent-server-universal-apple-darwin
+
       - name: Debug Secrets
         shell: bash
         env:
