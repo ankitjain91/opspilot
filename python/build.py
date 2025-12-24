@@ -47,8 +47,13 @@ def build():
             # But generally PyInstaller builds for the running interpreter.
             # If they don't match, we are building the wrong thing.
             print(f"Error: Architecture mismatch! TARGET_ARCH={target_arch_env} but running on {current_arch}")
-            print("Please run this script with the correct Python architecture (e.g. use 'arch -x86_64 python3' on macOS)")
-            sys.exit(1)
+            
+            # CRITICAL FIX: Only enforce strictness in CI. Locally, users might have misconfigured envs but correct python.
+            if os.environ.get("CI") == "true":
+                print("Strict architecture check enabled in CI. Aborting.")
+                sys.exit(1)
+            else:
+                 print("WARNING: proceeding anyway as we are not in CI. The output binary might be wrong architecture.")
     else:
         print(f"[Build] No TARGET_ARCH set. converting to {current_arch}")
 

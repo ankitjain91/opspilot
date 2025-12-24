@@ -101,6 +101,15 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
     const [isTerminalOpen, setIsTerminalOpen] = useState(false); // Local Terminal State
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false); // Keyboard shortcuts help
     const [isSettingsOpen, setIsSettingsOpen] = useState(false); // Settings page
+    const [hasOpenedArgoCD, setHasOpenedArgoCD] = useState(false); // Track if ArgoCD has been opened
+
+    // Lazy load ArgoCD state
+    useEffect(() => {
+        if (activeRes?.kind === "ArgoCD") {
+            setHasOpenedArgoCD(true);
+        }
+    }, [activeRes]);
+
     const qc = useQueryClient();
     const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -1196,160 +1205,173 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 )}
 
                 {activeRes?.kind === "CustomResourceHealth" ? (
-                        <div className="flex-1 min-h-0 overflow-y-auto">
-                            <CustomResourceHealth
-                                currentContext={currentContext}
-                                onOpenResource={handleOpenRelatedResource}
-                                onAutoInvestigate={onAutoInvestigate}
-                            />
-                        </div>
-                    ) : activeRes?.kind === "HelmReleases" ? (
-                        <HelmReleases currentContext={currentContext} />
-                    ) : activeRes?.kind === "ArgoCD" ? (
-                        <ArgoCDWebView onClose={() => setActiveRes(null)} />
-                    ) : (
-                        <>
-                            {/* Header */}
-                            <header className="h-14 glass-header flex items-center justify-between px-6 sticky top-0 z-20">
-                                <div className="flex items-center gap-4">
-                                    {/* Back to Cockpit button - only show when viewing resources */}
-                                    {activeRes && (
-                                        <button
-                                            onClick={() => {
-                                                setActiveRes(null);
-                                                setActiveTabId(null);
-                                                setSearchQuery("");
-                                            }}
-                                            className="flex items-center gap-1.5 px-2 py-1.5 -ml-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-all group"
-                                            title="Back to Cluster Overview"
-                                        >
-                                            <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-                                            <LayoutDashboard size={14} className="text-cyan-400" />
-                                        </button>
-                                    )}
-                                    <div className="flex items-center gap-2 text-sm">
-                                        <span className="text-zinc-500 font-medium">{activeRes?.group || "Core"}</span>
-                                        <ChevronRight size={14} className="text-zinc-700" />
-                                        <span className="font-semibold text-zinc-100 tracking-tight">{activeRes?.title}</span>
-                                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                        <CustomResourceHealth
+                            currentContext={currentContext}
+                            onOpenResource={handleOpenRelatedResource}
+                            onAutoInvestigate={onAutoInvestigate}
+                        />
+                    </div>
+                ) : activeRes?.kind === "HelmReleases" ? (
+                    <HelmReleases currentContext={currentContext} />
+                ) : activeRes?.kind === "ArgoCD" ? (
+                    <ArgoCDWebView onClose={() => setActiveRes(null)} />
+                ) : (
+                    <>
+                        {/* Header */}
+                        <header className="h-14 glass-header flex items-center justify-between px-6 sticky top-0 z-20">
+                            <div className="flex items-center gap-4">
+                                {/* Back to Cockpit button - only show when viewing resources */}
+                                {activeRes && (
+                                    <button
+                                        onClick={() => {
+                                            setActiveRes(null);
+                                            setActiveTabId(null);
+                                            setSearchQuery("");
+                                        }}
+                                        className="flex items-center gap-1.5 px-2 py-1.5 -ml-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-all group"
+                                        title="Back to Cluster Overview"
+                                    >
+                                        <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
+                                        <LayoutDashboard size={14} className="text-cyan-400" />
+                                    </button>
+                                )}
+                                <div className="flex items-center gap-2 text-sm">
+                                    <span className="text-zinc-500 font-medium">{activeRes?.group || "Core"}</span>
+                                    <ChevronRight size={14} className="text-zinc-700" />
+                                    <span className="font-semibold text-zinc-100 tracking-tight">{activeRes?.title}</span>
                                 </div>
+                            </div>
 
-                                <div className="flex items-center gap-3">
-                                    {/* Sentinel Status - Compact indicator with info popover, clickable to reconnect */}
-                                    <div className="relative group/sentinel">
-                                        <button
-                                            onClick={() => {
-                                                if (sentinelStatus !== 'connected' && onReconnectSentinel) {
-                                                    onReconnectSentinel();
-                                                }
-                                            }}
-                                            className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all ${sentinelStatus === 'connected'
-                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help'
+                            <div className="flex items-center gap-3">
+                                {/* Sentinel Status - Compact indicator with info popover, clickable to reconnect */}
+                                <div className="relative group/sentinel">
+                                    <button
+                                        onClick={() => {
+                                            if (sentinelStatus !== 'connected' && onReconnectSentinel) {
+                                                onReconnectSentinel();
+                                            }
+                                        }}
+                                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all ${sentinelStatus === 'connected'
+                                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-help'
+                                            : sentinelStatus === 'connecting'
+                                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 cursor-wait'
+                                                : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:bg-zinc-700/50 hover:text-zinc-400 cursor-pointer'
+                                            }`}
+                                        title={sentinelStatus !== 'connected' ? 'Click to reconnect' : 'Sentinel is active'}
+                                    >
+                                        <Shield size={12} className={sentinelStatus === 'connecting' ? 'animate-pulse' : ''} />
+                                        <span className="hidden sm:inline">
+                                            {sentinelStatus === 'connected' ? 'Sentinel' : sentinelStatus === 'connecting' ? 'Connecting' : 'Offline'}
+                                        </span>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${sentinelStatus === 'connected' ? 'bg-emerald-400' :
+                                            sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
+                                                'bg-zinc-600'
+                                            }`} />
+                                        <Info size={10} className="opacity-50 group-hover/sentinel:opacity-100 transition-opacity" />
+                                    </button>
+                                    {/* Info Popover */}
+                                    <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover/sentinel:opacity-100 group-hover/sentinel:visible transition-all duration-200 z-50">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Shield size={14} className="text-emerald-400" />
+                                            <span className="text-xs font-bold text-white">Sentinel Watchdog</span>
+                                        </div>
+                                        <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                            {sentinelStatus === 'connected'
+                                                ? 'Actively monitoring Kubernetes events. You\'ll be notified of pod crashes, OOM kills, scheduling failures, and other cluster issues automatically.'
                                                 : sentinelStatus === 'connecting'
-                                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 cursor-wait'
-                                                    : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:bg-zinc-700/50 hover:text-zinc-400 cursor-pointer'
-                                                }`}
-                                            title={sentinelStatus !== 'connected' ? 'Click to reconnect' : 'Sentinel is active'}
-                                        >
-                                            <Shield size={12} className={sentinelStatus === 'connecting' ? 'animate-pulse' : ''} />
-                                            <span className="hidden sm:inline">
-                                                {sentinelStatus === 'connected' ? 'Sentinel' : sentinelStatus === 'connecting' ? 'Connecting' : 'Offline'}
-                                            </span>
+                                                    ? 'Connecting to the Kubernetes event stream...'
+                                                    : 'Not connected. Click to reconnect. Sentinel monitors Warning events from your cluster and alerts you to issues proactively.'}
+                                        </p>
+                                        <div className={`mt-2 text-[10px] flex items-center gap-1.5 ${sentinelStatus === 'connected' ? 'text-emerald-400' :
+                                            sentinelStatus === 'connecting' ? 'text-amber-400' :
+                                                'text-zinc-500'
+                                            }`}>
                                             <div className={`w-1.5 h-1.5 rounded-full ${sentinelStatus === 'connected' ? 'bg-emerald-400' :
                                                 sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
                                                     'bg-zinc-600'
                                                 }`} />
-                                            <Info size={10} className="opacity-50 group-hover/sentinel:opacity-100 transition-opacity" />
-                                        </button>
-                                        {/* Info Popover */}
-                                        <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover/sentinel:opacity-100 group-hover/sentinel:visible transition-all duration-200 z-50">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <Shield size={14} className="text-emerald-400" />
-                                                <span className="text-xs font-bold text-white">Sentinel Watchdog</span>
-                                            </div>
-                                            <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                                {sentinelStatus === 'connected'
-                                                    ? 'Actively monitoring Kubernetes events. You\'ll be notified of pod crashes, OOM kills, scheduling failures, and other cluster issues automatically.'
-                                                    : sentinelStatus === 'connecting'
-                                                        ? 'Connecting to the Kubernetes event stream...'
-                                                        : 'Not connected. Click to reconnect. Sentinel monitors Warning events from your cluster and alerts you to issues proactively.'}
-                                            </p>
-                                            <div className={`mt-2 text-[10px] flex items-center gap-1.5 ${sentinelStatus === 'connected' ? 'text-emerald-400' :
-                                                sentinelStatus === 'connecting' ? 'text-amber-400' :
-                                                    'text-zinc-500'
-                                                }`}>
-                                                <div className={`w-1.5 h-1.5 rounded-full ${sentinelStatus === 'connected' ? 'bg-emerald-400' :
-                                                    sentinelStatus === 'connecting' ? 'bg-amber-400 animate-pulse' :
-                                                        'bg-zinc-600'
-                                                    }`} />
-                                                {sentinelStatus === 'connected' ? 'Active' : sentinelStatus === 'connecting' ? 'Connecting...' : 'Offline - Click to reconnect'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <NotificationCenter />
-                                    <div className="relative group">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
-                                            <Search size={14} />
-                                        </div>
-                                        <input
-                                            ref={searchInputRef}
-                                            type="text"
-                                            placeholder="Filter resources..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-48 pl-9 p-2 placeholder:text-zinc-600 focus:outline-none transition-all focus:w-64"
-                                        />
-                                    </div>
-
-                                    <div className="relative group">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
-                                            <Filter size={14} />
-                                        </div>
-                                        <select
-                                            value={selectedNamespace}
-                                            onChange={(e) => setSelectedNamespace(e.target.value)}
-                                            className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-40 pl-9 pr-8 p-2 appearance-none focus:outline-none cursor-pointer hover:bg-zinc-800 transition-all"
-                                        >
-                                            <option value="">All Namespaces</option>
-                                            {namespaces?.map(ns => (
-                                                <option key={ns} value={ns}>{ns}</option>
-                                            ))}
-                                        </select>
-                                        <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-zinc-500">
-                                            <ChevronDown size={14} />
+                                            {sentinelStatus === 'connected' ? 'Active' : sentinelStatus === 'connecting' ? 'Connecting...' : 'Offline - Click to reconnect'}
                                         </div>
                                     </div>
                                 </div>
-                            </header>
+                                <NotificationCenter />
+                                <div className="relative group">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500 group-focus-within:text-cyan-400 transition-colors">
+                                        <Search size={14} />
+                                    </div>
+                                    <input
+                                        ref={searchInputRef}
+                                        type="text"
+                                        placeholder="Filter resources..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-48 pl-9 p-2 placeholder:text-zinc-600 focus:outline-none transition-all focus:w-64"
+                                    />
+                                </div>
 
-                            {/* Content */}
-                            <div className="flex-1 overflow-hidden relative">
-                                {activeRes?.kind === "Azure" ? (
-                                    <AzurePage onConnect={() => setActiveRes(null)} />
-                                ) : activeRes?.kind === "HelmReleases" ? (
-                                    <HelmReleases currentContext={currentContext} />
-                                ) : activeRes ? (
-                                    !navStructure || isDiscovering ? (
-                                        <div className="h-full flex items-center justify-center"><Loading size={32} label="Loading resources..." /></div>
-                                    ) : (
-                                        <ResourceList
-                                            resourceType={activeRes}
-                                            onSelect={handleOpenResource}
-                                            namespaceFilter={selectedNamespace}
-                                            searchQuery={searchQuery}
-                                            currentContext={currentContext}
-                                        />
-                                    )
+                                <div className="relative group">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                                        <Filter size={14} />
+                                    </div>
+                                    <select
+                                        value={selectedNamespace}
+                                        onChange={(e) => setSelectedNamespace(e.target.value)}
+                                        className="bg-zinc-900/50 border border-white/10 text-zinc-200 text-xs rounded-full focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500/50 block w-40 pl-9 pr-8 p-2 appearance-none focus:outline-none cursor-pointer hover:bg-zinc-800 transition-all"
+                                    >
+                                        <option value="">All Namespaces</option>
+                                        {namespaces?.map(ns => (
+                                            <option key={ns} value={ns}>{ns}</option>
+                                        ))}
+                                    </select>
+                                    <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-zinc-500">
+                                        <ChevronDown size={14} />
+                                    </div>
+                                </div>
+                            </div>
+                        </header>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-hidden relative">
+                            {/* Persistent ArgoCD View - Kept alive to maintain proxy connection */}
+                            {argocdExists && hasOpenedArgoCD && (
+                                <div className={`absolute inset-0 z-10 bg-zinc-950 ${activeRes?.kind === "ArgoCD" ? "block" : "hidden"}`}>
+                                    <ArgoCDWebView
+                                        onClose={() => setActiveRes(null)}
+                                        kubeContext={currentContext}
+                                    />
+                                </div>
+                            )}
+
+                            {activeRes?.kind === "Azure" ? (
+                                <AzurePage onConnect={() => setActiveRes(null)} />
+                            ) : activeRes?.kind === "HelmReleases" ? (
+                                <HelmReleases currentContext={currentContext} />
+                            ) : activeRes?.kind === "ArgoCD" ? (
+                                // Placeholder to keep the switch logic happy, but actual view is rendered above
+                                <div className="h-full w-full bg-zinc-950" />
+                            ) : activeRes ? (
+                                !navStructure || isDiscovering ? (
+                                    <div className="h-full flex items-center justify-center"><Loading size={32} label="Loading resources..." /></div>
                                 ) : (
-                                    <ClusterCockpit
-                                        navStructure={navStructure}
-                                        onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                                    <ResourceList
+                                        resourceType={activeRes}
+                                        onSelect={handleOpenResource}
+                                        namespaceFilter={selectedNamespace}
+                                        searchQuery={searchQuery}
                                         currentContext={currentContext}
                                     />
-                                )}
-                            </div>
-                        </>
-                    )}
+                                )
+                            ) : (
+                                <ClusterCockpit
+                                    navStructure={navStructure}
+                                    onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
+                                    currentContext={currentContext}
+                                />
+                            )}
+                        </div>
+                    </>
+                )}
             </main>
 
             {/* Deep Dive Drawer with integrated tabs */}
