@@ -148,6 +148,12 @@ async fn proxy_handler(
         .headers(headers)
         .body(body_bytes);
 
+    let response = request_builder.send().await
+        .map_err(|e| {
+            eprintln!("[ArgoCD Proxy] Upstream Request Error: {} ({} {})", e, method, uri_string);
+            StatusCode::BAD_GATEWAY
+        })?;
+
     let status = response.status();
     let resp_headers = response.headers().clone();
 
@@ -186,7 +192,7 @@ async fn proxy_handler(
 
     // Stream the body instead of buffering
     // This allows large files (main.js) to flow through immediately
-    use futures_util::TryStreamExt;
+    use futures::TryStreamExt;
     let stream = response.bytes_stream().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
     let body = Body::from_stream(stream);
 
