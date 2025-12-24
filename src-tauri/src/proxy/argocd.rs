@@ -201,6 +201,26 @@ async fn proxy_handler(
                 {
                     continue;
                 }
+                
+                // IMPORTANT: Handle Cookies for HTTP Proxy
+                // ArgoCD sends "Secure; SameSite=None" which requires HTTPS.
+                // Since we proxy over HTTP (localhost), we must strip "Secure".
+                // And "SameSite=None" requires "Secure", so we must strip that too (reverting to Lax/Default).
+                if name_lower == "set-cookie" {
+                    if let Ok(v_str) = value.to_str() {
+                        let new_val = v_str
+                            .replace("; Secure", "")
+                            .replace("; SameSite=None", "");
+                        
+                        println!("[ArgoCD Proxy] Rewrote Cookie: {} -> {}", v_str, new_val);
+                        
+                        if let Ok(hv) = HeaderValue::from_str(&new_val) {
+                             headers_mut.insert(name, hv);
+                             continue;
+                        }
+                    }
+                }
+
                 headers_mut.insert(name, value);
             }
         }
