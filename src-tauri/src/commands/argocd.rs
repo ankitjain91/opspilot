@@ -441,6 +441,11 @@ pub async fn stop_argocd_port_forward() -> Result<String, String> {
     // Also cleanup any orphaned processes (defensive)
     cleanup_stale_port_forwards();
 
+    // CRITICAL FIX: Also stop the internal proxy so it doesn't hold onto stale credentials/tokens
+    // when we switch contexts.
+    use crate::proxy::argocd::stop_proxy;
+    stop_proxy();
+
     Ok("Port-forward stopped".to_string())
 }
 

@@ -28,7 +28,7 @@ interface ArgoCDWebViewProps {
     kubeContext?: string;
 }
 
-export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebViewProps) {
+export function ArgoCDWebView({ onClose, kubeContext }: ArgoCDWebViewProps) {
     // --- State ---
     const [serverInfo, setServerInfo] = useState<ArgoCDServerInfo | null>(null);
     const [status, setStatus] = useState<'idle' | 'initializing' | 'port-forwarding' | 'connecting' | 'ready' | 'error'>('idle');
@@ -85,6 +85,10 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     // --- Core Logic ---
 
     const initializeArgoCD = async (forceRefresh = false) => {
+        if (!kubeContext) {
+            console.log("[ArgoCD] Skipping init - no context provided");
+            return;
+        }
         if (initializingRef.current && !forceRefresh) return;
         initializingRef.current = true;
 
