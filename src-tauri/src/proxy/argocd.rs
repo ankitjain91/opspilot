@@ -19,11 +19,17 @@ pub struct ProxyState {
     pub client: reqwest::Client,
     pub username: String,
     pub password: String,
+    pub auth_token: Arc<Mutex<Option<String>>>,
 }
 
 // Global handle to stop the server
 static SHUTDOWN_TX: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
 static RUNNING_PORT: Mutex<Option<u16>> = Mutex::new(None);
+
+#[derive(serde::Deserialize)]
+struct ArgocdSessionResponse {
+    token: String,
+}
 
 pub async fn start_proxy(
     target_argocd_port: u16, 
@@ -54,6 +60,7 @@ pub async fn start_proxy(
         client,
         username: username.to_string(),
         password: password.to_string(),
+        auth_token: Arc::new(Mutex::new(None)),
     };
 
     let app = Router::new()
@@ -139,6 +146,44 @@ async fn proxy_handler(
     })?;
 
     *req.uri_mut() = url;
+
+    // --- Authentication Injection ---
+    // Ensure we have a token, then inject it
+    let mut token = {
+        let guard = state.auth_token.lock().unwrap();
+        guard.clone()
+    };
+
+    if token.is_none() {
+        println!("[ArgoCD Proxy] No auth token found. Attempting backend login...");
+        // Try to login
+        let login_url = format!("{}://localhost:{}/api/v1/session", state.protocol, target_port);
+        let body = serde_json::json!({
+            "username": state.username,
+            "password": state.password
+        });
+        
+        match state.client.post(&login_url).json(&body).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<ArgocdSessionResponse>().await {
+                        println!("[ArgoCD Proxy] Backend login successful! Token acquired.");
+                        let mut guard = state.auth_token.lock().unwrap();
+                        *guard = Some(json.token.clone());
+                        token = Some(json.token);
+                    } else {
+                        eprintln!("[ArgoCD Proxy] Login response parsing failed");
+                    }
+                } else {
+                     eprintln!("[ArgoCD Proxy] Backend login failed: {}", resp.status());
+                }
+            }
+            Err(e) => eprintln!("[ArgoCD Proxy] Backend login request failed: {}", e),
+        }
+    } else {
+        // Token exists.
+        // TODO: Handle expiry?
+    }
     
     // Remove host header so reqwest calculates it
     let method = req.method().clone();
@@ -146,6 +191,19 @@ async fn proxy_handler(
     headers.remove("host");
     headers.remove("connection"); // Avoid 'connection: close' issues?
     headers.remove("accept-encoding"); // Let reqwest negotiate compression, or just get plain text
+    
+    // Inject Authorization Header if we have a token
+    if let Some(tok) = token {
+        // Only inject if not already present (though usually it won't be)
+        if !headers.contains_key("authorization") {
+             if let Ok(hv) = HeaderValue::from_str(&format!("Bearer {}", tok)) {
+                 headers.insert("authorization", hv);
+                 // Also strip Cookie to avoid conflicts? 
+                 // Actually ArgoCD prefers Auth header, so let's keep Cookie just in case of other cookies
+                 println!("[ArgoCD Proxy] Injected Authorization Header");
+             }
+        }
+    }
     
     // Rewrite Origin and Referer to match upstream
     // This trick makes ArgoCD think the request is coming from itself (Same Origin)
@@ -160,7 +218,7 @@ async fn proxy_handler(
     }
     
     // Rewrite Referer (just the base part)
-    if let Some(referer) = headers.get("referer") {
+    if let Some(_) = headers.get("referer") {
          // We can just forcefully set it to the upstream base or try to replace the host part
          // For simplicity/robustness, let's just use upstream base or the current full URI
          // Usually setting it to the upstream URI is safest
@@ -268,92 +326,20 @@ async fn proxy_handler(
         let mut html = String::from_utf8_lossy(&body_bytes).to_string();
         
         // Inject script before </body>
-        // Simple string injection
-        let script = format!(
-            r#"
+        // Since we inject the token via headers, we just need to ensure the UI thinks we are logged in.
+        // We set a dummy cookie so client-side logic that checks for 'argocd.token' doesn't redirect to login.
+        let script = r#"
             <script>
-            (function() {{
-                const USERNAME = "{}";
-                const PASSWORD = "{}";
-                const ATTEMPT_DURATION_MS = 15000;
-                const START_TIME = Date.now();
-        
-                function log(msg) {{
-                    console.log(`[OpPilot AutoLogin] ${{msg}}`);
-                }}
-        
-                window.addEventListener('load', () => {{
-                    log("Window Loaded - Starting Auto Login attempt");
-        
-                    const checkAndLogin = () => {{
-                        if (Date.now() - START_TIME > ATTEMPT_DURATION_MS) return false;
-        
-                        try {{
-                            // ArgoCD Login Form Selectors
-                            const usernameInput = document.querySelector('input[name="username"]') || document.querySelector('input[class*="login-username"]');
-                            const passwordInput = document.querySelector('input[name="password"]') || document.querySelector('input[class*="login-password"]');
-                            const loginButton = document.querySelector('button[type="submit"]') || document.querySelector('button[class*="login-button"]');
-        
-                            if (usernameInput && passwordInput && loginButton) {{
-                                log("Found login fields");
-                                
-                                // Only fill if empty
-                                if (usernameInput.value === "") {{
-                                    log("Filling credentials...");
-                                    
-                                    // Helper to trigger React/Native change events
-                                    function setNativeValue(element, value) {{
-                                        const valueSetter = Object.getOwnPropertyDescriptor(element, 'value').set;
-                                        const prototype = Object.getPrototypeOf(element);
-                                        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
-                                        
-                                        if (valueSetter && valueSetter !== prototypeValueSetter) {{
-                                            prototypeValueSetter.call(element, value);
-                                        }} else {{
-                                            valueSetter.call(element, value);
-                                        }}
-                                        element.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    }}
-        
-                                    try {{
-                                        setNativeValue(usernameInput, USERNAME);
-                                        setNativeValue(passwordInput, PASSWORD);
-                                    }} catch (e) {{
-                                        // Fallback if esoteric getter/setter fails
-                                        usernameInput.value = USERNAME;
-                                        passwordInput.value = PASSWORD;
-                                        usernameInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                        passwordInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    }}
-        
-                                    log("Credentials filled, submitting...");
-                                    setTimeout(() => {{
-                                        loginButton.click();
-                                        log("Login button clicked");
-                                    }}, 300);
-                                    return true;
-                                }}
-                            }}
-                        }} catch (e) {{
-                            log(`Error: ${{e}}`);
-                        }}
-                        return false;
-                    }};
-        
-                    if (!checkAndLogin()) {{
-                        const interval = setInterval(() => {{
-                            if (checkAndLogin() || (Date.now() - START_TIME > ATTEMPT_DURATION_MS)) {{
-                                clearInterval(interval);
-                            }}
-                        }}, 500);
-                    }}
-                }});
-            }})();
+            (function() {
+                // simple "cookie faker"
+                if (!document.cookie.includes('argocd.token')) {
+                    console.log("[OpsPilot] Injecting dummy cookie to bypass client checks");
+                    document.cookie = 'argocd.token=proxied_by_opspilot; path=/; max-age=31536000';
+                }
+            })();
             </script>
             </body>
-            "#,
-            state.username, state.password
-        );
+            "#;
         
         if let Some(idx) = html.rfind("</body>") {
             html.replace_range(idx..idx+7, &script);
