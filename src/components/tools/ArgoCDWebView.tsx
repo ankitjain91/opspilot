@@ -113,7 +113,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             // Re-init happens in the next effect due to dependency change or manual trigger
             // But we actually want to trigger init immediately
             retryCountRef.current = 0;
-            initializeArgoCD();
+            initializeArgoCD(true);
         }
     }, [kubeContext]);
 
@@ -213,6 +213,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             setIsFromCache(false);
             setWebviewReady(false);
             invoke('force_close_argocd_webview').catch(console.error);
+            await invoke('stop_argocd_port_forward').catch(console.error);
         }
 
         setStatus('initializing');
