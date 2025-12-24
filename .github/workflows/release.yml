@@ -56,6 +56,8 @@ jobs:
 
       - name: Build Python agent sidecar (Native)
         shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.platform == 'macos-latest' && 'arm64' || 'x86_64' }}
         run: |
           cd python
           pip install -r requirements.txt
@@ -72,6 +74,8 @@ jobs:
       - name: Build Python agent sidecar (x86_64 for macOS)
         if: matrix.platform == 'macos-latest'
         shell: bash
+        env:
+          TARGET_ARCH: "x86_64"
         run: |
           # Verify we are running x64 python
           python3 -c "import platform; print(f'Python architecture: {platform.machine()}')"

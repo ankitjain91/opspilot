@@ -83,9 +83,11 @@ def build():
 
     # Tauri expects platform-specific naming: name-target_triple
     # e.g., agent-server-x86_64-apple-darwin
+    import os
     if system == "darwin":
-        arch = platform.machine()
-        if arch == "arm64":
+        # Allow overriding architecture via environment variable for CI (cross-building)
+        arch = os.environ.get("TARGET_ARCH", platform.machine()).lower()
+        if arch in ["arm64", "aarch64"]:
             target_triple = "aarch64-apple-darwin"
         else:
             target_triple = "x86_64-apple-darwin"
