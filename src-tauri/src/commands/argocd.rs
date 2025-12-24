@@ -254,11 +254,27 @@ pub async fn start_argocd_port_forward(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     // First, stop any existing port-forward we're tracking
+    // Check if we already have a running port-forward
     {
         let mut guard = ARGOCD_PORT_FORWARD.lock().unwrap();
-        if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait(); // Reap the zombie process
+        if let Some(child) = guard.as_mut() {
+            // Check if process is still alive
+            match child.try_wait() {
+                Ok(None) => {
+                    // Still running, assume it's good
+                    // We could verify the port is actually listening, but let's assume if process is alive it's ok
+                     eprintln!("[argocd] Port-forward already active");
+                    return Ok(format!("Port-forward already active on localhost:{}", ARGOCD_LOCAL_PORT));
+                }
+                Ok(Some(_)) => {
+                    // Exited, clear it
+                    *guard = None;
+                }
+                Err(_) => {
+                    // Error checking, assume dead
+                    *guard = None;
+                }
+            }
         }
     }
 
@@ -568,5 +584,44 @@ pub async fn is_argocd_webview_active(app: tauri::AppHandle) -> Result<bool, Str
         Ok(webview.is_visible().unwrap_or(false))
     } else {
         Ok(false)
+    }
+}
+
+/// Update the bounds of the embedded ArgoCD webview (lightweight resize)
+#[tauri::command]
+pub async fn update_argocd_webview_bounds(
+    app: tauri::AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use tauri::Manager;
+
+    if let Some(webview) = app.get_webview_window("argocd-embedded") {
+        // Compute absolute screen position
+        // We reuse the main window logic to handle multi-monitor or offset scenarios
+         let main_window = app.get_webview_window("main")
+            .or_else(|| app.get_webview_window("opspilot"))
+            .ok_or("Failed to find main window")?;
+        
+        let scale = main_window.scale_factor().unwrap_or(1.0);
+        let inner_pos = main_window
+            .inner_position()
+            .map(|p| p.to_logical::<f64>(scale))
+            .unwrap_or(tauri::LogicalPosition { x: 0.0, y: 0.0 });
+            
+        let abs_x = inner_pos.x + x;
+        let abs_y = inner_pos.y + y;
+
+        let logical_position = tauri::Position::Logical(tauri::LogicalPosition { x: abs_x, y: abs_y });
+        let logical_size = tauri::Size::Logical(tauri::LogicalSize { width, height });
+
+        let _ = webview.set_position(logical_position);
+        let _ = webview.set_size(logical_size);
+        
+        Ok(())
+    } else {
+        Ok(())
     }
 }
