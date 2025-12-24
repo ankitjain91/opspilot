@@ -19,6 +19,7 @@ const ARGOCD_LOCAL_PORT: u16 = 9080;
 #[derive(Serialize)]
 pub struct ArgoCDServerInfo {
     pub url: String,
+    pub target_url: String, // Original target URL (e.g. https://localhost:9080)
     pub username: String,
     pub password: String,
     pub namespace: String,
@@ -113,6 +114,7 @@ pub async fn get_argocd_server_info(
     Ok(ArgoCDServerInfo {
         // Return Proxy URL instead of direct
         url: format!("http://localhost:{}?t={}", proxy_port, timestamp),
+        target_url: format!("{}://localhost:{}", protocol, ARGOCD_LOCAL_PORT),
         username: "admin".to_string(),
         password,
         namespace,

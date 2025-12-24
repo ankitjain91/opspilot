@@ -13,8 +13,10 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // --- Types ---
+// --- Types ---
 interface ArgoCDServerInfo {
     url: string; // Now points to Proxy
+    target_url: string; // The original URL we are proxying
     username: string;
     password: string;
     namespace: string;
@@ -48,16 +50,23 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
     useEffect(() => {
         if (previousContextRef.current !== kubeContext) {
             console.log(`[ArgoCD] Context changed: ${previousContextRef.current} -> ${kubeContext}`);
-            setStatusMessage(`Disconnecting from ${previousContextRef.current}...`);
-            // Stop port forward for old context
-            invoke('stop_argocd_port_forward').catch(console.error);
-
+            // Force reset state immediately to prevent stale data
             setServerInfo(null);
             setIframeLoaded(false);
-            previousContextRef.current = kubeContext;
             setStatus('idle');
-            retryCountRef.current = 0;
-            initializeArgoCD(true);
+            setError(null);
+
+            setStatusMessage(`Switching to ${kubeContext}...`);
+
+            // Stop port forward for old context
+            invoke('stop_argocd_port_forward').catch(console.error).finally(() => {
+                previousContextRef.current = kubeContext;
+                retryCountRef.current = 0;
+                // Add small delay to ensure cleanup
+                setTimeout(() => {
+                    if (mountedRef.current) initializeArgoCD(true);
+                }, 500);
+            });
         }
     }, [kubeContext]);
 
@@ -82,7 +91,11 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         if (forceRefresh) {
             setServerInfo(null);
             setIframeLoaded(false);
-            await invoke('stop_argocd_port_forward').catch(console.error);
+            try {
+                await invoke('stop_argocd_port_forward');
+            } catch (e) {
+                console.error("Failed to stop port forward:", e);
+            }
         }
 
         setStatus('initializing');
@@ -100,6 +113,12 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
             const info = await invoke<ArgoCDServerInfo>('get_argocd_server_info');
 
             if (!mountedRef.current) return;
+
+            // Double check context hasn't changed while we were loading
+            if (previousContextRef.current !== kubeContext) {
+                console.warn("[ArgoCD] Context changed during initialization, aborting stale load");
+                return;
+            }
 
             console.log("[ArgoCD] Proxy Info:", info);
             setServerInfo(info);
@@ -181,14 +200,24 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                             </div>
                             <div className="flex flex-col">
                                 <span className="text-sm font-bold text-white tracking-wide">ArgoCD</span>
-                                <div className="flex items-center gap-1.5">
-                                    <div className={cn(
-                                        "w-1.5 h-1.5 rounded-full",
-                                        status === 'ready' ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-orange-400 animate-pulse"
-                                    )} />
-                                    <span className="text-[10px] uppercase font-medium text-zinc-400 tracking-wider">
-                                        {status === 'ready' ? 'Connected' : status}
-                                    </span>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                        <div className={cn(
+                                            "w-1.5 h-1.5 rounded-full",
+                                            status === 'ready' ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-orange-400 animate-pulse"
+                                        )} />
+                                        <span className="text-[10px] uppercase font-medium text-zinc-400 tracking-wider">
+                                            {status === 'ready' ? 'Connected' : status}
+                                        </span>
+                                    </div>
+                                    {serverInfo?.target_url && (
+                                        <>
+                                            <span className="text-zinc-700 text-[10px]">|</span>
+                                            <span className="text-[10px] text-zinc-500 font-mono truncate max-w-[150px]" title={serverInfo.target_url}>
+                                                {serverInfo.target_url.replace(/https?:\/\//, '')}
+                                            </span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -244,7 +273,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                         </button>
                         {serverInfo?.url && (
                             <a
-                                href={serverInfo.url}
+                                href={serverInfo.target_url || serverInfo.url} // Prefer target URL for external opening
                                 target="_blank"
                                 rel="noreferrer"
                                 className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
@@ -279,6 +308,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
                             <div className="flex flex-col items-center gap-1">
                                 <span className="text-zinc-200 font-medium tracking-wide">Connecting to ArgoCD</span>
                                 <span className="text-xs text-zinc-500 font-mono uppercase tracking-widest animate-pulse">{statusMessage}</span>
+                                {kubeContext && <span className="text-[10px] text-zinc-600 font-mono mt-1">Context: {kubeContext}</span>}
                             </div>
                         </div>
                     </div>
