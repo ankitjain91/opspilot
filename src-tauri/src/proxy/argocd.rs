@@ -147,6 +147,36 @@ async fn proxy_handler(
     headers.remove("connection"); // Avoid 'connection: close' issues?
     headers.remove("accept-encoding"); // Let reqwest negotiate compression, or just get plain text
     
+    // Rewrite Origin and Referer to match upstream
+    // This trick makes ArgoCD think the request is coming from itself (Same Origin)
+    let upstream_base = format!("{}://localhost:{}", state.protocol, target_port);
+    if let Some(origin) = headers.get("origin") {
+        if let Ok(val) = origin.to_str() {
+             println!("[ArgoCD Proxy] Rewriting Origin: {} -> {}", val, upstream_base);
+        }
+        if let Ok(hv) = HeaderValue::from_str(&upstream_base) {
+            headers.insert("origin", hv);
+        }
+    }
+    
+    // Rewrite Referer (just the base part)
+    if let Some(referer) = headers.get("referer") {
+         // We can just forcefully set it to the upstream base or try to replace the host part
+         // For simplicity/robustness, let's just use upstream base or the current full URI
+         // Usually setting it to the upstream URI is safest
+         if let Ok(hv) = HeaderValue::from_str(&uri_string) {
+             headers.insert("referer", hv);
+         }
+    }
+    
+    // Debug: Check for cookies
+    if let Some(cookie) = headers.get("cookie") {
+        let l = cookie.len();
+        println!("[ArgoCD Proxy] Request has Cookie (len={})", l);
+    } else {
+        println!("[ArgoCD Proxy] Request MISSING Cookie!");
+    }
+    
     // Create request with body and headers
     let body_bytes = axum::body::to_bytes(req.into_body(), 100 * 1024 * 1024).await // 100MB limit
         .map_err(|_e| {
