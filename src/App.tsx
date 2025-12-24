@@ -65,6 +65,7 @@ import { useSentinel } from './components/ai/useSentinel';
 function AppContent() {
   const qc = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
+  const [showAgentWarning, setShowAgentWarning] = useState(false); // Debounced warning state
   const [showAzure, setShowAzure] = useState(false);
   const [showOfflineBundle, setShowOfflineBundle] = useState(false);
   const [bundlePath, setBundlePath] = useState<string | null>(null);
@@ -107,6 +108,8 @@ function AppContent() {
     window.addEventListener('opspilot:investigate', handler);
     return () => window.removeEventListener('opspilot:investigate', handler);
   }, []);
+
+
 
   const prevContextRef = useRef<string | null>(null);
 
@@ -158,6 +161,18 @@ function AppContent() {
       prevSentinelContextRef.current = globalCurrentContext;
     }
   }, [globalCurrentContext, reconnectSentinel]);
+
+  // Debounce the agent warning to avoid flashing on reload/context switch
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (agentHealthy === false) {
+      // Wait 5s before showing warning to allow for restarts/transient failures
+      timer = setTimeout(() => setShowAgentWarning(true), 5000);
+    } else {
+      setShowAgentWarning(false);
+    }
+    return () => clearTimeout(timer);
+  }, [agentHealthy]);
 
   // After connection, gate UI on cluster details load
   const {
@@ -386,18 +401,7 @@ function AppContent() {
     );
   }
 
-  // Debounce the agent warning to avoid flashing on reload/context switch
-  const [showAgentWarning, setShowAgentWarning] = useState(false);
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (agentHealthy === false) {
-      // Wait 5s before showing warning to allow for restarts/transient failures
-      timer = setTimeout(() => setShowAgentWarning(true), 5000);
-    } else {
-      setShowAgentWarning(false);
-    }
-    return () => clearTimeout(timer);
-  }, [agentHealthy]);
+
 
   return (
     <>
