@@ -80,8 +80,13 @@ pub async fn get_argocd_server_info(
         "https"
     };
 
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     Ok(ArgoCDServerInfo {
-        url: format!("{}://localhost:{}", protocol, ARGOCD_LOCAL_PORT),
+        url: format!("{}://localhost:{}?t={}", protocol, ARGOCD_LOCAL_PORT, timestamp),
         username: "admin".to_string(),
         password,
         namespace,

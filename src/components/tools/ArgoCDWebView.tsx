@@ -146,6 +146,7 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         if (!containerRef.current || !webviewReady) return;
 
         let resizeTimeout: ReturnType<typeof setTimeout>;
+        let pollInterval: ReturnType<typeof setInterval>;
 
         const updateBounds = () => {
             if (!containerRef.current) return;
@@ -171,12 +172,23 @@ export function ArgoCDWebView({ onClose, kubeContext = 'default' }: ArgoCDWebVie
         });
 
         observer.observe(containerRef.current);
+
         // Initial sync
-        setTimeout(updateBounds, 50);
+        updateBounds();
+
+        // Poll for 1 second to catch any CSS transitions (header animations etc)
+        // This fixes the "overlapped header" issue if the header expands/shrinks on load
+        let polls = 0;
+        pollInterval = setInterval(() => {
+            updateBounds();
+            polls++;
+            if (polls > 10) clearInterval(pollInterval); // Stop after ~1s
+        }, 100);
 
         return () => {
             observer.disconnect();
             clearTimeout(resizeTimeout);
+            clearInterval(pollInterval);
         };
     }, [webviewReady]);
 
