@@ -162,16 +162,23 @@ async fn proxy_handler(
             StatusCode::BAD_GATEWAY
         })?;
 
+    println!("[ArgoCD Proxy] Upstream Response: {} {} | {} bytes", method, status, resp_bytes.len());
+
     // Build response
     let mut builder = Response::builder().status(status);
     
-    // Copy headers but STRIP blocking ones
+    // Copy headers but STRIP blocking ones AND encoding headers (since we decoded body)
     if let Some(headers_mut) = builder.headers_mut() {
         for (name, value) in resp_headers {
             if let Some(name) = name {
                 let name_lower = name.as_str().to_lowercase();
-                // STRIP HEADERS THAT BLOCK IFRAMES
-                if name_lower == "x-frame-options" || name_lower == "content-security-policy" {
+                // STRIP HEADERS THAT BLOCK IFRAMES OR BREAK ENCODING
+                if name_lower == "x-frame-options" 
+                   || name_lower == "content-security-policy" 
+                   || name_lower == "content-encoding"
+                   || name_lower == "content-length"
+                   || name_lower == "transfer-encoding"
+                {
                     continue;
                 }
                 headers_mut.insert(name, value);
