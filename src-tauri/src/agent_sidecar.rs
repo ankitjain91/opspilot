@@ -118,36 +118,104 @@ async fn start_agent_sidecar_with_retry(app: &tauri::AppHandle) -> Result<(), St
     Err("Agent failed to start after retries".to_string())
 }
 
-/// Kill any process listening on the specified port
+/// Kill any process listening on the specified port (cross-platform)
 fn kill_process_on_port(port: u16) {
     info!("[agent-sidecar] Checking for processes on port {}...", port);
-    
-    // Use lsof to find the PID
-    // -t: terse mode (PID only)
-    // -i: select internet address
-    let output = match Command::new("lsof")
-        .args(&["-t", "-i", &format!(":{}", port)])
-        .output() 
+
+    #[cfg(target_os = "windows")]
     {
-        Ok(out) => out,
-        Err(_) => {
-            // lsof might not be available or fail, just ignore
+        // On Windows, use netstat to find PIDs and taskkill to terminate
+        let output = match Command::new("netstat")
+            .args(&["-ano"])
+            .output()
+        {
+            Ok(out) => out,
+            Err(_) => return,
+        };
+
+        if !output.status.success() {
             return;
         }
-    };
 
-    if !output.status.success() {
-        return;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let port_pattern = format!(":{}", port);
+
+        for line in stdout.lines() {
+            if line.contains(&port_pattern) && line.contains("LISTENING") {
+                // Parse PID from last column
+                if let Some(pid) = line.split_whitespace().last() {
+                    if let Ok(_pid_num) = pid.parse::<u32>() {
+                        info!("[agent-sidecar] Killing process {} on port {}", pid, port);
+                        let _ = Command::new("taskkill")
+                            .args(&["/F", "/PID", pid])
+                            .output();
+                    }
+                }
+            }
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if let Ok(pid) = line.trim().parse::<i32>() {
-            info!("[agent-sidecar] Killing process {} on port {}", pid, port);
-            let _ = Command::new("kill")
-                .args(&["-9", &pid.to_string()])
-                .output();
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On Unix, use lsof to find the PID
+        // -t: terse mode (PID only)
+        // -i: select internet address
+        let output = match Command::new("lsof")
+            .args(&["-t", "-i", &format!(":{}", port)])
+            .output()
+        {
+            Ok(out) => out,
+            Err(_) => {
+                // lsof might not be available or fail, just ignore
+                return;
+            }
+        };
+
+        if !output.status.success() {
+            return;
         }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Ok(pid) = line.trim().parse::<i32>() {
+                info!("[agent-sidecar] Killing process {} on port {}", pid, port);
+                let _ = Command::new("kill")
+                    .args(&["-9", &pid.to_string()])
+                    .output();
+            }
+        }
+    }
+}
+
+/// Check if a port is in use (cross-platform)
+fn is_port_in_use(port: u16) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("netstat")
+            .args(&["-ano"])
+            .output();
+
+        if let Ok(out) = output {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let port_pattern = format!(":{}", port);
+                return stdout.lines().any(|line| {
+                    line.contains(&port_pattern) && line.contains("LISTENING")
+                });
+            }
+        }
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("lsof")
+            .args(&["-t", "-i", &format!(":{}", port)])
+            .output();
+
+        output
+            .map(|o| o.status.success() && !o.stdout.is_empty())
+            .unwrap_or(false)
     }
 }
 
@@ -185,15 +253,8 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
 
-    // Check if port 8765 is in use
-    let port_check = Command::new("lsof")
-        .args(&["-t", "-i", ":8765"])
-        .output();
-
-    let port_in_use = port_check
-        .as_ref()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false);
+    // Check if port 8765 is in use (cross-platform)
+    let port_in_use = is_port_in_use(8765);
 
     if port_in_use {
         // Something is listening on the port - check if it responds to health

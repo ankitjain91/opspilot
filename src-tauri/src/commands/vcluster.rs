@@ -108,10 +108,20 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
     emit_progress("disconnect", "Disconnecting any existing vcluster...", 5);
     info!("[vcluster] Stage 1: Disconnecting any existing vcluster connection");
 
-    // Kill any stale vcluster connect processes
-    let _ = Command::new("pkill")
-        .args(["-f", "vcluster connect"])
-        .output();
+    // Kill any stale vcluster connect processes (cross-platform)
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, use taskkill to kill vcluster processes
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", "vcluster.exe"])
+            .output();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("pkill")
+            .args(["-f", "vcluster connect"])
+            .output();
+    }
 
     // Run vcluster disconnect (ignore errors if not connected)
     let disconnect_output = Command::new("vcluster")
@@ -142,9 +152,24 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
         use std::fs::File;
         use std::process::Stdio;
 
+        // Get cross-platform temp directory for log files
+        let temp_dir = std::env::temp_dir();
+        let stdout_path = temp_dir.join("vcluster-connect.out");
+        let stderr_path = temp_dir.join("vcluster-connect.err");
+
         // Redirect output to log files for debugging
-        let stdout_file = File::create("/tmp/vcluster-connect.out").unwrap_or_else(|_| File::create("/dev/null").unwrap());
-        let stderr_file = File::create("/tmp/vcluster-connect.err").unwrap_or_else(|_| File::create("/dev/null").unwrap());
+        let stdout_file = File::create(&stdout_path).unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            { File::create("NUL").unwrap() }
+            #[cfg(not(target_os = "windows"))]
+            { File::create("/dev/null").unwrap() }
+        });
+        let stderr_file = File::create(&stderr_path).unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            { File::create("NUL").unwrap() }
+            #[cfg(not(target_os = "windows"))]
+            { File::create("/dev/null").unwrap() }
+        });
 
         // Use --background-proxy=false to run in foreground so we can manage the process
         if let Ok(mut child) = Command::new("vcluster")
@@ -213,7 +238,8 @@ pub async fn connect_vcluster(name: String, namespace: String, state: State<'_, 
 
     if found_context.is_empty() {
         emit_progress("error", "Timed out waiting for vcluster context", 0);
-        let err_log = std::fs::read_to_string("/tmp/vcluster-connect.err").unwrap_or_default();
+        let err_path = std::env::temp_dir().join("vcluster-connect.err");
+        let err_log = std::fs::read_to_string(err_path).unwrap_or_default();
         return Err(format!("Timed out waiting for vcluster context. Error: {}",
             err_log.lines().last().unwrap_or("No output recorded")));
     }

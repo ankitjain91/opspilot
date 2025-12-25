@@ -121,18 +121,23 @@ def text_result_empty(returncode: int) -> str:
     return f"Grep failed with exit code {returncode}"
 
 def find_files(pattern: str, path: str) -> str:
-    """Find files matching a glob pattern."""
+    """Find files matching a glob pattern (cross-platform)."""
+    import platform
+    import glob
+
     try:
-        # Use simple os.walk or glob
-        # glob.glob(os.path.join(path, "**", pattern), recursive=True) 
-        # is easier but standard glob might be slow on huge trees.
-        
-        # Let's use `find` command if available for speed, else python walk
-        cmd = ["find", path, "-name", pattern]
-        # Ignore permission errors?
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        return result.stdout if result.stdout else "No files found."
+        if platform.system() == "Windows":
+            # Use Python's glob for cross-platform compatibility
+            search_pattern = os.path.join(path, "**", pattern)
+            matches = glob.glob(search_pattern, recursive=True)
+            if matches:
+                return "\n".join(matches)
+            return "No files found."
+        else:
+            # Use `find` command on Unix for speed
+            cmd = ["find", path, "-name", pattern]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return result.stdout if result.stdout else "No files found."
     except Exception as e:
         return f"Error finding files: {str(e)}"
 
