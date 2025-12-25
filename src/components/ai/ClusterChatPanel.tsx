@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search, Bug } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search, Bug, Zap } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -2151,12 +2151,12 @@ export function ClusterChatPanel({
                             ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
                             : 'bg-zinc-800/30 border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 hover:border-white/10'}`}
                     >
-                        {fastMode ? <Sparkles size={14} className="fill-amber-400" /> : <Sparkles size={14} />}
+                        {fastMode ? <Zap size={14} className="fill-amber-400" /> : <Zap size={14} />}
 
                         {/* Tooltip on Hover */}
                         <div className="absolute bottom-full left-0 mb-3 w-[260px] p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-xl backdrop-blur-xl opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
                             <div className="flex items-center gap-2 mb-1">
-                                <Sparkles size={12} className={fastMode ? "text-amber-400" : "text-zinc-400"} />
+                                <Zap size={12} className={fastMode ? "text-amber-400" : "text-zinc-400"} />
                                 <span className={`text-xs font-bold ${fastMode ? "text-amber-400" : "text-zinc-300"}`}>
                                     {fastMode ? "Fast Mode: Active" : "Fast Mode: Off"}
                                 </span>

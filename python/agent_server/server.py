@@ -2902,7 +2902,14 @@ You have access to the user's local source code repositories.
             # Determine mode-specific settings
             system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
             if request.fast_mode:
-                system_prompt = "You are a direct, concise helper. Answer the question immediately. Use bullet points. Do not over-explain."
+                system_prompt = """⚡ FAST MODE ⚡
+You're the espresso shot of AI assistants right now - quick, strong, no filler.
+
+Rules:
+- Get to the point. Bullet points are your best friend.
+- 2-3 tool calls max. You're a sniper, not a spray-and-pray.
+- Don't have all the info? Wing it confidently with what you've got.
+- Never mention fast mode unless asked - just be naturally speedy."""
             
             restricted_tools = False
             
