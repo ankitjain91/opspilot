@@ -943,64 +943,15 @@ def find_executable_path(exe_name: str) -> str | None:
     return None
 
 async def _test_claude_code_connection():
-    """Quick test for Claude Code CLI availability."""
+    """Test Claude Code CLI with retry loop to allow keyring permission approval."""
     import asyncio
 
-    try:
-        config = load_opspilot_config()
-        # Prefer manually configured path, else auto-discover
-        claude_bin = config.get("claude_cli_path")
-        if not claude_bin or claude_bin == "claude":
-             claude_bin = find_executable_path("claude") or "claude"
+    config = load_opspilot_config()
+    claude_bin = config.get("claude_cli_path")
+    if not claude_bin or claude_bin == "claude":
+        claude_bin = find_executable_path("claude")
 
-        print(f"[claude-test] Testing Claude CLI at: {claude_bin}", flush=True)
-
-        # Quick check: run 'claude --version' with short timeout
-        # Use DEVNULL for stdin to prevent broken pipe errors
-        process = await asyncio.create_subprocess_exec(
-            claude_bin, "--version",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(),
-            timeout=10.0  # 10 second timeout for version check
-        )
-
-        if process.returncode == 0:
-            version_info = stdout.decode('utf-8', errors='replace').strip()
-            return {
-                "provider": "claude-code",
-                "connected": True,
-                "models_count": 2,  # Claude Code supports multiple models
-                "completion_ok": True,
-                "error": None,
-                "completion_error": None,
-                "version": version_info,
-            }
-        else:
-            error_msg = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
-            return {
-                "provider": "claude-code",
-                "connected": False,
-                "models_count": 0,
-                "completion_ok": False,
-                "error": error_msg,
-                "completion_error": error_msg,
-            }
-
-    except asyncio.TimeoutError:
-        return {
-            "provider": "claude-code",
-            "connected": False,
-            "models_count": 0,
-            "completion_ok": False,
-            "error": "Claude Code CLI timed out (>10s)",
-            "completion_error": "CLI unresponsive",
-        }
-    except FileNotFoundError:
+    if not claude_bin:
         return {
             "provider": "claude-code",
             "connected": False,
@@ -1009,28 +960,68 @@ async def _test_claude_code_connection():
             "error": "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code",
             "completion_error": "CLI not installed",
         }
-    except BrokenPipeError as e:
-        print(f"[claude-test] BrokenPipeError: {e}", flush=True)
-        return {
-            "provider": "claude-code",
-            "connected": False,
-            "models_count": 0,
-            "completion_ok": False,
-            "error": f"Broken pipe when running Claude CLI. This may be a PyInstaller bundling issue.",
-            "completion_error": str(e),
-        }
-    except Exception as e:
-        print(f"[claude-test] Exception: {type(e).__name__}: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return {
-            "provider": "claude-code",
-            "connected": False,
-            "models_count": 0,
-            "completion_ok": False,
-            "error": str(e),
-            "completion_error": str(e),
-        }
+
+    print(f"[claude-test] Testing Claude CLI at: {claude_bin}", flush=True)
+
+    max_attempts = 5
+    retry_delay = 2  # seconds
+
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            process = await asyncio.create_subprocess_exec(
+                claude_bin, "--version",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=10.0
+            )
+
+            if process.returncode == 0:
+                version_info = stdout.decode('utf-8', errors='replace').strip()
+                print(f"[claude-test] Success: {version_info}", flush=True)
+                return {
+                    "provider": "claude-code",
+                    "connected": True,
+                    "models_count": 2,
+                    "completion_ok": True,
+                    "error": None,
+                    "completion_error": None,
+                    "version": version_info,
+                }
+            else:
+                last_error = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
+                print(f"[claude-test] Attempt {attempt}/{max_attempts} failed: {last_error}", flush=True)
+
+        except asyncio.TimeoutError:
+            last_error = "CLI timed out (keyring permission pending?)"
+            print(f"[claude-test] Attempt {attempt}/{max_attempts} timed out", flush=True)
+        except BrokenPipeError as e:
+            last_error = f"Broken pipe (keyring permission pending?)"
+            print(f"[claude-test] Attempt {attempt}/{max_attempts} broken pipe: {e}", flush=True)
+        except Exception as e:
+            last_error = str(e)
+            print(f"[claude-test] Attempt {attempt}/{max_attempts} error: {e}", flush=True)
+
+        if attempt < max_attempts:
+            print(f"[claude-test] Retrying in {retry_delay}s...", flush=True)
+            await asyncio.sleep(retry_delay)
+
+    # All attempts failed
+    print(f"[claude-test] Failed after {max_attempts} attempts: {last_error}", flush=True)
+    return {
+        "provider": "claude-code",
+        "connected": False,
+        "models_count": 0,
+        "completion_ok": False,
+        "error": last_error,
+        "completion_error": last_error,
+    }
 
 async def _test_codex_connection():
     """Quick test for Codex CLI availability."""
