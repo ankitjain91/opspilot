@@ -13,7 +13,7 @@ import {
     ChevronRight, ChevronDown, FileText, Activity, Loader2,
     Box, Server, Layers, Database, XCircle, ArrowLeft,
     AlertCircle, Terminal, Filter, Calendar, TrendingDown,
-    Shield, Cpu, HardDrive, Network, Eye, EyeOff, ExternalLink,
+    Shield, Cpu, HardDrive, Network, Eye, ExternalLink,
     FolderOpen, Archive, Zap, ListTree, ScrollText, Bug,
     ChevronUp, MoreHorizontal, Copy, Check, RefreshCw,
     Flame, Info, X, Package, GitBranch, Settings2,
@@ -1899,10 +1899,13 @@ interface ChatMessage {
     timestamp: Date;
 }
 
-interface AIConfig {
-    base_url: string;
-    model: string;
-    api_key: string;
+// Get agent server URL from config
+function getAgentServerUrl(): string {
+    // Check localStorage first
+    const stored = localStorage.getItem('opspilot-agent-url');
+    if (stored) return stored;
+    // Default
+    return 'http://127.0.0.1:8765';
 }
 
 function ChatPanel({
@@ -1923,73 +1926,32 @@ function ChatPanel({
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
-    const [aiConfig, setAiConfig] = useState<AIConfig>({
-        base_url: 'https://api.anthropic.com/v1',
-        model: 'claude-sonnet-4-20250514',
-        api_key: '',
-    });
-    const [apiKeyMasked, setApiKeyMasked] = useState(true);
-    const [configLoaded, setConfigLoaded] = useState(false);
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const [agentStatus, setAgentStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+    const [streamingContent, setStreamingContent] = useState('');
 
     const messagesEndRef = useCallback((node: HTMLDivElement | null) => {
         if (node) node.scrollIntoView({ behavior: 'smooth' });
     }, []);
 
-    // Load existing config on mount
+    // Check agent connection on mount
     useEffect(() => {
-        const loadConfig = async () => {
+        const checkAgent = async () => {
             try {
-                // Load from Rust backend config file
-                const config = await invoke<{ base_url?: string; model?: string } | null>('load_llm_config');
-                if (config) {
-                    setAiConfig(prev => ({
-                        ...prev,
-                        base_url: config.base_url || prev.base_url,
-                        model: config.model || prev.model,
-                    }));
+                const resp = await fetch(`${getAgentServerUrl()}/health`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(3000)
+                });
+                if (resp.ok) {
+                    setAgentStatus('connected');
+                } else {
+                    setAgentStatus('disconnected');
                 }
-                // Check if API key exists (it's stored in keychain, we just check if it's set)
-                try {
-                    await invoke('ai_analyze_bundle', { bundleContext: 'test', userQuery: 'test' });
-                } catch (e: any) {
-                    if (!e.toString().includes('No API key')) {
-                        // API key exists (got a different error)
-                        setAiConfig(prev => ({ ...prev, api_key: '••••••••' }));
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to load AI config:', e);
+            } catch {
+                setAgentStatus('disconnected');
             }
-            setConfigLoaded(true);
         };
-        loadConfig();
+        checkAgent();
     }, []);
-
-    // Save config
-    const saveConfig = async () => {
-        setSaveStatus('saving');
-        try {
-            // Save config file
-            await invoke('save_llm_config', {
-                config: {
-                    base_url: aiConfig.base_url,
-                    model: aiConfig.model,
-                }
-            });
-            // Save API key to keychain if it's not masked
-            if (aiConfig.api_key && !aiConfig.api_key.includes('••••')) {
-                await invoke('save_api_key', { apiKey: aiConfig.api_key });
-            }
-            setSaveStatus('saved');
-            setTimeout(() => setSaveStatus('idle'), 2000);
-        } catch (e) {
-            console.error('Failed to save config:', e);
-            setSaveStatus('error');
-            setTimeout(() => setSaveStatus('idle'), 3000);
-        }
-    };
 
     // Build context for AI
     const buildContext = useCallback(() => {
@@ -2043,37 +2005,100 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
     const sendMessage = async () => {
         if (!input.trim() || isLoading) return;
 
+        const userQuery = input.trim();
         const userMessage: ChatMessage = {
             role: 'user',
-            content: input.trim(),
+            content: userQuery,
             timestamp: new Date(),
         };
 
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+        setStreamingContent('');
 
         try {
-            // Call the AI analyze command
             const context = buildContext();
-            const response = await invoke<string>('ai_analyze_bundle', {
-                bundleContext: context,
-                userQuery: input.trim(),
+            const systemPrompt = `You are an expert Kubernetes SRE assistant analyzing a support bundle offline.
+Your role is to help identify issues, explain problems, and provide actionable recommendations.
+Be concise and practical. Focus on the most critical issues first.
+When analyzing the bundle data, look for patterns such as:
+- Pods in CrashLoopBackOff, ImagePullBackOff, or Error states
+- Pending pods that may indicate resource constraints
+- Warning events that suggest configuration issues
+- Critical alerts that need immediate attention
+- Node health issues
+- Resource pressure (memory, CPU, disk)
+Provide specific kubectl commands when helpful.
+
+${context}`;
+
+            // Use the agent server's analyze-direct endpoint (uses Claude CLI/Codex)
+            const response = await fetch(`${getAgentServerUrl()}/analyze-direct`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: userQuery,
+                    system_prompt: systemPrompt,
+                    stream: true,
+                }),
             });
+
+            if (!response.ok) {
+                throw new Error(`Agent error: ${response.status} ${response.statusText}`);
+            }
+
+            // Handle streaming response
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No response body');
+
+            const decoder = new TextDecoder();
+            let fullContent = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.content) {
+                                fullContent += data.content;
+                                setStreamingContent(fullContent);
+                            }
+                            if (data.done) {
+                                break;
+                            }
+                        } catch {
+                            // Not JSON, might be raw content
+                            if (line.slice(6).trim()) {
+                                fullContent += line.slice(6);
+                                setStreamingContent(fullContent);
+                            }
+                        }
+                    }
+                }
+            }
 
             const assistantMessage: ChatMessage = {
                 role: 'assistant',
-                content: response,
+                content: fullContent || 'No response received.',
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, assistantMessage]);
+            setStreamingContent('');
+
         } catch (err: any) {
             const errorStr = err.toString();
             let errorContent = `I encountered an error: ${errorStr}`;
 
-            if (errorStr.includes('No API key')) {
-                errorContent = `No API key configured. Click the settings icon (⚙️) above to configure your AI provider.`;
-                setShowSettings(true);
+            if (errorStr.includes('Failed to fetch') || errorStr.includes('NetworkError')) {
+                errorContent = `Could not connect to the AI agent. Make sure OpsPilot is running with the agent sidecar started.\n\nGo to Settings → Setup to verify Claude Code or Codex CLI is configured.`;
+                setAgentStatus('disconnected');
             }
 
             const errorMessage: ChatMessage = {
@@ -2095,13 +2120,6 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
         "Explain the warning events",
     ];
 
-    const presetModels = [
-        { label: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514', provider: 'anthropic' },
-        { label: 'Claude Opus 4', value: 'claude-opus-4-20250514', provider: 'anthropic' },
-        { label: 'GPT-4o', value: 'gpt-4o', provider: 'openai' },
-        { label: 'GPT-4o Mini', value: 'gpt-4o-mini', provider: 'openai' },
-    ];
-
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             {/* Header */}
@@ -2113,128 +2131,24 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
                         </div>
                         <div>
                             <h2 className="font-semibold text-white">AI Bundle Assistant</h2>
-                            <p className="text-sm text-zinc-500">Ask questions about this support bundle</p>
+                            <p className="text-sm text-zinc-500">Uses Claude CLI / Codex from Settings</p>
                         </div>
                     </div>
-                    <button
-                        onClick={() => setShowSettings(!showSettings)}
-                        className={`p-2 rounded-lg transition-colors ${
-                            showSettings ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-zinc-800 text-zinc-400'
-                        }`}
-                        title="AI Settings"
-                    >
-                        <Settings2 size={18} />
-                    </button>
+                    <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium ${
+                        agentStatus === 'connected'
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : agentStatus === 'checking'
+                            ? 'bg-amber-500/20 text-amber-400'
+                            : 'bg-red-500/20 text-red-400'
+                    }`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                            agentStatus === 'connected' ? 'bg-emerald-400' :
+                            agentStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-400'
+                        }`} />
+                        {agentStatus === 'connected' ? 'Agent Connected' :
+                         agentStatus === 'checking' ? 'Connecting...' : 'Agent Offline'}
+                    </div>
                 </div>
-
-                {/* Inline Settings Panel */}
-                {showSettings && (
-                    <div className="mt-4 p-4 bg-zinc-900 border border-zinc-700 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-white">AI Configuration</h3>
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                                saveStatus === 'saved' ? 'bg-emerald-500/20 text-emerald-400' :
-                                saveStatus === 'error' ? 'bg-red-500/20 text-red-400' :
-                                saveStatus === 'saving' ? 'bg-amber-500/20 text-amber-400' : 'hidden'
-                            }`}>
-                                {saveStatus === 'saved' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : saveStatus === 'saving' ? 'Saving...' : ''}
-                            </span>
-                        </div>
-
-                        {/* Provider Quick Select */}
-                        <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">Provider</label>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setAiConfig(prev => ({
-                                        ...prev,
-                                        base_url: 'https://api.anthropic.com/v1',
-                                        model: 'claude-sonnet-4-20250514'
-                                    }))}
-                                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                        aiConfig.base_url.includes('anthropic')
-                                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                                    }`}
-                                >
-                                    Anthropic
-                                </button>
-                                <button
-                                    onClick={() => setAiConfig(prev => ({
-                                        ...prev,
-                                        base_url: 'https://api.openai.com/v1',
-                                        model: 'gpt-4o'
-                                    }))}
-                                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                        aiConfig.base_url.includes('openai')
-                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                                    }`}
-                                >
-                                    OpenAI
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Base URL */}
-                        <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">API Base URL</label>
-                            <input
-                                type="text"
-                                value={aiConfig.base_url}
-                                onChange={e => setAiConfig(prev => ({ ...prev, base_url: e.target.value }))}
-                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
-                                placeholder="https://api.anthropic.com/v1"
-                            />
-                        </div>
-
-                        {/* Model */}
-                        <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">Model</label>
-                            <div className="flex gap-2">
-                                <select
-                                    value={aiConfig.model}
-                                    onChange={e => setAiConfig(prev => ({ ...prev, model: e.target.value }))}
-                                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
-                                >
-                                    {presetModels.map(m => (
-                                        <option key={m.value} value={m.value}>{m.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* API Key */}
-                        <div>
-                            <label className="text-xs text-zinc-500 mb-1.5 block">API Key</label>
-                            <div className="relative">
-                                <input
-                                    type={apiKeyMasked ? 'password' : 'text'}
-                                    value={aiConfig.api_key}
-                                    onChange={e => setAiConfig(prev => ({ ...prev, api_key: e.target.value }))}
-                                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 pr-10 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
-                                    placeholder="sk-ant-... or sk-..."
-                                />
-                                <button
-                                    onClick={() => setApiKeyMasked(!apiKeyMasked)}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300"
-                                >
-                                    {apiKeyMasked ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
-                            </div>
-                            <p className="text-xs text-zinc-600 mt-1">Stored securely in system keychain</p>
-                        </div>
-
-                        {/* Save Button */}
-                        <button
-                            onClick={saveConfig}
-                            disabled={saveStatus === 'saving'}
-                            className="w-full py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                        >
-                            {saveStatus === 'saving' ? 'Saving...' : 'Save Configuration'}
-                        </button>
-                    </div>
-                )}
             </div>
 
             {/* Messages */}
@@ -2249,6 +2163,11 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
                             Ask me anything about this support bundle. I can help you identify issues,
                             understand errors, and suggest next steps for debugging.
                         </p>
+                        {agentStatus === 'disconnected' && (
+                            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-sm max-w-md text-center">
+                                Agent not connected. Go to Settings → Setup to configure Claude CLI or Codex.
+                            </div>
+                        )}
                         <div className="flex flex-wrap gap-2 justify-center max-w-lg">
                             {suggestedQuestions.map((q, i) => (
                                 <button
@@ -2282,7 +2201,20 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
                                 </div>
                             </div>
                         ))}
-                        {isLoading && (
+                        {/* Streaming content */}
+                        {isLoading && streamingContent && (
+                            <div className="flex justify-start">
+                                <div className="max-w-[80%] bg-zinc-800 rounded-2xl px-4 py-3">
+                                    <div className="whitespace-pre-wrap text-sm text-zinc-100">{streamingContent}</div>
+                                    <div className="flex items-center gap-2 text-zinc-500 mt-2">
+                                        <Loader2 size={12} className="animate-spin" />
+                                        <span className="text-xs">Thinking...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {/* Loading without content */}
+                        {isLoading && !streamingContent && (
                             <div className="flex justify-start">
                                 <div className="bg-zinc-800 rounded-2xl px-4 py-3">
                                     <div className="flex items-center gap-2 text-zinc-400">
@@ -2308,11 +2240,11 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
                         placeholder="Ask about this support bundle..."
                         className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white
                                  placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
-                        disabled={isLoading}
+                        disabled={isLoading || agentStatus === 'disconnected'}
                     />
                     <button
                         onClick={sendMessage}
-                        disabled={!input.trim() || isLoading}
+                        disabled={!input.trim() || isLoading || agentStatus === 'disconnected'}
                         className="p-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed
                                  rounded-xl transition-colors"
                     >
