@@ -180,6 +180,7 @@ export function BundleInvestigator({ onClose }: BundleInvestigatorProps) {
         eventTypeFilter: 'all',
         timeRange: 'all',
     });
+    const [showFloatingChat, setShowFloatingChat] = useState(false);
 
     // Derived data
     const stats = useMemo(() => {
@@ -507,6 +508,61 @@ export function BundleInvestigator({ onClose }: BundleInvestigatorProps) {
                     />
                 )}
             </div>
+
+            {/* Floating AI Button - shows on all views except chat */}
+            {activeView !== 'chat' && !showFloatingChat && (
+                <button
+                    onClick={() => setShowFloatingChat(true)}
+                    className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 rounded-full shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 flex items-center justify-center transition-all hover:scale-105 active:scale-95 z-50"
+                    title="AI Assistant"
+                >
+                    <Sparkles size={24} className="text-white" />
+                </button>
+            )}
+
+            {/* Floating Chat Panel */}
+            {showFloatingChat && (
+                <div className="fixed bottom-6 right-6 w-[420px] h-[600px] bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    {/* Floating Header with minimize button */}
+                    <div className="flex items-center justify-between p-3 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1.5 bg-purple-500/10 rounded-lg">
+                                <Sparkles size={16} className="text-purple-400" />
+                            </div>
+                            <span className="font-medium text-white text-sm">AI Assistant</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => {
+                                    setShowFloatingChat(false);
+                                    setActiveView('chat');
+                                }}
+                                className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                                title="Expand"
+                            >
+                                <ExternalLink size={14} />
+                            </button>
+                            <button
+                                onClick={() => setShowFloatingChat(false)}
+                                className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                                title="Close"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                        <ChatPanel
+                            bundle={bundle}
+                            nodes={nodes}
+                            events={events}
+                            alerts={alerts}
+                            healthSummary={healthSummary}
+                            allResources={allResources}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
