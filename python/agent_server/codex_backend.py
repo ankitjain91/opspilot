@@ -7,6 +7,7 @@ to use Codex as an LLM backend instead of direct API calls.
 
 import asyncio
 import json
+import os
 import subprocess
 from typing import AsyncIterator, Dict, Any, Optional, List
 from dataclasses import dataclass, field
@@ -80,7 +81,8 @@ class CodexBackend:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_dir,
-                stdin=asyncio.subprocess.DEVNULL
+                stdin=asyncio.subprocess.DEVNULL,
+                env=dict(os.environ),
             )
 
             # Read stdout line by line
@@ -183,7 +185,8 @@ class CodexBackend:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_dir,
-                stdin=asyncio.subprocess.DEVNULL
+                stdin=asyncio.subprocess.DEVNULL,
+                env=dict(os.environ),
             )
 
             stdout, stderr = await asyncio.wait_for(

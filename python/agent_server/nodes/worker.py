@@ -1,5 +1,6 @@
 
 import asyncio
+import os
 import subprocess
 import re
 import time
@@ -726,6 +727,7 @@ async def execute_node(state: AgentState) -> dict:
             full_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=dict(os.environ),
         )
 
         try:
@@ -877,6 +879,7 @@ async def execute_batch_node(state: AgentState) -> dict:
                 full_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=dict(os.environ),
             )
 
             try:

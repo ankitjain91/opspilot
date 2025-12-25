@@ -441,6 +441,7 @@ async def _warmup_claude_cli():
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=dict(os.environ),
             )
 
             stdout, stderr = await asyncio.wait_for(
@@ -575,7 +576,8 @@ async def install_package(req: InstallRequest):
             *cmd,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=dict(os.environ),
         )
         stdout, stderr = await proc.communicate()
         
@@ -945,6 +947,7 @@ def find_executable_path(exe_name: str) -> str | None:
 async def _test_claude_code_connection():
     """Test Claude Code CLI with retry loop to allow keyring permission approval."""
     import asyncio
+    import subprocess as sync_subprocess
 
     config = load_opspilot_config()
     claude_bin = config.get("claude_cli_path")
@@ -968,22 +971,32 @@ async def _test_claude_code_connection():
 
     last_error = None
 
+    def run_claude_sync():
+        """Run claude --version synchronously."""
+        result = sync_subprocess.run(
+            [claude_bin, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=dict(os.environ),
+            stdin=sync_subprocess.DEVNULL,
+            start_new_session=True,  # Detach from parent process group
+        )
+        return result
+
     for attempt in range(1, max_attempts + 1):
         try:
-            process = await asyncio.create_subprocess_exec(
-                claude_bin, "--version",
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            print(f"[claude-test] Attempt {attempt}: spawning {claude_bin} (sync)", flush=True)
+            print(f"[claude-test] PATH includes /opt/homebrew/bin: {'/opt/homebrew/bin' in os.environ.get('PATH', '')}", flush=True)
 
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=10.0
-            )
+            # Run synchronously in thread pool to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, run_claude_sync)
 
-            if process.returncode == 0:
-                version_info = stdout.decode('utf-8', errors='replace').strip()
+            print(f"[claude-test] Process done, returncode: {result.returncode}", flush=True)
+
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
                 print(f"[claude-test] Success: {version_info}", flush=True)
                 return {
                     "provider": "claude-code",
@@ -995,18 +1008,23 @@ async def _test_claude_code_connection():
                     "version": version_info,
                 }
             else:
-                last_error = stderr.decode('utf-8', errors='replace').strip() or "CLI returned non-zero exit code"
+                last_error = result.stderr.strip() or "CLI returned non-zero exit code"
                 print(f"[claude-test] Attempt {attempt}/{max_attempts} failed: {last_error}", flush=True)
 
-        except asyncio.TimeoutError:
+        except sync_subprocess.TimeoutExpired:
             last_error = "CLI timed out (keyring permission pending?)"
             print(f"[claude-test] Attempt {attempt}/{max_attempts} timed out", flush=True)
-        except BrokenPipeError as e:
-            last_error = f"Broken pipe (keyring permission pending?)"
-            print(f"[claude-test] Attempt {attempt}/{max_attempts} broken pipe: {e}", flush=True)
+        except (BrokenPipeError, OSError) as e:
+            # OSError with errno 32 is also a broken pipe
+            if isinstance(e, OSError) and e.errno != 32:
+                last_error = str(e)
+                print(f"[claude-test] Attempt {attempt}/{max_attempts} OSError: {e}", flush=True)
+            else:
+                last_error = f"Broken pipe (keyring permission pending?)"
+                print(f"[claude-test] Attempt {attempt}/{max_attempts} broken pipe: {e}", flush=True)
         except Exception as e:
             last_error = str(e)
-            print(f"[claude-test] Attempt {attempt}/{max_attempts} error: {e}", flush=True)
+            print(f"[claude-test] Attempt {attempt}/{max_attempts} error: {type(e).__name__}: {e}", flush=True)
 
         if attempt < max_attempts:
             print(f"[claude-test] Retrying in {retry_delay}s...", flush=True)
@@ -1037,6 +1055,7 @@ async def _test_codex_connection():
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=dict(os.environ),
         )
 
         stdout, stderr = await asyncio.wait_for(

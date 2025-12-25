@@ -15,6 +15,7 @@ Key Features:
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import hashlib
@@ -260,7 +261,8 @@ Example for respond:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_dir,
                 # Don't inherit stdin to prevent waiting for input
-                stdin=asyncio.subprocess.DEVNULL
+                stdin=asyncio.subprocess.DEVNULL,
+                env=dict(os.environ),
             )
 
             stdout, stderr = await asyncio.wait_for(
@@ -339,7 +341,8 @@ Example for respond:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=self.working_dir
+            cwd=self.working_dir,
+            env=dict(os.environ),
         )
 
         accumulated_content = ""
@@ -402,7 +405,8 @@ Example for respond:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.DEVNULL,
-                cwd=self.working_dir
+                cwd=self.working_dir,
+                env=dict(os.environ),
             )
 
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
@@ -622,10 +626,8 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
         cmd.append(full_prompt)
 
         # Set up environment with kubeconfig context
-        env = None
+        env = os.environ.copy()
         if kube_context:
-            import os
-            env = os.environ.copy()
             env['KUBECONFIG_CONTEXT'] = kube_context
 
         # Use provided working_dir or fall back to instance default
@@ -1142,7 +1144,8 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.working_dir
+                cwd=self.working_dir,
+                env=dict(os.environ),
             )
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),

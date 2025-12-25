@@ -3,6 +3,7 @@
 //! This module manages the Python LangGraph agent server that runs as a sidecar process.
 //! The sidecar is started automatically when the app launches and stopped on exit.
 
+use log::{info, warn, error};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -30,6 +31,14 @@ impl Default for AgentSidecarState {
     }
 }
 
+/// Response from the agent health endpoint
+#[derive(serde::Deserialize)]
+struct HealthResponse {
+    #[allow(dead_code)]
+    status: String,
+    version: Option<String>,
+}
+
 /// Poll the agent's health endpoint until it responds OK or retries are exhausted
 async fn wait_for_agent_ready_with_retries(
     url: &str,
@@ -37,7 +46,7 @@ async fn wait_for_agent_ready_with_retries(
     delay: Duration,
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(800))
+        .timeout(Duration::from_secs(2))  // 2 second timeout to handle busy server
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
@@ -45,7 +54,7 @@ async fn wait_for_agent_ready_with_retries(
         match client.get(url).send().await {
             Ok(resp) if resp.status().is_success() => return Ok(()),
             Ok(resp) => {
-                eprintln!(
+                warn!(
                     "[agent-sidecar] Health check attempt {} failed: {} {}",
                     attempt,
                     resp.status(),
@@ -53,7 +62,7 @@ async fn wait_for_agent_ready_with_retries(
                 );
             }
             Err(err) => {
-                eprintln!("[agent-sidecar] Health check attempt {} errored: {}", attempt, err);
+                warn!("[agent-sidecar] Health check attempt {} errored: {}", attempt, err);
             }
         }
 
@@ -66,6 +75,22 @@ async fn wait_for_agent_ready_with_retries(
         "Agent did not become ready after {} attempts at {}",
         attempts, url
     ))
+}
+
+/// Get the version of the running agent server, if available
+async fn get_agent_version() -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .ok()?;
+
+    let resp = client.get("http://127.0.0.1:8765/health").send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let health: HealthResponse = resp.json().await.ok()?;
+    health.version
 }
 
 async fn wait_for_agent_ready(url: &str) -> Result<(), String> {
@@ -81,7 +106,7 @@ async fn start_agent_sidecar_with_retry(app: &tauri::AppHandle) -> Result<(), St
         match start_agent_sidecar(app).await {
             Ok(_) => return Ok(()),
             Err(e) => {
-                eprintln!("[agent-sidecar] Attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e);
+                warn!("[agent-sidecar] Attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e);
                 if attempt == MAX_ATTEMPTS {
                     return Err(e);
                 }
@@ -95,7 +120,7 @@ async fn start_agent_sidecar_with_retry(app: &tauri::AppHandle) -> Result<(), St
 
 /// Kill any process listening on the specified port
 fn kill_process_on_port(port: u16) {
-    println!("[agent-sidecar] Checking for processes on port {}...", port);
+    info!("[agent-sidecar] Checking for processes on port {}...", port);
     
     // Use lsof to find the PID
     // -t: terse mode (PID only)
@@ -118,7 +143,7 @@ fn kill_process_on_port(port: u16) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
         if let Ok(pid) = line.trim().parse::<i32>() {
-            println!("[agent-sidecar] Killing process {} on port {}", pid, port);
+            info!("[agent-sidecar] Killing process {} on port {}", pid, port);
             let _ = Command::new("kill")
                 .args(&["-9", &pid.to_string()])
                 .output();
@@ -131,39 +156,73 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AgentSidecarState>();
     let mut child_guard = state.child.lock().await;
 
+    // Get the current app version
+    let app_version = app.package_info().version.to_string();
+
     // Check if already running (we have a tracked child process)
     if child_guard.is_some() {
         // Verify the tracked process is actually healthy before returning early
         // Drop lock temporarily to do health check
         drop(child_guard);
         if wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 2, Duration::from_millis(500)).await.is_ok() {
-            println!("[agent-sidecar] Already running and healthy");
-            return Ok(());
+            // Check if version matches
+            if let Some(agent_version) = get_agent_version().await {
+                if agent_version == app_version {
+                    info!("[agent-sidecar] Already running and healthy (v{})", agent_version);
+                    return Ok(());
+                }
+                warn!("[agent-sidecar] Version mismatch: agent={}, app={} - restarting", agent_version, app_version);
+            } else {
+                info!("[agent-sidecar] Already running and healthy");
+                return Ok(());
+            }
         }
-        // Re-acquire lock - agent is tracked but unhealthy, will restart
+        // Re-acquire lock - agent is tracked but unhealthy or wrong version, will restart
         child_guard = state.child.lock().await;
         if let Some(child) = child_guard.take() {
-            println!("[agent-sidecar] Killing unhealthy tracked process");
+            info!("[agent-sidecar] Killing tracked process for restart");
             let _ = child.kill();
         }
     }
 
-    // Check if there's already a healthy agent on the port (perhaps from a previous app instance)
-    // Don't kill it if it's working fine
-    if wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 2, Duration::from_millis(500)).await.is_ok() {
-        println!("[agent-sidecar] Found existing healthy agent on port 8765, reusing it");
-        // We don't have a child handle for this external process, but it's working
-        // The supervisor will keep checking health and restart if needed
-        return Ok(());
+    // Check if port 8765 is in use
+    let port_check = Command::new("lsof")
+        .args(&["-t", "-i", ":8765"])
+        .output();
+
+    let port_in_use = port_check
+        .as_ref()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false);
+
+    if port_in_use {
+        // Something is listening on the port - check if it responds to health
+        if wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 3, Duration::from_millis(1000)).await.is_ok() {
+            // Agent is healthy, check version
+            if let Some(agent_version) = get_agent_version().await {
+                if agent_version == app_version {
+                    info!("[agent-sidecar] Found existing healthy agent on port 8765 with matching version (v{}), reusing it", agent_version);
+                    return Ok(());
+                }
+                // Version mismatch - kill the old agent and start a new one
+                warn!("[agent-sidecar] Version mismatch: running agent={}, app={} - killing old agent", agent_version, app_version);
+                kill_process_on_port(8765);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            } else {
+                // Can't determine version, reuse existing agent
+                info!("[agent-sidecar] Found existing healthy agent on port 8765, reusing it");
+                return Ok(());
+            }
+        } else {
+            // Process is on port but not responding to health - it's stuck/crashed
+            // Kill it so we can start a fresh one
+            warn!("[agent-sidecar] Found unresponsive process on port 8765, killing it...");
+            kill_process_on_port(8765);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
     }
 
-    // Force cleanup port 8765 to avoid "Address already in use" errors from zombie python processes
-    kill_process_on_port(8765);
-
-    // Give the OS time to release the port after killing
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    println!("[agent-sidecar] Starting LangGraph agent server...");
+    info!("[agent-sidecar] Starting LangGraph agent server...");
 
     // Get the sidecar command
     let sidecar = app.shell().sidecar("agent-server")
@@ -176,18 +235,18 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     
     // Ensure the directory exists
     if let Err(e) = std::fs::create_dir_all(&chroma_path) {
-        eprintln!("[agent-sidecar] Failed to create ChromaDB dir: {}", e);
+        error!("[agent-sidecar] Failed to create ChromaDB dir: {}", e);
     }
     
     let chroma_path_str = chroma_path.to_string_lossy().to_string();
-    println!("[agent-sidecar] Using ChromaDB path: {}", chroma_path_str);
+    info!("[agent-sidecar] Using ChromaDB path: {}", chroma_path_str);
 
     // Determine KB path from bundled resources
     let kb_path = app.path().resource_dir()
         .map(|p| p.join("knowledge"))
         .unwrap_or_else(|_| std::path::PathBuf::from("./knowledge"));
     let kb_path_str = kb_path.to_string_lossy().to_string();
-    println!("[agent-sidecar] Using KB path: {}", kb_path_str);
+    info!("[agent-sidecar] Using KB path: {}", kb_path_str);
 
     // Spawn with environment
     // Note: tauri_plugin_shell::Command is immutable, we must chain calls
@@ -207,17 +266,17 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
             match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!("[agent-sidecar] {}", line_str);
+                    info!("[agent-sidecar] {}", line_str);
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    eprintln!("[agent-sidecar] ERR: {}", line_str);
+                    warn!("[agent-sidecar] ERR: {}", line_str);
                 }
                 CommandEvent::Error(err) => {
-                    eprintln!("[agent-sidecar] Error: {}", err);
+                    error!("[agent-sidecar] Error: {}", err);
                 }
                 CommandEvent::Terminated(payload) => {
-                    println!("[agent-sidecar] Terminated with code: {:?}", payload.code);
+                    info!("[agent-sidecar] Terminated with code: {:?}", payload.code);
                     // Clear the child reference
                     if let Some(state) = app_handle.try_state::<AgentSidecarState>() {
                         let mut guard = state.child.lock().await;
@@ -235,7 +294,7 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
 
     // Wait for health
     if let Err(e) = wait_for_agent_ready("http://127.0.0.1:8765/health").await {
-        eprintln!("[agent-sidecar] Health check failed: {}", e);
+        error!("[agent-sidecar] Health check failed: {}", e);
         if let Some(state) = app.try_state::<AgentSidecarState>() {
             let mut guard = state.child.lock().await;
             if let Some(child) = guard.take() {
@@ -245,7 +304,7 @@ pub async fn start_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
         return Err(e);
     }
 
-    println!("[agent-sidecar] Started successfully on http://127.0.0.1:8765");
+    info!("[agent-sidecar] Started successfully on http://127.0.0.1:8765");
     Ok(())
 }
 
@@ -255,9 +314,9 @@ pub async fn stop_agent_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
     let mut child_guard = state.child.lock().await;
 
     if let Some(child) = child_guard.take() {
-        println!("[agent-sidecar] Stopping...");
+        info!("[agent-sidecar] Stopping...");
         child.kill().map_err(|e| format!("Failed to kill sidecar: {}", e))?;
-        println!("[agent-sidecar] Stopped");
+        info!("[agent-sidecar] Stopped");
     }
 
     Ok(())
@@ -278,7 +337,8 @@ pub async fn stop_agent(app: tauri::AppHandle) -> Result<(), String> {
 pub async fn check_agent_status(_app: tauri::AppHandle) -> Result<bool, String> {
     // Check the actual health endpoint directly - don't rely on tracked child process
     // because we may be reusing an existing healthy agent from a previous app instance
-    match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 1, Duration::from_millis(1000)).await {
+    // Use 3 attempts to handle momentary busy states
+    match wait_for_agent_ready_with_retries("http://127.0.0.1:8765/health", 3, Duration::from_millis(1000)).await {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }
@@ -288,24 +348,41 @@ pub async fn check_agent_status(_app: tauri::AppHandle) -> Result<bool, String> 
 pub async fn supervise_agent(app: tauri::AppHandle) {
     // Wait for initial startup to complete before starting supervision loop
     // This prevents racing with the initial start_agent_sidecar call
-    tokio::time::sleep(Duration::from_secs(15)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    let mut consecutive_failures = 0;
+    const MAX_FAILURES_BEFORE_RESTART: u8 = 6;  // 6 failures × 10 sec = 60 seconds of unresponsiveness
 
     loop {
         // If already healthy, wait and recheck later
         match check_agent_status(app.clone()).await {
             Ok(true) => {
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                consecutive_failures = 0;
+                tokio::time::sleep(Duration::from_secs(15)).await;
                 continue;
             }
             Ok(false) | Err(_) => {
-                eprintln!("[agent-sidecar] Agent unhealthy, attempting restart");
-                if let Err(e) = start_agent_sidecar_with_retry(&app).await {
-                    eprintln!("[agent-sidecar] Supervisor failed to restart agent: {}", e);
+                consecutive_failures += 1;
+                // Only log every few failures to avoid spam
+                if consecutive_failures == 1 || consecutive_failures >= MAX_FAILURES_BEFORE_RESTART {
+                    warn!("[agent-sidecar] Agent health check failed ({}/{})",
+                        consecutive_failures, MAX_FAILURES_BEFORE_RESTART);
+                }
+
+                // Only restart after multiple consecutive failures
+                // This prevents killing the agent during long operations (Claude CLI can take 30+ seconds)
+                if consecutive_failures >= MAX_FAILURES_BEFORE_RESTART {
+                    warn!("[agent-sidecar] Agent unhealthy after {} consecutive checks (~60s), attempting restart",
+                        consecutive_failures);
+                    if let Err(e) = start_agent_sidecar_with_retry(&app).await {
+                        error!("[agent-sidecar] Supervisor failed to restart agent: {}", e);
+                    }
+                    consecutive_failures = 0;
                 }
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
 

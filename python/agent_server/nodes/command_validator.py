@@ -9,6 +9,7 @@ Checks:
 4. Command will likely return useful data
 """
 
+import os
 import re
 import asyncio
 from typing import Dict, Tuple
@@ -50,7 +51,8 @@ async def validate_kubectl_command(cmd: str, kube_context: str) -> Tuple[bool, s
         proc = await asyncio.create_subprocess_shell(
             check_cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=dict(os.environ),
         )
 
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
@@ -66,7 +68,8 @@ async def validate_kubectl_command(cmd: str, kube_context: str) -> Tuple[bool, s
         proc2 = await asyncio.create_subprocess_shell(
             suggest_cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=dict(os.environ),
         )
 
         stdout2, _ = await asyncio.wait_for(proc2.communicate(), timeout=5.0)

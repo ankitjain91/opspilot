@@ -364,7 +364,8 @@ async def _get_crd_schema(crd_name: str, semaphore: asyncio.Semaphore, context: 
                 *cmd,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                env=dict(os.environ),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
 

@@ -1,4 +1,6 @@
 use tauri::{Builder, Manager};
+use tauri_plugin_log::{Target, TargetKind};
+use log::{info, error};
 use crate::state::AppState;
 
 mod models;
@@ -51,6 +53,15 @@ use mcp::manager::McpManager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -74,7 +85,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = start_agent_sidecar(&app_handle).await {
-                    eprintln!("[startup] Failed to start agent sidecar: {}", e);
+                    error!("[startup] Failed to start agent sidecar: {}", e);
                 }
             });
 
@@ -88,7 +99,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = auto_start_ollama().await {
                     // Not an error - just means Ollama isn't installed or already running
-                    println!("[startup] Ollama: {}", e);
+                    info!("[startup] Ollama: {}", e);
                 }
             });
 
