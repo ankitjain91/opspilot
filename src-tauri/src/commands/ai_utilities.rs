@@ -289,6 +289,14 @@ pub async fn save_llm_config(config: LLMConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Save API key directly to keychain
+#[tauri::command]
+pub async fn save_api_key(api_key: String) -> Result<(), String> {
+    set_secret("llm_api_key", &api_key)
+        .map_err(|e| format!("Failed to save API key to keychain: {}", e))?;
+    Ok(())
+}
+
 // =============================================================================
 // LLM CALLING
 // =============================================================================

@@ -13,7 +13,7 @@ import {
     ChevronRight, ChevronDown, FileText, Activity, Loader2,
     Box, Server, Layers, Database, XCircle, ArrowLeft,
     AlertCircle, Terminal, Filter, Calendar, TrendingDown,
-    Shield, Cpu, HardDrive, Network, Eye, ExternalLink,
+    Shield, Cpu, HardDrive, Network, Eye, EyeOff, ExternalLink,
     FolderOpen, Archive, Zap, ListTree, ScrollText, Bug,
     ChevronUp, MoreHorizontal, Copy, Check, RefreshCw,
     Flame, Info, X, Package, GitBranch, Settings2,
@@ -1899,6 +1899,12 @@ interface ChatMessage {
     timestamp: Date;
 }
 
+interface AIConfig {
+    base_url: string;
+    model: string;
+    api_key: string;
+}
+
 function ChatPanel({
     bundle,
     nodes,
@@ -1917,9 +1923,73 @@ function ChatPanel({
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [aiConfig, setAiConfig] = useState<AIConfig>({
+        base_url: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet-4-20250514',
+        api_key: '',
+    });
+    const [apiKeyMasked, setApiKeyMasked] = useState(true);
+    const [configLoaded, setConfigLoaded] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
     const messagesEndRef = useCallback((node: HTMLDivElement | null) => {
         if (node) node.scrollIntoView({ behavior: 'smooth' });
     }, []);
+
+    // Load existing config on mount
+    useEffect(() => {
+        const loadConfig = async () => {
+            try {
+                // Load from Rust backend config file
+                const config = await invoke<{ base_url?: string; model?: string } | null>('load_llm_config');
+                if (config) {
+                    setAiConfig(prev => ({
+                        ...prev,
+                        base_url: config.base_url || prev.base_url,
+                        model: config.model || prev.model,
+                    }));
+                }
+                // Check if API key exists (it's stored in keychain, we just check if it's set)
+                try {
+                    await invoke('ai_analyze_bundle', { bundleContext: 'test', userQuery: 'test' });
+                } catch (e: any) {
+                    if (!e.toString().includes('No API key')) {
+                        // API key exists (got a different error)
+                        setAiConfig(prev => ({ ...prev, api_key: '••••••••' }));
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load AI config:', e);
+            }
+            setConfigLoaded(true);
+        };
+        loadConfig();
+    }, []);
+
+    // Save config
+    const saveConfig = async () => {
+        setSaveStatus('saving');
+        try {
+            // Save config file
+            await invoke('save_llm_config', {
+                config: {
+                    base_url: aiConfig.base_url,
+                    model: aiConfig.model,
+                }
+            });
+            // Save API key to keychain if it's not masked
+            if (aiConfig.api_key && !aiConfig.api_key.includes('••••')) {
+                await invoke('save_api_key', { apiKey: aiConfig.api_key });
+            }
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 2000);
+        } catch (e) {
+            console.error('Failed to save config:', e);
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+        }
+    };
 
     // Build context for AI
     const buildContext = useCallback(() => {
@@ -1998,9 +2068,17 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
             };
             setMessages(prev => [...prev, assistantMessage]);
         } catch (err: any) {
+            const errorStr = err.toString();
+            let errorContent = `I encountered an error: ${errorStr}`;
+
+            if (errorStr.includes('No API key')) {
+                errorContent = `No API key configured. Click the settings icon (⚙️) above to configure your AI provider.`;
+                setShowSettings(true);
+            }
+
             const errorMessage: ChatMessage = {
                 role: 'assistant',
-                content: `I encountered an error while analyzing the bundle: ${err.toString()}\n\nPlease make sure you have configured the AI backend in Settings and try again.`,
+                content: errorContent,
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, errorMessage]);
@@ -2017,19 +2095,146 @@ ${bundle.namespaces.slice(0, 15).map(ns => {
         "Explain the warning events",
     ];
 
+    const presetModels = [
+        { label: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514', provider: 'anthropic' },
+        { label: 'Claude Opus 4', value: 'claude-opus-4-20250514', provider: 'anthropic' },
+        { label: 'GPT-4o', value: 'gpt-4o', provider: 'openai' },
+        { label: 'GPT-4o Mini', value: 'gpt-4o-mini', provider: 'openai' },
+    ];
+
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             {/* Header */}
             <div className="p-4 border-b border-zinc-800 bg-zinc-900/30">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-purple-500/10 rounded-lg">
-                        <Sparkles size={20} className="text-purple-400" />
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-purple-500/10 rounded-lg">
+                            <Sparkles size={20} className="text-purple-400" />
+                        </div>
+                        <div>
+                            <h2 className="font-semibold text-white">AI Bundle Assistant</h2>
+                            <p className="text-sm text-zinc-500">Ask questions about this support bundle</p>
+                        </div>
                     </div>
-                    <div>
-                        <h2 className="font-semibold text-white">AI Bundle Assistant</h2>
-                        <p className="text-sm text-zinc-500">Ask questions about this support bundle</p>
-                    </div>
+                    <button
+                        onClick={() => setShowSettings(!showSettings)}
+                        className={`p-2 rounded-lg transition-colors ${
+                            showSettings ? 'bg-purple-500/20 text-purple-400' : 'hover:bg-zinc-800 text-zinc-400'
+                        }`}
+                        title="AI Settings"
+                    >
+                        <Settings2 size={18} />
+                    </button>
                 </div>
+
+                {/* Inline Settings Panel */}
+                {showSettings && (
+                    <div className="mt-4 p-4 bg-zinc-900 border border-zinc-700 rounded-xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-white">AI Configuration</h3>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                                saveStatus === 'saved' ? 'bg-emerald-500/20 text-emerald-400' :
+                                saveStatus === 'error' ? 'bg-red-500/20 text-red-400' :
+                                saveStatus === 'saving' ? 'bg-amber-500/20 text-amber-400' : 'hidden'
+                            }`}>
+                                {saveStatus === 'saved' ? 'Saved!' : saveStatus === 'error' ? 'Error saving' : saveStatus === 'saving' ? 'Saving...' : ''}
+                            </span>
+                        </div>
+
+                        {/* Provider Quick Select */}
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1.5 block">Provider</label>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setAiConfig(prev => ({
+                                        ...prev,
+                                        base_url: 'https://api.anthropic.com/v1',
+                                        model: 'claude-sonnet-4-20250514'
+                                    }))}
+                                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                        aiConfig.base_url.includes('anthropic')
+                                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                    }`}
+                                >
+                                    Anthropic
+                                </button>
+                                <button
+                                    onClick={() => setAiConfig(prev => ({
+                                        ...prev,
+                                        base_url: 'https://api.openai.com/v1',
+                                        model: 'gpt-4o'
+                                    }))}
+                                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                        aiConfig.base_url.includes('openai')
+                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                            : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                                    }`}
+                                >
+                                    OpenAI
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Base URL */}
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1.5 block">API Base URL</label>
+                            <input
+                                type="text"
+                                value={aiConfig.base_url}
+                                onChange={e => setAiConfig(prev => ({ ...prev, base_url: e.target.value }))}
+                                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
+                                placeholder="https://api.anthropic.com/v1"
+                            />
+                        </div>
+
+                        {/* Model */}
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1.5 block">Model</label>
+                            <div className="flex gap-2">
+                                <select
+                                    value={aiConfig.model}
+                                    onChange={e => setAiConfig(prev => ({ ...prev, model: e.target.value }))}
+                                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+                                >
+                                    {presetModels.map(m => (
+                                        <option key={m.value} value={m.value}>{m.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* API Key */}
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1.5 block">API Key</label>
+                            <div className="relative">
+                                <input
+                                    type={apiKeyMasked ? 'password' : 'text'}
+                                    value={aiConfig.api_key}
+                                    onChange={e => setAiConfig(prev => ({ ...prev, api_key: e.target.value }))}
+                                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 pr-10 text-sm text-white font-mono focus:border-purple-500 focus:outline-none"
+                                    placeholder="sk-ant-... or sk-..."
+                                />
+                                <button
+                                    onClick={() => setApiKeyMasked(!apiKeyMasked)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300"
+                                >
+                                    {apiKeyMasked ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                            <p className="text-xs text-zinc-600 mt-1">Stored securely in system keychain</p>
+                        </div>
+
+                        {/* Save Button */}
+                        <button
+                            onClick={saveConfig}
+                            disabled={saveStatus === 'saving'}
+                            className="w-full py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                        >
+                            {saveStatus === 'saving' ? 'Saving...' : 'Save Configuration'}
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Messages */}
