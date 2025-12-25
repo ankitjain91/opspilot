@@ -417,6 +417,58 @@ def trigger_background_preload(kube_context: str) -> bool:
 
 
 # --- startup ---
+async def _warmup_claude_cli():
+    """Run claude --version at startup to trigger keyring permission dialog early.
+
+    Retries until successful or max attempts reached, giving user time to approve keyring access.
+    """
+    import asyncio
+
+    claude_bin = find_executable_path("claude")
+    if not claude_bin:
+        print("[Claude] CLI not found - install with: npm install -g @anthropic-ai/claude-code", flush=True)
+        return
+
+    print(f"[Claude] Warming up CLI at: {claude_bin}", flush=True)
+
+    max_attempts = 10
+    retry_delay = 3  # seconds between retries
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            process = await asyncio.create_subprocess_exec(
+                claude_bin, "--version",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=15.0
+            )
+
+            if process.returncode == 0:
+                version = stdout.decode('utf-8', errors='replace').strip()
+                print(f"[Claude] CLI ready: {version}", flush=True)
+                return  # Success!
+            else:
+                err = stderr.decode('utf-8', errors='replace').strip()
+                print(f"[Claude] Attempt {attempt}/{max_attempts} failed: {err}", flush=True)
+
+        except asyncio.TimeoutError:
+            print(f"[Claude] Attempt {attempt}/{max_attempts} timed out (waiting for keyring permission?)", flush=True)
+        except BrokenPipeError:
+            print(f"[Claude] Attempt {attempt}/{max_attempts} broken pipe (keyring permission pending?)", flush=True)
+        except Exception as e:
+            print(f"[Claude] Attempt {attempt}/{max_attempts} error: {e}", flush=True)
+
+        if attempt < max_attempts:
+            print(f"[Claude] Retrying in {retry_delay}s... (grant keyring access if prompted)", flush=True)
+            await asyncio.sleep(retry_delay)
+
+    print(f"[Claude] CLI warmup failed after {max_attempts} attempts", flush=True)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -436,6 +488,9 @@ async def lifespan(app: FastAPI):
     # Start Claude background compaction
     global global_compaction_task
     global_compaction_task = asyncio.create_task(background_claude_compaction())
+
+    # Warmup Claude CLI (triggers keyring permission dialog early)
+    await _warmup_claude_cli()
 
     # Write server info for frontend discovery
     import json
