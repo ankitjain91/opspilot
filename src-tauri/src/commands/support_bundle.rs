@@ -104,6 +104,35 @@ pub struct DeploymentHealthInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleNodeInfo {
+    pub name: String,
+    pub status: String,
+    pub roles: Vec<String>,
+    pub cpu_capacity: String,
+    pub cpu_allocatable: String,
+    pub memory_capacity: String,
+    pub memory_allocatable: String,
+    pub pods_capacity: String,
+    pub pods_allocatable: String,
+    pub conditions: Vec<NodeCondition>,
+    pub labels: HashMap<String, String>,
+    pub internal_ip: Option<String>,
+    pub hostname: Option<String>,
+    pub kubelet_version: Option<String>,
+    pub os_image: Option<String>,
+    pub kernel_version: Option<String>,
+    pub container_runtime: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeCondition {
+    pub condition_type: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleSearchResult {
     pub resource_type: String,
     pub name: String,
@@ -595,6 +624,30 @@ pub async fn get_bundle_pods_by_status(
     Ok(vec![])
 }
 
+/// Get all resources from the indexed bundle (grouped by namespace)
+#[tauri::command]
+pub async fn get_all_bundle_resources(
+    bundle_path: String,
+) -> Result<HashMap<String, Vec<BundleResource>>, String> {
+    let guard = get_bundle_index().lock().map_err(|e| e.to_string())?;
+
+    if let Some((indexed_path, index)) = guard.as_ref() {
+        if indexed_path == &bundle_path {
+            let mut by_namespace: HashMap<String, Vec<BundleResource>> = HashMap::new();
+
+            for resource in &index.resources {
+                let ns = resource.namespace.clone().unwrap_or_else(|| "cluster-scope".to_string());
+                by_namespace.entry(ns).or_default().push(resource.clone());
+            }
+
+            return Ok(by_namespace);
+        }
+    }
+
+    // Bundle not indexed yet, return empty
+    Ok(HashMap::new())
+}
+
 /// Close/unload a bundle
 #[tauri::command]
 pub async fn close_support_bundle() -> Result<(), String> {
@@ -922,4 +975,332 @@ async fn compute_health_summary(bundle_path: &str) -> Result<BundleHealthSummary
         pending_pvcs: vec![],
         unhealthy_deployments: vec![],
     })
+}
+
+/// Get all node information from the bundle
+#[tauri::command]
+pub async fn get_bundle_nodes(bundle_path: String) -> Result<Vec<BundleNodeInfo>, String> {
+    let nodes_dir = Path::new(&bundle_path).join("cluster-scope-resources").join("nodes");
+
+    if !nodes_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut nodes = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&nodes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "yaml" || e == "yml") {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                        // Handle both wrapped (object.kind) and direct formats
+                        let node = if yaml.get("object").is_some() {
+                            yaml.get("object").unwrap()
+                        } else {
+                            &yaml
+                        };
+
+                        if node.get("kind").and_then(|v| v.as_str()) == Some("Node") {
+                            let name = node.get("metadata")
+                                .and_then(|m| m.get("name"))
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+
+                            // Parse labels
+                            let labels: HashMap<String, String> = node.get("metadata")
+                                .and_then(|m| m.get("labels"))
+                                .and_then(|l| l.as_mapping())
+                                .map(|m| {
+                                    m.iter()
+                                        .filter_map(|(k, v)| {
+                                            Some((k.as_str()?.to_string(), v.as_str()?.to_string()))
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            // Determine roles from labels
+                            let mut roles: Vec<String> = labels.iter()
+                                .filter(|(k, _)| k.starts_with("node-role.kubernetes.io/"))
+                                .map(|(k, _)| k.replace("node-role.kubernetes.io/", ""))
+                                .collect();
+                            if roles.is_empty() {
+                                roles.push("worker".to_string());
+                            }
+
+                            // Parse status
+                            let status_val = node.get("status");
+
+                            // Get capacity
+                            let capacity = status_val.and_then(|s| s.get("capacity"));
+                            let cpu_capacity = capacity
+                                .and_then(|c| c.get("cpu"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+                            let memory_capacity = capacity
+                                .and_then(|c| c.get("memory"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+                            let pods_capacity = capacity
+                                .and_then(|c| c.get("pods"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+
+                            // Get allocatable
+                            let allocatable = status_val.and_then(|s| s.get("allocatable"));
+                            let cpu_allocatable = allocatable
+                                .and_then(|a| a.get("cpu"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+                            let memory_allocatable = allocatable
+                                .and_then(|a| a.get("memory"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+                            let pods_allocatable = allocatable
+                                .and_then(|a| a.get("pods"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("0")
+                                .to_string();
+
+                            // Get conditions
+                            let conditions: Vec<NodeCondition> = status_val
+                                .and_then(|s| s.get("conditions"))
+                                .and_then(|c| c.as_sequence())
+                                .map(|seq| {
+                                    seq.iter()
+                                        .filter_map(|cond| {
+                                            Some(NodeCondition {
+                                                condition_type: cond.get("type")?.as_str()?.to_string(),
+                                                status: cond.get("status")?.as_str()?.to_string(),
+                                                reason: cond.get("reason").and_then(|r| r.as_str()).map(|s| s.to_string()),
+                                                message: cond.get("message").and_then(|m| m.as_str()).map(|s| s.to_string()),
+                                            })
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            // Determine overall status from conditions
+                            let ready_condition = conditions.iter()
+                                .find(|c| c.condition_type == "Ready");
+                            let status = match ready_condition {
+                                Some(c) if c.status == "True" => "Ready".to_string(),
+                                Some(_) => "NotReady".to_string(),
+                                None => "Unknown".to_string(),
+                            };
+
+                            // Get addresses
+                            let addresses = status_val.and_then(|s| s.get("addresses")).and_then(|a| a.as_sequence());
+                            let internal_ip = addresses.and_then(|addrs| {
+                                addrs.iter()
+                                    .find(|a| a.get("type").and_then(|t| t.as_str()) == Some("InternalIP"))
+                                    .and_then(|a| a.get("address"))
+                                    .and_then(|a| a.as_str())
+                                    .map(|s| s.to_string())
+                            });
+                            let hostname = addresses.and_then(|addrs| {
+                                addrs.iter()
+                                    .find(|a| a.get("type").and_then(|t| t.as_str()) == Some("Hostname"))
+                                    .and_then(|a| a.get("address"))
+                                    .and_then(|a| a.as_str())
+                                    .map(|s| s.to_string())
+                            });
+
+                            // Get node info
+                            let node_info = status_val.and_then(|s| s.get("nodeInfo"));
+                            let kubelet_version = node_info
+                                .and_then(|n| n.get("kubeletVersion"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let os_image = node_info
+                                .and_then(|n| n.get("osImage"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let kernel_version = node_info
+                                .and_then(|n| n.get("kernelVersion"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let container_runtime = node_info
+                                .and_then(|n| n.get("containerRuntimeVersion"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            nodes.push(BundleNodeInfo {
+                                name,
+                                status,
+                                roles,
+                                cpu_capacity,
+                                cpu_allocatable,
+                                memory_capacity,
+                                memory_allocatable,
+                                pods_capacity,
+                                pods_allocatable,
+                                conditions,
+                                labels,
+                                internal_ip,
+                                hostname,
+                                kubelet_version,
+                                os_image,
+                                kernel_version,
+                                container_runtime,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(nodes)
+}
+
+/// AI-powered bundle analysis using the configured LLM
+#[tauri::command]
+pub async fn ai_analyze_bundle(bundle_context: String, user_query: String) -> Result<String, String> {
+    use keyring::Entry;
+
+    // Get the API key from keychain
+    let api_key = Entry::new("opspilot", "llm_api_key")
+        .ok()
+        .and_then(|entry| entry.get_password().ok());
+
+    let api_key = match api_key {
+        Some(key) if !key.is_empty() => key,
+        _ => {
+            return Err("No API key configured. Please configure your LLM settings in the Settings page.".to_string());
+        }
+    };
+
+    // Load LLM config to get the model
+    let config_path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".opspilot")
+        .join("llm-config.json");
+
+    let (base_url, model) = if config_path.exists() {
+        match fs::read_to_string(&config_path) {
+            Ok(content) => {
+                let config: serde_json::Value = serde_json::from_str(&content)
+                    .unwrap_or(serde_json::json!({}));
+                let base_url = config.get("base_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://api.anthropic.com/v1")
+                    .to_string();
+                let model = config.get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("claude-sonnet-4-20250514")
+                    .to_string();
+                (base_url, model)
+            }
+            Err(_) => ("https://api.anthropic.com/v1".to_string(), "claude-sonnet-4-20250514".to_string())
+        }
+    } else {
+        ("https://api.anthropic.com/v1".to_string(), "claude-sonnet-4-20250514".to_string())
+    };
+
+    // Build the prompt
+    let system_prompt = r#"You are an expert Kubernetes SRE assistant analyzing a support bundle.
+Your role is to help identify issues, explain problems, and provide actionable recommendations.
+Be concise and practical. Focus on the most critical issues first.
+When analyzing the bundle data, look for patterns such as:
+- Pods in CrashLoopBackOff, ImagePullBackOff, or Error states
+- Pending pods that may indicate resource constraints
+- Warning events that suggest configuration issues
+- Critical alerts that need immediate attention
+- Node health issues
+- Resource pressure (memory, CPU, disk)
+Provide specific kubectl commands when helpful."#;
+
+    let full_prompt = format!("{}\n\n---\n\nUser question: {}", bundle_context, user_query);
+
+    // Make API request
+    let client = reqwest::Client::new();
+
+    // Determine if this is Anthropic or OpenAI compatible
+    let is_anthropic = base_url.contains("anthropic.com");
+
+    let response = if is_anthropic {
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 2048,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": full_prompt
+                }
+            ],
+            "system": system_prompt
+        });
+
+        client.post(format!("{}/messages", base_url))
+            .header("x-api-key", &api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call API: {}", e))?
+    } else {
+        // OpenAI compatible
+        let body = serde_json::json!({
+            "model": model,
+            "max_tokens": 2048,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": full_prompt
+                }
+            ]
+        });
+
+        client.post(format!("{}/chat/completions", base_url))
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call API: {}", e))?
+    };
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("API error ({}): {}", status, error_text));
+    }
+
+    let response_json: serde_json::Value = response.json().await
+        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+
+    // Extract content based on API type
+    let content = if is_anthropic {
+        response_json.get("content")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|item| item.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("No response content")
+            .to_string()
+    } else {
+        response_json.get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|choice| choice.get("message"))
+            .and_then(|msg| msg.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("No response content")
+            .to_string()
+    };
+
+    Ok(content)
 }
