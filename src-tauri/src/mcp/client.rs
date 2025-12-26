@@ -160,7 +160,8 @@ impl McpClient {
         };
 
         let json = serde_json::to_string(&notification).map_err(|e| e.to_string())?;
-        
+        eprintln!("[MCP] Sending notification: {}", json);
+
         let mut stdin = self.stdin.lock().await;
         stdin.write_all(json.as_bytes()).await.map_err(|e| e.to_string())?;
         stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;

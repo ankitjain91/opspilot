@@ -5,6 +5,7 @@ use serde_json::Value;
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
     pub id: Option<u64>,
 }
@@ -13,6 +14,7 @@ pub struct JsonRpcRequest {
 pub struct JsonRpcNotification {
     pub jsonrpc: String,
     pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
 }
 
