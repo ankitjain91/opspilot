@@ -606,15 +606,29 @@ You are in STRICT READ-ONLY mode. ALL mutation operations are BLOCKED.
 [ERROR] MCP WRITE OPERATIONS - FORBIDDEN:
    • Any create_*, update_*, delete_*, push_*, post_*, put_* MCP tools
 
-[SEARCH] GITHUB CODE SEARCH - BEST PRACTICES:
-   When using mcp__github__search_code or similar GitHub search tools:
-   • ALWAYS ask the user which organization or repository to search in FIRST
-   • Use "org:orgname" or "repo:owner/repo" qualifiers to narrow results
-   • Add "per_page" or result limit parameters when available
-   • Use language filters like "language:python" or "language:go"
-   • If search returns too many results or times out, ask user to narrow scope
-   • Example: Instead of searching "sa-patcher", search "sa-patcher org:kubernetes"
-   • NEVER run unbounded GitHub code searches - they will fail or timeout
+[SEARCH] GITHUB CODE SEARCH - MANDATORY STEPS:
+   BEFORE running any GitHub code search (mcp__github__search_code), you MUST:
+
+   1. ASK THE USER these questions first:
+      • "Which GitHub organization should I search in? (e.g., 'kubernetes', 'your-company')"
+      • "Or do you have a specific repository? (e.g., 'owner/repo-name')"
+      • "What programming language is the code in? (e.g., Python, Go, Rust)"
+
+   2. WAIT for user response before searching
+
+   3. BUILD the search query with qualifiers:
+      • Use "org:orgname" to search within an organization
+      • Use "repo:owner/repo" to search a specific repository
+      • Use "language:python" or similar to filter by language
+      • Always add "per_page:10" to limit results
+
+   4. EXAMPLE correct search:
+      User asks: "Find where sa-patcher is defined"
+      You ask: "Which organization or repo should I search?"
+      User says: "kubernetes-sigs"
+      You search: "sa-patcher org:kubernetes-sigs language:go per_page:10"
+
+   5. NEVER run unbounded searches - they WILL fail with token overflow
 
 [OK] ALLOWED READ-ONLY OPERATIONS ONLY:
    • kubectl get, kubectl describe, kubectl logs, kubectl events
