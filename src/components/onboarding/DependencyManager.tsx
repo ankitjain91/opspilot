@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { CheckCircle, AlertTriangle, RefreshCw, Terminal, Copy, CheckCircle2, ExternalLink } from 'lucide-react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { CheckCircle, AlertTriangle, RefreshCw, Terminal, Copy, CheckCircle2, ExternalLink, FolderOpen } from 'lucide-react';
 
 interface DependencyStatus {
     name: string;
@@ -122,6 +123,7 @@ export function DependencyManager({ onRefresh }: DependencyManagerProps) {
     const [expandedTool, setExpandedTool] = useState<string | null>(null);
     const [copiedTool, setCopiedTool] = useState<string | null>(null);
     const [copiedQuickSetup, setCopiedQuickSetup] = useState(false);
+    const [browsingTool, setBrowsingTool] = useState<string | null>(null);
 
     useEffect(() => {
         checkDeps();
@@ -162,6 +164,41 @@ export function DependencyManager({ onRefresh }: DependencyManagerProps) {
         await navigator.clipboard.writeText(command);
         setCopiedTool(toolName);
         setTimeout(() => setCopiedTool(null), 2000);
+    };
+
+    // Browse for executable (Windows only)
+    const browseForTool = async (toolName: string) => {
+        setBrowsingTool(toolName);
+        try {
+            const selected = await open({
+                multiple: false,
+                filters: [{
+                    name: 'Executable',
+                    extensions: ['exe', 'cmd', 'bat']
+                }],
+                title: `Select ${TOOL_INFO[toolName]?.label || toolName} executable`
+            });
+
+            if (selected && typeof selected === 'string') {
+                // Set the custom path via Tauri command
+                const result = await invoke<DependencyStatus>('set_tool_path', {
+                    toolName,
+                    toolPath: selected
+                });
+
+                // Update the status in our state
+                setStatuses(prev => prev.map(s =>
+                    s.name === toolName ? result : s
+                ));
+
+                // Notify parent
+                onRefresh?.();
+            }
+        } catch (e) {
+            console.error("Failed to set tool path:", e);
+        } finally {
+            setBrowsingTool(null);
+        }
     };
 
     const requiredCount = statuses.filter(s => TOOL_INFO[s.name]?.required).length;
@@ -313,6 +350,25 @@ export function DependencyManager({ onRefresh }: DependencyManagerProps) {
                                             After installing, click refresh above
                                         </p>
                                     </div>
+
+                                    {/* Browse for executable - Windows only */}
+                                    {osInfo.os === 'windows' && (
+                                        <div className="mt-3 pt-3 border-t border-white/5">
+                                            <div className="flex items-center justify-between">
+                                                <p className="text-[11px] text-zinc-400">
+                                                    Already installed but not detected?
+                                                </p>
+                                                <button
+                                                    onClick={() => browseForTool(tool.name)}
+                                                    disabled={browsingTool === tool.name}
+                                                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                                                >
+                                                    <FolderOpen size={12} />
+                                                    {browsingTool === tool.name ? 'Selecting...' : 'Browse'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -373,7 +429,9 @@ export function DependencyManager({ onRefresh }: DependencyManagerProps) {
             {/* Help text at bottom */}
             <div className="text-center pt-3 border-t border-white/5">
                 <p className="text-[11px] text-zinc-600">
-                    Can't find a tool? Make sure it's in your system PATH and click refresh.
+                    {osInfo.os === 'windows'
+                        ? "Can't find a tool? Click Install, then use Browse to select the executable."
+                        : "Can't find a tool? Make sure it's in your system PATH and click refresh."}
                 </p>
             </div>
         </div>
