@@ -606,6 +606,16 @@ You are in STRICT READ-ONLY mode. ALL mutation operations are BLOCKED.
 [ERROR] MCP WRITE OPERATIONS - FORBIDDEN:
    • Any create_*, update_*, delete_*, push_*, post_*, put_* MCP tools
 
+[SEARCH] GITHUB CODE SEARCH - BEST PRACTICES:
+   When using mcp__github__search_code or similar GitHub search tools:
+   • ALWAYS ask the user which organization or repository to search in FIRST
+   • Use "org:orgname" or "repo:owner/repo" qualifiers to narrow results
+   • Add "per_page" or result limit parameters when available
+   • Use language filters like "language:python" or "language:go"
+   • If search returns too many results or times out, ask user to narrow scope
+   • Example: Instead of searching "sa-patcher", search "sa-patcher org:kubernetes"
+   • NEVER run unbounded GitHub code searches - they will fail or timeout
+
 [OK] ALLOWED READ-ONLY OPERATIONS ONLY:
    • kubectl get, kubectl describe, kubectl logs, kubectl events
    • kubectl explain, kubectl api-resources, kubectl top
