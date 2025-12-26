@@ -102,6 +102,8 @@
         { "url": "https://*.atlassian.net/*" },
         { "url": "https://*.atlassian.com/*" },
         { "url": "https://*.jira.com/*" },
+        { "url": "https://api.github.com/*" },
+        { "url": "https://github.com/*" },
         { "url": "http://localhost:*/*" },
         { "url": "http://127.0.0.1:*/*" }
       ]
