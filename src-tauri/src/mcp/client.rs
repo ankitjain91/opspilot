@@ -18,12 +18,15 @@ pub struct McpClient {
 
 impl McpClient {
     pub async fn new(command: &str, args: &[String], env: &HashMap<String, String>) -> Result<Self, String> {
+        eprintln!("[MCP] Spawning: {} {:?}", command, args);
+        eprintln!("[MCP] PATH: {}", env.get("PATH").unwrap_or(&"<not set>".to_string()));
+
         let mut cmd = Command::new(command);
         cmd.args(args);
         cmd.envs(env);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::inherit()); // Log stderr to parent stderr
+        cmd.stderr(Stdio::piped()); // Capture stderr to log it
 
         // CORE SECURITY: Final choke point to prevent unauthorized execution
         // This runs for ALL McpClients, regardless of who created them.
@@ -36,9 +39,22 @@ impl McpClient {
         }
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn MCP server: {}", e))?;
+        eprintln!("[MCP] Process spawned successfully");
 
         let stdin = child.stdin.take().ok_or("Failed to open stdin")?;
         let stdout = child.stdout.take().ok_or("Failed to open stdout")?;
+        let stderr = child.stderr.take().ok_or("Failed to open stderr")?;
+
+        // Spawn stderr reader to log server errors
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while let Ok(n) = reader.read_line(&mut line).await {
+                if n == 0 { break; }
+                eprintln!("[MCP stderr] {}", line.trim());
+                line.clear();
+            }
+        });
 
         let pending_requests: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>> = Arc::new(Mutex::new(HashMap::new()));
         let pending_clone = pending_requests.clone();
