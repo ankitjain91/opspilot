@@ -81,15 +81,15 @@ export function isPodFailing(pod: Pod): boolean {
  */
 export function getPodStatusInfo(status: string): { emoji: string; severity: 'error' | 'warning' | 'info' } {
     if (status.includes('CrashLoopBackOff') || status.includes('Error') || status.includes('OOMKilled')) {
-        return { emoji: '❌', severity: 'error' };
+        return { emoji: '[X]', severity: 'error' };
     }
     if (status.includes('Pending') || status.includes('ImagePull')) {
-        return { emoji: '⚠️', severity: 'warning' };
+        return { emoji: '[WARN]', severity: 'warning' };
     }
     if (status.includes('Completed')) {
-        return { emoji: '✅', severity: 'info' };
+        return { emoji: '[OK]', severity: 'info' };
     }
-    return { emoji: '❓', severity: 'info' };
+    return { emoji: '[?]', severity: 'info' };
 }
 
 /**
@@ -126,7 +126,7 @@ export function formatFailingPods(output: string): FormattedOutput {
     if (failingPods.length === 0) {
         return {
             type: 'pod_list',
-            markdown: `## Pod Status\n\n✅ **All pods are healthy!**\n\nNo failing pods detected in the cluster.`,
+            markdown: `## Pod Status\n\n[OK] **All pods are healthy!**\n\nNo failing pods detected in the cluster.`,
             data: { total: allPods.length, failing: 0 }
         };
     }
@@ -165,7 +165,7 @@ export function formatKubectlOutput(command: string, output: string): FormattedO
     if (!output || output.trim().length === 0) {
         return {
             type: 'raw',
-            markdown: '✅ No output (command completed successfully)'
+            markdown: '[OK] No output (command completed successfully)'
         };
     }
 

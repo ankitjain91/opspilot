@@ -55,7 +55,7 @@ def get_cached_crds(kube_context: str = 'default') -> Tuple[List, float]:
 
         # Debug: Log cache state
         cached_contexts = list(_kb_cache.keys())
-        print(f"[KB] 🔍 get_cached_crds called for '{kube_context}', available contexts: {cached_contexts}", flush=True)
+        print(f"[KB] [SEARCH] get_cached_crds called for '{kube_context}', available contexts: {cached_contexts}", flush=True)
 
         # Check if we have cached entries for this context and it's not expired
         if kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
@@ -72,7 +72,7 @@ def get_cached_crds(kube_context: str = 'default') -> Tuple[List, float]:
                         crd_names.append(crd_name)
 
             if crd_names:
-                print(f"[KB] ♻️ Reusing {len(crd_names)} cached CRDs (age: {int(cache_age)}s)", flush=True)
+                print(f"[KB] [RESET] Reusing {len(crd_names)} cached CRDs (age: {int(cache_age)}s)", flush=True)
                 # Reconstruct CRDInfo objects from names
                 crds = []
                 for crd_name in crd_names:
@@ -93,7 +93,7 @@ def get_cached_crds(kube_context: str = 'default') -> Tuple[List, float]:
                     ))
                 return crds, cache_age
             else:
-                print(f"[KB] ⚠️ Cache exists but no live-crd- entries found (total entries: {len(cached_entries)})", flush=True)
+                print(f"[KB] [WARN] Cache exists but no live-crd- entries found (total entries: {len(cached_entries)})", flush=True)
         else:
             if kube_context not in _kb_cache:
                 print(f"[KB] ℹ️ Context '{kube_context}' not in cache", flush=True)
@@ -102,7 +102,7 @@ def get_cached_crds(kube_context: str = 'default') -> Tuple[List, float]:
 
         return [], -1
     except Exception as e:
-        print(f"[KB] ⚠️ get_cached_crds failed: {e}", flush=True)
+        print(f"[KB] [WARN] get_cached_crds failed: {e}", flush=True)
         return [], -1
 
 
@@ -225,7 +225,7 @@ def load_kb_entries(kb_dir: str) -> List[Dict]:
                         "id": f"solution-{sol.get('id', 'unknown')}",
                         "category": "UserVerifiedSolution",
                         "symptoms": [sol.get('query', '')],
-                        "root_cause": f"✅ VERIFIED SOLUTION\n\n{sol.get('solution', '')}",
+                        "root_cause": f"[OK] VERIFIED SOLUTION\n\n{sol.get('solution', '')}",
                         "investigation": [],
                         "fixes": [],
                         "description": f"User verified solution for query: {sol.get('query', '')}"
@@ -302,7 +302,7 @@ def _save_crd_disk_cache(kube_context: str, entries: List[Dict], crd_hash: str):
                 'entries': entries,
                 'timestamp': time.time()
             }, f)
-        print(f"[KB] 💾 Persisted {len(entries)} CRDs to disk for '{kube_context}'", flush=True)
+        print(f"[KB] [SAVE] Persisted {len(entries)} CRDs to disk for '{kube_context}'", flush=True)
     except Exception as e:
         print(f"[KB] Failed to save disk cache: {e}", flush=True)
 
@@ -402,7 +402,7 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
         return []
 
     total = len(crd_list)
-    print(f"[KB] ⚡ Ingesting {total} CRDs (fast mode - no schema enrichment)...", flush=True)
+    print(f"[KB] [RUN] Ingesting {total} CRDs (fast mode - no schema enrichment)...", flush=True)
 
     if progress_callback:
         await progress_callback(0, total, f"Starting CRD ingestion for {total} resources...")
@@ -487,7 +487,7 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
             "id": f"live-crd-{crd}",  # Use full CRD name (e.g., postgresclusters.acid.zalan.do) for proper group reconstruction
             "category": "LiveResource",
             "symptoms": symptoms,
-            "root_cause": f"✅ KUBERNETES CUSTOM RESOURCE: '{name}' (API: {crd})\n\nThis is a standard Kubernetes resource that works with ALL kubectl commands:\n- kubectl get {name} -A (list all)\n- kubectl get {name} <name> -n <namespace> (get specific)\n- kubectl get {name} <name> -n <namespace> -o yaml (full details)\n- kubectl describe {name} <name> -n <namespace> (detailed status)\n- kubectl explain {name} (see schema)\n\n**FINDING THE CONTROLLER/OPERATOR**:\nCustom Resources are managed by controllers/operators. To find the controller:\n1. Check pods with labels: kubectl get pods -A -l 'app.kubernetes.io/name' -o wide | grep -i {name}\n2. Search by API group: kubectl get pods -A -o yaml | grep -i {group}\n3. Look for operator pods: kubectl get pods -A | grep -i '{name.rstrip('s')}'\n4. Common patterns: {name}-controller, {name}-operator, {group.split('.')[0]}-operator\n\n**BULK DISCOVERY** (when asked for 'all azure resources', 'all crossplane resources', etc.):\n- Use kubectl api-resources | grep -i azure to find ALL Azure resource types\n- Then iterate: for TYPE in $(kubectl api-resources | grep azure | awk '{{print $1}}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done",
+            "root_cause": f"[OK] KUBERNETES CUSTOM RESOURCE: '{name}' (API: {crd})\n\nThis is a standard Kubernetes resource that works with ALL kubectl commands:\n- kubectl get {name} -A (list all)\n- kubectl get {name} <name> -n <namespace> (get specific)\n- kubectl get {name} <name> -n <namespace> -o yaml (full details)\n- kubectl describe {name} <name> -n <namespace> (detailed status)\n- kubectl explain {name} (see schema)\n\n**FINDING THE CONTROLLER/OPERATOR**:\nCustom Resources are managed by controllers/operators. To find the controller:\n1. Check pods with labels: kubectl get pods -A -l 'app.kubernetes.io/name' -o wide | grep -i {name}\n2. Search by API group: kubectl get pods -A -o yaml | grep -i {group}\n3. Look for operator pods: kubectl get pods -A | grep -i '{name.rstrip('s')}'\n4. Common patterns: {name}-controller, {name}-operator, {group.split('.')[0]}-operator\n\n**BULK DISCOVERY** (when asked for 'all azure resources', 'all crossplane resources', etc.):\n- Use kubectl api-resources | grep -i azure to find ALL Azure resource types\n- Then iterate: for TYPE in $(kubectl api-resources | grep azure | awk '{{print $1}}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done",
             "investigation": [
                 f"kubectl get {name} -A -o wide",
                 f"kubectl get {name} -A -o json | jq '.items[] | {{name: .metadata.name, namespace: .metadata.namespace, status: .status}}'",
@@ -501,7 +501,7 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
                 f"kubectl delete {name} <name> -n <namespace>",
                 f"kubectl apply -f <yaml-file>"
             ],
-            "description": f"🔧 Cluster Capability: {name} ({group}) - Custom Resource managed by a controller/operator. API Group: {group}. Use kubectl get {name} -A to list instances."
+            "description": f"[FIX] Cluster Capability: {name} ({group}) - Custom Resource managed by a controller/operator. API Group: {group}. Use kubectl get {name} -A to list instances."
         }
         
         # Store metadata for cache reconstruction
@@ -516,7 +516,7 @@ async def _ingest_crds_parallel(crd_list: List[str], context: Optional[str] = No
         if progress_callback:
             await progress_callback(idx, total, f"Ingested {name} ({idx}/{total})")
 
-    print(f"[KB] ✅ Ingested {len(entries)} CRDs instantly", flush=True)
+    print(f"[KB] [OK] Ingested {len(entries)} CRDs instantly", flush=True)
 
     # Final completion callback
     if progress_callback:
@@ -551,28 +551,28 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
             if cached_entries:
                 # 2. Smart Check: Is the cache still valid? 
                 # We compute the current CRD hash (cheap) and compare with stored hash.
-                print(f"[KB] 🕵️ Checking if CRD cache is stale for '{kube_context}'...", flush=True)
+                print(f"[KB] [SPY] Checking if CRD cache is stale for '{kube_context}'...", flush=True)
                 current_hash = _get_crd_hash(kube_context)
                 
                 if current_hash and current_hash == cached_hash:
-                     print(f"[KB] ✅ CRDs unchanged (hash match). Using persistent cache ({len(cached_entries)} entries).", flush=True)
+                     print(f"[KB] [OK] CRDs unchanged (hash match). Using persistent cache ({len(cached_entries)} entries).", flush=True)
                      # Hydrate in-memory cache
                      static_kb = load_kb_entries(state.get('kb_dir') or KB_DIR)
                      _kb_cache[kube_context] = static_kb + cached_entries
                      _kb_cache_timestamps[kube_context] = time.time()
                      return _kb_cache[kube_context]
                 else:
-                    print(f"[KB] ♻️ CRD change detected (hash mismatch). Refreshing...", flush=True)
+                    print(f"[KB] [RESET] CRD change detected (hash mismatch). Refreshing...", flush=True)
             
             # 3. Fallback to in-memory TTL check if disk cache empty/stale
             elif kube_context in _kb_cache and cache_age < CRD_CACHE_TTL:
-                print(f"[KB] ✅ Using in-memory cached CRDs for context '{kube_context}' (age: {int(cache_age)}s, TTL: {CRD_CACHE_TTL}s)", flush=True)
+                print(f"[KB] [OK] Using in-memory cached CRDs for context '{kube_context}' (age: {int(cache_age)}s, TTL: {CRD_CACHE_TTL}s)", flush=True)
                 return _kb_cache[kube_context]
 
         if cache_age >= CRD_CACHE_TTL:
-            print(f"[KB] ⏰ CRD cache expired (age: {int(cache_age)}s), refreshing...", flush=True)
+            print(f"[KB] [TIME] CRD cache expired (age: {int(cache_age)}s), refreshing...", flush=True)
 
-        print(f"[KB] 🧠 Ingesting live cluster knowledge (CRDs) for context '{kube_context}'...", flush=True)
+        print(f"[KB] [BRAIN] Ingesting live cluster knowledge (CRDs) for context '{kube_context}'...", flush=True)
         
         # We need to run kubectl. We can't use the state's SafeExecutor directly because of async context,
         # so we'll use a subprocess call here or try to reuse the mechanism if possible.
@@ -585,7 +585,7 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         
         # Use centralized discovery module
         # Use centralized discovery module
-        print(f"[KB] 🔍 Fetching CRDs using discovery module...", flush=True)
+        print(f"[KB] [SEARCH] Fetching CRDs using discovery module...", flush=True)
         found_crds = list_crds(kube_context)
         # Pass full objects to preserve Kind/Version info, but keep list of names for bulk patterns
         crd_list = [c.name for c in found_crds]
@@ -619,7 +619,7 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
                     "all azure managed resources",
                     "what azure resources exist"
                 ],
-                "root_cause": f"✅ BULK AZURE RESOURCE DISCOVERY\n\nFound {len(azure_crds)} Azure CRD types in cluster. To list ALL Azure managed resources:\n\n**METHOD 1: Shell loop (recommended)**\n```bash\nfor TYPE in $(kubectl api-resources | grep -i azure | awk '{{print $1}}'); do\n  echo \"=== $TYPE ===\"\n  kubectl get $TYPE -A 2>/dev/null | grep -v '^No resources'\ndone\n```\n\n**METHOD 2: Individual queries**\n{method2_queries}\n\nAvailable Azure types: {azure_types_list}",
+                "root_cause": f"[OK] BULK AZURE RESOURCE DISCOVERY\n\nFound {len(azure_crds)} Azure CRD types in cluster. To list ALL Azure managed resources:\n\n**METHOD 1: Shell loop (recommended)**\n```bash\nfor TYPE in $(kubectl api-resources | grep -i azure | awk '{{print $1}}'); do\n  echo \"=== $TYPE ===\"\n  kubectl get $TYPE -A 2>/dev/null | grep -v '^No resources'\ndone\n```\n\n**METHOD 2: Individual queries**\n{method2_queries}\n\nAvailable Azure types: {azure_types_list}",
                 "investigation": [
                     "kubectl api-resources | grep -i azure",
                     "for TYPE in $(kubectl api-resources | grep -i azure | awk '{print $1}'); do echo \"=== $TYPE ===\"; kubectl get $TYPE -A 2>/dev/null; done"
@@ -640,7 +640,7 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
                     "all crossplane managed resources",
                     "what crossplane resources exist"
                 ],
-                "root_cause": f"✅ BULK CROSSPLANE RESOURCE DISCOVERY\n\nFound {len(crossplane_crds)} Crossplane CRD types. Use kubectl get managed -A OR iterate through specific types.",
+                "root_cause": f"[OK] BULK CROSSPLANE RESOURCE DISCOVERY\n\nFound {len(crossplane_crds)} Crossplane CRD types. Use kubectl get managed -A OR iterate through specific types.",
                 "investigation": [
                     "kubectl get managed -A",
                     "kubectl get composite -A",
@@ -651,7 +651,7 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
             })
 
         # --- CROSSPLANE INTEGRATION ---
-        print("[KB] 🧠 Ingesting Crossplane Infrastructure Definitions (XRDs)...", flush=True)
+        print("[KB] [BRAIN] Ingesting Crossplane Infrastructure Definitions (XRDs)...", flush=True)
         cmd_xrd = ["kubectl"]
         if kube_context:
             cmd_xrd.extend(["--context", kube_context])
@@ -687,14 +687,14 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
                         "description": f"Available Infrastructure: You can provision {name} ({group}) using Crossplane."
                     }
                     live_entries.append(entry)
-                print(f"[KB] ✅ Ingested {len(xrd_list)} Crossplane XRDs.", flush=True)
+                print(f"[KB] [OK] Ingested {len(xrd_list)} Crossplane XRDs.", flush=True)
         except FileNotFoundError:
             print("[KB] kubectl not found, skipping XRD ingestion", flush=True)
         except Exception as e:
             # Crossplane might not be installed, which is fine
             print(f"[KB] Crossplane XRD discovery skipped (not installed?): {e}", flush=True)
 
-        print(f"[KB] ✅ Ingested total {len(live_entries)} live resources into Brain.", flush=True)
+        print(f"[KB] [OK] Ingested total {len(live_entries)} live resources into Brain.", flush=True)
 
         # Load static KB if not already loaded
         if "default" not in _kb_cache:
@@ -713,7 +713,7 @@ async def ingest_cluster_knowledge(state: Dict, force_refresh: bool = False, pro
         crd_hash = _get_crd_hash(kube_context) 
         _save_crd_disk_cache(kube_context, live_entries, crd_hash)
         
-        print(f"[KB] 💾 Cached {len(_kb_cache[kube_context])} entries for context '{kube_context}' (TTL: {CRD_CACHE_TTL}s)", flush=True)
+        print(f"[KB] [SAVE] Cached {len(_kb_cache[kube_context])} entries for context '{kube_context}' (TTL: {CRD_CACHE_TTL}s)", flush=True)
 
         # Invalidate embedding cache for these new entries (they will be computed on demand)
         # We don't need to do anything as _embeddings_cache uses IDs, and these are new IDs.
@@ -841,7 +841,7 @@ async def _compute_kb_search(
     query_variants = expand_query(query)
 
     if len(query_variants) > 1:
-        print(f"[KB] Query expansion: '{query}' → {len(query_variants)} variants", flush=True)
+        print(f"[KB] Query expansion: '{query}' -> {len(query_variants)} variants", flush=True)
 
     # Get embeddings for all query variants
     query_embeddings = []

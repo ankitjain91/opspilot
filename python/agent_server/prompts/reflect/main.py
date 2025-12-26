@@ -41,7 +41,7 @@ INSTRUCTIONS:
     - "SOLVED": Problem FULLY answered or root cause definitively identified. Stop plan early.
       • Use when: Query completely answered (e.g. "Are vclusters present?" → found answer)
       • Use when: Root cause found (e.g. "Why crashing?" → found OOMKilled in logs)
-      • ⚠️ MULTI-RESOURCE QUERIES: If query asks for resource X's sub-resources (e.g. "storage account containers", "pod logs", "deployment status"), finding parent resource X alone is NOT solved - use CONTINUE to fetch the actual requested data
+      • [WARN] MULTI-RESOURCE QUERIES: If query asks for resource X's sub-resources (e.g. "storage account containers", "pod logs", "deployment status"), finding parent resource X alone is NOT solved - use CONTINUE to fetch the actual requested data
       • Result: Skip remaining steps, synthesize final response immediately
       • REQUIRED: Provide final_response with the complete answer
 
@@ -62,7 +62,7 @@ Example 1 - RETRY (Multi-method resource discovery):
 Query: "Find all ArgoCD instances"
 Step 1 Result: kubectl api-resources shows NO argocd CRD exists
 → directive: "RETRY", next_command_hint: "Try multi-method: kubectl get pods,deployments,svc -A | grep -i argo"
-(⚠️ NEVER conclude "resource not found" from just CRD check - resources can exist as pods/deployments/helm without CRDs!)
+([WARN] NEVER conclude "resource not found" from just CRD check - resources can exist as pods/deployments/helm without CRDs!)
 
 Example 2 - RETRY:
 Query: "Why is payment-svc failing?"
@@ -79,7 +79,7 @@ Example 4 - CONTINUE (Multi-resource query):
 Query: "Find Azure storage account containers"
 Step 1 Result: Found 17 storage accounts (accounts.storage.azure.upbound.io)
 → directive: "CONTINUE", verified_facts: ["Found 17 storage accounts"]
-⚠️ NOT "SOLVED" - user asked for CONTAINERS, not accounts. Must continue to query containers.storage.azure.upbound.io next.
+[WARN] NOT "SOLVED" - user asked for CONTAINERS, not accounts. Must continue to query containers.storage.azure.upbound.io next.
 
 Example 5 - ABORT:
 Query: "Check status of my-custom-app"

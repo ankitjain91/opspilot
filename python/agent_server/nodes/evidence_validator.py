@@ -25,7 +25,7 @@ async def evidence_validator_node(state: AgentState) -> Dict:
     iteration = state.get('iteration', 0)
     events = list(state.get('events', []))
 
-    print(f"[evidence_validator] 🛡️ Checkpoint for query: '{query}' (iteration {iteration})", flush=True)
+    print(f"[evidence_validator] [SHIELD] Checkpoint for query: '{query}' (iteration {iteration})", flush=True)
 
     # LLM-DRIVEN: No hardcoded validation rules
     # Synthesizer LLM will determine if evidence is sufficient

@@ -14,9 +14,14 @@ pub struct HelmRelease {
 
 #[tauri::command]
 pub async fn helm_list() -> Result<Vec<HelmRelease>, String> {
-    let output = Command::new("helm")
-        .args(["list", "-A", "-o", "json"])
-        .output()
+    let mut cmd = Command::new("helm");
+    cmd.args(["list", "-A", "-o", "json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute helm command: {}", e))?;
 
     if !output.status.success() {
@@ -40,9 +45,14 @@ pub async fn helm_list() -> Result<Vec<HelmRelease>, String> {
 
 #[tauri::command]
 pub async fn helm_uninstall(namespace: String, name: String) -> Result<String, String> {
-    let output = Command::new("helm")
-        .args(["uninstall", &name, "-n", &namespace])
-        .output()
+    let mut cmd = Command::new("helm");
+    cmd.args(["uninstall", &name, "-n", &namespace]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute helm command: {}", e))?;
 
     if !output.status.success() {
@@ -63,9 +73,14 @@ pub struct HelmReleaseDetails {
 #[tauri::command]
 pub async fn helm_get_details(namespace: String, name: String) -> Result<HelmReleaseDetails, String> {
     // 1. Get status and manifest
-    let status_output = Command::new("helm")
-        .args(["status", &name, "-n", &namespace, "-o", "json"])
-        .output()
+    let mut status_cmd = Command::new("helm");
+    status_cmd.args(["status", &name, "-n", &namespace, "-o", "json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        status_cmd.creation_flags(0x08000000);
+    }
+    let status_output = status_cmd.output()
         .map_err(|e| format!("Failed to execute helm status: {}", e))?;
 
     if !status_output.status.success() {
@@ -76,9 +91,14 @@ pub async fn helm_get_details(namespace: String, name: String) -> Result<HelmRel
         .map_err(|e| format!("Failed to parse helm status JSON: {}", e))?;
 
     // 2. Get values
-    let values_output = Command::new("helm")
-        .args(["get", "values", &name, "-n", &namespace, "-o", "json"])
-        .output()
+    let mut values_cmd = Command::new("helm");
+    values_cmd.args(["get", "values", &name, "-n", &namespace, "-o", "json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        values_cmd.creation_flags(0x08000000);
+    }
+    let values_output = values_cmd.output()
         .map_err(|e| format!("Failed to execute helm get values: {}", e))?;
 
     let values_json: serde_json::Value = if values_output.status.success() {
@@ -106,9 +126,14 @@ pub struct HelmHistoryEntry {
 
 #[tauri::command]
 pub async fn helm_history(namespace: String, name: String) -> Result<Vec<HelmHistoryEntry>, String> {
-    let output = Command::new("helm")
-        .args(["history", &name, "-n", &namespace, "-o", "json"])
-        .output()
+    let mut cmd = Command::new("helm");
+    cmd.args(["history", &name, "-n", &namespace, "-o", "json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute helm history: {}", e))?;
 
     if !output.status.success() {
@@ -138,9 +163,14 @@ pub struct HelmResource {
 #[tauri::command]
 pub async fn helm_get_resources(namespace: String, name: String) -> Result<Vec<HelmResource>, String> {
     // Get the manifest
-    let output = Command::new("helm")
-        .args(["get", "manifest", &name, "-n", &namespace])
-        .output()
+    let mut cmd = Command::new("helm");
+    cmd.args(["get", "manifest", &name, "-n", &namespace]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute helm get manifest: {}", e))?;
 
     if !output.status.success() {
@@ -218,9 +248,14 @@ pub async fn helm_get_resources(namespace: String, name: String) -> Result<Vec<H
 
 #[tauri::command]
 pub async fn helm_rollback(namespace: String, name: String, revision: i64) -> Result<String, String> {
-    let output = Command::new("helm")
-        .args(["rollback", &name, &revision.to_string(), "-n", &namespace])
-        .output()
+    let mut cmd = Command::new("helm");
+    cmd.args(["rollback", &name, &revision.to_string(), "-n", &namespace]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute helm rollback: {}", e))?;
 
     if !output.status.success() {

@@ -92,26 +92,72 @@ def read_file(path: str, max_lines: int = 2000, start_line: int = 0) -> str:
         return f"Error reading file: {str(e)}"
 
 def grep_search(query: str, path: str, recursive: bool = True, case_insensitive: bool = True) -> str:
-    """Grep text in files."""
+    """Grep text in files using Python regex (Cross-Platform)."""
+    import re
+    import mmap
+    
     try:
-        cmd = ["grep", "-n", "-I"] # -n: line numbers, -I: ignore binary
-        if recursive and os.path.isdir(path):
-            cmd.append("-r")
-        if case_insensitive:
-            cmd.append("-i")
-        
-        cmd.append(query)
-        cmd.append(path)
-        
-        # Run grep
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
-        output = result.stdout
-        if len(output) > 50000:
-             return output[:50000] + "\n... (truncated output)"
-        return output if output else text_result_empty(result.returncode)
-    except subprocess.TimeoutExpired:
-        return "Error: Grep command timed out."
+        flags = re.IGNORECASE if case_insensitive else 0
+        try:
+            pattern_re = re.compile(query.encode('utf-8'), flags)
+        except re.error as e:
+            return f"Error: Invalid regex pattern: {e}"
+
+        matches = []
+        MAX_MATCHES = 1000
+        total_matches = 0
+
+        # Gather files
+        files_to_scan = []
+        if os.path.isfile(path):
+            files_to_scan.append(path)
+        elif os.path.isdir(path):
+             if recursive:
+                for root, _, files in os.walk(path):
+                    for name in files:
+                        files_to_scan.append(os.path.join(root, name))
+             else:
+                 for name in os.listdir(path):
+                     full = os.path.join(path, name)
+                     if os.path.isfile(full):
+                         files_to_scan.append(full)
+        else:
+             return f"Error: Path '{path}' not found."
+
+        for file_path in files_to_scan:
+            if total_matches >= MAX_MATCHES:
+                break
+            
+            try:
+                # Skip binary/large files check (basic)
+                if os.path.getsize(file_path) > 10 * 1024 * 1024:
+                    continue
+                
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for i, line in enumerate(f, 1):
+                        # Simple string check first for speed if no special regex chars
+                        # But user asked for regex support.
+                        # Let's use search
+                        if case_insensitive:
+                            if re.search(query, line, re.IGNORECASE):
+                                matches.append(f"{file_path}:{i}:{line.strip()}")
+                                total_matches += 1
+                        else:
+                             if re.search(query, line):
+                                matches.append(f"{file_path}:{i}:{line.strip()}")
+                                total_matches += 1
+                        
+                        if total_matches >= MAX_MATCHES:
+                             matches.append("... (truncated limit reached)")
+                             break
+            except Exception:
+                continue # Skip unreadable files
+
+        if not matches:
+             return "No matches found."
+             
+        return "\n".join(matches)
+
     except Exception as e:
         return f"Error running grep: {str(e)}"
 

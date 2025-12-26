@@ -124,9 +124,13 @@ fn kill_process_on_port(port: u16) {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         // On Windows, use netstat to find PIDs and taskkill to terminate
         let output = match Command::new("netstat")
             .args(&["-ano"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             Ok(out) => out,
@@ -148,6 +152,7 @@ fn kill_process_on_port(port: u16) {
                         info!("[agent-sidecar] Killing process {} on port {}", pid, port);
                         let _ = Command::new("taskkill")
                             .args(&["/F", "/PID", pid])
+                            .creation_flags(CREATE_NO_WINDOW)
                             .output();
                     }
                 }
@@ -191,8 +196,12 @@ fn kill_process_on_port(port: u16) {
 fn is_port_in_use(port: u16) -> bool {
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
         let output = Command::new("netstat")
             .args(&["-ano"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         if let Ok(out) = output {

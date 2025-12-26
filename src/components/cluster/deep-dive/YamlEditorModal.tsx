@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { X, Save, AlertCircle, Loader2, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { K8sObject } from '../../../types/k8s';
+
+const Editor = lazy(() => import('@monaco-editor/react'));
 
 interface YamlEditorModalProps {
     isOpen: boolean;
@@ -126,10 +127,10 @@ export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onS
                             onClick={handleSave}
                             disabled={isSaving || isLoading || saveSuccess}
                             className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-all ${saveSuccess
-                                    ? 'bg-emerald-500 text-white'
-                                    : isSaving
-                                        ? 'bg-emerald-500/50 text-white cursor-wait'
-                                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                ? 'bg-emerald-500 text-white'
+                                : isSaving
+                                    ? 'bg-emerald-500/50 text-white cursor-wait'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                                 }`}
                         >
                             {saveSuccess ? (
@@ -157,21 +158,27 @@ export function YamlEditorModal({ isOpen, onClose, resource, currentContext, onS
                             <Loader2 size={32} className="text-cyan-500 animate-spin" />
                         </div>
                     ) : (
-                        <Editor
-                            height="100%"
-                            defaultLanguage="yaml"
-                            value={yamlContent}
-                            onChange={(value) => setYamlContent(value || '')}
-                            theme="vs-dark"
-                            options={{
-                                minimap: { enabled: true },
-                                scrollBeyondLastLine: false,
-                                fontSize: 13,
-                                fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-                                renderWhitespace: 'selection',
-                                tabSize: 2,
-                            }}
-                        />
+                        <Suspense fallback={
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <Loader2 size={32} className="text-cyan-500 animate-spin" />
+                            </div>
+                        }>
+                            <Editor
+                                height="100%"
+                                defaultLanguage="yaml"
+                                value={yamlContent}
+                                onChange={(value) => setYamlContent(value || '')}
+                                theme="vs-dark"
+                                options={{
+                                    minimap: { enabled: true },
+                                    scrollBeyondLastLine: false,
+                                    fontSize: 13,
+                                    fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+                                    renderWhitespace: 'selection',
+                                    tabSize: 2,
+                                }}
+                            />
+                        </Suspense>
                     )}
                 </div>
 

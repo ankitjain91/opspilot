@@ -148,7 +148,7 @@ async def self_correction_node(state: AgentState) -> Dict:
 
         if reason:
             # Command was corrected
-            print(f"[self_correction] 🔧 Corrected kubectl command:", flush=True)
+            print(f"[self_correction] [FIX] Corrected kubectl command:", flush=True)
             print(f"  Original: {pending_command}", flush=True)
             print(f"  Corrected: {corrected_cmd}", flush=True)
             print(f"  Reason: {reason}", flush=True)

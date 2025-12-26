@@ -48,23 +48,23 @@ def validate_routing(current_node: str, next_action: str, thread_id: str = "defa
 
     if not allowed:
         # Unknown current node - allow but warn
-        print(f"[routing] ⚠️ Unknown current node '{current_node}' - allowing transition", flush=True)
+        print(f"[routing] WARNING: Unknown current node '{current_node}' - allowing transition", flush=True)
         return (True, "")
 
     if target_node not in allowed and target_node != 'done':
-        error = f"Invalid transition: {current_node} → {target_node}. Allowed: {allowed}"
-        print(f"[routing] 🚫 {error}", flush=True)
+        error = f"Invalid transition: {current_node} -> {target_node}. Allowed: {allowed}"
+        print(f"[routing] BLOCKED: {error}", flush=True)
         return (False, error)
 
     # Loop detection: Check if we've seen this exact transition recently
     history = _routing_history.get(thread_id, [])
-    transition = f"{current_node}→{target_node}"
+    transition = f"{current_node}->{target_node}"
 
     # Count recent occurrences of this transition
     recent_count = sum(1 for t in history[-10:] if t == transition)
     if recent_count >= 3:
         error = f"Loop detected: {transition} occurred {recent_count} times in last 10 transitions"
-        print(f"[routing] 🔄 {error}", flush=True)
+        print(f"[routing] LOOP: {error}", flush=True)
         return (False, error)
 
     # Record transition

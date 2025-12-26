@@ -16,9 +16,9 @@ CRITICAL KB RULES - READ FIRST:
 KNOWLEDGE BASE CONTEXT (Top matches for this query):
 {kb_context}
 
-⚠️ MANDATORY: If KB above identifies resource types/APIs, you MUST use them exactly as shown. DO NOT substitute or guess alternatives.
+[WARN] MANDATORY: If KB above identifies resource types/APIs, you MUST use them exactly as shown. DO NOT substitute or guess alternatives.
 
-🔥 COMMAND GENERATION RULE:
+[HOT] COMMAND GENERATION RULE:
 When KB provides "investigation" commands for a resource/pattern, YOU MUST USE THOSE EXACT COMMANDS.
 DO NOT invent your own kubectl commands when KB already provides tested ones.
 
@@ -69,7 +69,7 @@ CRITICAL RULES FOR CONVERSATION CONTINUITY:
 - Check if Command History already shows we ran the exact command the user is asking for
 - If we recently discovered resources (in PREVIOUS CONTEXT or discovered_context), don't re-discover them
 
-📝 **LEARN FROM PAST FINDINGS**:
+[NOTE] **LEARN FROM PAST FINDINGS**:
 - If PREVIOUS CONTEXT summary shows "Previous Findings: Root cause was X", incorporate that knowledge
 - Build on previous discoveries rather than starting from scratch
 - If user asks "is it still happening?", compare current state with findings from PREVIOUS CONTEXT
@@ -88,13 +88,13 @@ INSTRUCTIONS:
     - **Explanation**: (e.g., "What is a pod?") -> **IMMEDIATE RESPOND** (Use Example 2 logic).
     - **Kubernetes Discovery Query**: (e.g., "list customerclusters", "find vclusters", "show databases") -> **Assume it's a K8s resource**, use **EFFICIENT SHELL FILTERING** for discovery. **Never ask for clarification** - just investigate autonomously.
 
-      ⚡ **CRITICAL: For ANY discovery/search query, ALWAYS use shell filtering FIRST:**
-      - ✅ CORRECT: `kubectl api-resources | grep -i vcluster` (ONE efficient command)
-      - ✅ CORRECT: `kubectl get crd | grep -i istio` (ONE efficient command)
-      - ✅ CORRECT: `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` (ONE efficient command)
-      - ❌ WRONG: `kubectl get crd -o json` then filter (fetches too much data)
-      - ❌ WRONG: `kubectl api-resources --api-group=X` (fails if X doesn't exist, use grep instead)
-      - ❌ WRONG: Multiple separate kubectl calls (combine with pipes instead)
+      [FAST] **CRITICAL: For ANY discovery/search query, ALWAYS use shell filtering FIRST:**
+      - [OK] CORRECT: `kubectl api-resources | grep -i vcluster` (ONE efficient command)
+      - [OK] CORRECT: `kubectl get crd | grep -i istio` (ONE efficient command)
+      - [OK] CORRECT: `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` (ONE efficient command)
+      - [X] WRONG: `kubectl get crd -o json` then filter (fetches too much data)
+      - [X] WRONG: `kubectl api-resources --api-group=X` (fails if X doesn't exist, use grep instead)
+      - [X] WRONG: Multiple separate kubectl calls (combine with pipes instead)
 
       **Discovery always follows this pattern:**
       1. Single grep/awk command to find matches
@@ -182,7 +182,7 @@ INSTRUCTIONS:
     - When you set next_action="respond", the system will automatically format your response intelligently
     - You don't need to dump raw kubectl output - the formatter will:
       • Extract root causes from command outputs
-      • Organize findings by severity (❌ Critical, ⚠️ Warnings, ✅ Healthy)
+      • Organize findings by severity ([X] Critical, [WARN] Warnings, [OK] Healthy)
       • Generate actionable recommendations
       • Present data in readable markdown format
     - Just decide WHEN to respond (when you have enough info), the HOW is handled for you
@@ -208,7 +208,7 @@ RESPONSE FORMAT (JSON):
 }}}}
 
 PARALLEL BATCH EXECUTION (CRITICAL):
-**⚠️ IMPORTANT: DO NOT use batch_delegate for resource discovery!**
+**[WARN] IMPORTANT: DO NOT use batch_delegate for resource discovery!**
 - batch_delegate is for KNOWN commands that MUST run in parallel (e.g., "check cluster health" → get nodes + get pods + get events)
 - For discovery queries (find X, list Y), ALWAYS use `RunK8sPython` instead
 - batch_delegate wastes resources by running irrelevant commands in parallel

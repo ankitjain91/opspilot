@@ -571,7 +571,7 @@ class E2ETester:
 
         try:
             # Create agent
-            print("📡 Creating agent...")
+            print("[NET] Creating agent...")
             response = await self.client.post(
                 f"{AGENT_SERVER_URL}/create-agent",
                 json={
@@ -627,13 +627,13 @@ class E2ETester:
                                 print(f"   🔧 Routing: delegate")
                             elif "batch" in msg.lower():
                                 result.actual_routing = "batch_delegate"
-                                print(f"   ⚡ Routing: batch_delegate")
+                                print(f"   [FAST] Routing: batch_delegate")
 
                         # Capture answer
                         if event.get("type") == "final_answer":
                             result.answer = event.get("data", {}).get("answer", "")
                             result.answer_length = len(result.answer)
-                            print(f"   💬 Answer received ({result.answer_length} chars)")
+                            print(f"   [MSG] Answer received ({result.answer_length} chars)")
 
                     except json.JSONDecodeError:
                         continue
@@ -797,7 +797,7 @@ class E2ETester:
                     print(f"      - {r.test_case.name}: {r.actual_routing} ≠ {r.test_case.expected_routing}")
 
             if perf_failures:
-                print(f"   ⚡ Performance Issues: {len(perf_failures)} tests")
+                print(f"   [FAST] Performance Issues: {len(perf_failures)} tests")
                 for r in perf_failures[:5]:
                     print(f"      - {r.test_case.name}: {r.command_count} cmds (max: {r.test_case.max_commands})")
 

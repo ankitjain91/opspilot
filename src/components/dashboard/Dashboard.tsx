@@ -221,6 +221,9 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                 preloadKBForContext(contextName);
             });
 
+            // Optimistically update the global context immediately for instant UI feedback
+            qc.setQueryData(["current_context"], contextName);
+
             // Invalidate all queries to refetch with new context
             await qc.invalidateQueries();
 
@@ -1373,6 +1376,7 @@ export function Dashboard({ onDisconnect, onOpenAzure, showClusterChat, onToggle
                                 )
                             ) : (
                                 <ClusterCockpit
+                                    key={currentContext} // Force remount on context change to clear local state
                                     navStructure={navStructure}
                                     onNavigate={(res) => { setActiveRes(res); setActiveTabId(null); setSearchQuery(""); }}
                                     currentContext={currentContext}

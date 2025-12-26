@@ -257,21 +257,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { LoadingScreen } from "../shared/LoadingScreen";
 
-import type { SupportBundle, BundleResource, BundleEvent, BundleAlerts, BundleHealthSummary } from '../bundle/types';
-
-// Pre-loaded bundle data to pass to BundleDashboard
-interface PreloadedBundleData {
-    bundle: SupportBundle;
-    healthSummary: BundleHealthSummary;
-    events: BundleEvent[];
-    alerts: BundleAlerts | null;
-    allResources: Map<string, BundleResource[]>;
-}
-
 interface ConnectionScreenProps {
     onConnect: () => void;
     onOpenAzure: () => void;
-    onOpenBundle?: (bundlePath: string, data: PreloadedBundleData) => void;
+    onOpenBundle?: () => void;
 }
 
 interface DependencyStatus {
@@ -290,10 +279,6 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
     const [appVersion, setAppVersion] = useState<string>("");
     const qc = useQueryClient();
 
-    // Bundle loading state
-    const [bundleLoading, setBundleLoading] = useState(false);
-    const [bundleProgress, setBundleProgress] = useState('');
-    const [bundleError, setBundleError] = useState<string | null>(null);
 
     // Fetch app version on mount
     useEffect(() => {
@@ -324,90 +309,9 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
         }
     }, [activeTab]);
 
-    // Load support bundle with ALL data
+    // Open bundle investigator (it handles its own loading)
     const loadBundle = async () => {
-        try {
-            setBundleError(null);
-            setBundleProgress('Select a bundle folder...');
-
-            const path = await open({ directory: true, multiple: false, title: 'Select Support Bundle Folder' });
-            if (!path) {
-                setBundleProgress('');
-                return;
-            }
-
-            setBundleLoading(true);
-            setBundleProgress('Loading bundle...');
-
-            // Load the bundle
-            const bundle = await invoke<SupportBundle>('load_support_bundle', { path });
-            setBundleProgress('Analyzing health...');
-
-            // Get health summary
-            const healthSummary = await invoke<BundleHealthSummary>('get_bundle_health_summary', { bundlePath: path });
-
-            // Load alerts if available
-            let alerts: BundleAlerts | null = null;
-            if (bundle.has_alerts) {
-                setBundleProgress('Loading alerts...');
-                try {
-                    alerts = await invoke<BundleAlerts>('get_bundle_alerts', { bundlePath: path });
-                } catch {
-                    // Alerts may not exist
-                }
-            }
-
-            // Load events if available
-            let events: BundleEvent[] = [];
-            if (bundle.has_events) {
-                setBundleProgress('Loading events...');
-                try {
-                    events = await invoke<BundleEvent[]>('get_bundle_events', { bundlePath: path, namespace: null, involvedObject: null });
-                } catch {
-                    // Events may not exist
-                }
-            }
-
-            // Index all resources per namespace
-            setBundleProgress('Indexing resources...');
-            const allResources = new Map<string, BundleResource[]>();
-            for (let i = 0; i < bundle.namespaces.length; i++) {
-                const ns = bundle.namespaces[i];
-                setBundleProgress(`Indexing ${ns}... (${i + 1}/${bundle.namespaces.length})`);
-                try {
-                    const types = await invoke<string[]>('get_bundle_resource_types', { bundlePath: path, namespace: ns });
-                    const nsResources: BundleResource[] = [];
-                    for (const t of types) {
-                        try {
-                            const res = await invoke<BundleResource[]>('get_bundle_resources', { bundlePath: path, namespace: ns, resourceType: t });
-                            nsResources.push(...res);
-                        } catch {
-                            // Skip on error
-                        }
-                    }
-                    allResources.set(ns, nsResources);
-                } catch {
-                    // Skip namespace on error
-                }
-            }
-
-            setBundleProgress('Ready!');
-
-            // Open the bundle dashboard with all pre-loaded data
-            onOpenBundle?.(path, {
-                bundle,
-                healthSummary,
-                events,
-                alerts,
-                allResources
-            });
-        } catch (e: any) {
-            console.error('Failed to load bundle:', e);
-            setBundleError(e?.message || String(e) || 'Failed to load bundle');
-        } finally {
-            setBundleLoading(false);
-            setBundleProgress('');
-        }
+        onOpenBundle?.();
     };
 
     const addLog = (message: string, status: 'pending' | 'success' | 'error' | 'info' = 'info') => {
@@ -749,8 +653,8 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                                                         log.status === 'pending' ? 'text-yellow-400' :
                                                             'text-zinc-400'
                                                     }`}>
-                                                    {log.status === 'success' ? '✓' :
-                                                        log.status === 'error' ? '✗' :
+                                                    {log.status === 'success' ? '[OK]' :
+                                                        log.status === 'error' ? '[X]' :
                                                             log.status === 'pending' ? '○' : '→'}
                                                 </span>
                                                 <span className={`${log.status === 'success' ? 'text-green-300' :
@@ -880,42 +784,21 @@ export function ConnectionScreen({ onConnect, onOpenAzure, onOpenBundle }: Conne
                         <div className="p-8 max-h-[60vh] overflow-y-auto">
                             <div className="text-center">
                                 <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
-                                    {bundleLoading ? (
-                                        <Loader2 size={40} className="text-amber-400 animate-spin" />
-                                    ) : (
-                                        <Package size={40} className="text-amber-400" />
-                                    )}
+                                    <Package size={40} className="text-amber-400" />
                                 </div>
                                 <h3 className="text-xl font-semibold text-white mb-2">
-                                    {bundleLoading ? 'Loading Bundle...' : 'Analyze Support Bundle'}
+                                    Analyze Support Bundle
                                 </h3>
                                 <p className="text-zinc-400 text-sm mb-6 max-w-sm mx-auto">
-                                    {bundleLoading ? bundleProgress : 'Open a Kubernetes support bundle for offline analysis without requiring a live cluster connection'}
+                                    Open a Kubernetes support bundle for offline analysis without requiring a live cluster connection
                                 </p>
-
-                                {bundleError && (
-                                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-left max-w-sm mx-auto">
-                                        <AlertCircle size={16} className="text-red-400 inline mr-2" />
-                                        <span className="text-red-400 text-sm">{bundleError}</span>
-                                    </div>
-                                )}
 
                                 <button
                                     onClick={loadBundle}
-                                    disabled={bundleLoading}
-                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium transition-all shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium transition-all shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 hover:scale-[1.02] active:scale-[0.98]"
                                 >
-                                    {bundleLoading ? (
-                                        <>
-                                            <Loader2 size={18} className="animate-spin" />
-                                            Analyzing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <FolderOpen size={18} />
-                                            Open Support Bundle
-                                        </>
-                                    )}
+                                    <FolderOpen size={18} />
+                                    Open Support Bundle
                                 </button>
 
                                 <div className="mt-8 pt-6 border-t border-white/5">

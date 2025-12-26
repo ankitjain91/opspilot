@@ -40,7 +40,7 @@ class TestResult:
     actual_routing: Optional[str] = None
 
     def __str__(self):
-        status = "✅ PASS" if self.passed else "❌ FAIL"
+        status = "[OK] PASS" if self.passed else "[X] FAIL"
         perf = f"({self.command_count} cmds, {self.execution_time:.1f}s)"
         if not self.passed:
             return f"{status} {perf} - {self.query}\n  Reason: {self.reason}"
@@ -112,18 +112,18 @@ class AgentTester:
                             intent_msg = event.get("data", {}).get("message", "")
                             if "SmartExecutor activated" in intent_msg:
                                 actual_routing = "smart_executor"
-                                print(f"   🎯 Routing: smart_executor")
+                                print(f"   [TARGET] Routing: smart_executor")
                             elif "Creating plan" in intent_msg or "Plan created" in intent_msg:
                                 actual_routing = "create_plan"
-                                print(f"   📋 Routing: create_plan")
+                                print(f"   [LIST] Routing: create_plan")
                             elif "Delegating" in intent_msg:
                                 actual_routing = "delegate"
-                                print(f"   🔧 Routing: delegate")
+                                print(f"   [FIX] Routing: delegate")
 
                         # Capture final answer
                         if event.get("type") == "final_answer":
                             answer = event.get("data", {}).get("answer", "")
-                            print(f"   💬 Answer received ({len(answer)} chars)")
+                            print(f"   [MSG] Answer received ({len(answer)} chars)")
 
                     except json.JSONDecodeError:
                         continue
@@ -296,7 +296,7 @@ class AgentTester:
 
         # Run same query 3 times to check consistency
         query = "find eventhubs"
-        print(f"\n📊 Running performance regression: '{query}' (3 iterations)")
+        print(f"\n[STATS] Running performance regression: '{query}' (3 iterations)")
 
         command_counts = []
         times = []
@@ -311,13 +311,13 @@ class AgentTester:
         avg_cmds = sum(command_counts) / len(command_counts)
         avg_time = sum(times) / len(times)
 
-        print(f"\n📈 Performance Stats:")
+        print(f"\n[CHART] Performance Stats:")
         print(f"   Commands: {command_counts} (avg: {avg_cmds:.1f})")
         print(f"   Times: {[f'{t:.1f}s' for t in times]} (avg: {avg_time:.1f}s)")
 
         # Check for consistency
         if max(command_counts) - min(command_counts) > 2:
-            print(f"   ⚠️  WARNING: Inconsistent command counts!")
+            print(f"   [WARN]  WARNING: Inconsistent command counts!")
 
     def print_summary(self):
         """Print test results summary."""
@@ -328,11 +328,11 @@ class AgentTester:
         passed = [r for r in self.results if r.passed]
         failed = [r for r in self.results if not r.passed]
 
-        print(f"\n✅ Passed: {len(passed)}/{len(self.results)}")
-        print(f"❌ Failed: {len(failed)}/{len(self.results)}")
+        print(f"\n[OK] Passed: {len(passed)}/{len(self.results)}")
+        print(f"[X] Failed: {len(failed)}/{len(self.results)}")
 
         if failed:
-            print("\n❌ FAILED TESTS:")
+            print("\n[X] FAILED TESTS:")
             print("-" * 80)
             for result in failed:
                 print(f"\n{result.query}")
@@ -351,7 +351,7 @@ class AgentTester:
                 print(f"  • {r.query}: {r.actual_routing} ≠ {r.expected_routing}")
 
         if command_failures:
-            print(f"\n⚡ PERFORMANCE ISSUES ({len(command_failures)} tests):")
+            print(f"\n[FAST] PERFORMANCE ISSUES ({len(command_failures)} tests):")
             for r in command_failures:
                 print(f"  • {r.query}: {r.command_count} commands (expected ≤ {r.expected_max_commands})")
 
@@ -359,7 +359,7 @@ class AgentTester:
         if self.results:
             avg_cmds = sum(r.command_count for r in self.results) / len(self.results)
             avg_time = sum(r.execution_time for r in self.results) / len(self.results)
-            print(f"\n📊 OVERALL PERFORMANCE:")
+            print(f"\n[STATS] OVERALL PERFORMANCE:")
             print(f"  Average commands: {avg_cmds:.1f}")
             print(f"  Average time: {avg_time:.1f}s")
 
@@ -400,7 +400,7 @@ async def main():
             print(f"\n💥 TESTS FAILED - {len(failed)} failures detected")
             exit(1)
         else:
-            print(f"\n🎉 ALL TESTS PASSED")
+            print(f"\n[DONE] ALL TESTS PASSED")
             exit(0)
 
     finally:

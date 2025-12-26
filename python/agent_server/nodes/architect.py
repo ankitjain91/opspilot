@@ -13,15 +13,15 @@ async def architect_node(state: AgentState) -> Dict[str, Any]:
     query = state.get('query', '')
     events = list(state.get('events', []))
     
-    print(f"[architect] 🏗️ Designing infrastructure for: '{query}'", flush=True)
-    events.append(emit_event("progress", {"message": "🏗️ Architecting solution..."}))
+    print(f"[architect] [BUILD] Designing infrastructure for: '{query}'", flush=True)
+    events.append(emit_event("progress", {"message": "[BUILD] Architecting solution..."}))
 
     # 1. Retrieve Knowledge (XRDs/Schemas)
     # We search specifically for infrastructure definitions
     kb_context = await get_relevant_kb_snippets(query, state, max_results=3, min_similarity=0.25)
     
     if not kb_context:
-        print(f"[architect] ⚠️ No specific infrastructure definitions found in KB.", flush=True)
+        print(f"[architect] [WARN] No specific infrastructure definitions found in KB.", flush=True)
         kb_context = "No specific Crossplane definitions found. Use standard Kubernetes resources."
 
     # 2. Call LLM to generate YAML
@@ -46,8 +46,8 @@ async def architect_node(state: AgentState) -> Dict[str, Any]:
         # In the future, we will route this to GitCommit. 
         # For now, we return it as the final response.
         
-        print(f"[architect] ✅ YAML generated.", flush=True)
-        events.append(emit_event("progress", {"message": "✅ Infrastructure design complete."}))
+        print(f"[architect] [OK] YAML generated.", flush=True)
+        events.append(emit_event("progress", {"message": "[OK] Infrastructure design complete."}))
 
         return {
             **state,
@@ -57,7 +57,7 @@ async def architect_node(state: AgentState) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        print(f"[architect] ❌ Generation failed: {e}", flush=True)
+        print(f"[architect] [ERROR] Generation failed: {e}", flush=True)
         return {
             **state,
             "error": f"Architect failed: {e}",

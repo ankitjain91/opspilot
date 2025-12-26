@@ -81,14 +81,14 @@ Output: {output if output else '(empty)'}
 - **Present facts directly** - "The cluster has 3 pods running" NOT "I found 3 pods during investigation"
 
 **ANSWER vs SUMMARY - THE DIFFERENCE:**
-❌ WRONG (Summary): "Based on my investigation, I executed kubectl get pods and found 3 pods..."
-✅ RIGHT (Answer): "Your cluster has 3 pods currently running: app-1, app-2, app-3."
+[ERROR] WRONG (Summary): "Based on my investigation, I executed kubectl get pods and found 3 pods..."
+[OK] RIGHT (Answer): "Your cluster has 3 pods currently running: app-1, app-2, app-3."
 
-❌ WRONG: "The investigation revealed no vclusters in the cluster..."
-✅ RIGHT: "No vclusters are installed. The vcluster CRD is not present in your cluster."
+[ERROR] WRONG: "The investigation revealed no vclusters in the cluster..."
+[OK] RIGHT: "No vclusters are installed. The vcluster CRD is not present in your cluster."
 
-❌ WRONG: "After checking events, I can report that..."
-✅ RIGHT: "Here are the recent cluster events: ..."
+[ERROR] WRONG: "After checking events, I can report that..."
+[OK] RIGHT: "Here are the recent cluster events: ..."
 
 **Response Style:**
 1. **Answer-focused** - Write THE ANSWER, not a report about finding the answer
@@ -226,17 +226,17 @@ Generate ONLY the filled template (no JSON, no code fence, no extra text):"""
             is_valid, error_msg = validate_response_quality(cleaned, query)
 
             if is_valid:
-                print(f"[response_formatter] ✅ Validation PASSED - using LLM response", flush=True)
+                print(f"[response_formatter] [OK] Validation PASSED - using LLM response", flush=True)
                 return cleaned.strip()
             else:
-                print(f"[response_formatter] ❌ Attempt {attempt + 1} FAILED validation: {error_msg}", flush=True)
+                print(f"[response_formatter] [ERROR] Attempt {attempt + 1} FAILED validation: {error_msg}", flush=True)
                 if attempt < max_retries - 1:
                     # Add stronger reminder to prompt for retry
                     prompt += f"\n\n**CRITICAL RETRY INSTRUCTION:** Previous response failed because: {error_msg}. Be EXTREMELY POSITIVE and solution-focused!"
                     continue
                 else:
                     # Last attempt failed validation
-                    print(f"[response_formatter] ⚠️  All {max_retries} attempts failed validation.", flush=True)
+                    print(f"[response_formatter] [WARN]  All {max_retries} attempts failed validation.", flush=True)
                     
                     # If response is empty or very short, force fallback
                     if not cleaned or len(cleaned) < 5:
@@ -283,14 +283,14 @@ def _format_simple_fallback(query: str, command_history: List[Dict], discovered_
 
     # EDGE CASE 1: No commands executed at all
     if not command_history:
-        return f"⚠️ Unable to investigate '{query}' - no commands were executed. Please check the cluster connection or try rephrasing your question."
+        return f"[WARN] Unable to investigate '{query}' - no commands were executed. Please check the cluster connection or try rephrasing your question."
 
     # EDGE CASE 2: Check if ALL commands failed with errors
     all_failed = all(cmd.get('error') for cmd in command_history)
     if all_failed:
         errors = [cmd.get('error', 'Unknown error') for cmd in command_history]
         unique_errors = list(set(errors))[:3]  # Show up to 3 unique errors
-        return f"❌ **Unable to complete investigation** due to errors:\n\n" + "\n".join(f"- {e}" for e in unique_errors) + "\n\n💡 **Suggestion**: Check cluster connectivity and permissions."
+        return f"[ERROR] **Unable to complete investigation** due to errors:\n\n" + "\n".join(f"- {e}" for e in unique_errors) + "\n\n[TIP] **Suggestion**: Check cluster connectivity and permissions."
 
     # EDGE CASE 3: Check if ALL commands returned empty (no output)
     all_empty = all(not cmd.get('output') or cmd.get('output').strip() == '' for cmd in command_history)
@@ -300,14 +300,14 @@ def _format_simple_fallback(query: str, command_history: List[Dict], discovered_
 
         # Provide helpful context based on query type
         if 'azure' in query_lower:
-            return f"**No Azure resources found** in the cluster.\n\n**Possible reasons**:\n- Azure Crossplane provider is not installed\n- No Azure resources have been provisioned\n- Resources exist but use different naming/CRDs\n\n💡 **Try**: `kubectl get providers` to check installed Crossplane providers, or `kubectl api-resources | grep azure` to see available Azure resource types."
+            return f"**No Azure resources found** in the cluster.\n\n**Possible reasons**:\n- Azure Crossplane provider is not installed\n- No Azure resources have been provisioned\n- Resources exist but use different naming/CRDs\n\n[TIP] **Try**: `kubectl get providers` to check installed Crossplane providers, or `kubectl api-resources | grep azure` to see available Azure resource types."
 
         elif any(word in query_lower for word in ['crossplane', 'managed', 'claim']):
-            return f"**No Crossplane resources found** matching '{query}'.\n\n**Possible reasons**:\n- Crossplane is not installed in the cluster\n- No managed resources have been created\n- Resource type doesn't exist\n\n💡 **Try**: `kubectl get providers` or `kubectl get crd | grep crossplane`"
+            return f"**No Crossplane resources found** matching '{query}'.\n\n**Possible reasons**:\n- Crossplane is not installed in the cluster\n- No managed resources have been created\n- Resource type doesn't exist\n\n[TIP] **Try**: `kubectl get providers` or `kubectl get crd | grep crossplane`"
 
         else:
             # Generic empty result
-            return f"**No resources found** matching '{query}'.\n\n**What I checked**:\n" + "\n".join(f"- `{cmd.get('command', 'N/A')}`" for cmd in command_history[-3:]) + f"\n\n💡 **Suggestion**: The requested resources may not exist in the cluster, or they use different names/types."
+            return f"**No resources found** matching '{query}'.\n\n**What I checked**:\n" + "\n".join(f"- `{cmd.get('command', 'N/A')}`" for cmd in command_history[-3:]) + f"\n\n[TIP] **Suggestion**: The requested resources may not exist in the cluster, or they use different names/types."
 
     # EDGE CASE 4: Some commands succeeded, some failed - partial data
     successful_commands = [cmd for cmd in command_history if cmd.get('output') and cmd.get('output').strip()]
@@ -326,21 +326,21 @@ def _format_simple_fallback(query: str, command_history: List[Dict], discovered_
             if any(bad in output for bad in ['crashloop', 'error', 'failed', 'unknown', 'imagepullbackoff', 'pending']):
                 has_errors = True
                 if 'unknown' in output:
-                    error_summary.append("⚠️ Some components are not reporting healthy status")
+                    error_summary.append("[WARN] Some components are not reporting healthy status")
                 if 'crashloop' in output:
-                    error_summary.append("❌ Containers are crash-looping")
+                    error_summary.append("[ERROR] Containers are crash-looping")
                 if 'imagepullbackoff' in output:
-                    error_summary.append("❌ Image pull failures")
+                    error_summary.append("[ERROR] Image pull failures")
 
         if has_errors:
             response = "**Your cluster has issues:**\n\n"
             response += "\n".join(set(error_summary))
             response += "\n\n**What this means:** These problems will prevent workloads from running properly."
         else:
-            response = "✅ **Your cluster appears healthy** based on the components I was able to check."
+            response = "[OK] **Your cluster appears healthy** based on the components I was able to check."
 
         if failed_commands:
-            response += f"\n\n⚠️ Note: {len(failed_commands)} check(s) failed - some components couldn't be verified."
+            response += f"\n\n[WARN] Note: {len(failed_commands)} check(s) failed - some components couldn't be verified."
 
         return response
 
@@ -369,7 +369,7 @@ def _format_simple_fallback(query: str, command_history: List[Dict], discovered_
                         response += f"```\n{output[:300]}\n```\n\n"
 
         if failed_commands:
-            response += f"\n⚠️ Note: {len(failed_commands)} command(s) failed during investigation."
+            response += f"\n[WARN] Note: {len(failed_commands)} command(s) failed during investigation."
 
         return response.strip() if response.strip() else f"I didn't find specific resources for '{query}'."
 
@@ -378,12 +378,12 @@ def _format_simple_fallback(query: str, command_history: List[Dict], discovered_
         last_output = successful_commands[-1].get('output', '')[:500]
         response = f"**Based on cluster investigation:**\n\n```\n{last_output}\n```\n\n"
         if failed_commands:
-            response += f"⚠️ Note: {len(failed_commands)} additional check(s) failed.\n\n"
-        response += "💡 **For more details**, try a more specific query."
+            response += f"[WARN] Note: {len(failed_commands)} additional check(s) failed.\n\n"
+        response += "[TIP] **For more details**, try a more specific query."
         return response
 
     # Absolute last resort - we have NOTHING useful
-    return f"⚠️ **Unable to provide a definitive answer** for '{query}'.\n\n**What happened**: Investigation completed but results were inconclusive.\n\n💡 **Try**: Rephrasing your question or checking cluster connectivity."
+    return f"[WARN] **Unable to provide a definitive answer** for '{query}'.\n\n**What happened**: Investigation completed but results were inconclusive.\n\n[TIP] **Try**: Rephrasing your question or checking cluster connectivity."
 
 
 def _format_discovery_response(query: str, command_history: List[Dict], discovered_resources: Dict) -> str:
@@ -403,7 +403,7 @@ def _format_discovery_response(query: str, command_history: List[Dict], discover
         return f"**No resources found** matching '{query}'.\n\nThe cluster doesn't contain any resources that match your search criteria."
 
     # Build intelligent summary
-    response = f"## 🔍 Search Results: {query}\n\n"
+    response = f"## [SEARCH] Search Results: {query}\n\n"
 
     # Summarize discoveries
     if discovered_resources:
@@ -452,7 +452,7 @@ def _format_debugging_response(query: str, command_history: List[Dict], discover
         return _format_no_issues_found(query, command_history)
 
     # Build intelligent debugging response
-    response = f"## 🔍 Investigation: {query}\n\n"
+    response = f"## [SEARCH] Investigation: {query}\n\n"
 
     # Show hypothesis if exists
     if hypothesis:
@@ -460,20 +460,20 @@ def _format_debugging_response(query: str, command_history: List[Dict], discover
 
     # Critical Issues
     if root_causes:
-        response += "### ❌ **Root Causes Identified:**\n\n"
+        response += "### [ERROR] **Root Causes Identified:**\n\n"
         for idx, cause in enumerate(root_causes, 1):
             response += f"{idx}. **{cause['cause']}**\n"
             response += f"   - {cause['details']}\n\n"
 
     # Issues Found
     if issues:
-        response += "### ⚠️ **Issues Detected:**\n\n"
+        response += "### [WARN] **Issues Detected:**\n\n"
         for idx, issue in enumerate(issues, 1):
             response += f"{idx}. **{issue['type']}**\n"
             response += f"   - {issue['details']}\n\n"
 
     # Recommendations
-    response += "### 💡 **Recommended Actions:**\n\n"
+    response += "### [TIP] **Recommended Actions:**\n\n"
     response += _generate_recommendations(issues, root_causes)
 
     return response.strip()
@@ -482,7 +482,7 @@ def _format_debugging_response(query: str, command_history: List[Dict], discover
 def _format_health_response(query: str, command_history: List[Dict], discovered_resources: Dict) -> str:
     """Format cluster health check responses"""
 
-    response = "## 🏥 Cluster Health Report\n\n"
+    response = "## [HEALTH] Cluster Health Report\n\n"
 
     # Analyze health from command outputs
     healthy_count = 0
@@ -501,16 +501,16 @@ def _format_health_response(query: str, command_history: List[Dict], discovered_
 
     # Overall status
     if unhealthy_count == 0:
-        response += "### ✅ **Status: Healthy**\n\n"
+        response += "### [OK] **Status: Healthy**\n\n"
         response += "No critical issues detected in the cluster.\n\n"
     else:
-        response += "### ⚠️ **Status: Issues Detected**\n\n"
+        response += "### [WARN] **Status: Issues Detected**\n\n"
         response += f"- Healthy resources: {healthy_count}\n"
         response += f"- Issues found: {unhealthy_count}\n\n"
 
     # Warnings
     if warnings:
-        response += "### ⚠️ **Warnings:**\n\n"
+        response += "### [WARN] **Warnings:**\n\n"
         for warning in warnings[:5]:
             if warning:
                 response += f"- {warning}\n"
@@ -518,7 +518,7 @@ def _format_health_response(query: str, command_history: List[Dict], discovered_
 
     # Resource summary from discovered resources
     if discovered_resources:
-        response += "### 📊 **Discovered Resources:**\n\n"
+        response += "### [STATS] **Discovered Resources:**\n\n"
         for resource_type, names in discovered_resources.items():
             response += f"- **{resource_type.title()}**: {len(names)}\n"
         response += "\n"
@@ -553,7 +553,7 @@ def _format_generic_response(query: str, command_history: List[Dict], discovered
 def _format_no_issues_found(query: str, command_history: List[Dict]) -> str:
     """Response when debugging but no issues found"""
 
-    response = f"## ✅ Investigation Complete: {query}\n\n"
+    response = f"## [OK] Investigation Complete: {query}\n\n"
     response += "**No critical issues detected.**\n\n"
 
     # Show what was checked
@@ -561,7 +561,7 @@ def _format_no_issues_found(query: str, command_history: List[Dict]) -> str:
     for cmd_entry in command_history[-5:]:
         command = cmd_entry.get('command', '')
         if 'get' in command:
-            response += f"- ✓ Checked: `{command}`\n"
+            response += f"- [OK] Checked: `{command}`\n"
 
     response += "\n**Conclusion:** The resources appear to be functioning normally."
 

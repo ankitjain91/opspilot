@@ -38,11 +38,11 @@ async def test_library():
         print(f"Outcome: {top.outcome}")
         
         if top.id == "test-run-123":
-            print("✅ Successfully retrieved saved experience!")
+            print("[OK] Successfully retrieved saved experience!")
         else:
-            print("⚠️ Retrieved different experience (maybe existing data).")
+            print("[WARN] Retrieved different experience (maybe existing data).")
     else:
-        print("❌ No results found. (Embeddings might be down or not generated)")
+        print("[X] No results found. (Embeddings might be down or not generated)")
 
 if __name__ == "__main__":
     asyncio.run(test_library())

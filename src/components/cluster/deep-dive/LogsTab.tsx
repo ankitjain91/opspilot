@@ -325,7 +325,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let analysisText = "\n--- 🤖 AI ANALYSIS ---\n\n";
+            let analysisText = "\n--- [AI] AI ANALYSIS ---\n\n";
             let streamedText = "";
 
             while (true) {
@@ -369,7 +369,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
             // Add the analysis to logs display
             if (analysisText.length > 30) {
                 setLogs(prev => [...prev, analysisText]);
-                setLastAnalysis(analysisText.replace("\n--- 🤖 AI ANALYSIS ---\n\n", ""));
+                setLastAnalysis(analysisText.replace("\n--- [AI] AI ANALYSIS ---\n\n", ""));
                 showToast("AI analysis complete", "success");
             } else {
                 showToast("Analysis returned empty result", "error");
@@ -382,14 +382,14 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
             const errorLines = scanResults.filter(r => r.level === 'error');
             const warnLines = scanResults.filter(r => r.level === 'warn');
 
-            let fallback = "\n--- 🤖 LOCAL ANALYSIS (AI unavailable) ---\n\n";
+            let fallback = "\n--- [AI] LOCAL ANALYSIS (AI unavailable) ---\n\n";
             fallback += `## Quick Summary\n`;
             fallback += `- **Total Lines:** ${logs.length}\n`;
             fallback += `- **Errors Found:** ${errorLines.length}\n`;
             fallback += `- **Warnings Found:** ${warnLines.length}\n`;
 
             if (errorLines.length === 0 && warnLines.length === 0) {
-                fallback += "\n✅ No critical issues detected in logs.\n";
+                fallback += "\n[OK] No critical issues detected in logs.\n";
             }
 
             setLogs(prev => [...prev, fallback]);
@@ -610,7 +610,7 @@ export function LogsTab({ resource, fullObject, autoAnalyzeContainer, onAnalysis
 
     const renderLogLine = (line: string, index: number) => {
         // Detect AI analysis blocks (both new AI and legacy local analysis)
-        if (line.includes("--- 🤖 AI ANALYSIS ---") || line.includes("--- 🤖 SMART ANALYSIS ---") || line.includes("--- 🤖 LOCAL ANALYSIS")) {
+        if (line.includes("--- [AI] AI ANALYSIS ---") || line.includes("--- [AI] SMART ANALYSIS ---") || line.includes("--- [AI] LOCAL ANALYSIS")) {
             return (
                 <div key={index} className="my-4 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                     <div className="prose prose-invert prose-sm max-w-none">

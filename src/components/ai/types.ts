@@ -216,7 +216,7 @@ export const EMPTY_RESULT_PATTERNS = [
     /^(none|empty|n\/a|\[\]|\{\})$/i,
     /0 items/i,
     /no (issues|problems|errors) found/i,
-    /✅ no/i,
+    /[OK] no/i,
     /not found/i,
 ];
 
@@ -424,7 +424,7 @@ export function compressToolHistorySemantic(
     const prioritized = results.map((r, i) => ({
         ...r,
         priority: calculateResultPriority(r.content, r.toolName, i, results.length),
-        isError: /^❌|error|fail/i.test(r.content),
+        isError: /^[X]|error|fail/i.test(r.content),
     })).sort((a, b) => b.priority - a.priority);
 
     // Keep top N detailed
@@ -734,12 +734,12 @@ export function evaluateToolOutcome(
     toolName: string
 ): { status: ToolOutcomeStatus; useful: boolean } {
     // Check for explicit errors
-    if (result.startsWith('❌')) {
+    if (result.startsWith('[X]')) {
         return { status: 'error', useful: false };
     }
 
     // Check for warnings (partial success)
-    if (result.startsWith('⚠️')) {
+    if (result.startsWith('[WARN]')) {
         // Warnings about missing data can still be useful
         const hasInfo = hasUsefulEvidence(result);
         return { status: 'partial', useful: hasInfo };
@@ -1394,7 +1394,7 @@ export function buildToolGuidance(
     if (failedTools.size > 0) {
         lines.push('\n**Avoid (already failed):**');
         for (const sig of Array.from(failedTools).slice(0, 5)) {
-            lines.push(`✗ ${sig}`);
+            lines.push(`[X] ${sig}`);
         }
     }
 

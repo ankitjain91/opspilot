@@ -72,6 +72,13 @@ from .graph import create_k8s_agent
 from .tools import kb_search as search
 from langgraph.checkpoint.memory import MemorySaver
 
+# Version is auto-generated at build time - see _version.py
+try:
+    from ._version import __version__ as AGENT_VERSION
+except ImportError:
+    # Fallback for development - read from package.json or use env
+    AGENT_VERSION = os.environ.get("AGENT_VERSION", "0.0.0-dev")
+
 
 # 2222 Initialize Checkpointer (In-memory for now to support async/streaming without complex dependencies)
 checkpointer = MemorySaver()
@@ -178,7 +185,7 @@ def update_session_state(thread_id: str, state: dict):
 
         # Warn if approaching max turns
         if turns >= SESSION_MAX_TURNS:
-            print(f"[Session] ⚠️ Thread {thread_id} has {turns} turns. Consider resetting for optimal performance.", flush=True)
+            print(f"[Session] WARNING: Thread {thread_id} has {turns} turns. Consider resetting for optimal performance.", flush=True)
 
         # LLM-DRIVEN FIX: Persist accumulated_evidence for query retries
         # It will be cleared when a new different query starts
@@ -381,7 +388,7 @@ async def _background_preload_kb(kube_context: str):
     global _preload_status
     try:
         _preload_status[kube_context] = "loading"
-        print(f"[KB] 🔄 Background preloading KB for context '{kube_context}'...", flush=True)
+        print(f"[KB] [SYNC] Background preloading KB for context '{kube_context}'...", flush=True)
 
         from .tools import ingest_cluster_knowledge
 
@@ -390,10 +397,10 @@ async def _background_preload_kb(kube_context: str):
         await ingest_cluster_knowledge(state, force_refresh=False)
 
         _preload_status[kube_context] = "ready"
-        print(f"[KB] ✅ Background preload complete for context '{kube_context}'", flush=True)
+        print(f"[KB] [OK] Background preload complete for context '{kube_context}'", flush=True)
     except Exception as e:
         _preload_status[kube_context] = f"error: {e}"
-        print(f"[KB] ❌ Background preload failed for '{kube_context}': {e}", flush=True)
+        print(f"[KB] [ERROR] Background preload failed for '{kube_context}': {e}", flush=True)
 
 
 def trigger_background_preload(kube_context: str) -> bool:
@@ -404,13 +411,13 @@ def trigger_background_preload(kube_context: str) -> bool:
     if kube_context in _preload_tasks:
         task = _preload_tasks[kube_context]
         if not task.done():
-            print(f"[KB] ⏳ Preload already in progress for {kube_context}", flush=True)
+            print(f"[KB] [WAIT] Preload already in progress for {kube_context}", flush=True)
             return False  # Already loading
         else:
-            print(f"[KB] ♻️ Previous preload task done, starting new one for {kube_context}", flush=True)
+            print(f"[KB] [RESET] Previous preload task done, starting new one for {kube_context}", flush=True)
 
     # Start new preload task
-    print(f"[KB] 🚀 Starting background preload task for {kube_context}", flush=True)
+    print(f"[KB] [START] Starting background preload task for {kube_context}", flush=True)
     task = asyncio.create_task(_background_preload_kb(kube_context))
     _preload_tasks[kube_context] = task
     return True
@@ -441,7 +448,7 @@ async def _warmup_claude_cli():
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=dict(os.environ),
+                env={**dict(os.environ), "CI": "true", "PYTHONIOENCODING": "utf-8"},
             )
 
             stdout, stderr = await asyncio.wait_for(
@@ -460,7 +467,7 @@ async def _warmup_claude_cli():
         except asyncio.TimeoutError:
             print(f"[Claude] Attempt {attempt}/{max_attempts} timed out (waiting for keyring permission?)", flush=True)
         except BrokenPipeError:
-            print(f"[Claude] Attempt {attempt}/{max_attempts} broken pipe (keyring permission pending?)", flush=True)
+            print(f"[Claude] Attempt {attempt}/{max_attempts} broken pipe (keyring permission pending or auth required?)", flush=True)
         except Exception as e:
             print(f"[Claude] Attempt {attempt}/{max_attempts} error: {e}", flush=True)
 
@@ -500,7 +507,7 @@ async def lifespan(app: FastAPI):
     try:
         os.makedirs(os.path.dirname(info_path), exist_ok=True)
         with open(info_path, "w") as f:
-            json.dump({"port": 8765, "pid": os.getpid(), "version": "0.2.55"}, f)
+            json.dump({"port": 8765, "pid": os.getpid(), "version": AGENT_VERSION}, f)
         print(f"[Server] Wrote connection info to {info_path}", flush=True)
     except Exception as e:
         print(f"[Server] Failed to write connection info: {e}", flush=True)
@@ -614,7 +621,7 @@ class SafeExceptionMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception as e:
-            print(f"[Server] ❌ Unhandled exception on {request.url.path}: {e}", flush=True)
+            print(f"[Server] [ERROR] Unhandled exception on {request.url.path}: {e}", flush=True)
             import traceback
             traceback.print_exc()
             return JSONResponse(
@@ -643,7 +650,7 @@ async def health_check():
     Simple health check - ALWAYS returns 200 if server is running.
     Use this for connectivity checks before other operations.
     """
-    return {"status": "ok", "version": "0.2.55"}
+    return {"status": "ok", "version": AGENT_VERSION}
 
 
 @app.get("/status")
@@ -678,7 +685,7 @@ async def server_status():
     return {
         "status": overall,
         "components": components,
-        "version": "0.2.55"
+        "version": AGENT_VERSION
     }
 
 
@@ -718,7 +725,7 @@ async def restart_sentinel():
         print(f"[Sentinel] Restarted successfully", flush=True)
         return {"success": True, "message": f"Sentinel restarted for context: {current_context or 'default'}"}
     except Exception as e:
-        print(f"[Sentinel] ❌ Restart failed: {e}", flush=True)
+        print(f"[Sentinel] [ERROR] Restart failed: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e), "recoverable": True}
@@ -741,17 +748,17 @@ async def preload_context(request: PreloadRequest):
     Call this when user switches contexts to warm the cache.
     """
     try:
-        print(f"[KB] 📥 Preload request received for context: {request.kube_context}", flush=True)
+        print(f"[KB] [RECV] Preload request received for context: {request.kube_context}", flush=True)
         started = trigger_background_preload(request.kube_context)
         status = _preload_status.get(request.kube_context, "pending")
-        print(f"[KB] 📥 Preload started={started}, status={status}", flush=True)
+        print(f"[KB] [RECV] Preload started={started}, status={status}", flush=True)
         return {
             "context": request.kube_context,
             "started": started,
             "status": status
         }
     except Exception as e:
-        print(f"[KB] ❌ Preload error: {e}", flush=True)
+        print(f"[KB] [ERROR] Preload error: {e}", flush=True)
         return {
             "context": request.kube_context,
             "started": False,
@@ -944,10 +951,29 @@ def find_executable_path(exe_name: str) -> str | None:
             
     return None
 
+# Cache for Claude CLI test results to avoid repeated keyring prompts
+_claude_test_cache: dict = {"result": None, "timestamp": 0, "ttl": 300}  # 5 min cache
+
 async def _test_claude_code_connection():
-    """Test Claude Code CLI with retry loop to allow keyring permission approval."""
-    import asyncio
-    import subprocess as sync_subprocess
+    """Test Claude Code CLI availability WITHOUT triggering keyring access.
+
+    Strategy:
+    1. Check cache first (5 min TTL)
+    2. Just verify the executable exists and is executable (no subprocess call)
+    3. Only call CLI if we need to verify version (which shouldn't need keyring)
+
+    This avoids the macOS keyring permission prompt that happens when spawning
+    the Claude CLI subprocess from a different process context.
+    """
+    import time
+
+    # Check cache first - if we have a recent result, return it
+    global _claude_test_cache
+    now = time.time()
+    if _claude_test_cache["result"] and (now - _claude_test_cache["timestamp"]) < _claude_test_cache["ttl"]:
+        cached = _claude_test_cache["result"]
+        print(f"[claude-test] Returning cached result (age: {int(now - _claude_test_cache['timestamp'])}s)", flush=True)
+        return cached
 
     config = load_opspilot_config()
     claude_bin = config.get("claude_cli_path")
@@ -964,81 +990,33 @@ async def _test_claude_code_connection():
             "completion_error": "CLI not installed",
         }
 
-    print(f"[claude-test] Testing Claude CLI at: {claude_bin}", flush=True)
+    # Simple file-based check: if the executable exists and is executable, assume it works
+    # This avoids spawning a subprocess which can trigger keyring prompts
+    if os.path.isfile(claude_bin) and os.access(claude_bin, os.X_OK):
+        print(f"[claude-test] Claude CLI found at: {claude_bin} (file check only, no subprocess)", flush=True)
+        success_result = {
+            "provider": "claude-code",
+            "connected": True,
+            "models_count": 2,
+            "completion_ok": True,
+            "error": None,
+            "completion_error": None,
+            "version": "installed",  # We don't call --version to avoid keyring
+        }
+        # Cache the result
+        _claude_test_cache["result"] = success_result
+        _claude_test_cache["timestamp"] = time.time()
+        return success_result
 
-    max_attempts = 5
-    retry_delay = 2  # seconds
-
-    last_error = None
-
-    def run_claude_sync():
-        """Run claude --version synchronously."""
-        result = sync_subprocess.run(
-            [claude_bin, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=dict(os.environ),
-            stdin=sync_subprocess.DEVNULL,
-            start_new_session=True,  # Detach from parent process group
-        )
-        return result
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            print(f"[claude-test] Attempt {attempt}: spawning {claude_bin} (sync)", flush=True)
-            print(f"[claude-test] PATH includes /opt/homebrew/bin: {'/opt/homebrew/bin' in os.environ.get('PATH', '')}", flush=True)
-
-            # Run synchronously in thread pool to avoid blocking event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, run_claude_sync)
-
-            print(f"[claude-test] Process done, returncode: {result.returncode}", flush=True)
-
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                print(f"[claude-test] Success: {version_info}", flush=True)
-                return {
-                    "provider": "claude-code",
-                    "connected": True,
-                    "models_count": 2,
-                    "completion_ok": True,
-                    "error": None,
-                    "completion_error": None,
-                    "version": version_info,
-                }
-            else:
-                last_error = result.stderr.strip() or "CLI returned non-zero exit code"
-                print(f"[claude-test] Attempt {attempt}/{max_attempts} failed: {last_error}", flush=True)
-
-        except sync_subprocess.TimeoutExpired:
-            last_error = "CLI timed out (keyring permission pending?)"
-            print(f"[claude-test] Attempt {attempt}/{max_attempts} timed out", flush=True)
-        except (BrokenPipeError, OSError) as e:
-            # OSError with errno 32 is also a broken pipe
-            if isinstance(e, OSError) and e.errno != 32:
-                last_error = str(e)
-                print(f"[claude-test] Attempt {attempt}/{max_attempts} OSError: {e}", flush=True)
-            else:
-                last_error = f"Broken pipe (keyring permission pending?)"
-                print(f"[claude-test] Attempt {attempt}/{max_attempts} broken pipe: {e}", flush=True)
-        except Exception as e:
-            last_error = str(e)
-            print(f"[claude-test] Attempt {attempt}/{max_attempts} error: {type(e).__name__}: {e}", flush=True)
-
-        if attempt < max_attempts:
-            print(f"[claude-test] Retrying in {retry_delay}s...", flush=True)
-            await asyncio.sleep(retry_delay)
-
-    # All attempts failed
-    print(f"[claude-test] Failed after {max_attempts} attempts: {last_error}", flush=True)
+    # Executable not found or not executable
+    print(f"[claude-test] Claude CLI not executable at: {claude_bin}", flush=True)
     return {
         "provider": "claude-code",
         "connected": False,
         "models_count": 0,
         "completion_ok": False,
-        "error": last_error,
-        "completion_error": last_error,
+        "error": f"Claude CLI found but not executable: {claude_bin}",
+        "completion_error": "CLI not executable",
     }
 
 async def _test_codex_connection():
@@ -1186,45 +1164,7 @@ def save_opspilot_config(config: dict):
         json.dump(config_to_save, f, indent=2)
     print(f"[config] Saved sanitized config to {OPSPILOT_CONFIG_PATH}", flush=True)
 
-def write_mcp_config(github_pat: str | None):
-    """Write MCP server config for Claude Code to use GitHub integration."""
-    mcp_config_path = os.path.expanduser("~/.claude/settings.json")
-
-    # Load existing config or start fresh
-    config = {}
-    if os.path.exists(mcp_config_path):
-        try:
-            with open(mcp_config_path) as f:
-                config = json.load(f)
-        except Exception:
-            config = {}
-
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-
-    if github_pat:
-        # Add GitHub MCP server
-        # Use npx.cmd on Windows, npx elsewhere
-        npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
-        config["mcpServers"]["github"] = {
-            "command": npx_cmd,
-            "args": ["-y", "@modelcontextprotocol/server-github"],
-            "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": github_pat
-            }
-        }
-        print(f"[MCP] Added GitHub MCP server to config", flush=True)
-    else:
-        # Remove GitHub MCP if PAT cleared
-        if "github" in config["mcpServers"]:
-            del config["mcpServers"]["github"]
-            print(f"[MCP] Removed GitHub MCP server from config", flush=True)
-
-    # Write config
-    os.makedirs(os.path.dirname(mcp_config_path), exist_ok=True)
-    with open(mcp_config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    print(f"[MCP] Updated config at {mcp_config_path}", flush=True)
+# write_mcp_config removed - replaced by native `github_smart_search` tool
 
 
 class GitHubConfigRequest(BaseModel):
@@ -1266,7 +1206,7 @@ async def set_github_config(request: GitHubConfigRequest):
     save_opspilot_config(config)
 
     # Write MCP config for Claude Code
-    # write_mcp_config(config.get("github_pat")) # DISABLED in favor of local search
+    # write_mcp_config(config.get("github_pat")) # REMOVED: Replaced by local search tool logic
 
     return {"status": "ok", "configured": bool(config.get("github_pat"))}
 
@@ -1532,7 +1472,7 @@ async def pull_embedding_model(
     base = target_endpoint or ""
     clean_endpoint = base.rstrip('/').removesuffix('/v1').rstrip('/') if base else "http://localhost:11434"
 
-    print(f"[embedding-pull] 📥 Pulling model '{target_model}' from {clean_endpoint}", flush=True)
+    print(f"[embedding-pull] [RECV] Pulling model '{target_model}' from {clean_endpoint}", flush=True)
 
     async def stream_progress():
         async with httpx.AsyncClient() as client:
@@ -1707,16 +1647,16 @@ async def analyze(request: AgentRequest):
             )
 
             if rewritten.confidence > 0.5:
-                print(f"[Query Rewriter] ✅ Rewrote query (confidence: {rewritten.confidence})", flush=True)
+                print(f"[Query Rewriter] [OK] Rewrote query (confidence: {rewritten.confidence})", flush=True)
                 print(f"[Query Rewriter] Detected resources: {rewritten.detected_resources}", flush=True)
                 print(f"[Query Rewriter] New query: {rewritten.rewritten_query}", flush=True)
                 final_query = rewritten.rewritten_query
             else:
-                print(f"[Query Rewriter] ⚠️ Low confidence ({rewritten.confidence}), using original query", flush=True)
+                print(f"[Query Rewriter] [WARN] Low confidence ({rewritten.confidence}), using original query", flush=True)
                 final_query = original_query
 
         except Exception as e:
-            print(f"[Query Rewriter] ❌ Failed: {e}, using original query", flush=True)
+            print(f"[Query Rewriter] [ERROR] Failed: {e}, using original query", flush=True)
             final_query = original_query
 
         # LLM-DRIVEN FIX: Clear accumulated_evidence if this is a NEW query (not retry of same query)
@@ -1788,7 +1728,9 @@ async def analyze(request: AgentRequest):
             "pause_after_step": request.pause_after_step,
             # Claude Code fast path
             "embedded_tool_call": None,
-            "project_mappings": request.project_mappings,
+            "embedded_tool_call": None,
+            "project_mappings": request.project_mappings or load_opspilot_config().get("project_mappings", []),
+            "workspace_roots": local_repos,  # Zero-Config: all configured local repos are search targets
         }
         
         # Keys that should be persisted across turns and NOT overwritten with None
@@ -1847,13 +1789,13 @@ async def analyze(request: AgentRequest):
             thinking_dots = 0
 
             # Send initial progress event immediately
-            yield f"data: {json.dumps(emit_event('progress', {'message': '🧠 Starting analysis...'}))}\n\n"
+            yield f"data: {json.dumps(emit_event('progress', {'message': '[BRAIN] Starting analysis...'}))}\n\n"
 
             # Transparent Intelligence: Immediate "Warm-up" signals
             # These give the user immediate feedback that the system is active and aware
-            yield f"data: {json.dumps(emit_event('progress', {'message': '🛡️ Verifying permissions...'}))}\n\n"
+            yield f"data: {json.dumps(emit_event('progress', {'message': '[SHIELD] Verifying permissions...'}))}\n\n"
             await asyncio.sleep(0.1)
-            yield f"data: {json.dumps(emit_event('progress', {'message': '🔍 Integrating Cluster Knowledge...'}))}\n\n"
+            yield f"data: {json.dumps(emit_event('progress', {'message': '[SEARCH] Integrating Cluster Knowledge...'}))}\n\n"
             await asyncio.sleep(0.1)
 
             # CRITICAL FIX: Increased recursion limits to handle complex investigations
@@ -1884,14 +1826,14 @@ async def analyze(request: AgentRequest):
                     await asyncio.sleep(5)  # Every 5 seconds
                     dots = (dots % 3) + 1
                     elapsed = int(time.time() - start_time)
-                    msg = '🧠 Loading model' + '.' * dots + ' (' + str(elapsed) + 's)'
+                    msg = '[BRAIN] Loading model' + '.' * dots + ' (' + str(elapsed) + 's)'
                     await heartbeat_queue.put(f"data: {json.dumps(emit_event('progress', {'message': msg}))}\n\n")
 
             try:
                 for attempt in range(max_attempts):
                     # If retrying, inject a hint into the query
                     if attempt > 0:
-                     print(f"🔄 Backtracking Attempt {attempt+1}/{max_attempts}...", flush=True)
+                     print(f"[SYNC] Backtracking Attempt {attempt+1}/{max_attempts}...", flush=True)
                      retry_msg = 'Previous path failed. Backtracking (Attempt ' + str(attempt+1) + ')...'
                      yield f"data: {json.dumps(emit_event('status', {'message': retry_msg, 'type': 'retry'}))}\n\n"
 
@@ -1931,7 +1873,7 @@ async def analyze(request: AgentRequest):
                             thinking_dots = (thinking_dots % 3) + 1
                             dots = "." * thinking_dots
                             elapsed = int(current_time - start_time)
-                            thinking_msg = '🧠 Thinking' + dots + ' (' + str(elapsed) + 's)'
+                            thinking_msg = '[BRAIN] Thinking' + dots + ' (' + str(elapsed) + 's)'
                             yield f"data: {json.dumps(emit_event('progress', {'message': thinking_msg}))}\n\n"
                             last_heartbeat = current_time
 
@@ -1944,15 +1886,15 @@ async def analyze(request: AgentRequest):
                             # This replaces the generic spinner with specific actions
                             friendly_message = None
                             if tool_name == 'kb_search':
-                                friendly_message = '📚 Consulting Knowledge Base...'
+                                friendly_message = '[KB] Consulting Knowledge Base...'
                             elif tool_name == 'list_k8s_resources':
-                                friendly_message = '🔍 Scouting Cluster Resources...'
+                                friendly_message = '[SEARCH] Scouting Cluster Resources...'
                             elif tool_name == 'get_resource_details':
-                                friendly_message = '📋 Inspecting Resource Details...'
+                                friendly_message = '[LIST] Inspecting Resource Details...'
                             elif tool_name == 'get_pod_logs':
-                                friendly_message = '📜 Reading Logs...'
+                                friendly_message = '[LOG] Reading Logs...'
                             elif tool_name == 'kubectl_command':
-                                friendly_message = '⚡ Executing Command...'
+                                friendly_message = '[RUN] Executing Command...'
                             
                             if friendly_message:
                                 yield f"data: {json.dumps(emit_event('progress', {'message': friendly_message}))}\n\n"
@@ -1973,7 +1915,7 @@ async def analyze(request: AgentRequest):
                                     # Capture final response if generated by any node
                                     if node_update.get('final_response'):
                                         final_answer = node_update.get('final_response')
-                                        print(f"✅ FINAL RESPONSE from {event['name']}", flush=True)
+                                        print(f"[OK] FINAL RESPONSE from {event['name']}", flush=True)
                                         # If a final answer is found, we can break out of the inner astream_events loop
                                         # and the outer retry loop will also break.
                                         break # Break from inner async for loop
@@ -2013,7 +1955,7 @@ async def analyze(request: AgentRequest):
                                         initial_state['approval_loop_count'] = approval_loop_count
 
                                         if approval_loop_count > 2:
-                                            print(f"[server] ❌ CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop with fallback response.", flush=True)
+                                            print(f"[server] [ERROR] CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop with fallback response.", flush=True)
 
                                             # Generate intelligent fallback response from available data
                                             try:
@@ -2030,7 +1972,7 @@ async def analyze(request: AgentRequest):
                                                     api_key=initial_state.get('api_key')
                                                 )
                                             except Exception as e:
-                                                print(f"[server] ❌ Fallback generation failed: {e}", flush=True)
+                                                print(f"[server] [ERROR] Fallback generation failed: {e}", flush=True)
                                                 # Simple fallback if LLM fails
                                                 cmd_hist = initial_state.get('command_history', [])
                                                 if cmd_hist:
@@ -2049,7 +1991,7 @@ async def analyze(request: AgentRequest):
                                             break  # Break from astream_events loop
                                         else:
                                             # Normal approval flow - wait for user
-                                            print(f"[server] ⚠️ Approval needed (iteration {approval_loop_count}). Waiting for user...", flush=True)
+                                            print(f"[server] [WARN] Approval needed (iteration {approval_loop_count}). Waiting for user...", flush=True)
                                             approval_ctx = {
                                                 'command': node_update.get('pending_command'),
                                                 'reason': node_update.get('approval_reason') or 'Manual approval required for mutative action',
@@ -2066,9 +2008,9 @@ async def analyze(request: AgentRequest):
                         break
                     else:
                         # Log the state if we didn't get a final answer
-                        print(f"❌ Attempt {attempt+1} failed to produce final_response. Current keys: {initial_state.keys()}", flush=True)
+                        print(f"[ERROR] Attempt {attempt+1} failed to produce final_response. Current keys: {initial_state.keys()}", flush=True)
                         if 'error' in initial_state:
-                             print(f"❌ State Error: {initial_state['error']}", flush=True)
+                             print(f"[ERROR] State Error: {initial_state['error']}", flush=True)
 
                     # If final_answer was found during this attempt, break the outer retry loop
                     if final_answer:
@@ -2082,14 +2024,14 @@ async def analyze(request: AgentRequest):
 
                 # Final response (use the final_answer determined by the loop)
                 if not final_answer and initial_state.get('error'):
-                    print(f"⚠️ Using error as final_answer: {initial_state['error']}", flush=True)
+                    print(f"[WARN] Using error as final_answer: {initial_state['error']}", flush=True)
                     final_answer = f"Error: {initial_state['error']}"
                 elif not final_answer:
                     # Synthesize a useful final response from command history
-                    print(f"⚠️ No final_answer from nodes, generating fallback response with {len(initial_state.get('command_history', []))} commands", flush=True)
+                    print(f"[WARN] No final_answer from nodes, generating fallback response with {len(initial_state.get('command_history', []))} commands", flush=True)
                     try:
                         from .response_formatter import format_intelligent_response_with_llm
-                        print(f"🔄 Calling format_intelligent_response_with_llm...", flush=True)
+                        print(f"[SYNC] Calling format_intelligent_response_with_llm...", flush=True)
                         final_answer = await format_intelligent_response_with_llm(
                             query=initial_state.get('query', ''),
                             command_history=initial_state.get('command_history', []),
@@ -2100,10 +2042,10 @@ async def analyze(request: AgentRequest):
                             llm_provider=initial_state.get('llm_provider') or 'ollama',
                             api_key=initial_state.get('api_key')
                         )
-                        print(f"✅ Fallback response generated: {final_answer[:100]}...", flush=True)
+                        print(f"[OK] Fallback response generated: {final_answer[:100]}...", flush=True)
                     except Exception as e:
                         # Fallback simple summary
-                        print(f"❌ format_intelligent_response_with_llm failed: {e}, using simple fallback", flush=True)
+                        print(f"[ERROR] format_intelligent_response_with_llm failed: {e}, using simple fallback", flush=True)
                         from .response_formatter import format_intelligent_response
                         final_answer = format_intelligent_response(
                             query=initial_state.get('query', ''),
@@ -2111,7 +2053,7 @@ async def analyze(request: AgentRequest):
                             discovered_resources=initial_state.get('discovered_resources') or {},
                             hypothesis=initial_state.get('current_hypothesis') or None,
                         )
-                        print(f"✅ Simple fallback response: {final_answer[:100]}...", flush=True)
+                        print(f"[OK] Simple fallback response: {final_answer[:100]}...", flush=True)
 
                 # Coverage checks: emit warnings if key signals are missing
                 cov = compute_coverage_snapshot(initial_state)
@@ -2173,14 +2115,14 @@ async def analyze(request: AgentRequest):
                 if final_answer:
                     print(f"   Preview: {final_answer[:150]}...", flush=True)
                 if suggested_next_steps:
-                    print(f"   💡 Suggestions: {suggested_next_steps}", flush=True)
+                    print(f"   [TIP] Suggestions: {suggested_next_steps}", flush=True)
 
                 yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': suggested_next_steps}))}\n\n"
 
             except Exception as e:
                 import traceback
-                print(f"❌ Error in event_generator: {e}", flush=True)
-                print(f"❌ Full traceback:\n{traceback.format_exc()}", flush=True)
+                print(f"[ERROR] Error in event_generator: {e}", flush=True)
+                print(f"[ERROR] Full traceback:\n{traceback.format_exc()}", flush=True)
                 # Ensure we yield a final error event if something crashed
                 err_msg = 'Internal Error: ' + str(e)
                 yield f"data: {json.dumps(emit_event('status', {'message': err_msg, 'type': 'error'}))}\n\n"
@@ -2289,14 +2231,14 @@ async def analyze_controllers_endpoint(kube_context: str = "", force_refresh: bo
         run_full_discovery_async
     )
 
-    print(f"[discovery] 🔍 Controller Analysis request for context: {kube_context}, force={force_refresh}")
+    print(f"[discovery] [SEARCH] Controller Analysis request for context: {kube_context}, force={force_refresh}")
 
     try:
         # Check cache first
         if not force_refresh:
             cached = discovery_cache.get(kube_context)
             if cached:
-                print(f"[discovery] ✅ Returning cached data")
+                print(f"[discovery] [OK] Returning cached data")
                 return {
                     "status": "complete",
                     "controllers": cached.get("controllers", []),
@@ -2308,7 +2250,7 @@ async def analyze_controllers_endpoint(kube_context: str = "", force_refresh: bo
         # Check if scan is in progress
         if discovery_cache.is_scanning(kube_context):
             progress = discovery_cache.get_scan_progress(kube_context)
-            print(f"[discovery] ⏳ Scan in progress: {progress.get('scanned_crds', 0)}/{progress.get('total_crds', 0)}")
+            print(f"[discovery] [WAIT] Scan in progress: {progress.get('scanned_crds', 0)}/{progress.get('total_crds', 0)}")
             return {
                 "status": "scanning",
                 "progress": {
@@ -2322,7 +2264,7 @@ async def analyze_controllers_endpoint(kube_context: str = "", force_refresh: bo
             }
 
         # Start new background scan
-        print(f"[discovery] 🚀 Starting background discovery...")
+        print(f"[discovery] [START] Starting background discovery...")
 
         # Run the discovery in background (fire and forget)
         asyncio.create_task(run_full_discovery_async(kube_context))
@@ -2340,7 +2282,7 @@ async def analyze_controllers_endpoint(kube_context: str = "", force_refresh: bo
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[discovery] ❌ Error in analyze-controllers: {str(e)}")
+        print(f"[discovery] [ERROR] Error in analyze-controllers: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Controller Analysis Failed: {str(e)}")
 
 
@@ -2380,12 +2322,12 @@ SYSTEM_API_GROUPS = {
 
 # Provider categories for grouping
 PROVIDER_CATEGORIES = {
-    'crossplane.io': {'label': 'Crossplane Core', 'color': 'purple', 'icon': '🔀'},
-    'upbound.io': {'label': 'Upbound', 'color': 'blue', 'icon': '☁️'},
-    'azure.upbound.io': {'label': 'Azure (Upbound)', 'color': 'sky', 'icon': '☁️'},
-    'aws.upbound.io': {'label': 'AWS (Upbound)', 'color': 'amber', 'icon': '☁️'},
-    'gcp.upbound.io': {'label': 'GCP (Upbound)', 'color': 'red', 'icon': '☁️'},
-    'pkg.crossplane.io': {'label': 'Crossplane Packages', 'color': 'indigo', 'icon': '📦'},
+    'crossplane.io': {'label': 'Crossplane Core', 'color': 'purple', 'icon': '[SYNC]'},
+    'upbound.io': {'label': 'Upbound', 'color': 'blue', 'icon': '[CLOUD]'},
+    'azure.upbound.io': {'label': 'Azure (Upbound)', 'color': 'sky', 'icon': '[CLOUD]'},
+    'aws.upbound.io': {'label': 'AWS (Upbound)', 'color': 'amber', 'icon': '[CLOUD]'},
+    'gcp.upbound.io': {'label': 'GCP (Upbound)', 'color': 'red', 'icon': '[CLOUD]'},
+    'pkg.crossplane.io': {'label': 'Crossplane Packages', 'color': 'indigo', 'icon': '[PKG]'},
 }
 
 
@@ -2403,16 +2345,16 @@ def get_provider_category(group: str) -> dict:
     # Check if it's a Crossplane provider (*.crossplane.io)
     if group.endswith('.crossplane.io'):
         provider = group.replace('.crossplane.io', '').split('.')[-1]
-        return {'label': f'{provider.title()} (Crossplane)', 'color': 'purple', 'icon': '🔀', 'group': group}
+        return {'label': f'{provider.title()} (Crossplane)', 'color': 'purple', 'icon': '[SYNC]', 'group': group}
 
     # Check if it's an Upbound provider (*.upbound.io)
     if group.endswith('.upbound.io'):
         parts = group.replace('.upbound.io', '').split('.')
         provider = parts[-1] if parts else 'unknown'
-        return {'label': f'{provider.title()} (Upbound)', 'color': 'blue', 'icon': '☁️', 'group': group}
+        return {'label': f'{provider.title()} (Upbound)', 'color': 'blue', 'icon': '[CLOUD]', 'group': group}
 
     # Default: custom CRD
-    return {'label': group.split('.')[0].title() if group else 'Custom', 'color': 'zinc', 'icon': '📦', 'group': group}
+    return {'label': group.split('.')[0].title() if group else 'Custom', 'color': 'zinc', 'icon': '[PKG]', 'group': group}
 
 
 def is_system_api_group(group: str) -> bool:
@@ -2455,12 +2397,12 @@ async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
 
         # Check if KB preload is in progress or needs to be triggered
         preload_status = _preload_status.get(kube_context, "")
-        print(f"[cr-health] 🔍 Preload status for {kube_context}: '{preload_status}'")
+        print(f"[cr-health] [SEARCH] Preload status for {kube_context}: '{preload_status}'")
 
         if preload_status == "":
             # Preload hasn't been triggered yet - trigger it now but DO NOT WAIT
             # The health dashboard doesn't need semantic embeddings, it just needs raw counts
-            print(f"[cr-health] 📥 Triggering background KB preload for {kube_context} (non-blocking)...")
+            print(f"[cr-health] [RECV] Triggering background KB preload for {kube_context} (non-blocking)...")
             trigger_background_preload(kube_context)
 
         # DELETED: The 10s wait loop that was blocking the UI
@@ -2468,14 +2410,14 @@ async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
 
 
         # Try to reuse CRDs from KB cache first (avoids duplicate kubectl call)
-        print(f"[cr-health] 📋 Phase 1: Getting CRDs (checking KB cache first)...")
+        print(f"[cr-health] [LIST] Phase 1: Getting CRDs (checking KB cache first)...")
         cached_crds, cache_age = get_cached_crds(kube_context)
 
         if cached_crds:
-            print(f"[cr-health] ♻️ Reusing {len(cached_crds)} CRDs from KB cache (age: {int(cache_age)}s)")
+            print(f"[cr-health] [RESET] Reusing {len(cached_crds)} CRDs from KB cache (age: {int(cache_age)}s)")
             crds = cached_crds
         else:
-            print(f"[cr-health] 🔄 No cached CRDs found, fetching fresh...")
+            print(f"[cr-health] [SYNC] No cached CRDs found, fetching fresh...")
             _cr_health_progress[cache_key]['phase'] = 'Discovering CRDs from cluster...'
             crds = list_crds(kube_context)
 
@@ -2492,7 +2434,7 @@ async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
         if filtered_count > 0 and filtered_count == len(crds):
             # ALL CRDs were filtered - this is a problem
             filtered_sample = crds[:10]
-            print(f"[cr-health] ⚠️ ALL {len(crds)} CRDs were filtered as 'system'! Sample groups: {set(c.group for c in filtered_sample)}", flush=True)
+            print(f"[cr-health] [WARN] ALL {len(crds)} CRDs were filtered as 'system'! Sample groups: {set(c.group for c in filtered_sample)}", flush=True)
         elif filtered_count > 0:
             print(f"[cr-health] Filtered {filtered_count} system CRDs, keeping {total_crds} custom CRDs", flush=True)
 
@@ -2618,7 +2560,7 @@ async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
         }
 
         _cr_health_progress[cache_key] = final_result
-        print(f"[cr-health] ✅ Scan complete: {total_crds} CRDs, {final_result['totalInstances']} instances")
+        print(f"[cr-health] [OK] Scan complete: {total_crds} CRDs, {final_result['totalInstances']} instances")
 
     except Exception as e:
         import traceback
@@ -2630,7 +2572,7 @@ async def _run_progressive_cr_scan(cache_key: str, kube_context: str):
             'totalCRDs': 0,
             'scannedCRDs': 0,
         }
-        print(f"[cr-health] ❌ Scan failed: {e}")
+        print(f"[cr-health] [ERROR] Scan failed: {e}")
     finally:
         _cr_health_scanning[cache_key] = False
 
@@ -2658,7 +2600,7 @@ async def custom_resource_health_endpoint(
     if not force_refresh and cache_key in _cr_health_cache:
         cached = _cr_health_cache[cache_key]
         if cached.get('timestamp', 0) > time.time() - 300:  # 5 min TTL
-            print(f"[cr-health] ✅ Returning cached data")
+            print(f"[cr-health] [OK] Returning cached data")
             return cached['data']
 
     # If scan is in progress, return current progress
@@ -2686,7 +2628,7 @@ async def custom_resource_health_endpoint(
         }
 
     # Start background scan
-    print(f"[cr-health] 🚀 Starting progressive scan for context: {kube_context}")
+    print(f"[cr-health] [START] Starting progressive scan for context: {kube_context}")
     _cr_health_scanning[cache_key] = True
     _cr_health_progress[cache_key] = {
         'status': 'starting',
@@ -2736,11 +2678,11 @@ async def analyze_direct(request: DirectAgentRequest):
     if request.llm_provider == "codex-cli":
         from .codex_backend import get_codex_backend
         backend = get_codex_backend()
-        print(f"[direct-agent] 🤖 Using Codex CLI backend", flush=True)
+        print(f"[direct-agent] [BOT] Using Codex CLI backend", flush=True)
     else:
         from .claude_code_backend import get_claude_code_backend
         backend = get_claude_code_backend()
-        print(f"[direct-agent] 🤖 Using Claude Code backend", flush=True)
+        print(f"[direct-agent] [BOT] Using Claude Code backend", flush=True)
 
     # Token Optimization: Use modular prompt builder for minimal prompts
     # This reduces token usage by 40-60% compared to monolithic prompts
@@ -2748,7 +2690,7 @@ async def analyze_direct(request: DirectAgentRequest):
     if prompt_stats["is_minimal"]:
         # For simple queries (greetings, off-topic), use ultra-minimal prompt
         system_prompt = build_system_prompt(request.query)
-        print(f"[direct-agent] ⚡ Using minimal prompt ({prompt_stats['estimated_tokens']} tokens, modules: {prompt_stats['modules']})", flush=True)
+        print(f"[direct-agent] [RUN] Using minimal prompt ({prompt_stats['estimated_tokens']} tokens, modules: {prompt_stats['modules']})", flush=True)
     else:
         # For complex queries, use full direct agent prompt
         system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
@@ -2756,16 +2698,16 @@ async def analyze_direct(request: DirectAgentRequest):
     if request.resource_context:
          system_prompt += f"\n\nIMPORTANT: The user is asking about a specific resource: {request.resource_context}. Keep your answer focused on this resource unless asked otherwise."
 
-    mode_icon = "⚡" if request.fast_mode else "✨"
+    mode_icon = "[RUN]" if request.fast_mode else "[OK]"
     print(f"[direct-agent] {mode_icon} Starting investigation: {request.query} (Fast: {request.fast_mode})", flush=True)
-    print(f"[direct-agent] 📋 Thread ID: {request.thread_id}", flush=True)
+    print(f"[direct-agent] [LIST] Thread ID: {request.thread_id}", flush=True)
 
     # Load conversation history from session for context continuity
     session_state = get_session_state(request.thread_id)
     conversation_history = []
     if session_state:
         conversation_history = session_state.get('conversation_history', [])
-        print(f"[direct-agent] 📚 Loaded {len(conversation_history)} messages from session history", flush=True)
+        print(f"[direct-agent] [KB] Loaded {len(conversation_history)} messages from session history", flush=True)
 
     async def event_generator():
         try:
@@ -2792,11 +2734,11 @@ async def analyze_direct(request: DirectAgentRequest):
                         min_similarity=0.3
                     )
                     if kb_context:
-                        print(f"[direct-agent] 📚 Found relevant KB context ({len(kb_context)} chars)", flush=True)
+                        print(f"[direct-agent] [KB] Found relevant KB context ({len(kb_context)} chars)", flush=True)
                 except Exception as kb_err:
-                    print(f"[direct-agent] ⚠️ KB search skipped: {kb_err}", flush=True)
+                    print(f"[direct-agent] [WARN] KB search skipped: {kb_err}", flush=True)
             else:
-                 print(f"[direct-agent] ⏩ Fast Mode: Skipping KB Search", flush=True)
+                 print(f"[direct-agent] [SKIP] Fast Mode: Skipping KB Search", flush=True)
 
             # 3. Build the prompt with KB context
             user_prompt = DIRECT_AGENT_USER_PROMPT.format(
@@ -2825,7 +2767,7 @@ async def analyze_direct(request: DirectAgentRequest):
             # Merge: combine both sources, remove duplicates
             local_repos = list(set(local_repos_config + github_repos_config))
             if local_repos:
-                print(f"[direct-agent] 📁 Configured repos: {local_repos}", flush=True)
+                print(f"[direct-agent] [DIR] Configured repos: {local_repos}", flush=True)
 
             # Inject Local Repos context if configured (SKIP IN FAST MODE for prompt injection only)
             if not request.fast_mode:
@@ -2856,9 +2798,9 @@ You have access to the user's local source code repositories.
 3. **IGNORE MCP**: Do NOT use `mcp__github__*` tools. Use local filesystem tools.
 """
                     user_prompt = github_context + user_prompt
-                    print(f"[direct-agent] 🔗 Local Repos context injected", flush=True)
+                    print(f"[direct-agent] [LINK] Local Repos context injected", flush=True)
             else:
-                print(f"[direct-agent] ⏩ Fast Mode: Skipping Local Repo context", flush=True)
+                print(f"[direct-agent] [SKIP] Fast Mode: Skipping Local Repo context", flush=True)
 
 
             yield f"data: {json.dumps(emit_event('status', {'message': 'Starting fast investigation...' if request.fast_mode else 'Starting investigation...', 'type': 'info'}))}\n\n"
@@ -2879,7 +2821,7 @@ You have access to the user's local source code repositories.
                             "args": srv.args,
                             "env": srv.env
                         }
-                    print(f"[direct-agent] 🔌 MCP servers from request: {list(mcp_servers_config.keys())}", flush=True)
+                    print(f"[direct-agent] [PLUG] MCP servers from request: {list(mcp_servers_config.keys())}", flush=True)
 
                 # Add GitHub MCP if configured (legacy support)
                 if opspilot_config.get("github_pat"):
@@ -2902,7 +2844,7 @@ You have access to the user's local source code repositories.
             # Determine mode-specific settings
             system_prompt = DIRECT_AGENT_SYSTEM_PROMPT
             if request.fast_mode:
-                system_prompt = """⚡ FAST MODE ⚡
+                system_prompt = """[RUN] FAST MODE [RUN]
 You're the espresso shot of AI assistants right now - quick, strong, no filler.
 
 Rules:
@@ -2931,7 +2873,7 @@ Protocol:
 2. Read the relevant files to understand the context.
 3. Suggest potential fixes based on the code logic (do NOT apply them).
 """
-                print(f"[direct-agent] 🔒 Code Search Mode enabled (No MCP, Read-Only, No Kubectl)", flush=True)
+                print(f"[direct-agent] [LOCK] Code Search Mode enabled (No MCP, Read-Only, No Kubectl)", flush=True)
 
             final_answer = ""
             command_history = []
@@ -2940,7 +2882,7 @@ Protocol:
             # Determine working directory - use first configured repo if available
             working_dir = local_repos[0] if local_repos else None
             if working_dir:
-                print(f"[direct-agent] 📁 Setting working directory: {working_dir}", flush=True)
+                print(f"[direct-agent] [DIR] Setting working directory: {working_dir}", flush=True)
 
             async for event in backend.call_streaming_with_tools(
                 prompt=user_prompt,
@@ -3022,7 +2964,7 @@ Protocol:
 
             # 4. Return final answer and save session
             if final_answer:
-                print(f"[direct-agent] ✅ Investigation complete ({len(final_answer)} chars)", flush=True)
+                print(f"[direct-agent] [OK] Investigation complete ({len(final_answer)} chars)", flush=True)
 
                 # Save conversation history for context continuity
                 # Add user query and assistant response to history
@@ -3035,7 +2977,7 @@ Protocol:
                     'conversation_history': new_history,
                     'command_history': command_history,
                 })
-                print(f"[direct-agent] 💾 Saved session with {len(new_history)} messages", flush=True)
+                print(f"[direct-agent] [SAVE] Saved session with {len(new_history)} messages", flush=True)
 
                 yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': []}))}\n\n"
             else:
@@ -3043,7 +2985,7 @@ Protocol:
 
         except Exception as e:
             import traceback
-            print(f"[direct-agent] ❌ Error: {e}", flush=True)
+            print(f"[direct-agent] [ERROR] Error: {e}", flush=True)
             print(traceback.format_exc(), flush=True)
             err_msg = 'Investigation failed: ' + str(e)
             yield f"data: {json.dumps(emit_event('error', {'message': err_msg}))}\n\n"
@@ -3088,8 +3030,8 @@ async def get_resource_chain(request: ResourceChainRequest):
     Get the complete resource chain for a K8s resource.
 
     This endpoint allows the UI to:
-    1. Click on a Pod → See its owners (ReplicaSet, Deployment)
-    2. Click on a Deployment → See its owned resources (RS, Pods)
+    1. Click on a Pod -> See its owners (ReplicaSet, Deployment)
+    2. Click on a Deployment -> See its owned resources (RS, Pods)
     3. See related ConfigMaps, Secrets, PVCs
     4. See warning events across the chain
 
@@ -3105,7 +3047,7 @@ async def get_resource_chain(request: ResourceChainRequest):
     from kubernetes import client, config
     from .tools.resource_chain import build_resource_chain
 
-    print(f"[resource-chain] 🔗 Building chain for {request.kind}/{request.name} in {request.namespace}", flush=True)
+    print(f"[resource-chain] [LINK] Building chain for {request.kind}/{request.name} in {request.namespace}", flush=True)
 
     try:
         # Load kubeconfig for the specified context
@@ -3125,7 +3067,7 @@ async def get_resource_chain(request: ResourceChainRequest):
             include_events=request.include_events
         )
 
-        print(f"[resource-chain] ✅ Found {len(chain.owners)} owners, {len(chain.children)} children, {len(chain.related)} related", flush=True)
+        print(f"[resource-chain] [OK] Found {len(chain.owners)} owners, {len(chain.children)} children, {len(chain.related)} related", flush=True)
 
         # Convert to response model
         return ResourceChainResponse(
@@ -3153,7 +3095,7 @@ async def get_resource_chain(request: ResourceChainRequest):
 
     except Exception as e:
         import traceback
-        print(f"[resource-chain] ❌ Error: {e}", flush=True)
+        print(f"[resource-chain] [ERROR] Error: {e}", flush=True)
         print(traceback.format_exc(), flush=True)
         # Return empty chain on error
         return ResourceChainResponse(
@@ -3172,7 +3114,7 @@ async def get_resource_chain_simple(namespace: str, kind: str, name: str, contex
     from kubernetes import client, config
     from .tools.resource_chain import build_resource_chain
 
-    print(f"[resource-chain] 🔗 GET chain for {kind}/{name} in {namespace}", flush=True)
+    print(f"[resource-chain] [LINK] GET chain for {kind}/{name} in {namespace}", flush=True)
 
     try:
         config.load_kube_config(context=context if context else None)
@@ -3225,7 +3167,7 @@ async def analyze_logs(request: LogAnalysisRequest):
     from .prompts.direct_agent import DIRECT_AGENT_SYSTEM_PROMPT
     from .claude_code_backend import get_claude_code_backend
 
-    mode_icon = "⚡" if request.fast_mode else "🔍"
+    mode_icon = "[RUN]" if request.fast_mode else "[SEARCH]"
     print(f"[log-analysis] {mode_icon} Analyzing logs for {request.pod_name}/{request.container_name} (Fast: {request.fast_mode})", flush=True)
 
     async def event_generator():
@@ -3280,7 +3222,7 @@ Provide a concise, expert analysis for a DevOps engineer.
 
 Be authoritative and technical. Use markdown with bold highlights for critical terms."""
 
-            yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 Analyzing logs...'})}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': '[SEARCH] Analyzing logs...'})}\n\n"
 
             backend = get_claude_code_backend()
             final_analysis = ""
@@ -3295,7 +3237,7 @@ Be authoritative and technical. Use markdown with bold highlights for critical t
 
                 if event_type == 'thinking':
                     thinking = event.get('content', '')[:100]
-                    yield f"data: {json.dumps({'type': 'progress', 'message': f'🧠 {thinking}'})}\n\n"
+                    yield f"data: {json.dumps({'type': 'progress', 'message': f'[BRAIN] {thinking}'})}\n\n"
 
                 elif event_type == 'text':
                     text = event.get('content', '')
@@ -3319,7 +3261,7 @@ Be authoritative and technical. Use markdown with bold highlights for critical t
 
         except Exception as e:
             import traceback
-            print(f"[log-analysis] ❌ Error: {e}", flush=True)
+            print(f"[log-analysis] [ERROR] Error: {e}", flush=True)
             print(traceback.format_exc(), flush=True)
             yield f"data: {json.dumps({'type': 'error', 'message': f'Analysis failed: {str(e)}'})}\n\n"
 
@@ -3387,7 +3329,7 @@ def print_access_urls(port):
     import socket
     
     print("\n" + "="*50)
-    print(f"🚀 OpsPilot Agent Server Running on Port {port}")
+    print(f"[START] OpsPilot Agent Server Running on Port {port}")
     print("="*50)
     print(f"Local:   http://127.0.0.1:{port}")
     
@@ -3445,7 +3387,7 @@ async def save_solution_endpoint(request: SolutionRequest):
     try:
         os.makedirs(base_dir, exist_ok=True)
     except Exception as e:
-        print(f"[KB] ❌ Failed to create solution directory: {e}", flush=True)
+        print(f"[KB] [ERROR] Failed to create solution directory: {e}", flush=True)
         return {"status": "error", "message": str(e)}
     
     # Create solution object
@@ -3466,9 +3408,9 @@ async def save_solution_endpoint(request: SolutionRequest):
     try:
         with open(path, "w") as f:
             json.dump(solution_data, f, indent=2)
-        print(f"[KB] 🧠 Saved solution {filename} for query: {request.query[:50]}...", flush=True)
+        print(f"[KB] [BRAIN] Saved solution {filename} for query: {request.query[:50]}...", flush=True)
     except Exception as e:
-        print(f"[KB] ❌ Failed to save solution file: {e}", flush=True)
+        print(f"[KB] [ERROR] Failed to save solution file: {e}", flush=True)
         return {"status": "error", "message": str(e)}
     
     # Invalidate cache to force reload of new solution
@@ -3476,7 +3418,7 @@ async def save_solution_endpoint(request: SolutionRequest):
         from .tools import clear_cache
         clear_cache()
     except Exception as e:
-        print(f"[KB] ⚠️ Failed to clear cache: {e}", flush=True)
+        print(f"[KB] [WARN] Failed to clear cache: {e}", flush=True)
     
     return {"status": "saved", "id": solution_data["id"]}
 
@@ -3543,8 +3485,8 @@ async def analyze_bundle(request: BundleAnalysisRequest):
     """
     from .claude_code_backend import get_claude_code_backend
 
-    print(f"[bundle-ai] 🔍 Analyzing bundle (mode: {request.mode})", flush=True)
-    print(f"[bundle-ai] 📊 Summary size: {len(request.summary)} chars", flush=True)
+    print(f"[bundle-ai] [SEARCH] Analyzing bundle (mode: {request.mode})", flush=True)
+    print(f"[bundle-ai] [STATS] Summary size: {len(request.summary)} chars", flush=True)
 
     try:
         backend = get_claude_code_backend()
@@ -3592,12 +3534,12 @@ Focus on the most impactful issues first."""
 
             try:
                 result = json.loads(response)
-                print(f"[bundle-ai] ✅ Analysis complete: {len(result.get('rootCauses', []))} root causes found", flush=True)
+                print(f"[bundle-ai] [OK] Analysis complete: {len(result.get('rootCauses', []))} root causes found", flush=True)
                 return result
             except json.JSONDecodeError as e:
                 # If JSON parsing fails, return the raw response as summary
-                print(f"[bundle-ai] ⚠️ JSON parse failed: {e}", flush=True)
-                print(f"[bundle-ai] 📄 Raw response: {response[:500]}...", flush=True)
+                print(f"[bundle-ai] [WARN] JSON parse failed: {e}", flush=True)
+                print(f"[bundle-ai] [DOC] Raw response: {response[:500]}...", flush=True)
                 return {
                     "summary": response[:500] if response else "Analysis failed",
                     "rootCauses": [],
@@ -3640,11 +3582,11 @@ Do NOT suggest running kubectl or any other commands - this is static data from 
                 timeout=45.0
             )
 
-            print(f"[bundle-ai] ✅ Question answered: {len(response)} chars", flush=True)
+            print(f"[bundle-ai] [OK] Question answered: {len(response)} chars", flush=True)
             return {"answer": response}
 
     except Exception as e:
-        print(f"[bundle-ai] ❌ Error: {e}", flush=True)
+        print(f"[bundle-ai] [ERROR] Error: {e}", flush=True)
         return {"error": str(e)}
 
 

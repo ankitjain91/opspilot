@@ -439,9 +439,9 @@ def get_plan_summary(plan: list[dict]) -> str:
         
     lines = []
     for step in plan:
-        status_icon = "✓" if step['status'] == 'completed' else "✗" if step['status'] == 'skipped' else "○"
+        status_icon = "[OK]" if step['status'] == 'completed' else "[X]" if step['status'] == 'skipped' else "○"
         if step['status'] == 'in_progress':
-            status_icon = "➤"
+            status_icon = "[NEXT]"
             
         lines.append(f"{step['step']}. {status_icon} {step['description']}")
         
@@ -481,7 +481,7 @@ def log_session(state: dict, duration: float, status: str = "COMPLETED"):
             
         print(f"[agent-sidecar] Session logged to {filepath}", flush=True)
 
-        # 🧠 THE LIBRARY: Learn from this session
+        # [BRAIN] THE LIBRARY: Learn from this session
         try:
              save_session_experience(state)
         except Exception as e:

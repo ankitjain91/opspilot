@@ -7,52 +7,64 @@ from pydantic import BaseModel, Field
 # Note: LocateSource model definition moved to .definitions to avoid circular imports
 
 
-def locate_source(file_pattern: str, line_number: Optional[int], project_mappings: List[dict]) -> str:
+def locate_source(file_pattern: str, line_number: Optional[int], project_mappings: List[dict], search_paths: List[str] = None) -> str:
     """
-    Locate a file in mapped local directories.
+    Locate a file in mapped local directories or search all workspaces (Smart Discovery).
     
     Args:
         file_pattern: Path segment from stack trace (e.g., "src/main/java/com/example/App.java")
         line_number: Optional line number
         project_mappings: List of {image_pattern: str, local_path: str}
+        search_paths: List of workspace root paths to search if no mapping found (Zero-Config)
         
     Returns:
         String description of location with deep link or error message.
     """
-    if not project_mappings:
-        return "No project source mappings configured. Please configure them in Settings -> Smart Code Discovery."
-
     # Extract filename from pattern for faster search
     filename = os.path.basename(file_pattern)
     search_subpath = file_pattern # Use full pattern for validation match
     
     found_paths = []
-
-    for mapping in project_mappings:
-        local_root = os.path.expanduser(mapping.get('local_path', ''))
-        if not os.path.isdir(local_root):
-            continue
+    
+    # helper to search a root
+    def search_root(root_path):
+        results = []
+        if not os.path.isdir(root_path):
+            return results
             
-        # Use simple recursive search for the filename
-        # This is basic; for large repos 'fd' or 'find' is better, but this handles cross-platform Python
-        for root, _, files in os.walk(local_root):
+        for root, _, files in os.walk(root_path):
              if filename in files:
                  full_path = os.path.join(root, filename)
                  
                  # Heuristic: does the full path contain the search subpath?
                  # e.g. search="com/foo/Bar.java", found="/root/src/com/foo/Bar.java" -> Match
-                 # Normalizing separators is important
                  norm_full = full_path.replace('\\', '/')
                  norm_search = search_subpath.replace('\\', '/')
                  
                  if norm_search in norm_full:
-                     found_paths.append(full_path)
-                     # Stop after first good match per mapping? Maybe continue to find ambiguous matches.
-                     break
-    
+                     results.append(full_path)
+        return results
+
+    # 1. Try explicit mappings first (Priority)
+    if project_mappings:
+        for mapping in project_mappings:
+            local_root = os.path.expanduser(mapping.get('local_path', ''))
+            found_paths.extend(search_root(local_root))
+
+    # 2. If no mappings or no results, try all workspaces (Zero-Config Smart Search)
+    if not found_paths and search_paths:
+        print(f"[code_nav] No mapping match. Trying smart search in workspaces: {search_paths}", flush=True)
+        for ws_path in search_paths:
+            found_paths.extend(search_root(ws_path))
+
     if not found_paths:
-        return f"Could not find '{file_pattern}' in any mapped usage directories."
+        mapped_msg = "" if project_mappings else " (No mappings configured)"
+        ws_msg = "" if search_paths else " (No open workspaces)"
+        return f"Could not find '{file_pattern}' in local files.{mapped_msg}{ws_msg} Try standard 'fs_find' or 'github_smart_search'."
     
+    # Deduplicate
+    found_paths = list(set(found_paths))
+
     # Format result
     results = []
     for path in found_paths:

@@ -4,13 +4,13 @@ DECISION_RULES_PROMPT = """
 DECISION FRAMEWORK - PYTHON-FIRST APPROACH
 ═══════════════════════════════════════════════════════════════════════════════
 
-🐍 **PYTHON IS THE PRIMARY TOOL** 🐍
+[PY] **PYTHON IS THE PRIMARY TOOL** [PY]
 - Use `run_k8s_python` for ALL Kubernetes operations
 - Python gives 100% accurate results (no truncation, no parsing errors)
 - Pre-loaded clients: v1, apps_v1, batch_v1, networking_v1, custom
 - Built-in helpers: diagnose_crash(), find_zombies(), audit_pvc(), find_pods_for_service()
 
-✅ SET next_action="respond" IMMEDIATELY when:
+[OK] SET next_action="respond" IMMEDIATELY when:
   1. Greeting/off-topic: "hello", "hi", non-K8s requests
   2. Definitions: "what is a pod?", "explain X", "difference between A and B"
   3. Have root cause from Python diagnosis:
@@ -24,14 +24,14 @@ DECISION FRAMEWORK - PYTHON-FIRST APPROACH
       • All nodes Ready condition == True → "Cluster healthy"
       • Empty result for unhealthy filter → "No issues found"
   5. For "Find/List/Health" queries with sufficient Python data
-      • ⚠️ **CRITICAL**: If no Python commands run yet, MUST create_plan!
+      • [WARN] **CRITICAL**: If no Python commands run yet, MUST create_plan!
   6. Iteration > 2 AND have useful Python output → Respond with findings
 
-⚠️ **NEVER RESPOND ON FIRST ITERATION WITHOUT DATA:**
+[WARN] **NEVER RESPOND ON FIRST ITERATION WITHOUT DATA:**
   - If iteration=1 AND command_history is empty → MUST use create_plan
   - Example: "Check failing pods" with no commands → create_plan, DO NOT respond
 
-✅ **PREFER next_action="create_plan" for ALL queries:**
+[OK] **PREFER next_action="create_plan" for ALL queries:**
   1. **Health Queries:** "Cluster health", "Find issues", "Deep dive"
      - Plan: ["Use Python to list unhealthy pods", "Use Python to get warning events", "Analyze specific issues", "Summarize cluster health"]
   2. **Debugging Queries:** "Why is X crashing?", "Troubleshoot Y"
@@ -43,25 +43,25 @@ DECISION FRAMEWORK - PYTHON-FIRST APPROACH
 
 PYTHON PATTERNS FOR COMMON TASKS:
 
-📊 COUNTING (ALWAYS USE PYTHON):
-  ❌ NEVER: `kubectl get pods -A | wc -l` (truncated, unreliable)
-  ✅ ALWAYS: `len(v1.list_pod_for_all_namespaces().items)`
+[STATS] COUNTING (ALWAYS USE PYTHON):
+  [X] NEVER: `kubectl get pods -A | wc -l` (truncated, unreliable)
+  [OK] ALWAYS: `len(v1.list_pod_for_all_namespaces().items)`
 
-🔍 DISCOVERY (PYTHON FIRST):
-  ❌ NEVER: `kubectl get pods -A | grep myapp`
-  ✅ ALWAYS: `[p for p in pods.items if 'myapp' in p.metadata.name]`
+[SEARCH] DISCOVERY (PYTHON FIRST):
+  [X] NEVER: `kubectl get pods -A | grep myapp`
+  [OK] ALWAYS: `[p for p in pods.items if 'myapp' in p.metadata.name]`
 
 🩺 DIAGNOSIS (USE HELPERS):
-  ❌ NEVER: `kubectl describe pod X && kubectl get events`
-  ✅ ALWAYS: `diagnose_crash(v1, 'pod-name', 'namespace')`
+  [X] NEVER: `kubectl describe pod X && kubectl get events`
+  [OK] ALWAYS: `diagnose_crash(v1, 'pod-name', 'namespace')`
 
-📝 LOGS (PYTHON API):
-  ❌ NEVER: `kubectl logs pod | grep error`
-  ✅ ALWAYS: `logs = v1.read_namespaced_pod_log(pod, ns, tail_lines=100)`
+[NOTE] LOGS (PYTHON API):
+  [X] NEVER: `kubectl logs pod | grep error`
+  [OK] ALWAYS: `logs = v1.read_namespaced_pod_log(pod, ns, tail_lines=100)`
 
-📋 CRD STATUS (PYTHON CustomObjectsApi):
-  ❌ NEVER: `kubectl get <crd> -o json | jq`
-  ✅ ALWAYS: `custom.get_cluster_custom_object(group, version, plural, name)`
+[LIST] CRD STATUS (PYTHON CustomObjectsApi):
+  [X] NEVER: `kubectl get <crd> -o json | jq`
+  [OK] ALWAYS: `custom.get_cluster_custom_object(group, version, plural, name)`
 
 PYTHON CODE EXAMPLES:
 
@@ -113,7 +113,7 @@ WHEN TO USE KUBECTL (ONLY THESE CASES):
   • Empty result = valid answer (report "none found")
   • HONOUR DISCOVERY: If Python found resource in namespace 'X', use that namespace
 
-🔧 UNIVERSAL CRD DEBUGGING (Python steps):
+[FIX] UNIVERSAL CRD DEBUGGING (Python steps):
 
   1. DISCOVER with Python:
      ```python

@@ -240,10 +240,10 @@ pub async fn install_mcp_presets(packages: Option<Vec<String>>) -> Result<String
             .map_err(|e| format!("Failed to install {}: {}", pkg, e))?;
 
         if cmd.status.success() {
-            log.push_str(&format!("✅ {} ready\n", pkg));
+            log.push_str(&format!("[OK] {} ready\n", pkg));
         } else {
             log.push_str(&format!(
-                "❌ {} failed: {}\n",
+                "[X] {} failed: {}\n",
                 pkg,
                 String::from_utf8_lossy(&cmd.stderr)
             ));

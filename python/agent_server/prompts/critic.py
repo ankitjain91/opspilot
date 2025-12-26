@@ -18,14 +18,14 @@ CLASSIFICATION (Determine this FIRST):
 VALIDATION RULES BY TYPE:
 
 **For READ-ONLY Operations (get, describe, logs, etc.):**
-✅ APPROVE by default - reading is safe
-✅ Step order doesn't matter much
-✅ No verification steps needed
-✅ No verification steps needed
-✅ **Exec Safety**:
+[OK] APPROVE by default - reading is safe
+[OK] Step order doesn't matter much
+[OK] No verification steps needed
+[OK] No verification steps needed
+[OK] **Exec Safety**:
    - `kubectl exec ... -- ls/cat/env/df/curl` -> APPROVE (Investigation)
    - `kubectl exec ... -- rm/kill/chmod/mv` -> REJECT (Mutating/Dangerous)
-❌ ONLY reject if the command is malformed or illogical
+[X] ONLY reject if the command is malformed or illogical
 
 **For MUTATING Operations (apply, delete, scale, etc.):**
 1. SAFETY: Must have 100% confirmation of the RIGHT target (namespace, name, labels)

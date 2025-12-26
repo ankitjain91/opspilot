@@ -25,7 +25,7 @@ import { ClusterChatPanel } from './components/ai/ClusterChatPanel';
 import { PortForwardList } from './components/cluster/deep-dive/PortForward';
 import { AzurePage } from './components/azure/AzurePage';
 import { ConnectionScreen } from './components/cluster/ConnectionScreen';
-import { BundleDashboard, PreloadedBundleData } from './components/bundle';
+import { BundleInvestigator } from './components/bundle/BundleInvestigator';
 import { ClusterStats, K8sObject } from './types/k8s';
 
 // --- Types ---
@@ -53,10 +53,71 @@ const queryClient = new QueryClient({
   },
 });
 
-// Create persister for localStorage
+// Create a safe localStorage wrapper that handles quota errors
+const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (e) {
+      console.warn('localStorage getItem failed:', e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (e) {
+      // If quota exceeded, clear the cache and try again
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        console.warn('localStorage quota exceeded, clearing cache');
+        try {
+          window.localStorage.removeItem('opspilot-cache');
+          window.localStorage.setItem(key, value);
+        } catch (e2) {
+          console.warn('Failed to save after clearing cache:', e2);
+        }
+      } else {
+        console.warn('localStorage setItem failed:', e);
+      }
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('localStorage removeItem failed:', e);
+    }
+  },
+};
+
+// Create persister for localStorage with safe wrapper
 const persister = createSyncStoragePersister({
-  storage: window.localStorage,
+  storage: safeStorage,
   key: 'opspilot-cache',
+  // Only persist essential queries, not large data
+  serialize: (data) => {
+    try {
+      const serialized = JSON.stringify(data);
+      // If the data is too large (> 2MB), don't persist it
+      if (serialized.length > 2 * 1024 * 1024) {
+        console.warn('Query cache too large to persist, skipping');
+        return '';
+      }
+      return serialized;
+    } catch (e) {
+      console.warn('Failed to serialize cache:', e);
+      return '';
+    }
+  },
+  deserialize: (data) => {
+    if (!data) return { clientState: { queries: [], mutations: [] }, timestamp: Date.now(), buster: '' };
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      console.warn('Failed to deserialize cache:', e);
+      return { clientState: { queries: [], mutations: [] }, timestamp: Date.now(), buster: '' };
+    }
+  },
 });
 // --- Terminal Tab ---
 import { useSentinel } from './components/ai/useSentinel';
@@ -68,8 +129,6 @@ function AppContent() {
   const [showAgentWarning, setShowAgentWarning] = useState(false); // Debounced warning state
   const [showAzure, setShowAzure] = useState(false);
   const [showOfflineBundle, setShowOfflineBundle] = useState(false);
-  const [bundlePath, setBundlePath] = useState<string | null>(null);
-  const [preloadedBundleData, setPreloadedBundleData] = useState<PreloadedBundleData | null>(null);
   const { showToast } = useToast();
   const { clearAll } = useNotifications();
 
@@ -233,26 +292,17 @@ function AppContent() {
               <AzurePage onConnect={() => setIsConnected(true)} />
             </div>
           </div>
-        ) : showOfflineBundle && bundlePath && preloadedBundleData ? (
+        ) : showOfflineBundle ? (
           <div className="h-screen w-screen overflow-hidden">
-            <BundleDashboard
-              onClose={() => {
-                setShowOfflineBundle(false);
-                setBundlePath(null);
-                setPreloadedBundleData(null);
-              }}
-              preloadedData={preloadedBundleData}
+            <BundleInvestigator
+              onClose={() => setShowOfflineBundle(false)}
             />
           </div>
         ) : (
           <ConnectionScreen
             onConnect={() => setIsConnected(true)}
             onOpenAzure={() => setShowAzure(true)}
-            onOpenBundle={(path, data) => {
-              setBundlePath(path);
-              setPreloadedBundleData(data);
-              setShowOfflineBundle(true);
-            }}
+            onOpenBundle={() => setShowOfflineBundle(true)}
           />
         )}
       </>

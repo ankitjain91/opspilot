@@ -17,6 +17,7 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({ content, isLat
     // Clean up content tags for display
     const cleanContent = content
         .replace(/🧠 (Thinking|Supervisor):\s*/g, '')
+        .replace(/\[BRAIN\] (Thinking|Supervisor):\s*/g, '')
         .replace(/\*🔄 Investigating\.\.\.\*|\*🔄 Continuing investigation.*\*$/gm, '')
         .replace(/^PLANNING:\s*/gm, '')  // Remove repeated PLANNING: prefixes
         .replace(/^ANALYZING:\s*/gm, '')  // Remove repeated ANALYZING: prefixes

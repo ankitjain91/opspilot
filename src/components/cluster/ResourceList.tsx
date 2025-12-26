@@ -117,8 +117,8 @@ const IaCStatusBadge = ({ status, reason, message }: { status: 'Reconciling' | '
 
     const icons = {
         Reconciling: '↻',
-        Reconciled: '✓',
-        Failed: '✗',
+        Reconciled: '[OK]',
+        Failed: '[X]',
         Unknown: '?'
     };
 

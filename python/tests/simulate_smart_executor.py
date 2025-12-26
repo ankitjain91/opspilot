@@ -87,14 +87,14 @@ async def run_tests():
     new_state = await transition_logic(copy.deepcopy(state))
     assert new_state['retry_count'] == 1, f"Expected retry_count 1, got {new_state['retry_count']}"
     assert new_state['execution_plan'][0]['status'] == 'in_progress', "Step should remain in progress"
-    print("✅ RETRY passed")
+    print("[OK] RETRY passed")
 
     # TEST 2: SOLVED
     print("Test 2: SOLVED logic")
     state['last_reflection'] = {'directive': 'SOLVED'}
     new_state = await transition_logic(copy.deepcopy(state))
     assert new_state['next_action'] == 'synthesize', "Should go to synthesis"
-    print("✅ SOLVED passed")
+    print("[OK] SOLVED passed")
 
     # TEST 3: CONTINUE
     print("Test 3: CONTINUE logic")
@@ -102,7 +102,7 @@ async def run_tests():
     new_state = await transition_logic(copy.deepcopy(state))
     assert new_state['execution_plan'][0]['status'] == 'completed', "Step should be completed"
     assert 'Pod is dead' in new_state['accumulated_evidence'], "Evidence should be collected"
-    print("✅ CONTINUE passed")
+    print("[OK] CONTINUE passed")
 
     # TEST 4: MAX RETRIES
     print("Test 4: MAX RETRIES logic")
@@ -114,7 +114,7 @@ async def run_tests():
     new_state = await transition_logic(copy.deepcopy(state))
     assert new_state['execution_plan'][0]['status'] == 'skipped', "Step should be skipped"
     assert new_state['retry_count'] == 0, "Retry count should reset"
-    print("✅ MAX RETRIES passed")
+    print("[OK] MAX RETRIES passed")
 
 if __name__ == "__main__":
     asyncio.run(run_tests())

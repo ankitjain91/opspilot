@@ -36,9 +36,9 @@ async def run_simulation():
     print(f"Final Response: {result.get('final_response')}")
     
     if result.get('next_action') == 'done':
-        print("✅ SUCCESS: Plan Executor stopped correctly.")
+        print("[OK] SUCCESS: Plan Executor stopped correctly.")
     else:
-        print("❌ FAILURE: Plan Executor continued unnecessarily.")
+        print("[X] FAILURE: Plan Executor continued unnecessarily.")
 
 if __name__ == "__main__":
     asyncio.run(run_simulation())

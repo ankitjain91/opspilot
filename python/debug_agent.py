@@ -14,9 +14,9 @@ try:
     from agent_server.prompts_examples import SUPERVISOR_EXAMPLES_FULL, get_examples_text
     from agent_server.heuristics import select_relevant_examples
     from agent_server.utils import format_command_history
-    print("✅ Successfully imported agent_server components")
+    print("[OK] Successfully imported agent_server components")
 except ImportError as e:
-    print(f"❌ Failed to import agent_server: {e}")
+    print(f"[X] Failed to import agent_server: {e}")
     sys.exit(1)
 
 def test_prompt_formatting():
@@ -48,7 +48,7 @@ def test_prompt_formatting():
             command_history=format_command_history(command_history),
             mcp_tools_desc="[]"
         )
-        print("✅ Prompt formatted successfully!")
+        print("[OK] Prompt formatted successfully!")
         print(f"Prompt length: {len(prompt)} chars")
         
         # Check for double braces artifact
@@ -61,21 +61,21 @@ def test_prompt_formatting():
 
         return True
     except IndexError as e:
-        print(f"❌ CRASH: IndexError during formatting: {e}")
+        print(f"[X] CRASH: IndexError during formatting: {e}")
         print("This usually means a single '{' or '}' was found where a placeholder was expected, or a placeholder was missing.")
         return False
     except ValueError as e:
-        print(f"❌ CRASH: ValueError during formatting: {e}")
+        print(f"[X] CRASH: ValueError during formatting: {e}")
         return False
     except Exception as e:
-        print(f"❌ CRASH: Unexpected error: {e}")
+        print(f"[X] CRASH: Unexpected error: {e}")
         return False
 
 if __name__ == "__main__":
     success = test_prompt_formatting()
     if success:
-        print("\n🎉 DIAGNOSIS: The agent code logic is SAFE. The 'stuck' state is likely network latency (LLM generation time).")
+        print("\n[DONE] DIAGNOSIS: The agent code logic is SAFE. The 'stuck' state is likely network latency (LLM generation time).")
         sys.exit(0)
     else:
-        print("\n💥 DIAGNOSIS: The agent code crashes during prompt generation. This is the root cause.")
+        print("\n[CRASH] DIAGNOSIS: The agent code crashes during prompt generation. This is the root cause.")
         sys.exit(1)

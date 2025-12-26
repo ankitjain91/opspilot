@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Search, Bug, Zap } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Bug, Zap } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -18,7 +18,6 @@ import { stripAnsi } from '../../utils/ansi';
 import { loadLLMConfig } from './utils';
 import { getAgentServerUrl } from '../../utils/config';
 import { LLMSettingsPanel } from './LLMSettingsPanel';
-import { SearchCodeDialog } from './SearchCodeDialog';
 import {
     executeTool, VALID_TOOLS, registerMcpTools, isValidTool, listRegisteredMcpTools
 } from './tools';
@@ -279,7 +278,7 @@ export function ClusterChatPanel({
             // Check status again
             const newStatus = await getAgentServerStatus();
             if (newStatus.available) {
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `✅ **Reconnected**: Agent server is now available. You can continue your conversation.` }]);
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `[OK] **Reconnected**: Agent server is now available. You can continue your conversation.` }]);
             } else {
                 setConnectionError({
                     message: 'Agent server is still unavailable. Try again or check Settings > Diagnostics.',
@@ -329,12 +328,6 @@ export function ClusterChatPanel({
     // Welcome joke fetched from LLM
     const [welcomeJoke, setWelcomeJoke] = useState<string | null>(null);
     const [loadingWelcomeJoke, setLoadingWelcomeJoke] = useState(false);
-    const [searchingGitHub, setSearchingGitHub] = useState<string | null>(null);
-    const [searchDialogState, setSearchDialogState] = useState<{ isOpen: boolean; query: string; groupIdx: number | null }>({
-        isOpen: false,
-        query: "",
-        groupIdx: null
-    });
 
     // Hardware Specs
     const [systemSpecs, setSystemSpecs] = useState<{ cpu_brand: string; total_memory: number; is_apple_silicon: boolean; } | null>(null);
@@ -412,7 +405,7 @@ export function ClusterChatPanel({
         // Add cancellation message to chat
         setChatHistory(prev => [...prev, {
             role: 'assistant',
-            content: '⚠️ Analysis cancelled by user.'
+            content: '[WARN] Analysis cancelled by user.'
         }]);
         setLlmLoading(false);
         setIsCancelling(false);
@@ -568,60 +561,6 @@ export function ClusterChatPanel({
         setLoadingWelcomeJoke(false);
     }, [llmConfig, loadingWelcomeJoke, threadId]);
 
-    // Search GitHub for code related to the issue
-    const initSearchGitHub = useCallback((userQuery: string, answerContent: string, groupIdx: number) => {
-        // Extract key terms for initial suggestion
-        const extractKeyTerms = (text: string): string[] => {
-            const terms: string[] = [];
-            const patterns = [
-                /(?:error|exception|failed|crash)[\w\s]*?[:]\s*([^\n.]+)/gi,
-                /pod[s]?\s+([a-z0-9-]+)/gi,
-                /service[s]?\s+([a-z0-9-]+)/gi,
-                /deployment[s]?\s+([a-z0-9-]+)/gi,
-                /container[s]?\s+([a-z0-9-]+)/gi,
-                /image[s]?\s+([a-z0-9.:/-]+)/gi,
-                /(?:NullPointer|OutOfMemory|Connection|Timeout|Auth)\w*Exception/gi,
-            ];
-            for (const pattern of patterns) {
-                const matches = text.matchAll(pattern);
-                for (const match of matches) {
-                    if (match[1]) terms.push(match[1].trim());
-                    else if (match[0]) terms.push(match[0].trim());
-                }
-            }
-            return [...new Set(terms)].slice(0, 5);
-        };
-
-        const keyTerms = extractKeyTerms(answerContent);
-        const initialQuery = keyTerms.length > 0
-            ? `${keyTerms.join(', ')}`
-            : userQuery.slice(0, 100);
-
-        setSearchDialogState({
-            isOpen: true,
-            query: initialQuery,
-            groupIdx
-        });
-    }, []);
-
-    const executeSearchGitHub = useCallback(async (query: string) => {
-        const { groupIdx } = searchDialogState;
-        setSearchDialogState(prev => ({ ...prev, isOpen: false }));
-
-        if (groupIdx === null || searchingGitHub) return;
-
-        setSearchingGitHub(`group-${groupIdx}`);
-
-        const displayMessage = `Searching Codebase for: ${query}`;
-        const hiddenInstructions = `Search local repositories for code related to: ${query}\n\nUse restricted local search tools (grep, find) to find relevant code. Do NOT run kubectl.`;
-
-        // Trigger analysis with clean UI message + hidden instructions + tool restrictions
-        await sendMessageRef.current(displayMessage, hiddenInstructions, "code_search");
-
-        setSearchingGitHub(null);
-    }, [searchDialogState, searchingGitHub]);
-
-    // ... (scrollToBottom, etc.) ...
 
     // Auto-scroll to bottom
     const scrollToBottom = () => {
@@ -958,7 +897,7 @@ export function ClusterChatPanel({
                         const last = prev[prev.length - 1];
 
                         // 1. Consolidate consecutive "Thinking" messages (SUPERVISOR)
-                        if (step.role === 'SUPERVISOR' && last && last.role === 'assistant' && (last.content.includes('🧠 Thinking') || last.content.includes('🧠 Supervisor'))) {
+                        if (step.role === 'SUPERVISOR' && last && last.role === 'assistant' && (last.content.includes('🧠 Thinking') || last.content.includes('🧠 Supervisor') || last.content.includes('[BRAIN]'))) {
                             return [
                                 ...prev.slice(0, -1),
                                 { ...last, content: last.content + "\n\n" + step.content }
@@ -1080,18 +1019,18 @@ export function ClusterChatPanel({
 
             // Provider-specific error messages
             if (errorMsg.includes("404")) {
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **API Error (404)**: Endpoint not found. Check your base URL and model name in Settings. Current: ${llmConfig.base_url} / ${llmConfig.model}` }]);
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `[X] **API Error (404)**: Endpoint not found. Check your base URL and model name in Settings. Current: ${llmConfig.base_url} / ${llmConfig.model}` }]);
             } else if (errorMsg.includes("401") || errorMsg.includes("403") || errorMsg.includes("Unauthorized")) {
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Authentication Failed**: Check your API key in Settings.` }]);
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `[X] **Authentication Failed**: Check your API key in Settings.` }]);
             } else if (errorMsg.includes("connection") || errorMsg.includes("ECONNREFUSED") || errorMsg.includes("timeout") || errorMsg.includes("Unreachable") || errorMsg.includes("unavailable")) {
                 // Set connection error state for retry UI
                 setConnectionError({
                     message: `Cannot reach the agent server. It may still be starting up (~10s on first launch).`,
                     canRetry: true
                 });
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ **Connection Failed**: Cannot reach the agent server. Use the retry button below to reconnect.` }]);
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `[X] **Connection Failed**: Cannot reach the agent server. Use the retry button below to reconnect.` }]);
             } else {
-                setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Agent error: ${e}` }]);
+                setChatHistory(prev => [...prev, { role: 'assistant', content: `[X] Agent error: ${e}` }]);
             }
             setLlmLoading(false);
         } finally {
@@ -1208,8 +1147,8 @@ export function ClusterChatPanel({
         setChatHistory(prev => [...prev, {
             role: 'assistant',
             content: approved
-                ? `✅ **Approved**: Executing \`${prevContext.command || 'action'}\`...`
-                : `❌ **Denied**: Cancelled \`${prevContext.command || 'action'}\`.`
+                ? `[OK] **Approved**: Executing \`${prevContext.command || 'action'}\`...`
+                : `[X] **Denied**: Cancelled \`${prevContext.command || 'action'}\`.`
         }]);
 
         // If denied, we define the behavior (usually just stop, or verify.py handles denied state if we proceed)
@@ -1293,7 +1232,7 @@ export function ClusterChatPanel({
                 }
             );
         } catch (e: any) {
-            setChatHistory(prev => [...prev, { role: 'assistant', content: `❌ Error during execution: ${e.message}` }]);
+            setChatHistory(prev => [...prev, { role: 'assistant', content: `[X] Error during execution: ${e.message}` }]);
         } finally {
             setLlmLoading(false);
             setCurrentActivity("");
@@ -2060,43 +1999,6 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* GitHub Code Search Action Bar */}
-            {(() => {
-                // Find the last completed interaction with an answer
-                const lastInteraction = [...groupedHistory].reverse().find(
-                    g => g.type === 'interaction' && g.answer && !g.answer.isStreaming
-                );
-                if (!lastInteraction || llmLoading) return null;
-
-                return (
-                    <div className="px-4 py-2 bg-[#16161a] border-t border-white/5 flex items-center justify-center gap-2">
-                        <button
-                            onClick={() => initSearchGitHub(lastInteraction.user?.content || '', lastInteraction.answer?.content || '', groupedHistory.indexOf(lastInteraction))}
-                            disabled={searchingGitHub !== null}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-full transition-all disabled:opacity-50 text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 hover:border-purple-500/50`}
-                            title="Search local code repositories for context"
-                        >
-                            {searchingGitHub !== null ? (
-                                <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                                <Search size={12} />
-                            )}
-                            <span>
-                                {searchingGitHub !== null ? 'Searching Code...' : 'Search Code...'}
-                            </span>
-                        </button>
-                    </div>
-                );
-            })()}
-
-            {/* Search Dialog */}
-            {/* Search Dialog */}
-            <SearchCodeDialog
-                isOpen={searchDialogState.isOpen}
-                onClose={() => setSearchDialogState(prev => ({ ...prev, isOpen: false }))}
-                onSearch={executeSearchGitHub}
-                initialQuery={searchDialogState.query}
-            />
 
             {/* Input - Elegant Apple Style */}
             <div className="relative z-20 p-4 bg-zinc-950/50 border-t border-white/5">

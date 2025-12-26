@@ -88,7 +88,7 @@ def create_k8s_agent(checkpointer=None):
         'done': END, 
     })
 
-    # Route worker output through self-correction → validator → verify
+    # Route worker output through self-correction -> validator -> verify
     workflow.add_edge('worker', 'self_correction')
     workflow.add_node('self_correction', self_correction_node)
     workflow.add_edge('self_correction', 'command_validator')
@@ -120,7 +120,7 @@ def create_k8s_agent(checkpointer=None):
 
 
 
-    # NEW FLOW: Reflect → Evidence Validator → [Worker OR Synthesizer] → [Done OR Supervisor]
+    # NEW FLOW: Reflect -> Evidence Validator -> [Worker OR Synthesizer] -> [Done OR Supervisor]
     workflow.add_conditional_edges('reflect', should_continue, {
         'execute_plan': 'plan_executor',
         'supervisor': 'supervisor',
@@ -135,7 +135,7 @@ def create_k8s_agent(checkpointer=None):
         'done': END,
     })
 
-    # Synthesizer decides: Can we answer? If yes → Questioner (quality gate), if no → supervisor with specific request
+    # Synthesizer decides: Can we answer? If yes -> Questioner (quality gate), if no -> supervisor with specific request
     workflow.add_conditional_edges('synthesizer', should_continue, {
         'supervisor': 'supervisor',
         'worker': 'worker',          # NEW: Can route directly to worker
@@ -143,7 +143,7 @@ def create_k8s_agent(checkpointer=None):
         'done': END,
     })
 
-    # Questioner validates answer quality: If approved → END, if rejected → Supervisor
+    # Questioner validates answer quality: If approved -> END, if rejected -> Supervisor
     workflow.add_conditional_edges('questioner', should_continue, {
         'supervisor': 'supervisor',  # Answer insufficient - continue investigation
         'done': END,                 # Answer approved - return to user

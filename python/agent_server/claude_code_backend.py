@@ -157,17 +157,40 @@ class ClaudeCodeBackend:
         response = await backend.call("What pods are failing?", system_prompt="You are a K8s expert")
     """
 
-    def __init__(self, working_dir: str = None):
+    def __init__(self, working_dir: str = None, claude_bin: str = None):
         self.working_dir = working_dir
         self.session_id: Optional[str] = None
         self.session_usage: TokenUsage = TokenUsage()  # Accumulated usage for current session
+        self.claude_bin = claude_bin or self._find_claude_binary()
         self._check_claude_installed()
+
+    def _find_claude_binary(self) -> str:
+        """Find claude binary path from config or common locations."""
+        import shutil
+
+        # Check system PATH first
+        path = shutil.which("claude")
+        if path:
+            return path
+
+        # Check common locations
+        common_paths = [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+            os.path.expanduser("~/.npm-global/bin/claude"),
+            os.path.expanduser("~/.local/bin/claude"),
+        ]
+        for p in common_paths:
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return p
+
+        return "claude"  # Fallback to PATH lookup
 
     def _check_claude_installed(self) -> bool:
         """Check if claude CLI is available."""
         try:
             result = subprocess.run(
-                ["claude", "--version"],
+                [self.claude_bin, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -227,8 +250,8 @@ Example for respond:
         Returns:
             Response text from Claude Code
         """
-        # Build the command
-        cmd = ["claude", "-p"]  # -p for print mode (non-interactive)
+        # Build the command using discovered/configured binary path
+        cmd = [self.claude_bin, "-p"]  # -p for print mode (non-interactive)
         cmd.append("--verbose")  # Required for stream-json output
 
         # Add output format for structured parsing
@@ -286,22 +309,22 @@ Example for respond:
 
             # Strip markdown code blocks if present (Claude often wraps JSON in ```json...```)
             content = self._strip_markdown_code_blocks(response.content)
-            print(f"[claude-code] 📤 Response content ({len(content)} chars): {content[:500]}...", flush=True)
+            print(f"[claude-code] [OUT] Response content ({len(content)} chars): {content[:500]}...", flush=True)
 
             # Validate JSON if force_json was requested
             if force_json and content:
                 try:
                     # Try to parse as JSON to validate
                     parsed = json.loads(content)
-                    print(f"[claude-code] ✅ Valid JSON with keys: {parsed.keys() if isinstance(parsed, dict) else 'not-dict'}", flush=True)
+                    print(f"[claude-code] [OK] Valid JSON with keys: {parsed.keys() if isinstance(parsed, dict) else 'not-dict'}", flush=True)
                     if isinstance(parsed, dict) and 'plan' in parsed:
-                        print(f"[claude-code] 📋 Plan field ({len(str(parsed['plan']))} chars): {str(parsed['plan'])[:300]}", flush=True)
+                        print(f"[claude-code] [LIST] Plan field ({len(str(parsed['plan']))} chars): {str(parsed['plan'])[:300]}", flush=True)
                 except json.JSONDecodeError as e:
                     # JSON is invalid/truncated - try to fix common issues
                     print(f"[claude-code] Warning: Invalid JSON response, attempting repair: {e}", flush=True)
-                    print(f"[claude-code] 🔍 Pre-repair content ({len(content)} chars): {content[:600]}...", flush=True)
+                    print(f"[claude-code] [SEARCH] Pre-repair content ({len(content)} chars): {content[:600]}...", flush=True)
                     content = self._attempt_json_repair(content)
-                    print(f"[claude-code] 🔧 Post-repair content ({len(content)} chars): {content[:600]}...", flush=True)
+                    print(f"[claude-code] [FIX] Post-repair content ({len(content)} chars): {content[:600]}...", flush=True)
 
             return content
 
@@ -322,7 +345,7 @@ Example for respond:
 
         Yields chunks of response as they arrive.
         """
-        cmd = ["claude", "-p", "--output-format", "stream-json", "--permission-mode", "acceptEdits"]
+        cmd = [self.claude_bin, "-p", "--output-format", "stream-json", "--permission-mode", "acceptEdits"]
 
         if continue_session and self.session_id:
             cmd.extend(["--continue", self.session_id])
@@ -385,7 +408,7 @@ Example for respond:
         if not self.session_id:
             return "No active session to compact"
         
-        print(f"[claude-code] 🧹 Compacting session {self.session_id}", flush=True)
+        print(f"[claude-code] [CLEAN] Compacting session {self.session_id}", flush=True)
         return await self.call("/compact", continue_session=True, timeout=30.0)
 
     async def get_usage(self) -> Dict[str, Any]:
@@ -397,7 +420,7 @@ Example for respond:
         }
 
         # Run /cost slash command to get billing info
-        cmd = ["claude", "-p", "/cost", "--output-format", "stream-json", "--verbose"]
+        cmd = [self.claude_bin, "-p", "/cost", "--output-format", "stream-json", "--verbose"]
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -507,9 +530,9 @@ Example for respond:
                     try:
                         with open(user_config_path, 'r') as f:
                             merged_config = json.load(f)
-                        print(f"[claude-code-streaming] 📄 Loaded existing config from {user_config_path}", flush=True)
+                        print(f"[claude-code-streaming] [DOC] Loaded existing config from {user_config_path}", flush=True)
                     except Exception as e:
-                        print(f"[claude-code-streaming] ⚠️ Could not read existing config: {e}", flush=True)
+                        print(f"[claude-code-streaming] [WARN] Could not read existing config: {e}", flush=True)
 
                 # Merge OpsPilot's MCP servers with existing ones (OpsPilot servers take precedence)
                 existing_mcp = merged_config.get('mcpServers', {})
@@ -526,12 +549,12 @@ Example for respond:
                 # Use strict mode so Claude uses ONLY this merged config file
                 cmd.append("--strict-mcp-config")
 
-                print(f"[claude-code-streaming] 🔌 MCP config file: {mcp_config_file}", flush=True)
-                print(f"[claude-code-streaming] 🔌 Existing servers: {list(existing_mcp.keys())}", flush=True)
-                print(f"[claude-code-streaming] 🔌 OpsPilot servers: {list(opspilot_mcp.keys())}", flush=True)
-                print(f"[claude-code-streaming] 🔌 Merged total: {list(merged_mcp.keys())}", flush=True)
+                print(f"[claude-code-streaming] [PLUG] MCP config file: {mcp_config_file}", flush=True)
+                print(f"[claude-code-streaming] [PLUG] Existing servers: {list(existing_mcp.keys())}", flush=True)
+                print(f"[claude-code-streaming] [PLUG] OpsPilot servers: {list(opspilot_mcp.keys())}", flush=True)
+                print(f"[claude-code-streaming] [PLUG] Merged total: {list(merged_mcp.keys())}", flush=True)
             except Exception as e:
-                print(f"[claude-code-streaming] ⚠️ Failed to write MCP config file: {e}", flush=True)
+                print(f"[claude-code-streaming] [WARN] Failed to write MCP config file: {e}", flush=True)
                 mcp_config_file = None
 
         # Continue session if session_id provided
@@ -541,15 +564,8 @@ Example for respond:
         # Block MCP write operations - common patterns across MCP servers
         # Format: mcp__<server>__<tool> - we block dangerous patterns
         mcp_write_patterns = [
-            # GitHub MCP write operations
-            "mcp__github__create_issue",
-            "mcp__github__create_pull_request",
-            "mcp__github__update_issue",
-            "mcp__github__create_or_update_file",
-            "mcp__github__push_files",
-            "mcp__github__create_branch",
-            "mcp__github__fork_repository",
-            "mcp__github__create_repository",
+            # GitHub MCP write operations (Legacy - Removed)
+            # "mcp__github__create_issue", etc.
             # Jira MCP write operations
             "mcp__jira__create_issue",
             "mcp__jira__update_issue",
@@ -572,31 +588,31 @@ Example for respond:
         strict_read_only = """
 
 ═══════════════════════════════════════════════════════════════════════════════
-🔒 CRITICAL SECURITY: STRICT READ-ONLY MODE - ENFORCED BY SYSTEM
+[LOCK] CRITICAL SECURITY: STRICT READ-ONLY MODE - ENFORCED BY SYSTEM
 ═══════════════════════════════════════════════════════════════════════════════
 
 You are in STRICT READ-ONLY mode. ALL mutation operations are BLOCKED.
 
-❌ KUBECTL MUTATIONS - ABSOLUTELY FORBIDDEN (will be rejected):
+[ERROR] KUBECTL MUTATIONS - ABSOLUTELY FORBIDDEN (will be rejected):
    • kubectl apply, kubectl create, kubectl delete, kubectl patch
    • kubectl edit, kubectl replace, kubectl set, kubectl annotate
    • kubectl label, kubectl taint, kubectl cordon, kubectl drain
    • kubectl scale, kubectl rollout, kubectl autoscale
    • kubectl cp, kubectl run, kubectl expose
 
-❌ HELM MUTATIONS - FORBIDDEN:
+[ERROR] HELM MUTATIONS - FORBIDDEN:
    • helm install, helm upgrade, helm uninstall, helm rollback
 
-❌ MCP WRITE OPERATIONS - FORBIDDEN:
+[ERROR] MCP WRITE OPERATIONS - FORBIDDEN:
    • Any create_*, update_*, delete_*, push_*, post_*, put_* MCP tools
 
-✅ ALLOWED READ-ONLY OPERATIONS ONLY:
+[OK] ALLOWED READ-ONLY OPERATIONS ONLY:
    • kubectl get, kubectl describe, kubectl logs, kubectl events
    • kubectl explain, kubectl api-resources, kubectl top
    • helm list, helm status, helm get
    • Any read/search/list/fetch MCP operations
 
-⚠️ IF USER ASKS FOR MODIFICATIONS: Explain that you are in read-only mode and can only provide guidance. Suggest the exact commands they would need to run manually.
+[WARN] IF USER ASKS FOR MODIFICATIONS: Explain that you are in read-only mode and can only provide guidance. Suggest the exact commands they would need to run manually.
 
 EFFICIENCY: Minimize token usage. Combine commands. Be concise.
 ═══════════════════════════════════════════════════════════════════════════════
@@ -633,10 +649,10 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
         # Use provided working_dir or fall back to instance default
         effective_working_dir = working_dir or self.working_dir
 
-        print(f"[claude-code-streaming] 🚀 Starting agentic call with native tools", flush=True)
-        print(f"[claude-code-streaming] 📝 Prompt: {prompt[:200]}...", flush=True)
+        print(f"[claude-code-streaming] [START] Starting agentic call with native tools", flush=True)
+        print(f"[claude-code-streaming] [NOTE] Prompt: {prompt[:200]}...", flush=True)
         if effective_working_dir:
-            print(f"[claude-code-streaming] 📁 Working directory: {effective_working_dir}", flush=True)
+            print(f"[claude-code-streaming] [DIR] Working directory: {effective_working_dir}", flush=True)
 
         process = None
         try:
@@ -658,7 +674,7 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                     continue
 
                 # Debug log
-                print(f"[claude-code-streaming] 📨 Event: {line_str[:200]}...", flush=True)
+                print(f"[claude-code-streaming] [EVENT] Event: {line_str[:200]}...", flush=True)
 
                 try:
                     event = json.loads(line_str)
@@ -694,9 +710,9 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                             message = event.get('message', 'Unknown Claude Code Error')
                         
                         # Log the full error for debugging
-                        print(f"[claude-code-streaming] ❌ Claude Code Error: {message}", flush=True)
+                        print(f"[claude-code-streaming] [ERROR] Claude Code Error: {message}", flush=True)
                         if 'error' in event:
-                            print(f"[claude-code-streaming] ❌ Error details: {event['error']}", flush=True)
+                            print(f"[claude-code-streaming] [ERROR] Error details: {event['error']}", flush=True)
                         
                         yield {'type': 'error', 'message': f"Claude Code: {message}"}
 
@@ -763,7 +779,7 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
             if process.returncode != 0:
                 stderr = await process.stderr.read()
                 stderr_text = stderr.decode('utf-8', errors='replace')
-                print(f"[claude-code-streaming] ⚠️ stderr: {stderr_text}", flush=True)
+                print(f"[claude-code-streaming] [WARN] stderr: {stderr_text}", flush=True)
                 if stderr_text:
                     yield {'type': 'error', 'message': stderr_text}
 
@@ -776,20 +792,33 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                     pass
             raise
         except BrokenPipeError:
-            print(f"[claude-code-streaming] ❌ Broken pipe error - CLI likely crashed", flush=True)
+            print(f"[claude-code-streaming] [ERROR] Broken pipe error - CLI likely crashed", flush=True)
             # Try to see if there's anything in stderr
-            error_msg = "Claude Code CLI disconnected unexpectedly (Broken Pipe)."
+            error_msg = "Claude Code connection lost (Broken Pipe). "
             if process:
                 try:
+                    # Check if process is even running
+                    if process.returncode is not None:
+                        error_msg += f"Process exited with code {process.returncode}. "
+                    
                     stderr = await process.stderr.read()
                     if stderr:
                         stderr_text = stderr.decode('utf-8', errors='replace')
-                        error_msg = f"Claude Code CLI crashed: {stderr_text}"
+                        error_msg += f"Stderr: {stderr_text}"
+                        
+                        # Check for specific keyring/auth keywords
+                        if "keyring" in stderr_text.lower() or "password" in stderr_text.lower() or "unlock" in stderr_text.lower():
+                             error_msg += "\n\nCRITICAL: Claude Code is waiting for Keychain/Keyring access. Please run 'claude login' in your terminal to authenticate once, which should unlock the keychain."
+                    else:
+                        error_msg += "No stderr output captured. This often means the CLI crashed or was killed."
+                        
+                    # Add troubleshooting hint
+                    error_msg += "\n\nHINT: Agent may need re-authentication. Try running 'claude login' in your specific terminal or ensure no other process is using the session."
                 except:
                     pass
             yield {'type': 'error', 'message': error_msg}
         except Exception as e:
-            print(f"[claude-code-streaming] ❌ Error in tool loop: {e}", flush=True)
+            print(f"[claude-code-streaming] [ERROR] Error in tool loop: {e}", flush=True)
             msg = str(e)
             if "broken pipe" in msg.lower():
                 msg = "Claude Code connection lost (Broken Pipe). This usually happens when the CLI reaches a limit or crashes."
@@ -800,7 +829,7 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 try:
                     process.kill()
                     await process.wait()
-                    print(f"[claude-code-streaming] 🧹 Cleaned up subprocess", flush=True)
+                    print(f"[claude-code-streaming] [CLEAN] Cleaned up subprocess", flush=True)
                 except Exception:
                     pass
             # Clean up temp MCP config file
@@ -808,7 +837,7 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 try:
                     import os as _os
                     _os.unlink(mcp_config_file)
-                    print(f"[claude-code-streaming] 🧹 Cleaned up MCP config file", flush=True)
+                    print(f"[claude-code-streaming] [CLEAN] Cleaned up MCP config file", flush=True)
                 except Exception:
                     pass
 
@@ -946,14 +975,14 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 obj = json.loads(json_str)
                 # Check if this looks like an agent response (has expected fields)
                 if isinstance(obj, dict) and ('thought' in obj or 'next_action' in obj):
-                    print(f"[claude-code] 🎯 Found valid agent response JSON ({len(json_str)} chars)", flush=True)
+                    print(f"[claude-code] [TARGET] Found valid agent response JSON ({len(json_str)} chars)", flush=True)
                     return json_str
             except:
                 continue
 
         # Fallback: return the last complete JSON (most likely to be the actual response)
         if all_jsons:
-            print(f"[claude-code] ⚠️ No agent response found, using last JSON ({len(all_jsons[-1])} chars)", flush=True)
+            print(f"[claude-code] [WARN] No agent response found, using last JSON ({len(all_jsons[-1])} chars)", flush=True)
             return all_jsons[-1]
 
         return None

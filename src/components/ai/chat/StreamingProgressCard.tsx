@@ -2,7 +2,7 @@
  * StreamingProgressCard - Clean, informative progress UI for agent investigations
  *
  * Shows current phase with command transparency:
- * 🤔 Planning → 🔧 Executing → 🧪 Analyzing → ✅ Complete
+ * [THINK] Planning → [FIX] Executing → [TEST] Analyzing → [OK] Complete
  *
  * Includes expandable command log with result summaries
  */

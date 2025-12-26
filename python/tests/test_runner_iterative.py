@@ -40,7 +40,7 @@ class IterativeTestRunner:
     async def initialize(self):
         """Initialize and get test cases."""
         await self.tester.initialize()
-        print(f"📋 Loaded {len(self.tester.test_cases)} test cases")
+        print(f"[LIST] Loaded {len(self.tester.test_cases)} test cases")
 
     async def run_single_test(self, test_case: TestCase) -> TestResult:
         """Run a single test."""
@@ -61,20 +61,20 @@ class IterativeTestRunner:
             new_result = await self.tester.run_test(old_result.test_case)
 
             if new_result.passed:
-                print("✅")
+                print("[OK]")
             else:
-                print(f"❌ REGRESSION!")
+                print(f"[X] REGRESSION!")
                 regression_failures.append((old_result.test_case.name, new_result.failure_reasons))
 
         if regression_failures:
             print(f"\n💥 REGRESSION DETECTED IN {len(regression_failures)} TESTS:")
             for name, reasons in regression_failures:
-                print(f"   ❌ {name}")
+                print(f"   [X] {name}")
                 for reason in reasons:
                     print(f"      - {reason}")
             return False
 
-        print(f"✅ All {len(self.passed_tests)} previous tests still pass")
+        print(f"[OK] All {len(self.passed_tests)} previous tests still pass")
         return True
 
     def analyze_failure(self, result: TestResult):
@@ -104,10 +104,10 @@ class IterativeTestRunner:
 
         print(f"\nFailure Reasons:")
         for reason in result.failure_reasons:
-            print(f"  ❌ {reason}")
+            print(f"  [X] {reason}")
 
         # Diagnose root cause
-        print(f"\n🔍 ROOT CAUSE DIAGNOSIS:")
+        print(f"\n[SEARCH] ROOT CAUSE DIAGNOSIS:")
 
         if result.exception:
             print(f"  • Exception occurred: {result.exception}")
@@ -176,8 +176,8 @@ class IterativeTestRunner:
 
         all_tests = critical_tests + normal_tests
 
-        print(f"\n🔥 Will run {len(critical_tests)} CRITICAL tests first")
-        print(f"📋 Then {len(normal_tests)} normal tests")
+        print(f"\n[HOT] Will run {len(critical_tests)} CRITICAL tests first")
+        print(f"[LIST] Then {len(normal_tests)} normal tests")
 
         self.current_test_index = 0
 
@@ -190,14 +190,14 @@ class IterativeTestRunner:
             print(f"Category: {test_case.category.value}")
             print(f"Query: {test_case.query}")
             if test_case.priority == "CRITICAL":
-                print("🔥 CRITICAL TEST")
+                print("[HOT] CRITICAL TEST")
             print(f"{'='*80}")
 
             # Run the test
             result = await self.run_single_test(test_case)
 
             if result.passed:
-                print(f"✅ PASS ({result.command_count} cmds, {result.execution_time:.1f}s)")
+                print(f"[OK] PASS ({result.command_count} cmds, {result.execution_time:.1f}s)")
                 self.passed_tests.append(result)
                 self.current_test_index += 1
 
@@ -205,13 +205,13 @@ class IterativeTestRunner:
                 await asyncio.sleep(1)
 
             else:
-                print(f"❌ FAIL")
+                print(f"[X] FAIL")
 
                 # Analyze failure
                 self.analyze_failure(result)
 
                 # STOP and wait for user to fix
-                print("\n⏸️  TEST EXECUTION PAUSED")
+                print("\n[PAUSE]  TEST EXECUTION PAUSED")
                 print("Please fix the issue, then press ENTER to:")
                 print("  1. Re-run this test")
                 print("  2. Run regression suite (all previous tests)")
@@ -224,7 +224,7 @@ class IterativeTestRunner:
                     print("Exiting...")
                     break
                 elif user_input == 'skip':
-                    print(f"⏭️  Skipping test {test_num}")
+                    print(f"[SKIP]  Skipping test {test_num}")
                     self.current_test_index += 1
                     continue
 
@@ -233,11 +233,11 @@ class IterativeTestRunner:
                 result = await self.run_single_test(test_case)
 
                 if not result.passed:
-                    print(f"❌ Test still fails: {result.failure_reasons}")
+                    print(f"[X] Test still fails: {result.failure_reasons}")
                     print("Fix not successful. Staying on this test.")
                     continue
 
-                print(f"✅ Test now passes!")
+                print(f"[OK] Test now passes!")
 
                 # Run regression suite
                 if not await self.run_regression_suite():
@@ -249,19 +249,19 @@ class IterativeTestRunner:
                 # Success! Move to next test
                 self.passed_tests.append(result)
                 self.current_test_index += 1
-                print(f"\n✅ Proceeding to test {test_num + 1}")
+                print(f"\n[OK] Proceeding to test {test_num + 1}")
 
         # Final summary
         print("\n" + "="*80)
         print("FINAL SUMMARY")
         print("="*80)
-        print(f"✅ Passed: {len(self.passed_tests)}/{len(all_tests)}")
+        print(f"[OK] Passed: {len(self.passed_tests)}/{len(all_tests)}")
         print(f"Tests completed: {self.current_test_index}/{len(all_tests)}")
 
         if len(self.passed_tests) == len(all_tests):
-            print("\n🎉 ALL TESTS PASSED!")
+            print("\n[DONE] ALL TESTS PASSED!")
         else:
-            print(f"\n⚠️  {len(all_tests) - len(self.passed_tests)} tests not completed")
+            print(f"\n[WARN]  {len(all_tests) - len(self.passed_tests)} tests not completed")
 
     async def close(self):
         await self.tester.close()

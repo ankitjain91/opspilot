@@ -62,7 +62,7 @@ export function validateToolArgs(toolName: string, args: string | undefined): st
     // Strict validation for DEEP_INSPECT to prevent placeholders
     if (toolName === 'DEEP_INSPECT') {
         if (containsPlaceholder(args)) {
-            return `❌ Invalid format: Arguments contain placeholders like <...>. You MUST use real names.
+            return `[X] Invalid format: Arguments contain placeholders like <...>. You MUST use real names.
 Usage: DEEP_INSPECT <kind> <namespace> <name>
 Example: DEEP_INSPECT Pod default my-pod-123
 Step 1: Use 'RUN_KUBECTL kubectl get <kind> -A' to find the name.
@@ -74,7 +74,7 @@ Step 2: Use DEEP_INSPECT with the ACTUAL name.`;
     if (toolName === 'LIST_ALL') {
         const kind = (args || '').trim().toLowerCase();
         if (!kind) {
-            return `❌ ERROR: Missing argument. Usage: LIST_ALL [kind] (e.g. LIST_ALL Pod, LIST_ALL Service). Use 'kubectl api-resources' to find exact kind names.`;
+            return `[X] ERROR: Missing argument. Usage: LIST_ALL [kind] (e.g. LIST_ALL Pod, LIST_ALL Service). Use 'kubectl api-resources' to find exact kind names.`;
         }
         if (VALID_KINDS.includes(kind)) return null;
 
@@ -86,7 +86,7 @@ Step 2: Use DEEP_INSPECT with the ACTUAL name.`;
 
     for (const pattern of BAD_ARG_PATTERNS) {
         if (pattern.test(args)) {
-            return `❌ Invalid argument "${args}" - appears to contain placeholder text. Use FIND_ISSUES or LIST_ALL first to discover actual resource names.`;
+            return `[X] Invalid argument "${args}" - appears to contain placeholder text. Use FIND_ISSUES or LIST_ALL first to discover actual resource names.`;
         }
     }
     return null;
@@ -205,7 +205,7 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
             const isMutating = MUTATING_KUBECTL_PATTERNS.some(p => p.test(lower));
             if (isMutating) {
                 return {
-                    result: '❌ Rejected: RUN_KUBECTL may only execute read-only commands. Mutating verbs detected. Use DESCRIBE/GET/LOGS instead.',
+                    result: '[X] Rejected: RUN_KUBECTL may only execute read-only commands. Mutating verbs detected. Use DESCRIBE/GET/LOGS instead.',
                     command: 'Blocked mutating kubectl command',
                 };
             }
@@ -257,7 +257,7 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
                     }
 
                     if (anyRes.isError) {
-                        output = "❌ MCP Error:\n" + output;
+                        output = "[X] MCP Error:\n" + output;
                     }
                 } else {
                     output = String(res);
@@ -295,7 +295,7 @@ export async function executeTool(toolName: string, toolArgs: string | undefined
             // Universal LIST_ALL - works with ANY resource type via kubectl
             if (!toolArgs) {
                 return {
-                    result: `❌ ERROR: Missing argument. Usage: LIST_ALL <kind> [flags]
+                    result: `[X] ERROR: Missing argument. Usage: LIST_ALL <kind> [flags]
 
 Examples:
 - LIST_ALL Pod
@@ -343,13 +343,13 @@ To discover available resource types:
                     toolResult = `## ${kind} List (${count} resources)\n\`\`\`\n${output}\n\`\`\``;
                 }
             } catch (e) {
-                toolResult = `❌ Error listing ${kind}: ${e}\n\nCheck if the resource type exists:\n\`kubectl api-resources | grep -i ${kind.split('.')[0]}\``;
+                toolResult = `[X] Error listing ${kind}: ${e}\n\nCheck if the resource type exists:\n\`kubectl api-resources | grep -i ${kind.split('.')[0]}\``;
             }
         } else if (toolName === 'DESCRIBE') {
             // Universal DESCRIBE - works with ANY resource type via kubectl
             const parts = (toolArgs || '').split(/\s+/);
             if (parts.length < 2) {
-                toolResult = `⚠️ Usage: DESCRIBE <kind> <namespace> <name>
+                toolResult = `[WARN] Usage: DESCRIBE <kind> <namespace> <name>
 Or for cluster-scoped: DESCRIBE <kind> <name>
 
 Examples:
@@ -381,7 +381,7 @@ Examples:
                     toolResult = `## ${kind}: ${ns ? ns + '/' : ''}${name}\n\`\`\`\n${output.slice(0, 4000)}\n\`\`\``;
                 } catch (e) {
                     // Fallback: try with full GVK if kubectl failed
-                    toolResult = `❌ Resource not found or invalid kind: ${e}\n\nTry:\n- LIST_ALL ${kind} to find resources\n- Check the exact kind name with: RUN_KUBECTL kubectl api-resources | grep -i ${kind}`;
+                    toolResult = `[X] Resource not found or invalid kind: ${e}\n\nTry:\n- LIST_ALL ${kind} to find resources\n- Check the exact kind name with: RUN_KUBECTL kubectl api-resources | grep -i ${kind}`;
                 }
             }
         } else if (toolName === 'DEEP_INSPECT') {
@@ -389,7 +389,7 @@ Examples:
             // Runs Describe + Logs (if pod/workload) + Events in parallel
             const parts = (toolArgs || '').split(/\s+/);
             if (parts.length < 2) {
-                toolResult = `⚠️ Usage: DEEP_INSPECT <kind> <namespace> <name>
+                toolResult = `[WARN] Usage: DEEP_INSPECT <kind> <namespace> <name>
 Or for cluster-scoped: DEEP_INSPECT <kind> <name>
 
 Examples:
@@ -459,7 +459,7 @@ ${(logs as string).slice(-2000)}
             const parts = (toolArgs || '').split(/\s+/);
             const [ns, pod, container] = parts;
             if (!ns || !pod || ns.includes('[') || pod.includes('<')) {
-                toolResult = '⚠️ Usage: GET_LOGS <namespace> <pod> [container] (NO PLACEHOLDERS)';
+                toolResult = '[WARN] Usage: GET_LOGS <namespace> <pod> [container] (NO PLACEHOLDERS)';
             } else {
                 kubectlCommand = container ? `kubectl logs -n ${ns} ${pod} -c ${container}` : `kubectl logs -n ${ns} ${pod}`;
                 const logs = await invoke<string>("get_pod_logs", { namespace: ns, name: pod, container: container || null, lines: 100 });
@@ -471,7 +471,7 @@ ${(logs as string).slice(-2000)}
             try {
                 const metrics = await invoke<any[]>("get_pod_metrics", { namespace: topNs || null });
                 if (metrics.length === 0) {
-                    toolResult = '⚠️ No pod metrics available. Ensure metrics-server is installed and running.';
+                    toolResult = '[WARN] No pod metrics available. Ensure metrics-server is installed and running.';
                 } else {
                     const sorted = metrics.sort((a, b) => (b.cpu_millicores || 0) - (a.cpu_millicores || 0));
                     toolResult = `## Pod Resource Usage (${metrics.length} pods)\n| Namespace | Pod | CPU | Memory |\n|-----------|-----|-----|--------|\n${sorted.slice(0, 30).map(m =>
@@ -479,13 +479,13 @@ ${(logs as string).slice(-2000)}
                     ).join('\n')}`;
                 }
             } catch {
-                toolResult = '⚠️ Metrics API not available. Install metrics-server: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml';
+                toolResult = '[WARN] Metrics API not available. Install metrics-server: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml';
             }
         } else if (toolName === 'FIND_ISSUES') {
             kubectlCommand = 'custom-health-check';
             const report = await invoke<UnhealthyReport>("find_unhealthy_resources");
             if (report.issues.length === 0) {
-                toolResult = '✅ No issues found in the cluster.';
+                toolResult = '[OK] No issues found in the cluster.';
             } else {
                 const issues = report.issues.slice(0, 50);
                 toolResult = `## Issues Found (${report.issues.length} total, showing ${issues.length})\n${issues.map(i =>
@@ -495,7 +495,7 @@ ${(logs as string).slice(-2000)}
         } else if (toolName === 'SEARCH_KNOWLEDGE') {
             const query = toolArgs || '';
             if (!query) {
-                toolResult = '⚠️ Usage: SEARCH_KNOWLEDGE <query>';
+                toolResult = '[WARN] Usage: SEARCH_KNOWLEDGE <query>';
             } else {
                 kubectlCommand = `knowledge-base search "${query}"`;
                 interface KBResult {
@@ -523,7 +523,7 @@ ${(logs as string).slice(-2000)}
         } else if (toolName === 'GET_ENDPOINTS') {
             const [ns, svc] = (toolArgs || '').split(/\s+/);
             if (!ns || !svc) {
-                toolResult = '⚠️ Usage: GET_ENDPOINTS <namespace> <service>';
+                toolResult = '[WARN] Usage: GET_ENDPOINTS <namespace> <service>';
             } else {
                 kubectlCommand = `kubectl get endpoints -n ${ns} ${svc} -o yaml`;
                 try {
@@ -535,7 +535,7 @@ ${(logs as string).slice(-2000)}
                     const parsed = yaml.load(details) as any;
                     const subsets = parsed.subsets || [];
                     if (subsets.length === 0) {
-                        toolResult = `## Endpoints: ${ns}/${svc}\n⚠️ **No endpoints found!** This means no pods match the service selector.\n\nCheck:\n- Service selector matches pod labels\n- Pods are in Running state\n- Pods pass readiness probes`;
+                        toolResult = `## Endpoints: ${ns}/${svc}\n[WARN] **No endpoints found!** This means no pods match the service selector.\n\nCheck:\n- Service selector matches pod labels\n- Pods are in Running state\n- Pods pass readiness probes`;
                     } else {
                         const addresses = subsets.flatMap((s: any) => (s.addresses || []).map((a: any) => `${a.ip} (${a.targetRef?.name || 'unknown'})`));
                         const notReady = subsets.flatMap((s: any) => (s.notReadyAddresses || []).map((a: any) => `${a.ip} (${a.targetRef?.name || 'unknown'})`));
@@ -543,13 +543,13 @@ ${(logs as string).slice(-2000)}
                         toolResult = `## Endpoints: ${ns}/${svc}\n**Ready:** ${addresses.length > 0 ? addresses.join(', ') : 'None'}\n**Not Ready:** ${notReady.length > 0 ? notReady.join(', ') : 'None'}\n**Ports:** ${ports.join(', ') || 'None'}`;
                     }
                 } catch {
-                    toolResult = `⚠️ Endpoints not found for service ${ns}/${svc}. Check if the service exists.`;
+                    toolResult = `[WARN] Endpoints not found for service ${ns}/${svc}. Check if the service exists.`;
                 }
             }
         } else if (toolName === 'GET_NAMESPACE') {
             const nsName = toolArgs?.trim();
             if (!nsName) {
-                toolResult = '⚠️ Usage: GET_NAMESPACE <namespace-name>';
+                toolResult = '[WARN] Usage: GET_NAMESPACE <namespace-name>';
             } else {
                 kubectlCommand = `kubectl get namespace ${nsName} -o yaml`;
                 try {
@@ -578,24 +578,24 @@ ${(logs as string).slice(-2000)}
                         }
                     }
                     if (phase === 'Terminating') {
-                        result += `\n\n### ⚠️ Namespace Stuck in Terminating\nThis namespace has a deletion timestamp but cannot be deleted. Check:\n1. Resources with finalizers blocking deletion\n2. Use LIST_FINALIZERS ${nsName} to find stuck resources`;
+                        result += `\n\n### [WARN] Namespace Stuck in Terminating\nThis namespace has a deletion timestamp but cannot be deleted. Check:\n1. Resources with finalizers blocking deletion\n2. Use LIST_FINALIZERS ${nsName} to find stuck resources`;
                     }
                     toolResult = result;
                 } catch (e) {
-                    toolResult = `⚠️ Namespace "${nsName}" not found or error: ${e}`;
+                    toolResult = `[WARN] Namespace "${nsName}" not found or error: ${e}`;
                 }
             }
         } else if (toolName === 'LIST_FINALIZERS') {
             const nsName = toolArgs?.trim();
             if (!nsName) {
-                toolResult = '⚠️ Usage: LIST_FINALIZERS <namespace>';
+                toolResult = '[WARN] Usage: LIST_FINALIZERS <namespace>';
             } else {
                 kubectlCommand = `kubectl api-resources --verbs=list -o name | xargs -n 1 kubectl get -n ${nsName} --show-kind --ignore-not-found -o jsonpath='{range .items[?(@.metadata.finalizers)]}{.kind}/{.metadata.name}: {.metadata.finalizers}{"\\n"}{end}'`;
                 try {
                     // Get resources with finalizers in this namespace
                     const resources = await invoke<any[]>("list_resources_with_finalizers", { namespace: nsName });
                     if (resources.length === 0) {
-                        toolResult = `## Finalizers in ${nsName}\n✅ No resources with finalizers found.`;
+                        toolResult = `## Finalizers in ${nsName}\n[OK] No resources with finalizers found.`;
                     } else {
                         let result = `## Resources with Finalizers in ${nsName} (${resources.length})\n`;
                         for (const r of resources) {
@@ -604,7 +604,7 @@ ${(logs as string).slice(-2000)}
                             result += `**Finalizers:** ${r.finalizers.join(', ')}\n`;
                             if (r.deletion_timestamp) {
                                 result += `**Deletion Requested:** ${r.deletion_timestamp}\n`;
-                                result += `⚠️ This resource is stuck! The finalizer controller may be:\n`;
+                                result += `[WARN] This resource is stuck! The finalizer controller may be:\n`;
                                 result += `- Not running (check if the operator/controller exists)\n`;
                                 result += `- Missing credentials (check secrets referenced by the controller)\n`;
                                 result += `- Unable to reach external service (Azure, AWS, etc.)\n`;
@@ -613,7 +613,7 @@ ${(logs as string).slice(-2000)}
                         toolResult = result;
                     }
                 } catch (e) {
-                    toolResult = `❌ Error listing finalizers: ${e}`;
+                    toolResult = `[X] Error listing finalizers: ${e}`;
                 }
             }
         } else if (toolName === 'GET_CROSSPLANE') {
@@ -632,24 +632,24 @@ ${(logs as string).slice(-2000)}
                         result += `- ${p.name}: ${p.status}\n`;
                     }
                 } else {
-                    result += `\n⚠️ No Crossplane providers found. Crossplane may not be installed.\n`;
+                    result += `\n[WARN] No Crossplane providers found. Crossplane may not be installed.\n`;
                 }
 
                 if (managed.length > 0) {
                     result += `\n### Managed Resources (${managed.length})\n`;
                     const unhealthy = managed.filter(m => m.status !== 'Ready' && m.status !== 'True');
                     if (unhealthy.length > 0) {
-                        result += `⚠️ ${unhealthy.length} unhealthy:\n`;
+                        result += `[WARN] ${unhealthy.length} unhealthy:\n`;
                         for (const m of unhealthy.slice(0, 10)) {
                             result += `- ${m.namespace || 'cluster'}/${m.name}: ${m.status}\n`;
                         }
                     } else {
-                        result += `✅ All managed resources healthy\n`;
+                        result += `[OK] All managed resources healthy\n`;
                     }
                 }
                 toolResult = result;
             } catch (e) {
-                toolResult = `❌ Error checking Crossplane: ${e}. Crossplane may not be installed.`;
+                toolResult = `[X] Error checking Crossplane: ${e}. Crossplane may not be installed.`;
             }
         } else if (toolName === 'GET_ISTIO') {
             kubectlCommand = 'kubectl get gateway,virtualservice,destinationrule -A';
@@ -666,15 +666,15 @@ ${(logs as string).slice(-2000)}
                     const unhealthy = istioSystemPods.filter(p => p.status !== 'Running');
                     result += `\n### Istio System Pods (${istioSystemPods.length})\n`;
                     if (unhealthy.length > 0) {
-                        result += `⚠️ ${unhealthy.length} unhealthy pods:\n`;
+                        result += `[WARN] ${unhealthy.length} unhealthy pods:\n`;
                         for (const p of unhealthy) {
                             result += `- ${p.name}: ${p.status}\n`;
                         }
                     } else {
-                        result += `✅ All istio-system pods healthy\n`;
+                        result += `[OK] All istio-system pods healthy\n`;
                     }
                 } else {
-                    result += `\n⚠️ No pods in istio-system. Istio may not be installed.\n`;
+                    result += `\n[WARN] No pods in istio-system. Istio may not be installed.\n`;
                 }
 
                 if (gateways.length > 0) {
@@ -693,7 +693,7 @@ ${(logs as string).slice(-2000)}
 
                 toolResult = result;
             } catch (e) {
-                toolResult = `❌ Error checking Istio: ${e}`;
+                toolResult = `[X] Error checking Istio: ${e}`;
             }
         } else if (toolName === 'GET_WEBHOOKS') {
             kubectlCommand = 'kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations';
@@ -713,11 +713,11 @@ ${(logs as string).slice(-2000)}
                 }
 
                 if (validating.length + mutating.length === 0) {
-                    result += `\n⚠️ No admission webhooks found.\n`;
+                    result += `\n[WARN] No admission webhooks found.\n`;
                 }
                 toolResult = result;
             } catch (e) {
-                toolResult = `❌ Error checking webhooks: ${e}`;
+                toolResult = `[X] Error checking webhooks: ${e}`;
             }
         } else if (toolName === 'GET_UIPATH') {
             const namespace = toolArgs?.trim() || 'uipath';
@@ -733,7 +733,7 @@ ${(logs as string).slice(-2000)}
                 let result = `## UiPath Automation Suite Status\n`;
 
                 if (uipathPods.length === 0) {
-                    result += `\n⚠️ No UiPath pods found in ${namespace} namespace.\n`;
+                    result += `\n[WARN] No UiPath pods found in ${namespace} namespace.\n`;
                     result += `Try: GET_UIPATH uipath-infra or GET_UIPATH automation-suite\n`;
                 } else {
                     const byStatus: Record<string, any[]> = {};
@@ -744,7 +744,7 @@ ${(logs as string).slice(-2000)}
 
                     result += `\n### Pods by Status (${uipathPods.length} total)\n`;
                     for (const [status, pods] of Object.entries(byStatus)) {
-                        const emoji = status === 'Running' ? '✅' : '⚠️';
+                        const emoji = status === 'Running' ? '[OK]' : '[WARN]';
                         result += `${emoji} **${status}:** ${pods.length}\n`;
                         if (status !== 'Running') {
                             for (const p of pods.slice(0, 5)) {
@@ -755,13 +755,13 @@ ${(logs as string).slice(-2000)}
                 }
                 toolResult = result;
             } catch (e) {
-                toolResult = `❌ Error checking UiPath: ${e}`;
+                toolResult = `[X] Error checking UiPath: ${e}`;
             }
         } else if (toolName === 'RUN_KUBECTL') {
             // Power tool: run arbitrary kubectl command with bash piping
             let cmd = toolArgs?.trim();
             if (!cmd) {
-                toolResult = '⚠️ Usage: RUN_KUBECTL <kubectl command>\nExamples:\n- RUN_KUBECTL kubectl get pods -A | grep -i error\n- RUN_KUBECTL kubectl get events --sort-by=.lastTimestamp | head -20\n- RUN_KUBECTL kubectl get pods -o wide | awk \'{print $1, $7}\'';
+                toolResult = '[WARN] Usage: RUN_KUBECTL <kubectl command>\nExamples:\n- RUN_KUBECTL kubectl get pods -A | grep -i error\n- RUN_KUBECTL kubectl get events --sort-by=.lastTimestamp | head -20\n- RUN_KUBECTL kubectl get pods -o wide | awk \'{print $1, $7}\'';
             } else {
                 // Fix: Strip potential markdown code blocks or brackets if the AI hallucinates them
                 cmd = cmd.replace(/^`+|`+$/g, '').replace(/^\[|\]$/g, '').trim();
@@ -775,7 +775,7 @@ ${(logs as string).slice(-2000)}
                     const invalidArgs = fullCmd.match(/\s([^\s/]+\/[^\s/]+\/[^\s/]+)/);
                     if (invalidArgs) {
                         return {
-                            result: `❌ Syntax Error: Invalid resource format "${invalidArgs[1]}".\nkubectl get does NOT support "group/version/kind" format (too many slashes).\n\nCORRECT FORMAT: kubectl get <kind>.<group>\n\nexample:\n❌ kubectl get crossplane.io/v1alpha1/Composites\n✅ kubectl get Composites.crossplane.io`,
+                            result: `[X] Syntax Error: Invalid resource format "${invalidArgs[1]}".\nkubectl get does NOT support "group/version/kind" format (too many slashes).\n\nCORRECT FORMAT: kubectl get <kind>.<group>\n\nexample:\n[X] kubectl get crossplane.io/v1alpha1/Composites\n[OK] kubectl get Composites.crossplane.io`,
                             command: fullCmd
                         };
                     }
@@ -786,7 +786,7 @@ ${(logs as string).slice(-2000)}
                     const output = await invoke<string>("run_kubectl_command", { command: fullCmd });
                     toolResult = `## kubectl Output\n\`\`\`\n${fullCmd}\n\`\`\`\n\n\`\`\`\n${output}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ Command failed: ${e}`;
+                    toolResult = `[X] Command failed: ${e}`;
                 }
             }
         } else if (toolName === 'GET_CAPI') {
@@ -797,7 +797,7 @@ ${(logs as string).slice(-2000)}
                 });
                 toolResult = `## Cluster API (CAPI) Status\n\`\`\`\n${output}\n\`\`\``;
             } catch (e) {
-                toolResult = `❌ Error checking CAPI: ${e}`;
+                toolResult = `[X] Error checking CAPI: ${e}`;
             }
         } else if (toolName === 'GET_CASTAI') {
             kubectlCommand = 'kubectl get autoscalers.castai.upbound.io,nodeconfigurations.castai.upbound.io -A';
@@ -807,14 +807,14 @@ ${(logs as string).slice(-2000)}
                 });
                 toolResult = `## CAST AI Status\n\`\`\`\n${output}\n\`\`\``;
             } catch (e) {
-                toolResult = `❌ Error checking CAST AI: ${e}`;
+                toolResult = `[X] Error checking CAST AI: ${e}`;
             }
         } else if (toolName === 'VCLUSTER_CMD') {
             // Run kubectl inside a vCluster
             const args = toolArgs?.trim() || '';
             const parts = args.split(/\s+/);
             if (parts.length < 3) {
-                toolResult = '⚠️ Usage: VCLUSTER_CMD <namespace> <vcluster-name> <kubectl command>\nExample: VCLUSTER_CMD estest management-cluster get pods -A';
+                toolResult = '[WARN] Usage: VCLUSTER_CMD <namespace> <vcluster-name> <kubectl command>\nExample: VCLUSTER_CMD estest management-cluster get pods -A';
             } else {
                 const ns = parts[0];
                 const vcName = parts[1];
@@ -827,7 +827,7 @@ ${(logs as string).slice(-2000)}
                     });
                     toolResult = `## vCluster ${ns}/${vcName} Output\n\`\`\`\n${output}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ vCluster command failed: ${e}`;
+                    toolResult = `[X] vCluster command failed: ${e}`;
                 }
             }
         } else if (toolName === 'GET_UIPATH_CRD') {
@@ -838,13 +838,13 @@ ${(logs as string).slice(-2000)}
                 });
                 toolResult = `## UiPath Custom Resources\n\`\`\`\n${output}\n\`\`\`\n\n**States:** ASFailed=AS failed, InfraInProgress=provisioning, ManagementClusterReady=ready`;
             } catch (e) {
-                toolResult = `❌ Error checking UiPath CRDs: ${e}`;
+                toolResult = `[X] Error checking UiPath CRDs: ${e}`;
             }
         } else if (toolName === 'WEB_SEARCH') {
             // Web search tool for looking up Kubernetes issues, docs, Stack Overflow, etc.
             const query = toolArgs?.trim();
             if (!query) {
-                toolResult = '⚠️ Usage: WEB_SEARCH <search query>\nExamples:\n- WEB_SEARCH kubernetes pod crashloopbackoff exit code 137\n- WEB_SEARCH istio gateway 503 service unavailable';
+                toolResult = '[WARN] Usage: WEB_SEARCH <search query>\nExamples:\n- WEB_SEARCH kubernetes pod crashloopbackoff exit code 137\n- WEB_SEARCH istio gateway 503 service unavailable';
             } else {
                 kubectlCommand = `web-search "${query}"`;
                 try {
@@ -858,28 +858,28 @@ ${(logs as string).slice(-2000)}
                     }
                 } catch (e) {
                     // Fallback: search via knowledge base if web search fails
-                    toolResult = `⚠️ Web search unavailable (${e}). Try SEARCH_KNOWLEDGE "${query}" instead.`;
+                    toolResult = `[WARN] Web search unavailable (${e}). Try SEARCH_KNOWLEDGE "${query}" instead.`;
                 }
             }
         } else if (toolName === 'RUN_BASH') {
             // Safe bash command execution (read-only, allowlisted commands)
             const cmd = toolArgs?.trim();
             if (!cmd) {
-                toolResult = '⚠️ Usage: RUN_BASH <command>\nExamples:\n- RUN_BASH kubectl get pods -A | grep -i error\n- RUN_BASH helm list -A\n- RUN_BASH jq ".items[].metadata.name" pods.json';
+                toolResult = '[WARN] Usage: RUN_BASH <command>\nExamples:\n- RUN_BASH kubectl get pods -A | grep -i error\n- RUN_BASH helm list -A\n- RUN_BASH jq ".items[].metadata.name" pods.json';
             } else {
                 kubectlCommand = `bash: ${cmd}`;
                 try {
                     const output = await invoke<string>("run_safe_bash", { command: cmd });
                     toolResult = `## 🖥️ Bash Output\n\`\`\`\n${cmd}\n\`\`\`\n\n\`\`\`\n${output}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ Bash command failed: ${e}`;
+                    toolResult = `[X] Bash command failed: ${e}`;
                 }
             }
         } else if (toolName === 'READ_FILE') {
             // Read local file (YAML manifests, configs, etc.)
             const filePath = toolArgs?.trim();
             if (!filePath) {
-                toolResult = '⚠️ Usage: READ_FILE <path>\nExamples:\n- READ_FILE ./deployment.yaml\n- READ_FILE /etc/kubernetes/manifests/kube-apiserver.yaml';
+                toolResult = '[WARN] Usage: READ_FILE <path>\nExamples:\n- READ_FILE ./deployment.yaml\n- READ_FILE /etc/kubernetes/manifests/kube-apiserver.yaml';
             } else {
                 kubectlCommand = `read: ${filePath}`;
                 try {
@@ -891,14 +891,14 @@ ${(logs as string).slice(-2000)}
                             ['sh', 'bash'].includes(ext) ? 'bash' : '';
                     toolResult = `## 📄 File: ${filePath}\n\`\`\`${lang}\n${content}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ Cannot read file: ${e}`;
+                    toolResult = `[X] Cannot read file: ${e}`;
                 }
             }
         } else if (toolName === 'FETCH_URL') {
             // Fetch content from URL (documentation, APIs, etc.)
             const url = toolArgs?.trim();
             if (!url) {
-                toolResult = '⚠️ Usage: FETCH_URL <url>\nExamples:\n- FETCH_URL https://kubernetes.io/docs/concepts/workloads/pods/\n- FETCH_URL https://raw.githubusercontent.com/kubernetes/examples/master/guestbook/all-in-one/guestbook-all-in-one.yaml';
+                toolResult = '[WARN] Usage: FETCH_URL <url>\nExamples:\n- FETCH_URL https://kubernetes.io/docs/concepts/workloads/pods/\n- FETCH_URL https://raw.githubusercontent.com/kubernetes/examples/master/guestbook/all-in-one/guestbook-all-in-one.yaml';
             } else {
                 kubectlCommand = `fetch: ${url}`;
                 try {
@@ -909,14 +909,14 @@ ${(logs as string).slice(-2000)}
                     const lang = isYaml ? 'yaml' : isJson ? 'json' : '';
                     toolResult = `## 🌐 Fetched: ${url}\n\`\`\`${lang}\n${content}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ Cannot fetch URL: ${e}`;
+                    toolResult = `[X] Cannot fetch URL: ${e}`;
                 }
             }
         } else if (toolName === 'SUGGEST_COMMANDS') {
             // AI-powered command generation - uses LLM to generate investigation commands
             const context = toolArgs?.trim();
             if (!context) {
-                toolResult = '⚠️ Usage: SUGGEST_COMMANDS <issue description or context>\nExamples:\n- SUGGEST_COMMANDS pod crashloop in monitoring namespace\n- SUGGEST_COMMANDS investigate slow api response times\n- SUGGEST_COMMANDS check network connectivity between services';
+                toolResult = '[WARN] Usage: SUGGEST_COMMANDS <issue description or context>\nExamples:\n- SUGGEST_COMMANDS pod crashloop in monitoring namespace\n- SUGGEST_COMMANDS investigate slow api response times\n- SUGGEST_COMMANDS check network connectivity between services';
             } else {
                 kubectlCommand = `ai-suggest: ${context}`;
                 try {
@@ -950,7 +950,7 @@ ${s.command}
                     }
                 } catch (e) {
                     console.error('[SUGGEST_COMMANDS] AI generation failed:', e);
-                    toolResult = `⚠️ AI command generation unavailable. Try:\n- TOOL: FIND_ISSUES (discover problems)\n- TOOL: CLUSTER_HEALTH (get overview)\n- TOOL: GET_EVENTS (recent events)`;
+                    toolResult = `[WARN] AI command generation unavailable. Try:\n- TOOL: FIND_ISSUES (discover problems)\n- TOOL: CLUSTER_HEALTH (get overview)\n- TOOL: GET_EVENTS (recent events)`;
                 }
             }
         } else if (toolName === 'LIST_CRDS') {
@@ -978,7 +978,7 @@ ${s.command}
                     toolResult = `## Available API Resources ${filter ? `(matching: ${filter})` : ''}\n\`\`\`\n${output}\n\`\`\`\n\nUse these with LIST_ALL <kind> or DESCRIBE <kind> <ns> <name>`;
                 }
             } catch (e) {
-                toolResult = `❌ Error listing API resources: ${e}`;
+                toolResult = `[X] Error listing API resources: ${e}`;
             }
 
         } else if (toolName === 'GET_RESOURCE') {
@@ -986,7 +986,7 @@ ${s.command}
             // Syntax: GET_RESOURCE <kind> [namespace] [name-pattern]
             const parts = (toolArgs || '').split(/\s+/);
             if (parts.length < 1 || !parts[0]) {
-                toolResult = `⚠️ Usage: GET_RESOURCE <kind> [namespace] [name-pattern]
+                toolResult = `[WARN] Usage: GET_RESOURCE <kind> [namespace] [name-pattern]
 
 Examples:
 - GET_RESOURCE Pod default web.*     (regex match)
@@ -1038,7 +1038,7 @@ The name-pattern supports:
                         toolResult = `## ${kind} ${pattern ? `(matching: ${pattern})` : ''} - ${count} found\n\`\`\`\n${output}\n\`\`\``;
                     }
                 } catch (e) {
-                    toolResult = `❌ Error: ${e}`;
+                    toolResult = `[X] Error: ${e}`;
                 }
             }
 
@@ -1046,7 +1046,7 @@ The name-pattern supports:
             // Get resource as YAML (useful for seeing full spec)
             const parts = (toolArgs || '').split(/\s+/);
             if (parts.length < 2) {
-                toolResult = `⚠️ Usage: GET_YAML <kind> [namespace] <name>
+                toolResult = `[WARN] Usage: GET_YAML <kind> [namespace] <name>
 
 Examples:
 - GET_YAML Pod default nginx-abc
@@ -1080,21 +1080,21 @@ Examples:
 
                     toolResult = `## ${kind} ${ns} ${name} (YAML)\n\`\`\`yaml\n${cleanedOutput}\n\`\`\``;
                 } catch (e) {
-                    toolResult = `❌ Resource not found: ${e}`;
+                    toolResult = `[X] Resource not found: ${e}`;
                 }
             }
 
         } else {
             // Only if called with unknown tool
-            toolResult = `⚠️ Invalid tool: ${toolName}. Valid tools: ${VALID_TOOLS.join(', ')}`;
+            toolResult = `[WARN] Invalid tool: ${toolName}. Valid tools: ${VALID_TOOLS.join(', ')}`;
         }
     } catch (err) {
-        toolResult = `❌ Tool error: ${err}`;
+        toolResult = `[X] Tool error: ${err}`;
     }
 
     // Store in cache (for successful, cacheable results)
     const result: ToolResult = { result: toolResult, command: kubectlCommand };
-    if (!NO_CACHE_TOOLS.includes(toolName) && !toolResult.startsWith('❌') && !toolResult.startsWith('⚠️')) {
+    if (!NO_CACHE_TOOLS.includes(toolName) && !toolResult.startsWith('[X]') && !toolResult.startsWith('[WARN]')) {
         toolCache.set(cacheKey, { result, timestamp: Date.now() });
         cleanExpiredCache(); // Cleanup old entries
     }
@@ -1318,7 +1318,7 @@ export function formatFailedToolsContext(failedOutcomes: ToolOutcome[]): string 
 
     const entries = failedOutcomes.map(o => {
         const alternatives = o.alternatives?.slice(0, 3).join(', ') || 'FIND_ISSUES, LIST_ALL';
-        return `❌ ${o.tool}(${o.args || 'no args'}): ${o.errorMessage || 'Failed'}
+        return `[X] ${o.tool}(${o.args || 'no args'}): ${o.errorMessage || 'Failed'}
    💡 Alternatives: ${alternatives}`;
     });
 

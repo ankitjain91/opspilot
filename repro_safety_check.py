@@ -87,7 +87,7 @@ for cmd, expected_safe, expected_reason_prefix in test_cases:
     
     # Check safety
     if safe != expected_safe:
-        print(f"❌ FAIL: '{cmd}' -> Safe={safe}, Expected={expected_safe}")
+        print(f"[X] FAIL: '{cmd}' -> Safe={safe}, Expected={expected_safe}")
         failures += 1
         continue
         
@@ -95,11 +95,11 @@ for cmd, expected_safe, expected_reason_prefix in test_cases:
     if expected_reason_prefix not in reason and reason not in expected_reason_prefix: 
         # allow SAFE vs SAFE match
         if not (reason == "SAFE" and expected_reason_prefix == "SAFE"): 
-            print(f"❌ FAIL: '{cmd}' -> Reason='{reason}', Expected='{expected_reason_prefix}'")
+            print(f"[X] FAIL: '{cmd}' -> Reason='{reason}', Expected='{expected_reason_prefix}'")
             failures += 1
             continue
 
-    print(f"✅ PASS: '{cmd}'")
+    print(f"[OK] PASS: '{cmd}'")
 
 if failures == 0:
     print("\nALL TESTS PASSED")

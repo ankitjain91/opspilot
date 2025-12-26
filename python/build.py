@@ -127,7 +127,7 @@ def build():
         "--exclude-module", "matplotlib",
         "--exclude-module", "ipython",
         # Agent doesn't use ML libraries - only httpx/fastapi/langchain
-        # Excluding these speeds up PyInstaller by 5-10x (67s → 10s)
+        # Excluding these speeds up PyInstaller by 5-10x (67s -> 10s)
         "--exclude-module", "sklearn",
         "--exclude-module", "scikit-learn",
         "--exclude-module", "transformers",
@@ -137,8 +137,14 @@ def build():
         "--exclude-module", "safetensors",
         "--exclude-module", "regex",
         "--exclude-module", "pyarrow",
+        "--exclude-module", "regex",
+        "--exclude-module", "pyarrow",
         str(script_dir / "start_agent.py"),
     ]
+
+    # WINDOWS: Suppress console window for background sidecar
+    if system == "windows":
+        cmd.insert(4, "--noconsole")
 
     print(f"Building {exe_name} for {system}...")
     subprocess.run(cmd, check=True)

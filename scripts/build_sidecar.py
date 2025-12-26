@@ -3,7 +3,16 @@ import os
 import sys
 import subprocess
 import venv
+import json
 from pathlib import Path
+
+def get_app_version(project_root: Path) -> str:
+    """Read version from package.json"""
+    package_json = project_root / "package.json"
+    if package_json.exists():
+        data = json.loads(package_json.read_text())
+        return data.get("version", "0.0.0")
+    return "0.0.0"
 
 def main():
     # Check for skip flag
@@ -16,6 +25,15 @@ def main():
     project_root = script_dir.parent
     python_source_dir = project_root / "python"
     venv_dir = project_root / ".venv-build"
+
+    # Get app version and write to _version.py for embedding in the binary
+    app_version = get_app_version(project_root)
+    print(f"[build] App version: {app_version}")
+
+    # Write version to a file that gets bundled with the sidecar
+    version_file = python_source_dir / "agent_server" / "_version.py"
+    version_file.write_text(f'"""Auto-generated version file - do not edit"""\n__version__ = "{app_version}"\n')
+    print(f"[build] Wrote version to {version_file}")
 
     print(f"[build] Setting up Python build environment in {venv_dir}...")
     

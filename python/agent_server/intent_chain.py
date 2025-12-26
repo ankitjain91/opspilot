@@ -136,7 +136,7 @@ JSON:"""
         )
 
     except Exception as e:
-        print(f"[intent_chain] ⚠️ Intent classification failed: {e}", flush=True)
+        print(f"[intent_chain] [WARN] Intent classification failed: {e}", flush=True)
         # Fallback: assume troubleshooting intent
         return IntentResult(
             intent="troubleshoot_issue",
@@ -236,7 +236,7 @@ JSON:"""
         )
 
     except Exception as e:
-        print(f"[intent_chain] ⚠️ Context resolution failed: {e}", flush=True)
+        print(f"[intent_chain] [WARN] Context resolution failed: {e}", flush=True)
         # Fallback: no clarification needed, no specific targets
         return ContextResult(
             needs_clarification=False,
@@ -293,11 +293,11 @@ async def run_intent_chain(
     Returns enriched context that makes command planning much easier.
     """
 
-    print(f"[intent_chain] 🔗 Starting intent chain for query: '{query}'", flush=True)
+    print(f"[intent_chain] [LINK] Starting intent chain for query: '{query}'", flush=True)
 
     # Step 1: Classify intent
     intent_result = await classify_intent(query, llm_endpoint, llm_model, llm_provider, api_key)
-    print(f"[intent_chain] 📍 Intent: {intent_result.intent} (confidence: {intent_result.confidence:.2f})", flush=True)
+    print(f"[intent_chain] [LOC] Intent: {intent_result.intent} (confidence: {intent_result.confidence:.2f})", flush=True)
     print(f"[intent_chain]    Reasoning: {intent_result.reasoning}", flush=True)
     print(f"[intent_chain]    Target resources: {intent_result.target_resources}", flush=True)
 
@@ -306,7 +306,7 @@ async def run_intent_chain(
         query, intent_result, conversation_history,
         llm_endpoint, llm_model, llm_provider, api_key
     )
-    print(f"[intent_chain] 🎯 Context: needs_clarification={context_result.needs_clarification}", flush=True)
+    print(f"[intent_chain] [TARGET] Context: needs_clarification={context_result.needs_clarification}", flush=True)
     print(f"[intent_chain]    Specific targets: {context_result.specific_targets}", flush=True)
     print(f"[intent_chain]    Reasoning: {context_result.reasoning}", flush=True)
 

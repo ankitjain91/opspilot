@@ -42,7 +42,7 @@ use commands::azure::{azure_login, refresh_azure_data, get_aks_credentials, dete
 use commands::helm::{helm_list, helm_uninstall, helm_get_details, helm_history, helm_get_resources, helm_rollback};
 use commands::argocd::{get_argocd_server_info, start_argocd_port_forward, stop_argocd_port_forward, check_argocd_exists, open_argocd_webview, close_argocd_webview, force_close_argocd_webview, is_argocd_webview_active, update_argocd_webview_bounds};
 use commands::dependencies::check_dependencies;
-use commands::support_bundle::{load_support_bundle, get_bundle_resource_types, get_bundle_resources, get_bundle_resource_yaml, get_bundle_events, get_bundle_log_files, get_bundle_logs, get_bundle_alerts, get_bundle_health_summary, search_bundle, get_bundle_pods_by_status, get_all_bundle_resources, close_support_bundle, get_bundle_nodes, ai_analyze_bundle};
+use commands::support_bundle::{load_support_bundle, get_bundle_resource_types, get_bundle_resources, get_bundle_resource_yaml, get_bundle_events, get_bundle_log_files, get_bundle_logs, get_bundle_alerts, get_bundle_health_summary, search_bundle, get_bundle_pods_by_status, get_all_bundle_resources, close_support_bundle, get_bundle_nodes, ai_analyze_bundle, list_bundle_logs, read_bundle_log, get_bundle_argocd_apps, get_bundle_storage_classes, get_bundle_pvs, get_bundle_crds, get_bundle_namespace_summary, get_bundle_service_metrics, read_bundle_resource_yaml};
 
 use ai_local::{check_llm_status, check_ollama_status, create_ollama_model, call_llm, call_llm_streaming, call_local_llm_with_tools, call_local_llm, get_system_specs, analyze_text, auto_start_ollama};
 use agent_sidecar::{AgentSidecarState, start_agent, stop_agent, check_agent_status, supervise_agent, start_agent_sidecar};
@@ -269,7 +269,16 @@ pub fn run() {
             get_all_bundle_resources,
             close_support_bundle,
             get_bundle_nodes,
-            ai_analyze_bundle
+            ai_analyze_bundle,
+            list_bundle_logs,
+            read_bundle_log,
+            get_bundle_argocd_apps,
+            get_bundle_storage_classes,
+            get_bundle_pvs,
+            get_bundle_crds,
+            get_bundle_namespace_summary,
+            get_bundle_service_metrics,
+            read_bundle_resource_yaml
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

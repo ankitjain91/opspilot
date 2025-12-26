@@ -6,7 +6,7 @@ import { fetch } from '@tauri-apps/plugin-http';
 import {
     Settings, Server, Link2, Download, FileText, AlertCircle, Check, Loader2,
     ChevronRight, ExternalLink, Terminal, Brain, Database, Puzzle,
-    Bug, FolderOpen, Copy, RefreshCw, X, LogOut, Trash2, Sun, Moon, Monitor, Search, Info
+    Bug, FolderOpen, Copy, RefreshCw, X, LogOut, Trash2, Sun, Moon, Monitor, Search, Info, Plus, Github
 } from 'lucide-react';
 import { open as openExternal, Command } from '@tauri-apps/plugin-shell';
 import { MCPSettings } from './MCPSettings';
@@ -23,6 +23,8 @@ interface OpsPilotConfig {
     githubToken?: string;
     kubeconfig?: string;
     theme?: string;
+    githubRepos?: string[];
+    projectMappings?: { imageRegex: string; localPath: string }[];
 }
 
 interface JiraConfig {
@@ -40,7 +42,7 @@ interface JiraProject {
     name: string;
 }
 
-type SettingsSection = 'general' | 'agent' | 'integrations' | 'mcp' | 'diagnostics';
+type SettingsSection = 'general' | 'agent' | 'integrations' | 'code-search' | 'mcp' | 'diagnostics';
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
     const [activeSection, setActiveSection] = useState<SettingsSection>('general');
@@ -530,6 +532,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         { id: 'general', label: 'General', icon: <Settings size={18} /> },
         { id: 'agent', label: 'Agent & AI', icon: <Brain size={18} /> },
         { id: 'integrations', label: 'Integrations', icon: <Link2 size={18} /> },
+        { id: 'code-search', label: 'Code Search', icon: <Search size={18} /> },
         { id: 'mcp', label: 'MCP Servers', icon: <Puzzle size={18} /> },
         { id: 'diagnostics', label: 'Diagnostics', icon: <Bug size={18} /> },
     ];
@@ -791,6 +794,168 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                                     className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
                                 />
                                 <p className="text-xs text-zinc-500">Model name for generating embeddings</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSection === 'code-search' && (
+                        <div className="space-y-8 max-w-3xl">
+                            <div>
+                                <h2 className="text-lg font-semibold text-white mb-1">Code Search & Deep Investigation</h2>
+                                <p className="text-sm text-zinc-500">Configure how OpsPilot finds and reads your source code during investigations.</p>
+                            </div>
+
+                            {/* Local Project Mappings */}
+                            <div className="space-y-4">
+                                <div>
+                                    <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                                        <FolderOpen size={16} />
+                                        Local Project Mappings
+                                    </h3>
+                                    <p className="text-xs text-zinc-500 mt-1">
+                                        Optional: Map specific Docker images to folders.
+                                        By default, OpsPilot searches <strong>all</strong> your open workspaces. Use this only if you need to disambiguate or map to paths outside your workspace.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {(config.projectMappings || []).map((mapping, idx) => (
+                                        <div key={idx} className="flex gap-2 items-center">
+                                            <input
+                                                type="text"
+                                                value={mapping.imageRegex}
+                                                onChange={(e) => {
+                                                    const newMappings = [...(config.projectMappings || [])];
+                                                    newMappings[idx].imageRegex = e.target.value;
+                                                    setConfig({ ...config, projectMappings: newMappings });
+                                                }}
+                                                placeholder="Docker Image Pattern (e.g. my-app, *)"
+                                                className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                            />
+                                            <input
+                                                type="text"
+                                                value={mapping.localPath}
+                                                onChange={(e) => {
+                                                    const newMappings = [...(config.projectMappings || [])];
+                                                    newMappings[idx].localPath = e.target.value;
+                                                    setConfig({ ...config, projectMappings: newMappings });
+                                                }}
+                                                placeholder="/absolute/path/to/source"
+                                                className="flex-[2] bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                            />
+                                            <button
+                                                onClick={() => {
+                                                    const newMappings = config.projectMappings?.filter((_, i) => i !== idx);
+                                                    setConfig({ ...config, projectMappings: newMappings });
+                                                }}
+                                                className="p-2 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-colors"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    <button
+                                        onClick={() => {
+                                            const newMappings = [...(config.projectMappings || []), { imageRegex: '', localPath: '' }];
+                                            setConfig({ ...config, projectMappings: newMappings });
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium rounded-lg transition-colors border border-white/5 border-dashed hover:border-white/20"
+                                    >
+                                        <Plus size={14} />
+                                        Add Project Mapping
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Separator */}
+                            <div className="h-px bg-white/5" />
+
+                            {/* GitHub Smart Search */}
+                            <div className="space-y-4">
+                                <div>
+                                    <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                                        <Github size={16} />
+                                        GitHub Smart Search ("Sniper Mode")
+                                    </h3>
+                                    <p className="text-xs text-zinc-500 mt-1">
+                                        If local files aren't found, the agent uses the GitHub API to fetch specific files referenced in stack traces.
+                                        This is lightweight and does not clone repositories.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-medium text-zinc-400">Personal Access Token (PAT)</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="password"
+                                                value={config.githubToken || ''}
+                                                onChange={(e) => setConfig({ ...config, githubToken: e.target.value })}
+                                                placeholder="github_pat_..."
+                                                className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                            />
+                                            <button
+                                                onClick={testGitHubConnection}
+                                                disabled={githubTesting || !config.githubToken}
+                                                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                                            >
+                                                {githubTesting ? <Loader2 size={14} className="animate-spin" /> : 'Test'}
+                                            </button>
+                                        </div>
+                                        {githubTestMessage && (
+                                            <p className={`text-xs ${githubTestMessage.includes('Connected') ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                {githubTestMessage}
+                                            </p>
+                                        )}
+                                        <p className="text-[10px] text-zinc-500">
+                                            Requires <code>repo</code> scope (for private repos) or public access.
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-medium text-zinc-400">Default Repositories (Format: owner/repo)</label>
+                                        <div className="p-3 bg-zinc-900 border border-white/10 rounded-lg space-y-2">
+                                            <p className="text-xs text-zinc-500 mb-2">
+                                                The agent will prioritize searching these repositories when verifying stack traces.
+                                            </p>
+                                            {(config.githubRepos || []).map((repo, idx) => (
+                                                <div key={idx} className="flex gap-2 items-center">
+                                                    <input
+                                                        type="text"
+                                                        value={repo}
+                                                        onChange={(e) => {
+                                                            const newRepos = [...(config.githubRepos || [])];
+                                                            newRepos[idx] = e.target.value;
+                                                            setConfig({ ...config, githubRepos: newRepos });
+                                                        }}
+                                                        placeholder="owner/repo"
+                                                        className="flex-1 bg-zinc-800 border border-white/5 rounded px-2 py-1.5 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            const newRepos = config.githubRepos?.filter((_, i) => i !== idx);
+                                                            setConfig({ ...config, githubRepos: newRepos });
+                                                        }}
+                                                        className="p-1.5 hover:bg-white/10 text-zinc-500 hover:text-white rounded transition-colors"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <button
+                                                onClick={() => {
+                                                    const newRepos = [...(config.githubRepos || []), ''];
+                                                    setConfig({ ...config, githubRepos: newRepos });
+                                                }}
+                                                className="text-xs text-violet-400 hover:text-violet-300 font-medium flex items-center gap-1"
+                                            >
+                                                <Plus size={12} />
+                                                Add Repository
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}

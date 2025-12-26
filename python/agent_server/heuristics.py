@@ -38,10 +38,10 @@ def try_pluralization_variants(word: str) -> List[str]:
     Handles common English pluralization rules to match CRD names.
 
     Examples:
-        "customerclusters" → ["customerclusters", "customercluster"]
-        "databases" → ["databases", "database"]
-        "policies" → ["policies", "policy"]
-        "vcluster" → ["vcluster", "vclusters"]
+        "customerclusters" -> ["customerclusters", "customercluster"]
+        "databases" -> ["databases", "database"]
+        "policies" -> ["policies", "policy"]
+        "vcluster" -> ["vcluster", "vclusters"]
     """
     variants = [word]
 
@@ -49,22 +49,22 @@ def try_pluralization_variants(word: str) -> List[str]:
     if len(word) < 4 or word in ['kubernetes', 'the', 'what', 'how', 'why', 'this', 'that', 'these', 'those']:
         return variants
 
-    # Handle plural → singular
-    if word.endswith('ses') and len(word) > 5:  # "databases" → "database"
+    # Handle plural -> singular
+    if word.endswith('ses') and len(word) > 5:  # "databases" -> "database"
         variants.append(word[:-2])
-    elif word.endswith('ies') and len(word) > 5:  # "policies" → "policy"
+    elif word.endswith('ies') and len(word) > 5:  # "policies" -> "policy"
         variants.append(word[:-3] + 'y')
-    elif word.endswith('s') and not word.endswith(('ss', 'us')):  # "clusters" → "cluster"
-        # Avoid false positives like "status" → "statu"
+    elif word.endswith('s') and not word.endswith(('ss', 'us')):  # "clusters" -> "cluster"
+        # Avoid false positives like "status" -> "statu"
         variants.append(word[:-1])
 
-    # Handle singular → plural (if not already plural)
+    # Handle singular -> plural (if not already plural)
     if not word.endswith('s'):
-        if word.endswith('y') and len(word) > 3 and word[-2] not in 'aeiou':  # "policy" → "policies"
+        if word.endswith('y') and len(word) > 3 and word[-2] not in 'aeiou':  # "policy" -> "policies"
             variants.append(word[:-1] + 'ies')
-        elif word.endswith(('s', 'x', 'z', 'ch', 'sh')):  # "address" → "addresses"
+        elif word.endswith(('s', 'x', 'z', 'ch', 'sh')):  # "address" -> "addresses"
             variants.append(word + 'es')
-        else:  # "cluster" → "clusters"
+        else:  # "cluster" -> "clusters"
             variants.append(word + 's')
 
     return list(set(variants))
@@ -145,7 +145,7 @@ def normalize_query(query: str) -> tuple[str, str | None]:
         state = match.group(1)
         resource = match.group(2)
         normalized = f"find {state} {resource}"
-        return normalized, f"Normalized terse query '{query}' → 'find {state} {resource}'"
+        return normalized, f"Normalized terse query '{query}' -> 'find {state} {resource}'"
 
     # No normalization - let the LLM use its reasoning
     return query, None

@@ -39,7 +39,7 @@ async def run_simulation():
     print(f"Next Action: {result_1.get('next_action')}")
     
     if step_1_status != 'completed':
-        print("❌ FAILURE: Step 1 not marked completed!")
+        print("[X] FAILURE: Step 1 not marked completed!")
         return
 
     # 2. Simulate Router Loop: Feed result back into Plan Executor
@@ -55,9 +55,9 @@ async def run_simulation():
     execution_msg = next((e for e in events if e.get('type') == 'progress' and "Step 2" in e.get('message', '')), None)
     
     if execution_msg:
-        print("✅ SUCCESS: Started Step 2 correctly.")
+        print("[OK] SUCCESS: Started Step 2 correctly.")
     else:
-        print("❌ FAILURE: Did not start Step 2.")
+        print("[X] FAILURE: Did not start Step 2.")
         print(f"Result Events: {events}")
         # Check what step it thought was active
         active_step = get_current_step(result_2.get('execution_plan', []))

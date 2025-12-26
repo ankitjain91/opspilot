@@ -335,7 +335,7 @@ Used:
     # 8. Should have executed multiple commands (deep investigation)
     assert len(history) >= 3, "Deep dive should execute at least 3 investigation commands"
 
-    print("\n✅ TEST PASSED: Complex cluster health investigation successful")
+    print("\n[OK] TEST PASSED: Complex cluster health investigation successful")
     print(f"   - Checked {len(history)} different aspects")
     print(f"   - Identified disk pressure issue")
     print(f"   - Traced cascading pod evictions")

@@ -152,18 +152,29 @@ export function LLMSettingsPanel({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ provider: 'claude-code' })
                 });
+
+                // Always try to parse JSON, even on error, to get the message
+                const data = await resp.json().catch(() => ({}));
+
                 if (resp.ok) {
-                    const data = await resp.json();
                     setClaudeCodeStatus({ connected: data.connected, error: data.error });
                     setCheckingClaudeCode(false);
                     return;
-                }
-            } catch (e) {
-                // On last attempt, set the error
-                if (attempt === retries - 1) {
-                    setClaudeCodeStatus({ connected: false, error: 'Agent starting (~10s)...' });
                 } else {
-                    // Wait before retry (agent may still be starting)
+                    // If server returned an explicit error (4xx/5xx), STOP retrying and show it
+                    const errorMessage = data.detail || data.error || `Server Error ${resp.status}`;
+                    console.error("Claude Code check failed:", errorMessage);
+                    setClaudeCodeStatus({ connected: false, error: errorMessage });
+                    setCheckingClaudeCode(false);
+                    return;
+                }
+            } catch (e: any) {
+                // Only retry on network errors (fetch failed entirely)
+                console.warn(`Claude Code check attempt ${attempt + 1} failed:`, e);
+
+                if (attempt === retries - 1) {
+                    setClaudeCodeStatus({ connected: false, error: `Connection failed: ${e.message || 'Agent unreachable'}` });
+                } else {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                 }
             }
@@ -173,27 +184,19 @@ export function LLMSettingsPanel({
 
     const checkCodexStatus = async (retries = 3) => {
         setCheckingCodex(true);
-
-        for (let attempt = 0; attempt < retries; attempt++) {
-            try {
-                const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider: 'codex-cli' })
-                });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
-                    setCheckingCodex(false);
-                    return;
-                }
-            } catch (e) {
-                if (attempt === retries - 1) {
-                    setCodexStatus({ connected: false, error: 'Agent starting (~10s)...' });
-                } else {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                }
+        // Similar logic for Codex if needed, but keeping simple for now to focus on Claude
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: 'codex-cli' })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
             }
+        } catch (e) {
+            setCodexStatus({ connected: false, error: 'Agent unreachable' });
         }
         setCheckingCodex(false);
     };
@@ -523,6 +526,13 @@ export function LLMSettingsPanel({
         </svg>
     );
 
+    // Helper to determine if error is actionable
+    const isAuthError = (err?: string) => {
+        if (!err) return false;
+        const lower = err.toLowerCase();
+        return lower.includes('login') || lower.includes('auth') || lower.includes('keyring') || lower.includes('broken pipe');
+    };
+
     return (
         <div className="flex flex-col h-full bg-black/60 backdrop-blur-2xl">
             {/* --- HEADER --- */}
@@ -564,7 +574,7 @@ export function LLMSettingsPanel({
                         <div className="mt-5 space-y-4 relative z-10 animate-in fade-in slide-in-from-top-2 duration-200">
                             {/* Quick config tip */}
                             <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-3 text-[10px] text-indigo-300/80">
-                                <strong className="text-indigo-300">💡 Tip:</strong> Set <code className="bg-black/30 px-1 rounded">OPSPILOT_AGENT_URL</code> environment variable or create <code className="bg-black/30 px-1 rounded">~/.opspilot.json</code> for zero-config setup across machines.
+                                <strong className="text-indigo-300">[TIP] Tip:</strong> Set <code className="bg-black/30 px-1 rounded">OPSPILOT_AGENT_URL</code> environment variable or create <code className="bg-black/30 px-1 rounded">~/.opspilot.json</code> for zero-config setup across machines.
                             </div>
 
                             <div>
@@ -659,31 +669,66 @@ export function LLMSettingsPanel({
 
                         {/* Status Display */}
                         {localConfig.provider === 'claude-code' ? (
-                            <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingClaudeCode ? 'bg-amber-500/5 border-amber-500/20' :
-                                claudeCodeStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
-                                    'bg-red-500/5 border-red-500/20'
-                                }`}>
-                                <StatusDot ok={claudeCodeStatus?.connected} loading={checkingClaudeCode} />
-                                <div className="flex-1">
-                                    <div className={`text-xs font-bold ${checkingClaudeCode ? 'text-amber-400' :
-                                        claudeCodeStatus?.connected ? 'text-emerald-400' :
-                                            'text-red-400'
-                                        }`}>
-                                        {checkingClaudeCode ? 'Checking...' :
-                                            claudeCodeStatus?.connected ? 'Claude Code Ready' :
-                                                'Claude Code Not Available'}
+                            <div className="space-y-3">
+                                <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingClaudeCode ? 'bg-amber-500/5 border-amber-500/20' :
+                                    claudeCodeStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' :
+                                        'bg-red-500/5 border-red-500/20'
+                                    }`}>
+                                    <StatusDot ok={claudeCodeStatus?.connected} loading={checkingClaudeCode} />
+                                    <div className="flex-1">
+                                        <div className={`text-xs font-bold ${checkingClaudeCode ? 'text-amber-400' :
+                                            claudeCodeStatus?.connected ? 'text-emerald-400' :
+                                                'text-red-400'
+                                            }`}>
+                                            {checkingClaudeCode ? 'Checking Connection...' :
+                                                claudeCodeStatus?.connected ? 'Claude Code Ready' :
+                                                    'Connection Failed'}
+                                        </div>
                                     </div>
-                                    {claudeCodeStatus?.error && !checkingClaudeCode && (
-                                        <div className="text-[10px] text-red-400/80 mt-1">{claudeCodeStatus.error}</div>
-                                    )}
+                                    <button
+                                        onClick={() => checkClaudeCodeStatus()}
+                                        disabled={checkingClaudeCode}
+                                        className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
+                                    >
+                                        Retry
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={checkClaudeCodeStatus}
-                                    disabled={checkingClaudeCode}
-                                    className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
-                                >
-                                    Test
-                                </button>
+
+                                {/* ERROR ALERT - PROMINENT DISPLAY */}
+                                {claudeCodeStatus?.error && !checkingClaudeCode && (
+                                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 animate-in fade-in slide-in-from-top-2">
+                                        <div className="flex gap-3">
+                                            <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={16} />
+                                            <div className="space-y-2 flex-1">
+                                                <h4 className="text-xs font-bold text-red-400 uppercase tracking-wide">Agent Error</h4>
+                                                <div className="text-[11px] text-zinc-300 font-mono bg-black/30 p-2 rounded border border-white/5 whitespace-pre-wrap break-words">
+                                                    {claudeCodeStatus.error}
+                                                </div>
+
+                                                {/* Actionable Hint for Auth/Keyring */}
+                                                {isAuthError(claudeCodeStatus.error) && (
+                                                    <div className="mt-2 pt-2 border-t border-red-500/20">
+                                                        <div className="flex items-center gap-2 text-amber-400 text-[11px] font-bold mb-1">
+                                                            <ShieldCheck size={12} />
+                                                            ACTION REQUIRED
+                                                        </div>
+                                                        <p className="text-[11px] text-zinc-400 mb-2">
+                                                            The agent cannot access the keychain. Run this in your terminal:
+                                                        </p>
+                                                        <div className="flex items-center gap-2 bg-black/40 rounded px-2 py-1.5 border border-white/10 group cursor-pointer hover:border-white/30 transition-colors"
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText('claude login');
+                                                                // You could trigger a toast here
+                                                            }}>
+                                                            <code className="text-[11px] text-emerald-300 font-mono flex-1">claude login</code>
+                                                            <div className="text-[10px] text-zinc-500 uppercase font-bold group-hover:text-zinc-300">Copy</div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingCodex ? 'bg-amber-500/5 border-amber-500/20' :
@@ -705,7 +750,7 @@ export function LLMSettingsPanel({
                                     )}
                                 </div>
                                 <button
-                                    onClick={checkCodexStatus}
+                                    onClick={() => checkCodexStatus()}
                                     disabled={checkingCodex}
                                     className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
                                 >
@@ -714,8 +759,8 @@ export function LLMSettingsPanel({
                             </div>
                         )}
 
-                        {/* Setup Instructions */}
-                        {((localConfig.provider === 'claude-code' && !claudeCodeStatus?.connected && !checkingClaudeCode) ||
+                        {/* General Setup Instructions (Only show if generic failure and no specific error displayed) */}
+                        {((localConfig.provider === 'claude-code' && !claudeCodeStatus?.connected && !checkingClaudeCode && !claudeCodeStatus?.error) ||
                             (localConfig.provider === 'codex-cli' && !codexStatus?.connected && !checkingCodex)) && (
                                 <div className="bg-zinc-900/80 rounded-lg border border-white/5 p-3 space-y-2">
                                     <div className="flex items-center gap-2 text-zinc-500 border-b border-white/5 pb-2">
@@ -754,6 +799,298 @@ export function LLMSettingsPanel({
                                 </div>
                             )}
                     </div>
+                </div>
+
+                {/* === SECTION 1.5: GITHUB INTEGRATION === */}
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-gray-500/5 to-transparent pointer-events-none" />
+
+                    <div className="flex items-center justify-between mb-4 relative z-10">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-gray-500/20 rounded-lg text-gray-300">
+                                <Github size={18} />
+                            </div>
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
+                        </div>
+                        {githubConfigured && (
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    <span className="text-[10px] font-bold text-emerald-400">Connected</span>
+                                </div>
+                                <button
+                                    onClick={handleDisconnectGithub}
+                                    className="p-1.5 hover:bg-white/10 text-zinc-500 hover:text-white rounded-lg transition-colors"
+                                    title="Disconnect"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {!githubConfigured ? (
+                        <div className="space-y-4 relative z-10">
+                            <p className="text-[11px] text-zinc-400">
+                                Connect GitHub to allow the agent to search your repositories for context.
+                            </p>
+                            <div className="flex gap-2">
+                                <input
+                                    type="password"
+                                    value={githubPat}
+                                    onChange={(e) => setGithubPat(e.target.value)}
+                                    placeholder="GitHub Personal Access Token (classic)..."
+                                    className="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-gray-500/50 outline-none font-mono"
+                                />
+                                <button
+                                    onClick={() => testGithubConnection()}
+                                    disabled={testingGithub || !githubPat}
+                                    className="px-4 py-2 bg-white text-black text-xs font-bold rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {testingGithub ? <Loader2 size={14} className="animate-spin" /> : <Network size={14} />}
+                                    Connect
+                                </button>
+                            </div>
+                            <div className="text-[10px] text-zinc-500">
+                                Note: Token requires <code className="bg-white/10 px-1 rounded text-zinc-300">repo</code> scope.
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 relative z-10">
+                            {/* User Info */}
+                            {githubUser && (
+                                <div className="flex items-center gap-3 p-3 bg-black/20 rounded-xl border border-white/5">
+                                    <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold ring-2 ring-white/10">
+                                        {githubUser.substring(0, 2).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="text-xs font-bold text-white">Logged in as {githubUser}</div>
+                                        <div className="text-[10px] text-zinc-500">
+                                            {githubGroups.length} organizations accessible
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Search Mode Selection - Primary Choice */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-zinc-400 uppercase block">Search Mode</label>
+
+                                {/* Option 1: Global Search (Recommended) */}
+                                <button
+                                    onClick={() => setSearchAllRepos(true)}
+                                    className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
+                                        searchAllRepos
+                                            ? 'bg-violet-500/10 border-violet-500/50'
+                                            : 'bg-black/20 border-white/10 hover:border-white/20'
+                                    }`}
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                                            searchAllRepos ? 'border-violet-500 bg-violet-500' : 'border-zinc-600'
+                                        }`}>
+                                            {searchAllRepos && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-[11px] font-bold ${searchAllRepos ? 'text-violet-300' : 'text-zinc-400'}`}>
+                                                    🌐 Search All Accessible Repos
+                                                </span>
+                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 font-medium">Recommended</span>
+                                            </div>
+                                            <p className="text-[10px] text-zinc-500 mt-1">
+                                                Agent searches across ALL repositories your GitHub token can access. Best for discovering code anywhere in your organization.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </button>
+
+                                {/* Option 2: Selected Repos Only */}
+                                <button
+                                    onClick={() => setSearchAllRepos(false)}
+                                    className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
+                                        !searchAllRepos
+                                            ? 'bg-emerald-500/10 border-emerald-500/50'
+                                            : 'bg-black/20 border-white/10 hover:border-white/20'
+                                    }`}
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                                            !searchAllRepos ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-600'
+                                        }`}>
+                                            {!searchAllRepos && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                        </div>
+                                        <div className="flex-1">
+                                            <span className={`text-[11px] font-bold ${!searchAllRepos ? 'text-emerald-300' : 'text-zinc-400'}`}>
+                                                📁 Search Selected Repos Only
+                                            </span>
+                                            <p className="text-[10px] text-zinc-500 mt-1">
+                                                Agent only searches the specific repositories you select below. Use this for focused searches in known repos.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+
+                            {/* Selected Repos Section - Only shown when using Selected Repos mode, or as hints for Global mode */}
+                            <div className={`rounded-xl border overflow-hidden transition-all ${
+                                !searchAllRepos
+                                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                                    : 'border-white/10 bg-black/10 opacity-60'
+                            }`}>
+                                <div className="p-3 border-b border-white/5">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className={`text-[10px] font-bold uppercase ${!searchAllRepos ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                                {!searchAllRepos ? 'Repositories to Search' : 'Hint Repos (Optional)'}
+                                            </span>
+                                            {searchAllRepos && (
+                                                <p className="text-[9px] text-zinc-600 mt-0.5">These help guide the agent but global search is active</p>
+                                            )}
+                                        </div>
+                                        {githubRepos.length > 0 && (
+                                            <button
+                                                onClick={() => setGithubRepos([])}
+                                                className="text-[9px] text-zinc-500 hover:text-red-400 transition-colors"
+                                            >
+                                                Clear all
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Selected repos chips */}
+                                    {githubRepos.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                            {githubRepos.map(repo => (
+                                                <div
+                                                    key={repo}
+                                                    className={`group flex items-center gap-1.5 px-2 py-1 rounded-lg ${
+                                                        !searchAllRepos
+                                                            ? 'bg-emerald-500/10 border border-emerald-500/20'
+                                                            : 'bg-white/5 border border-white/10'
+                                                    }`}
+                                                >
+                                                    <Github size={10} className={!searchAllRepos ? 'text-emerald-400' : 'text-zinc-500'} />
+                                                    <span className={`text-[10px] font-medium ${!searchAllRepos ? 'text-emerald-300' : 'text-zinc-400'}`}>{repo}</span>
+                                                    <button
+                                                        onClick={() => setGithubRepos(githubRepos.filter(r => r !== repo))}
+                                                        className="text-zinc-600 hover:text-red-400 transition-colors ml-0.5"
+                                                    >
+                                                        <X size={10} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {githubRepos.length === 0 && !searchAllRepos && (
+                                        <p className="text-[10px] text-amber-400/80 mt-2 flex items-center gap-1">
+                                            <AlertCircle size={10} />
+                                            Select at least one repository to search
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Org Selector */}
+                                <div className="p-3 border-b border-white/5">
+                                    <label className="text-[9px] font-bold text-zinc-500 uppercase mb-1.5 block">Browse by Organization</label>
+                                    <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                        {loadingGroups ? (
+                                            <div className="text-[10px] text-zinc-500 animate-pulse">Loading orgs...</div>
+                                        ) : (
+                                            githubGroups.map(group => (
+                                                <button
+                                                    key={group.id}
+                                                    onClick={() => setSelectedGroup(group.id)}
+                                                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all shrink-0 ${selectedGroup === group.id
+                                                        ? 'bg-white/10 border-white/30 text-white'
+                                                        : 'bg-black/20 border-white/5 text-zinc-400 hover:bg-white/5'
+                                                        }`}
+                                                >
+                                                    {group.avatar_url && (
+                                                        <img src={group.avatar_url} alt="" className="w-4 h-4 rounded-full" />
+                                                    )}
+                                                    <span className="text-[10px] truncate">{group.name}</span>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Repo Search & Selection */}
+                                <div className="p-2 border-b border-white/5">
+                                    <div className="relative">
+                                        <Search size={12} className="absolute left-2.5 top-2 text-zinc-500" />
+                                        <input
+                                            type="text"
+                                            value={repoSearch}
+                                            onChange={(e) => setRepoSearch(e.target.value)}
+                                            placeholder="Filter repositories..."
+                                            className="w-full bg-black/20 rounded-lg pl-8 pr-3 py-1.5 text-[11px] text-white focus:outline-none focus:bg-black/40 transition-colors placeholder:text-zinc-600"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="max-h-[140px] overflow-y-auto custom-scrollbar p-1">
+                                    {loadingRepos ? (
+                                        <div className="p-4 text-center">
+                                            <Loader2 size={16} className="animate-spin mx-auto text-zinc-500 mb-2" />
+                                            <div className="text-[10px] text-zinc-500">Loading repositories...</div>
+                                        </div>
+                                    ) : filteredRepos.length === 0 ? (
+                                        <div className="p-4 text-center text-[10px] text-zinc-500 italic">
+                                            {repoSearch ? `No repos matching "${repoSearch}"` : 'Select an organization above'}
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                                            {filteredRepos.map(repo => {
+                                                const isSelected = githubRepos.includes(repo);
+                                                return (
+                                                    <button
+                                                        key={repo}
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setGithubRepos(githubRepos.filter(r => r !== repo));
+                                                            } else {
+                                                                setGithubRepos([...githubRepos, repo]);
+                                                            }
+                                                        }}
+                                                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all text-left ${isSelected
+                                                            ? 'bg-emerald-500/10 text-emerald-300'
+                                                            : 'hover:bg-white/5 text-zinc-400'
+                                                            }`}
+                                                    >
+                                                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${isSelected
+                                                            ? 'bg-emerald-500 border-emerald-500'
+                                                            : 'border-zinc-600'
+                                                            }`}>
+                                                            {isSelected && <Check size={9} className="text-black" />}
+                                                        </div>
+                                                        <span className="text-[11px] truncate flex-1">{repo.split('/')[1]}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Footer */}
+                                <div className="px-3 py-2 bg-white/5 border-t border-white/5 flex items-center justify-between">
+                                    <span className="text-[9px] text-zinc-500">
+                                        {availableRepos.length} repos in {selectedGroup || 'organization'}
+                                    </span>
+                                    {filteredRepos.length > 0 && (
+                                        <button
+                                            onClick={() => {
+                                                const newRepos = filteredRepos.filter(r => !githubRepos.includes(r));
+                                                setGithubRepos([...githubRepos, ...newRepos]);
+                                            }}
+                                            className="text-[9px] text-violet-400 hover:text-violet-300 transition-colors"
+                                        >
+                                            + Add all visible
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* === SECTION 2: SMART CODE DISCOVERY === */}

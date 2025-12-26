@@ -2,7 +2,7 @@
  * PlanProgressUI - Displays execution plan progress for complex K8s debugging
  *
  * Shows a live checklist of investigation steps with status indicators:
- * ⏸️ pending → ⏳ in_progress → ✅ completed / ⏭️ skipped / ❌ failed
+ * [PAUSE] pending → [WAIT] in_progress → [OK] completed / [SKIP] skipped / [X] failed
  */
 
 import React from 'react';
@@ -29,14 +29,14 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
 
     const getStatusEmoji = (status: string): string => {
         switch (status) {
-            case 'pending': return '⏸️';
-            case 'in_progress': return '⏳';
-            case 'completed': return '✅';
-            case 'skipped': return '⏭️';
-            case 'failed': return '❌';
-            case 'retrying': return '🔄';
-            case 'blocked': return '⛔';
-            default: return '❓';
+            case 'pending': return '[PAUSE]';
+            case 'in_progress': return '[WAIT]';
+            case 'completed': return '[OK]';
+            case 'skipped': return '[SKIP]';
+            case 'failed': return '[X]';
+            case 'retrying': return '[RETRY]';
+            case 'blocked': return '[BLOCK]';
+            default: return '[?]';
         }
     };
 
@@ -61,7 +61,7 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-gray-200">
-                    📋 Investigation Plan
+                    [LIST] Investigation Plan
                 </h3>
                 <span className="text-xs text-gray-400">
                     {completedCount}/{totalSteps} steps ({progressPercent}%)
@@ -108,7 +108,7 @@ export const PlanProgressUI: React.FC<PlanProgressUIProps> = ({ plan, totalSteps
             {completedCount === totalSteps && (
                 <div className="mt-3 pt-3 border-t border-gray-700 text-center">
                     <span className="text-sm text-green-400">
-                        🎉 Plan execution complete
+                        [DONE] Plan execution complete
                     </span>
                 </div>
             )}

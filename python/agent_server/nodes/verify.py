@@ -144,7 +144,7 @@ async def verify_command_node(state: AgentState) -> dict:
         }
 
     if not is_safe and reason == "REMEDIATION":
-        print(f"[verify] ⚠️ Triggering approval for REMEDIATION: {command}", flush=True)
+        print(f"[verify] [WARN] Triggering approval for REMEDIATION: {command}", flush=True)
         events.append(emit_event("awaiting_approval", {"command": command, "reason": "remediation"}))
         return {
             **state,
@@ -246,7 +246,7 @@ async def human_approval_node(state: AgentState) -> dict:
     if approval_loop_count > 2:
         # The graph is stuck in an approval loop - this is a BUG
         # Generate an error response instead of looping forever
-        print(f"[human_approval] ❌ CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop.", flush=True)
+        print(f"[human_approval] [ERROR] CRITICAL: Approval loop detected ({approval_loop_count} iterations). Breaking loop.", flush=True)
 
         from ..response_formatter import format_intelligent_response_with_llm, _format_simple_fallback
 
@@ -265,7 +265,7 @@ async def human_approval_node(state: AgentState) -> dict:
             )
         except Exception as e:
             # Fallback to simple formatter if LLM call fails
-            print(f"[human_approval] ⚠️ LLM fallback failed: {e}, using simple fallback", flush=True)
+            print(f"[human_approval] [WARN] LLM fallback failed: {e}, using simple fallback", flush=True)
             error_response = _format_simple_fallback(
                 state.get('query', ''),
                 state.get('command_history', []),
@@ -273,7 +273,7 @@ async def human_approval_node(state: AgentState) -> dict:
             )
 
         # Append error notice
-        error_response += "\n\n⚠️ **Note**: This command requires manual approval, but the workflow encountered an error while waiting for approval. Please run the agent again and approve the command when prompted."
+        error_response += "\n\n[WARN] **Note**: This command requires manual approval, but the workflow encountered an error while waiting for approval. Please run the agent again and approve the command when prompted."
 
         return {
             **state,

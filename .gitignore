@@ -41,6 +41,7 @@ python/build/
 python/dist/
 *.spec
 python/test_*.py
+python/agent_server/_version.py
 
 # AI Model Cache
 src-tauri/.fastembed_cache/

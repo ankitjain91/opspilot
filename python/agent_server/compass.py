@@ -98,7 +98,7 @@ class CompassValidator:
                     warnings.append("Running as root user is not recommended")
 
             if warnings:
-                return True, f"⚠️ Policy warnings (non-blocking):\n  - " + "\n  - ".join(warnings)
+                return True, f"[WARN] Policy warnings (non-blocking):\n  - " + "\n  - ".join(warnings)
 
             return True, None
 
@@ -116,7 +116,7 @@ class CompassValidator:
         # Schema validation (blocking)
         schema_valid, schema_error = CompassValidator.validate_yaml_schema(yaml_content)
         if not schema_valid:
-            return False, f"❌ Schema validation failed: {schema_error}"
+            return False, f"[ERROR] Schema validation failed: {schema_error}"
 
         # Policy validation (warnings only)
         policy_ok, policy_msg = CompassValidator.check_policy_compliance(yaml_content, kube_context)

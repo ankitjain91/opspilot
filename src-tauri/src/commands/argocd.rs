@@ -140,11 +140,13 @@ fn kill_process(pid: u32) {
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(&["/F", "/PID", &pid.to_string()])
+        use std::os::windows::process::CommandExt;
+        let mut cmd = Command::new("taskkill");
+        cmd.args(&["/F", "/PID", &pid.to_string()])
             .stderr(Stdio::null())
             .stdout(Stdio::null())
-            .status();
+            .creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let _ = cmd.status();
     }
 }
 
@@ -170,10 +172,11 @@ fn get_pids_using_port(port: u16) -> Vec<u32> {
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         // Use netstat on Windows
-        if let Ok(output) = Command::new("netstat")
-            .args(&["-aon"])
-            .output()
+        let mut cmd = Command::new("netstat");
+        cmd.args(&["-aon"]).creation_flags(0x08000000);
+        if let Ok(output) = cmd.output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let port_str = format!(":{}", port);
@@ -221,12 +224,14 @@ fn cleanup_stale_port_forwards() {
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         // On Windows, we can use wmic or taskkill with filters
-        let _ = Command::new("taskkill")
-            .args(&["/F", "/IM", "kubectl.exe"])
+        let mut cmd = Command::new("taskkill");
+        cmd.args(&["/F", "/IM", "kubectl.exe"])
             .stderr(Stdio::null())
             .stdout(Stdio::null())
-            .status();
+            .creation_flags(0x08000000);
+        let _ = cmd.status();
     }
 
     // Wait for OS to release the port
@@ -340,15 +345,22 @@ pub async fn start_argocd_port_forward(
 
     // Start kubectl port-forward in background
     let port_mapping = format!("{}:{}", ARGOCD_LOCAL_PORT, target_port);
-    let mut child = Command::new("kubectl")
-        .args(&[
+    let mut cmd = Command::new("kubectl");
+    cmd.args(&[
             "port-forward",
             "-n", &namespace,
             "svc/argocd-server",
             &port_mapping,
         ])
-        .stderr(Stdio::piped()) // Capture stderr to check for errors
-        .spawn()
+        .stderr(Stdio::piped()); // Capture stderr to check for errors
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to start port-forward: {}", e))?;
 
     // Wait for port-forward to bind to the local port; if it never binds, surface an error

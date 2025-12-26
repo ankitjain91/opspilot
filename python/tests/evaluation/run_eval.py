@@ -313,7 +313,7 @@ async def main():
     
     results = []
     
-    print(f"🚀 Starting Evaluation on {len(test_cases)} scenarios (Real LLM: {args.real})...")
+    print(f"[RUN] Starting Evaluation on {len(test_cases)} scenarios (Real LLM: {args.real})...")
     print("="*60)
     
     for test in test_cases:

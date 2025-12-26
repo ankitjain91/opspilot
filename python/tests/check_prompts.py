@@ -28,10 +28,10 @@ def test_supervisor_prompt_formatting():
 
     try:
         formatted = SUPERVISOR_PROMPT.format(**dummy_args)
-        print("✅ SUPERVISOR_PROMPT formatted successfully!")
+        print("[OK] SUPERVISOR_PROMPT formatted successfully!")
         print(f"Length: {len(formatted)} chars")
     except Exception as e:
-        print(f"❌ Formatting FAILED: {e}")
+        print(f"[X] Formatting FAILED: {e}")
         # Fail the test
         sys.exit(1)
 

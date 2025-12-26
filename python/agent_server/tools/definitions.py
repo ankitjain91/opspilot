@@ -225,6 +225,12 @@ class RunK8sPython(BaseModel):
     tool: Literal["run_k8s_python"]
     code: str = Field(..., description="Python code to execute. Must print result to stdout.")
 
+class GitHubSmartSearch(BaseModel):
+    tool: Literal["github_smart_search"]
+    query: str = Field(..., description="String to search for (e.g. error message, class name)")
+    repo_filter: Optional[str] = Field(None, description="Specific repo (owner/name). If omitted, searches default repos.")
+    file_pattern: Optional[str] = Field(None, description="Glob pattern for filename (e.g. *.java, config.yaml). HIGHLY RECOMMENDED.")
+
 class AgentToolWrapper(BaseModel):
     tool_call: Annotated[Union[
         RunK8sPython,
@@ -232,5 +238,5 @@ class AgentToolWrapper(BaseModel):
         KubectlApiResources, KubectlContext, KubectlExplain, KubectlDiff, GitCommit, PredictScaling,
         KubectlDelete, KubectlRollout, KubectlScale, KubectlSetResources, KubectlApply, KubectlExec, KubectlExecShell,
         ShellCommand,
-        ListDir, ReadFile, GrepSearch, FindFile, LocateSource
+        ListDir, ReadFile, GrepSearch, FindFile, LocateSource, GitHubSmartSearch
     ], Field(discriminator='tool')]

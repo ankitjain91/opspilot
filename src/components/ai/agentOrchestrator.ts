@@ -477,13 +477,13 @@ async function runPythonAgent(
     onProgress?.('🔍 Checking agent server...');
     const isAvailable = await ensureAgentRunning();
     if (!isAvailable) {
-        throw new Error("❌ **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
+        throw new Error("[X] **Agent Server Unavailable**: The Python sidecar failed to start. Please restart the app and check the console for errors.");
     }
 
     // FAST PATH: Use direct agent if fastMode is requested OR for specific providers
     if (fastMode || llmProvider === 'claude-code' || llmProvider === 'codex-cli') {
         console.log(`[AgentOrchestrator] Using direct agent (Fast Mode: ${fastMode})`);
-        onProgress?.(fastMode ? '⚡ Fast Mode investigation...' : '🚀 Direct investigation...');
+        onProgress?.(fastMode ? '⚡ Fast Investigation...' : '▶️ Direct investigation...');
         return await runDirectAgent(query, kubeContext, llmProvider, onProgress, onStep, abortSignal, toolSubset, fastMode, resourceContext);
     }
 
@@ -649,7 +649,7 @@ async function runPythonAgent(
                                 case 'error':
                                     // Store error but don't throw immediately - agent may recover
                                     lastError = eventData.message;
-                                    onProgress?.(`⚠️ ${eventData.message}`);
+                                    onProgress?.(`[WARN] ${eventData.message}`);
                                     break;
                                 case 'approval_needed':
                                     onApprovalRequired?.(eventData);
@@ -678,7 +678,7 @@ async function runPythonAgent(
                     toolError = `Tool '${requestedTool}' not found in available tools list.`;
                 } else {
                     try {
-                        onProgress?.(`🛠️ Running ${toolDef.original_name}...`);
+                        onProgress?.(`[TOOL] Running ${toolDef.original_name}...`);
                         const result = await invoke('call_mcp_tool', {
                             serverName: toolDef.server,
                             toolName: toolDef.original_name,
@@ -738,7 +738,7 @@ async function runPythonAgent(
             // Should we retry on network error? Probably not for now.
             const errorMsg = error.message?.toLowerCase() || '';
             if (errorMsg.includes('fetch failed') || errorMsg.includes('econnrefused')) {
-                throw new Error("❌ **Agent Server Unreachable**: The Python sidecar is not running.");
+                throw new Error("[X] **Agent Server Unreachable**: The Python sidecar is not running.");
             }
             throw error;
         }

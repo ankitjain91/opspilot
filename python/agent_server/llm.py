@@ -87,26 +87,26 @@ class SmartLLMClient:
                      print(f"DEBUG: Skipping Anthropic - Key: {bool(effective_key)}, Health: {self.provider_health.get('anthropic')}", flush=True)
 
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-            print(f"⚠️ Primary provider ({provider}) failed: {e}. Switching to fallback...", flush=True)
+            print(f"WARNING: Primary provider ({provider}) failed: {e}. Switching to fallback...", flush=True)
             self.provider_health[provider] = False
         except Exception as e:
-            print(f"⚠️ Primary provider ({provider}) error: {e}", flush=True)
+            print(f"WARNING: Primary provider ({provider}) error: {e}", flush=True)
             self.provider_health[provider] = False
         
         # 2. First Fallback: Groq (Fast & Cheap)
         # Note: We probably don't have a fallback key if the primary key failed, but we check env
         if provider != "groq" and self.provider_health["groq"] and self.groq_api_key:
-            print(f"🔄 Attempting fallback to Groq (llama3-70b-8192)...", flush=True)
+            print(f"Attempting fallback to Groq (llama3-70b-8192)...", flush=True)
             try:
                 # Default to a strong model for fallback
                 return await self._call_groq(prompt, "llama3-70b-8192", temperature, force_json, self.groq_api_key)
             except Exception as e:
-                print(f"⚠️ Groq fallback failed: {e}", flush=True)
+                print(f"WARNING: Groq fallback failed: {e}", flush=True)
                 self.provider_health["groq"] = False
 
         # 3. Final Fallback: OpenAI (Reliable)
         if provider != "openai" and self.provider_health["openai"] and self.openai_api_key:
-            print(f"🔄 Attempting fallback to OpenAI (gpt-4o-mini)...", flush=True)
+            print(f"Attempting fallback to OpenAI (gpt-4o-mini)...", flush=True)
             try:
                 return await self._call_openai(prompt, "gpt-4o-mini", temperature, force_json, self.openai_api_key)
             except Exception as e:

@@ -431,6 +431,17 @@ pub struct OpsPilotConfig {
     pub kubeconfig: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_repos: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_mappings: Option<Vec<ProjectMapping>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectMapping {
+    pub image_regex: String,
+    pub local_path: String,
 }
 
 /// Get list of config file paths to search (in priority order)

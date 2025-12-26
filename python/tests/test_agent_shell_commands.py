@@ -89,16 +89,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command[:200]}...")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command[:200]}...")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "jq" in command or "|" in command, "❌ FAILED: Expected pipe or jq usage"
-        assert "status" in command, "❌ FAILED: Expected status field extraction"
-        assert "taasvstst" in command, "❌ FAILED: Expected resource name in command"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "jq" in command or "|" in command, "[X] FAILED: Expected pipe or jq usage"
+        assert "status" in command, "[X] FAILED: Expected status field extraction"
+        assert "taasvstst" in command, "[X] FAILED: Expected resource name in command"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand with jq/pipes for CRD error extraction")
+        print("\n[OK] PASSED: Correctly selected ShellCommand with jq/pipes for CRD error extraction")
         return True
 
     async def test_simple_list_uses_kubectl_get(self):
@@ -114,13 +114,13 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Assertions
-        assert tool_type == "kubectl_get", f"❌ FAILED: Expected 'kubectl_get', got '{tool_type}'"
+        assert tool_type == "kubectl_get", f"[X] FAILED: Expected 'kubectl_get', got '{tool_type}'"
 
-        print("\n✅ PASSED: Correctly selected KubectlGet for simple list operation")
+        print("\n[OK] PASSED: Correctly selected KubectlGet for simple list operation")
         return True
 
     async def test_filtering_uses_shell_command(self):
@@ -137,14 +137,14 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "grep" in command or "|" in command, "❌ FAILED: Expected grep or pipe usage"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "grep" in command or "|" in command, "[X] FAILED: Expected grep or pipe usage"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for filtering operation")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for filtering operation")
         return True
 
     async def test_jsonpath_extraction_uses_shell_command(self):
@@ -164,15 +164,15 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "jq" in command or "jsonpath" in command, "❌ FAILED: Expected jq or jsonpath usage"
-        assert "currentState" in command or "status" in command, "❌ FAILED: Expected field extraction"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "jq" in command or "jsonpath" in command, "[X] FAILED: Expected jq or jsonpath usage"
+        assert "currentState" in command or "status" in command, "[X] FAILED: Expected field extraction"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for JSONPATH extraction")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for JSONPATH extraction")
         return True
 
     async def test_multi_step_pipeline_uses_shell_command(self):
@@ -192,14 +192,14 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "|" in command, "❌ FAILED: Expected pipe usage for multi-step pipeline"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "|" in command, "[X] FAILED: Expected pipe usage for multi-step pipeline"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for multi-step pipeline")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for multi-step pipeline")
         return True
 
     async def test_debug_customercluster_real_scenario(self):
@@ -223,16 +223,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "taasvstst" in command, "❌ FAILED: Expected resource name in command"
-        assert "status" in command.lower(), "❌ FAILED: Expected status field extraction"
-        assert ("jq" in command or "jsonpath" in command or "|" in command), "❌ FAILED: Expected data extraction tool (jq/jsonpath/pipes)"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "taasvstst" in command, "[X] FAILED: Expected resource name in command"
+        assert "status" in command.lower(), "[X] FAILED: Expected status field extraction"
+        assert ("jq" in command or "jsonpath" in command or "|" in command), "[X] FAILED: Expected data extraction tool (jq/jsonpath/pipes)"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for real CustomerCluster debugging")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for real CustomerCluster debugging")
         return True
 
     async def test_vcluster_crossplane_resource_debugging(self):
@@ -255,16 +255,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "postgres-db-instance" in command, "❌ FAILED: Expected resource name in command"
-        assert ("jq" in command or "jsonpath" in command), "❌ FAILED: Expected jq/jsonpath for status.conditions extraction"
-        assert "conditions" in command.lower() or "status" in command.lower(), "❌ FAILED: Expected conditions/status extraction"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "postgres-db-instance" in command, "[X] FAILED: Expected resource name in command"
+        assert ("jq" in command or "jsonpath" in command), "[X] FAILED: Expected jq/jsonpath for status.conditions extraction"
+        assert "conditions" in command.lower() or "status" in command.lower(), "[X] FAILED: Expected conditions/status extraction"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for Crossplane resource debugging")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for Crossplane resource debugging")
         return True
 
     async def test_simple_list_pods_easy(self):
@@ -280,15 +280,15 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Assertions
-        assert tool_type == "kubectl_get", f"❌ FAILED: Expected 'kubectl_get', got '{tool_type}'"
-        assert result.get("tool_call", {}).get("resource") == "pods", "❌ FAILED: Expected resource='pods'"
-        assert result.get("tool_call", {}).get("namespace") == "production", "❌ FAILED: Expected namespace='production'"
+        assert tool_type == "kubectl_get", f"[X] FAILED: Expected 'kubectl_get', got '{tool_type}'"
+        assert result.get("tool_call", {}).get("resource") == "pods", "[X] FAILED: Expected resource='pods'"
+        assert result.get("tool_call", {}).get("namespace") == "production", "[X] FAILED: Expected namespace='production'"
 
-        print("\n✅ PASSED: Correctly selected KubectlGet for simple pod listing")
+        print("\n[OK] PASSED: Correctly selected KubectlGet for simple pod listing")
         return True
 
     async def test_extract_configmap_field_easy(self):
@@ -308,16 +308,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "app-config" in command, "❌ FAILED: Expected ConfigMap name in command"
-        assert ("jq" in command or "jsonpath" in command), "❌ FAILED: Expected jq/jsonpath for field extraction"
-        assert "database.host" in command or "data" in command.lower(), "❌ FAILED: Expected field extraction from data"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "app-config" in command, "[X] FAILED: Expected ConfigMap name in command"
+        assert ("jq" in command or "jsonpath" in command), "[X] FAILED: Expected jq/jsonpath for field extraction"
+        assert "database.host" in command or "data" in command.lower(), "[X] FAILED: Expected field extraction from data"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand with jq/jsonpath for ConfigMap field extraction")
+        print("\n[OK] PASSED: Correctly selected ShellCommand with jq/jsonpath for ConfigMap field extraction")
         return True
 
     async def test_show_secret_decoded_easy(self):
@@ -337,16 +337,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Assertions
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "db-credentials" in command, "❌ FAILED: Expected secret name in command"
-        assert "base64" in command, "❌ FAILED: Expected base64 decoding"
-        assert ("jq" in command or "jsonpath" in command or "|" in command), "❌ FAILED: Expected data extraction with pipes/jq"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "db-credentials" in command, "[X] FAILED: Expected secret name in command"
+        assert "base64" in command, "[X] FAILED: Expected base64 decoding"
+        assert ("jq" in command or "jsonpath" in command or "|" in command), "[X] FAILED: Expected data extraction with pipes/jq"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand with base64 decode for secret extraction")
+        print("\n[OK] PASSED: Correctly selected ShellCommand with base64 decode for secret extraction")
         return True
 
     async def test_debug_pod_crash_loop(self):
@@ -366,17 +366,17 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # For this scenario, both kubectl_logs and shell_command are valid
-        assert tool_type in ["kubectl_logs", "shell_command"], f"❌ FAILED: Expected 'kubectl_logs' or 'shell_command', got '{tool_type}'"
+        assert tool_type in ["kubectl_logs", "shell_command"], f"[X] FAILED: Expected 'kubectl_logs' or 'shell_command', got '{tool_type}'"
 
         if tool_type == "kubectl_logs":
-            assert result.get("tool_call", {}).get("previous") == True, "❌ FAILED: Expected previous=True for crashed container"
-            assert result.get("tool_call", {}).get("tail") == 50, "❌ FAILED: Expected tail=50"
+            assert result.get("tool_call", {}).get("previous") == True, "[X] FAILED: Expected previous=True for crashed container"
+            assert result.get("tool_call", {}).get("tail") == 50, "[X] FAILED: Expected tail=50"
 
-        print("\n✅ PASSED: Correctly selected appropriate tool for pod crash debugging")
+        print("\n[OK] PASSED: Correctly selected appropriate tool for pod crash debugging")
         return True
 
     async def test_correlate_events_with_pod(self):
@@ -396,16 +396,16 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Both kubectl_events and shell_command are valid
-        assert tool_type in ["kubectl_events", "shell_command"], f"❌ FAILED: Expected 'kubectl_events' or 'shell_command', got '{tool_type}'"
+        assert tool_type in ["kubectl_events", "shell_command"], f"[X] FAILED: Expected 'kubectl_events' or 'shell_command', got '{tool_type}'"
 
         if tool_type == "kubectl_events":
-            assert result.get("tool_call", {}).get("only_warnings") == True, "❌ FAILED: Expected only_warnings=True"
+            assert result.get("tool_call", {}).get("only_warnings") == True, "[X] FAILED: Expected only_warnings=True"
 
-        print("\n✅ PASSED: Correctly selected appropriate tool for event correlation")
+        print("\n[OK] PASSED: Correctly selected appropriate tool for event correlation")
         return True
 
     async def test_multi_resource_investigation(self):
@@ -426,16 +426,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # This requires shell command with pipes and math/filtering
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "|" in command, "❌ FAILED: Expected pipes for multi-step processing"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "|" in command, "[X] FAILED: Expected pipes for multi-step processing"
         # Should involve kubectl top, awk/jq for calculation, and filtering
-        assert ("kubectl top" in command or "metrics" in command.lower()), "❌ FAILED: Expected metrics/top command"
+        assert ("kubectl top" in command or "metrics" in command.lower()), "[X] FAILED: Expected metrics/top command"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for complex multi-resource investigation")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for complex multi-resource investigation")
         return True
 
     async def test_crossplane_resource_discovery(self):
@@ -457,20 +457,20 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # For Crossplane resource discovery, both kubectl_get and shell_command are valid
         # kubectl_get is simpler for basic listing, shell_command needed for filtering
         assert tool_type in ["kubectl_get", "shell_command", "kubectl_api_resources"], \
-            f"❌ FAILED: Expected 'kubectl_get', 'shell_command', or 'kubectl_api_resources', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_get', 'shell_command', or 'kubectl_api_resources', got '{tool_type}'"
 
         if tool_type == "shell_command":
             # Should involve grep/jq for filtering storage account resources
             assert ("|" in command or "grep" in command.lower() or "storage" in command.lower()), \
-                "❌ FAILED: Expected filtering for storage account resources"
+                "[X] FAILED: Expected filtering for storage account resources"
 
-        print("\n✅ PASSED: Correctly selected appropriate tool for Crossplane resource discovery")
+        print("\n[OK] PASSED: Correctly selected appropriate tool for Crossplane resource discovery")
         return True
 
     async def test_extract_specific_field_from_crd_array(self):
@@ -492,18 +492,18 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # This requires shell command with jq array filtering
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "jq" in command, "❌ FAILED: Expected jq for array filtering"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "jq" in command, "[X] FAILED: Expected jq for array filtering"
         assert ("conditions" in command.lower() or "status" in command.lower()), \
-            "❌ FAILED: Expected conditions/status array extraction"
+            "[X] FAILED: Expected conditions/status array extraction"
         assert ("select" in command or "map" in command or "[" in command), \
-            "❌ FAILED: Expected jq array operations (select/map/[])"
+            "[X] FAILED: Expected jq array operations (select/map/[])"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand with jq array filtering")
+        print("\n[OK] PASSED: Correctly selected ShellCommand with jq array filtering")
         return True
 
     async def test_simple_one_word_command(self):
@@ -519,14 +519,14 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Should use kubectl_get for simple listing
-        assert tool_type == "kubectl_get", f"❌ FAILED: Expected 'kubectl_get', got '{tool_type}'"
-        assert result.get("tool_call", {}).get("resource") == "pods", "❌ FAILED: Expected resource='pods'"
+        assert tool_type == "kubectl_get", f"[X] FAILED: Expected 'kubectl_get', got '{tool_type}'"
+        assert result.get("tool_call", {}).get("resource") == "pods", "[X] FAILED: Expected resource='pods'"
 
-        print("\n✅ PASSED: Correctly handled single-word command")
+        print("\n[OK] PASSED: Correctly handled single-word command")
         return True
 
     async def test_multi_step_root_cause_analysis(self):
@@ -552,19 +552,19 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # For checking restart counts, should use either kubectl_get or shell_command with parsing
         assert tool_type in ["kubectl_get", "shell_command"], \
-            f"❌ FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
 
         if tool_type == "shell_command":
             # Should involve extracting restart counts
             assert ("restart" in command.lower() or "status" in command.lower()), \
-                "❌ FAILED: Expected restart count extraction"
+                "[X] FAILED: Expected restart count extraction"
 
-        print("\n✅ PASSED: Correctly selected tool for multi-step root cause analysis")
+        print("\n[OK] PASSED: Correctly selected tool for multi-step root cause analysis")
         return True
 
     async def test_aggregation_across_namespaces(self):
@@ -585,17 +585,17 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # This requires shell command with aggregation (awk/sort/uniq or jq grouping)
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "|" in command, "❌ FAILED: Expected pipes for aggregation"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "|" in command, "[X] FAILED: Expected pipes for aggregation"
         # Should involve grouping/counting
         assert any(x in command.lower() for x in ["group", "count", "uniq", "sort", "awk"]), \
-            "❌ FAILED: Expected aggregation operations (group/count/uniq/sort/awk)"
+            "[X] FAILED: Expected aggregation operations (group/count/uniq/sort/awk)"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for aggregation")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for aggregation")
         return True
 
     async def test_time_based_filtering(self):
@@ -615,19 +615,19 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Both kubectl_events and shell_command are valid
         assert tool_type in ["kubectl_events", "shell_command"], \
-            f"❌ FAILED: Expected 'kubectl_events' or 'shell_command', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_events' or 'shell_command', got '{tool_type}'"
 
         if tool_type == "shell_command":
             # Should involve time filtering
             assert any(x in command.lower() for x in ["time", "timestamp", "last", "recent"]), \
-                "❌ FAILED: Expected time-based filtering"
+                "[X] FAILED: Expected time-based filtering"
 
-        print("\n✅ PASSED: Correctly selected tool for time-based filtering")
+        print("\n[OK] PASSED: Correctly selected tool for time-based filtering")
         return True
 
     async def test_comparative_analysis(self):
@@ -647,14 +647,14 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # kubectl_diff or shell_command with diff/comparison
         assert tool_type in ["kubectl_diff", "shell_command"], \
-            f"❌ FAILED: Expected 'kubectl_diff' or 'shell_command', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_diff' or 'shell_command', got '{tool_type}'"
 
-        print("\n✅ PASSED: Correctly selected tool for comparative analysis")
+        print("\n[OK] PASSED: Correctly selected tool for comparative analysis")
         return True
 
     async def test_network_connectivity_debugging(self):
@@ -674,14 +674,14 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Should use kubectl_exec or kubectl_exec_shell
         assert tool_type in ["kubectl_exec", "kubectl_exec_shell"], \
-            f"❌ FAILED: Expected 'kubectl_exec' or 'kubectl_exec_shell', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_exec' or 'kubectl_exec_shell', got '{tool_type}'"
 
-        print("\n✅ PASSED: Correctly selected exec tool for network debugging")
+        print("\n[OK] PASSED: Correctly selected exec tool for network debugging")
         return True
 
     async def test_resource_cleanup_identification(self):
@@ -701,14 +701,14 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # This requires shell command with complex filtering
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "|" in command, "❌ FAILED: Expected pipes for multi-step filtering"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "|" in command, "[X] FAILED: Expected pipes for multi-step filtering"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for resource cleanup identification")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for resource cleanup identification")
         return True
 
     async def test_security_audit_rbac(self):
@@ -728,14 +728,14 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Should use shell_command or kubectl_get for rolebindings
         assert tool_type in ["kubectl_get", "shell_command"], \
-            f"❌ FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
 
-        print("\n✅ PASSED: Correctly selected tool for RBAC audit")
+        print("\n[OK] PASSED: Correctly selected tool for RBAC audit")
         return True
 
     async def test_batch_operation_multiple_resources(self):
@@ -758,14 +758,14 @@ OR
 
         tool_type = result.get("tool_call", {}).get("tool")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Full tool call: {json.dumps(result, indent=2)}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Full tool call: {json.dumps(result, indent=2)}")
 
         # Could use kubectl_get with label selector or shell_command with multiple gets
         assert tool_type in ["kubectl_get", "shell_command"], \
-            f"❌ FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
+            f"[X] FAILED: Expected 'kubectl_get' or 'shell_command', got '{tool_type}'"
 
-        print("\n✅ PASSED: Correctly selected tool for batch operation")
+        print("\n[OK] PASSED: Correctly selected tool for batch operation")
         return True
 
     async def test_performance_bottleneck_analysis(self):
@@ -789,16 +789,16 @@ OR
         tool_type = result.get("tool_call", {}).get("tool")
         command = result.get("tool_call", {}).get("command", "")
 
-        print(f"\n✓ Selected tool: {tool_type}")
-        print(f"✓ Command: {command}")
+        print(f"\n[OK] Selected tool: {tool_type}")
+        print(f"[OK] Command: {command}")
 
         # Should use shell_command with kubectl top and calculations
-        assert tool_type == "shell_command", f"❌ FAILED: Expected 'shell_command', got '{tool_type}'"
-        assert "|" in command, "❌ FAILED: Expected pipes for metrics analysis"
+        assert tool_type == "shell_command", f"[X] FAILED: Expected 'shell_command', got '{tool_type}'"
+        assert "|" in command, "[X] FAILED: Expected pipes for metrics analysis"
         assert "top" in command.lower() or "metrics" in command.lower(), \
-            "❌ FAILED: Expected metrics/top command for resource usage"
+            "[X] FAILED: Expected metrics/top command for resource usage"
 
-        print("\n✅ PASSED: Correctly selected ShellCommand for performance bottleneck analysis")
+        print("\n[OK] PASSED: Correctly selected ShellCommand for performance bottleneck analysis")
         return True
 
 
@@ -813,7 +813,7 @@ async def main():
     print(f"LLM Endpoint: {os.environ.get('LLM_ENDPOINT', 'http://localhost:11434')}")
 
     if os.environ.get("LLM_PROVIDER") == "groq" and not os.environ.get("GROQ_API_KEY"):
-        print("\n❌ ERROR: GROQ_API_KEY not set but LLM_PROVIDER=groq")
+        print("\n[X] ERROR: GROQ_API_KEY not set but LLM_PROVIDER=groq")
         print("Set GROQ_API_KEY environment variable or switch to ollama")
         sys.exit(1)
 
@@ -857,10 +857,10 @@ async def main():
             result = await test()
             results.append((test.__name__, result))
         except AssertionError as e:
-            print(f"\n❌ FAILED: {e}")
+            print(f"\n[X] FAILED: {e}")
             results.append((test.__name__, False))
         except Exception as e:
-            print(f"\n❌ ERROR: {e}")
+            print(f"\n[X] ERROR: {e}")
             import traceback
             traceback.print_exc()
             results.append((test.__name__, False))
@@ -874,16 +874,16 @@ async def main():
     total = len(results)
 
     for name, result in results:
-        status = "✅ PASSED" if result else "❌ FAILED"
+        status = "[OK] PASSED" if result else "[X] FAILED"
         print(f"{status}: {name}")
 
     print(f"\n{passed}/{total} tests passed")
 
     if passed == total:
-        print("\n🎉 ALL TESTS PASSED!")
+        print("\n[DONE] ALL TESTS PASSED!")
         sys.exit(0)
     else:
-        print("\n❌ SOME TESTS FAILED")
+        print("\n[X] SOME TESTS FAILED")
         sys.exit(1)
 
 

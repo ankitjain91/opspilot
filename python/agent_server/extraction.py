@@ -69,11 +69,11 @@ Extract relevant information and return it as a JSON object. Only extract inform
    - Look for stack traces, exceptions, failures
 
 5. **Debug Phase Inference:**
-   - If command is discovering CRDs/resources → "discovery"
-   - If command checks status/yaml → "status_check"
-   - If command searches for controllers/operators → "controller_search"
-   - If command fetches logs → "log_analysis"
-   - If error_message contains definitive cause → "root_cause_found"
+   - If command is discovering CRDs/resources -> "discovery"
+   - If command checks status/yaml -> "status_check"
+   - If command searches for controllers/operators -> "controller_search"
+   - If command fetches logs -> "log_analysis"
+   - If error_message contains definitive cause -> "root_cause_found"
 
 6. **Root Cause Identification:**
    - Set root_cause_identified=true ONLY if you see definitive errors like:
@@ -233,7 +233,7 @@ def format_debugging_context(context: Optional[Dict[str, Any]]) -> str:
 
     # Resource Discovery
     if context.get('crd_type') or context.get('resource_name'):
-        lines.append("\n🔍 **Resource Discovery:**")
+        lines.append("\n[SEARCH] **Resource Discovery:**")
         if context.get('crd_type'):
             lines.append(f"  • Type: {context.get('crd_type')}")
         if context.get('api_group'):
@@ -245,7 +245,7 @@ def format_debugging_context(context: Optional[Dict[str, Any]]) -> str:
 
     # Controller Information
     if context.get('controller_pod') or context.get('controller_namespace'):
-        lines.append("\n🎮 **Controller Information:**")
+        lines.append("\n[CTRL] **Controller Information:**")
         if context.get('controller_pod'):
             lines.append(f"  • Pod: {context.get('controller_pod')}")
         if context.get('controller_namespace'):
@@ -255,7 +255,7 @@ def format_debugging_context(context: Optional[Dict[str, Any]]) -> str:
 
     # Status & Errors
     if context.get('status_state') or context.get('error_message'):
-        lines.append("\n⚠️  **Status & Errors:**")
+        lines.append("\n[WARN]  **Status & Errors:**")
         if context.get('status_state'):
             lines.append(f"  • State: {context.get('status_state')}")
         if context.get('error_message'):
@@ -267,19 +267,19 @@ def format_debugging_context(context: Optional[Dict[str, Any]]) -> str:
 
     # Investigation Progress
     if context.get('debug_phase'):
-        lines.append(f"\n📊 **Debug Phase:** {context.get('debug_phase')}")
+        lines.append(f"\n[STATS] **Debug Phase:** {context.get('debug_phase')}")
 
     if context.get('root_cause_identified'):
-        lines.append("✅ **Root cause has been identified!**")
+        lines.append("[OK] **Root cause has been identified!**")
 
     # Related Resources
     if context.get('related_resources'):
         resources = context.get('related_resources', [])
         if resources:
-            lines.append(f"\n🔗 **Related Resources:** {', '.join(resources)}")
+            lines.append(f"\n[LINK] **Related Resources:** {', '.join(resources)}")
 
     # Next Target
     if context.get('next_target'):
-        lines.append(f"\n🎯 **Next Investigation Target:** {context.get('next_target')}")
+        lines.append(f"\n[TARGET] **Next Investigation Target:** {context.get('next_target')}")
 
     return '\n'.join(lines)

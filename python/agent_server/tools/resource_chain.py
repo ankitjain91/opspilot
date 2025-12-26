@@ -2,14 +2,14 @@
 Resource Chain Traversal - Automatic K8s resource relationship discovery.
 
 This module provides functions to traverse Kubernetes resource relationships:
-- UP: Pod → ReplicaSet → Deployment (owner references)
-- DOWN: Deployment → ReplicaSets → Pods (owned resources)
+- UP: Pod -> ReplicaSet -> Deployment (owner references)
+- DOWN: Deployment -> ReplicaSets -> Pods (owned resources)
 - LATERAL: ConfigMaps, Secrets, PVCs used by a resource
 
 Use Cases:
-1. "Why is this pod failing?" → Trace up to Deployment, check events at each level
-2. "What's wrong with this deployment?" → Trace down to pods, find the failing one
-3. "What resources does this pod use?" → Find ConfigMaps, Secrets, PVCs
+1. "Why is this pod failing?" -> Trace up to Deployment, check events at each level
+2. "What's wrong with this deployment?" -> Trace down to pods, find the failing one
+3. "What resources does this pod use?" -> Find ConfigMaps, Secrets, PVCs
 """
 
 from typing import Dict, List, Optional, Any, Tuple
@@ -60,27 +60,27 @@ class ResourceChain:
 
     def summary(self) -> str:
         """Human-readable summary of the chain."""
-        lines = [f"📍 Root: {self.root}"]
+        lines = [f"[LOC] Root: {self.root}"]
 
         if self.owners:
-            lines.append("⬆️ Owner Chain:")
+            lines.append("[UP] Owner Chain:")
             for i, owner in enumerate(self.owners):
                 lines.append(f"  {'└─' if i == len(self.owners)-1 else '├─'} {owner}")
 
         if self.children:
-            lines.append("⬇️ Owned Resources:")
+            lines.append("[DOWN] Owned Resources:")
             for child in self.children[:10]:  # Limit display
                 lines.append(f"  ├─ {child}")
             if len(self.children) > 10:
                 lines.append(f"  └─ ... and {len(self.children) - 10} more")
 
         if self.related:
-            lines.append("🔗 Related Resources:")
+            lines.append("[LINK] Related Resources:")
             for rel in self.related:
                 lines.append(f"  ├─ {rel}")
 
         if self.events:
-            lines.append(f"⚠️ {len(self.events)} Warning Events")
+            lines.append(f"[WARN] {len(self.events)} Warning Events")
 
         return "\n".join(lines)
 
@@ -99,7 +99,7 @@ def get_owner_chain(
     """
     Trace the owner reference chain upward.
 
-    Example: Pod → ReplicaSet → Deployment
+    Example: Pod -> ReplicaSet -> Deployment
 
     Returns list of owners from immediate parent to top-level owner.
     """
@@ -211,7 +211,7 @@ def get_owned_resources(
     """
     Find all resources owned by this resource.
 
-    Example: Deployment → ReplicaSets → Pods
+    Example: Deployment -> ReplicaSets -> Pods
     """
     owned = []
 
@@ -651,7 +651,7 @@ def format_chain_for_prompt(chain: ResourceChain) -> str:
         path = [str(chain.root)]
         for owner in chain.owners:
             path.append(str(owner))
-        lines.append(" → ".join(path))
+        lines.append(" -> ".join(path))
         lines.append("```\n")
 
     # Children
@@ -671,7 +671,7 @@ def format_chain_for_prompt(chain: ResourceChain) -> str:
 
     # Events
     if chain.events:
-        lines.append(f"### ⚠️ Warning Events ({len(chain.events)} total)")
+        lines.append(f"### [WARN] Warning Events ({len(chain.events)} total)")
         for e in chain.events[:5]:
             lines.append(f"- **{e['resource']}**: {e['reason']} - {e['message'][:100]}")
         if len(chain.events) > 5:

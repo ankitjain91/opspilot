@@ -115,7 +115,7 @@ def _find_kb_dir() -> str:
 
     # Fallback to user home directory (will be empty but won't crash)
     fallback = os.path.join(os.path.expanduser("~"), ".opspilot", "knowledge")
-    print(f"[KB] ⚠️ No bundled KB found, using fallback: {fallback}", flush=True)
+    print(f"[KB] WARNING: No bundled KB found, using fallback: {fallback}", flush=True)
     return fallback
 
 KB_DIR = _find_kb_dir()
@@ -129,12 +129,12 @@ _is_cloud_llm = any(domain in _llm_endpoint for domain in ["groq.com", "openai.c
 if os.environ.get("K8S_AGENT_EMBED_ENDPOINT"):
     EMBEDDING_ENDPOINT = os.environ.get("K8S_AGENT_EMBED_ENDPOINT")
 elif _is_cloud_llm:
-    print(f"[config] ☁️ Cloud LLM detected ({_llm_endpoint}). Forcing embeddings to local Ollama.", flush=True)
+    print(f"[config] Cloud LLM detected ({_llm_endpoint}). Forcing embeddings to local Ollama.", flush=True)
     EMBEDDING_ENDPOINT = "http://localhost:11434"
 else:
     EMBEDDING_ENDPOINT = _llm_endpoint
 
-# Token Optimization: Reduced from 5→3 matches and 0.35→0.50 threshold
+# Token Optimization: Reduced from 5->3 matches and 0.35->0.50 threshold
 # This saves ~1-2k tokens per request while maintaining quality
 KB_MAX_MATCHES = 3
 KB_MIN_SIMILARITY = 0.50

@@ -1161,52 +1161,68 @@ pub async fn get_bundle_nodes(bundle_path: String) -> Result<Vec<BundleNodeInfo>
     Ok(nodes)
 }
 
-/// AI-powered bundle analysis using the configured LLM
-#[tauri::command]
-pub async fn ai_analyze_bundle(bundle_context: String, user_query: String) -> Result<String, String> {
-    use keyring::Entry;
+/// Find Claude CLI binary path
+fn find_claude_binary() -> Option<String> {
+    use std::process::Command;
 
-    // Get the API key from keychain
-    let api_key = Entry::new("opspilot", "llm_api_key")
-        .ok()
-        .and_then(|entry| entry.get_password().ok());
+    // Check common locations
+    let common_paths = [
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ];
 
-    let api_key = match api_key {
-        Some(key) if !key.is_empty() => key,
-        _ => {
-            return Err("No API key configured. Please configure your LLM settings in the Settings page.".to_string());
+    for path in &common_paths {
+        if std::path::Path::new(path).exists() {
+            return Some(path.to_string());
         }
-    };
+    }
 
-    // Load LLM config to get the model
-    let config_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".opspilot")
-        .join("llm-config.json");
-
-    let (base_url, model) = if config_path.exists() {
-        match fs::read_to_string(&config_path) {
-            Ok(content) => {
-                let config: serde_json::Value = serde_json::from_str(&content)
-                    .unwrap_or(serde_json::json!({}));
-                let base_url = config.get("base_url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("https://api.anthropic.com/v1")
-                    .to_string();
-                let model = config.get("model")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("claude-sonnet-4-20250514")
-                    .to_string();
-                (base_url, model)
+    // Try which command as fallback
+    if let Ok(output) = Command::new("which").arg("claude").output() {
+        if output.status.success() {
+            if let Ok(path) = String::from_utf8(output.stdout) {
+                let path = path.trim();
+                if !path.is_empty() {
+                    return Some(path.to_string());
+                }
             }
-            Err(_) => ("https://api.anthropic.com/v1".to_string(), "claude-sonnet-4-20250514".to_string())
         }
-    } else {
-        ("https://api.anthropic.com/v1".to_string(), "claude-sonnet-4-20250514".to_string())
-    };
+    }
 
-    // Build the prompt
-    let system_prompt = r#"You are an expert Kubernetes SRE assistant analyzing a support bundle.
+    // Check user-specific locations
+    if let Some(home) = dirs::home_dir() {
+        let user_paths = [
+            home.join(".npm-global/bin/claude"),
+            home.join(".local/bin/claude"),
+        ];
+        for path in &user_paths {
+            if path.exists() {
+                return path.to_str().map(|s| s.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// AI-powered bundle analysis using Claude CLI (uses your Claude subscription)
+/// Parameters match frontend: bundlePath, query, context
+#[tauri::command]
+pub async fn ai_analyze_bundle(
+    bundle_path: String,
+    query: String,
+    context: String
+) -> Result<String, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    // Find Claude CLI
+    let claude_bin = find_claude_binary()
+        .ok_or_else(|| "Claude CLI not found. Please install it with: npm install -g @anthropic-ai/claude-code".to_string())?;
+
+    // Build the system prompt for bundle analysis
+    let system_prompt = format!(r#"You are an expert Kubernetes SRE assistant analyzing a support bundle.
 Your role is to help identify issues, explain problems, and provide actionable recommendations.
 Be concise and practical. Focus on the most critical issues first.
 When analyzing the bundle data, look for patterns such as:
@@ -1216,91 +1232,436 @@ When analyzing the bundle data, look for patterns such as:
 - Critical alerts that need immediate attention
 - Node health issues
 - Resource pressure (memory, CPU, disk)
-Provide specific kubectl commands when helpful."#;
+Provide specific kubectl commands when helpful.
 
-    let full_prompt = format!("{}\n\n---\n\nUser question: {}", bundle_context, user_query);
+Bundle path: {}"#, bundle_path);
 
-    // Make API request
-    let client = reqwest::Client::new();
+    let full_prompt = format!("{}\n\n---\n\nUser question: {}", system_prompt, query);
 
-    // Determine if this is Anthropic or OpenAI compatible
-    let is_anthropic = base_url.contains("anthropic.com");
-
-    let response = if is_anthropic {
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 2048,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": full_prompt
-                }
-            ],
-            "system": system_prompt
-        });
-
-        client.post(format!("{}/messages", base_url))
-            .header("x-api-key", &api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to call API: {}", e))?
+    // Add bundle context if provided
+    let final_prompt = if !context.is_empty() {
+        format!("{}\n\n---\nBundle Context:\n{}", full_prompt, context)
     } else {
-        // OpenAI compatible
-        let body = serde_json::json!({
-            "model": model,
-            "max_tokens": 2048,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": full_prompt
-                }
-            ]
-        });
-
-        client.post(format!("{}/chat/completions", base_url))
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to call API: {}", e))?
+        full_prompt
     };
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("API error ({}): {}", status, error_text));
+    // Build Claude CLI command
+    // -p for print mode (non-interactive)
+    // --output-format stream-json for structured output
+    let mut cmd = Command::new(&claude_bin);
+    cmd.arg("-p")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn()
+        .map_err(|e| format!("Failed to start Claude CLI: {}", e))?;
+
+    // Send prompt to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin.write_all(final_prompt.as_bytes()).await
+            .map_err(|e| format!("Failed to write to Claude CLI: {}", e))?;
+        stdin.shutdown().await
+            .map_err(|e| format!("Failed to close stdin: {}", e))?;
     }
 
-    let response_json: serde_json::Value = response.json().await
-        .map_err(|e| format!("Failed to parse API response: {}", e))?;
+    // Read and parse stream-json output
+    let stdout = child.stdout.take()
+        .ok_or_else(|| "Failed to capture stdout".to_string())?;
 
-    // Extract content based on API type
-    let content = if is_anthropic {
-        response_json.get("content")
-            .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|item| item.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("No response content")
-            .to_string()
-    } else {
-        response_json.get("choices")
-            .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|msg| msg.get("content"))
-            .and_then(|c| c.as_str())
-            .unwrap_or("No response content")
-            .to_string()
-    };
+    let mut reader = BufReader::new(stdout).lines();
+    let mut response_text = String::new();
 
-    Ok(content)
+    while let Some(line) = reader.next_line().await
+        .map_err(|e| format!("Failed to read output: {}", e))?
+    {
+        // Parse JSON lines for assistant messages
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+            // Look for assistant message content
+            if json.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+                if let Some(message) = json.get("message") {
+                    if let Some(content) = message.get("content").and_then(|c| c.as_array()) {
+                        for block in content {
+                            if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                                    response_text.push_str(text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Also handle content_block_delta for streaming
+            if json.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
+                if let Some(delta) = json.get("delta") {
+                    if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                        response_text.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+
+    // Wait for process to complete
+    let status = child.wait().await
+        .map_err(|e| format!("Failed to wait for Claude CLI: {}", e))?;
+
+    if !status.success() && response_text.is_empty() {
+        return Err("Claude CLI failed. Make sure you're logged in with 'claude login'.".to_string());
+    }
+
+    if response_text.is_empty() {
+        return Err("No response from Claude CLI. Please try again.".to_string());
+    }
+
+    Ok(response_text)
+}
+
+/// List all log files in the bundle
+#[tauri::command]
+pub async fn list_bundle_logs(bundle_path: String) -> Result<Vec<BundleLogFile>, String> {
+    let logs_base = Path::new(&bundle_path).join("current-logs");
+
+    if !logs_base.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut log_files = Vec::new();
+
+    // Walk through namespace directories
+    for ns_entry in fs::read_dir(&logs_base).map_err(|e| e.to_string())? {
+        let ns_entry = ns_entry.map_err(|e| e.to_string())?;
+        let ns_path = ns_entry.path();
+
+        if !ns_path.is_dir() {
+            continue;
+        }
+
+        let namespace = ns_entry.file_name().to_string_lossy().to_string();
+        if namespace.starts_with('.') {
+            continue;
+        }
+
+        // Walk through pod directories
+        for pod_entry in fs::read_dir(&ns_path).map_err(|e| e.to_string())? {
+            let pod_entry = pod_entry.map_err(|e| e.to_string())?;
+            let pod_path = pod_entry.path();
+
+            if !pod_path.is_dir() {
+                continue;
+            }
+
+            let pod = pod_entry.file_name().to_string_lossy().to_string();
+            if pod.starts_with('.') {
+                continue;
+            }
+
+            // Find log files
+            if let Ok(log_entries) = fs::read_dir(&pod_path) {
+                for log_entry in log_entries.flatten() {
+                    let log_path = log_entry.path();
+                    if log_path.extension().map(|e| e == "log").unwrap_or(false) {
+                        let container = log_path.file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let size_bytes = fs::metadata(&log_path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+
+                        log_files.push(BundleLogFile {
+                            namespace: namespace.clone(),
+                            pod: pod.clone(),
+                            container,
+                            file_path: log_path.to_string_lossy().to_string(),
+                            size_bytes,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by namespace, then pod, then container
+    log_files.sort_by(|a, b| {
+        (&a.namespace, &a.pod, &a.container).cmp(&(&b.namespace, &b.pod, &b.container))
+    });
+
+    Ok(log_files)
+}
+
+/// Read a log file by path
+#[tauri::command]
+pub async fn read_bundle_log(bundle_path: String, log_path: String) -> Result<String, String> {
+    // Validate the log path is within the bundle
+    let bundle_base = Path::new(&bundle_path);
+    let log_file = Path::new(&log_path);
+
+    // Read the file
+    if !log_file.exists() {
+        return Err(format!("Log file not found: {}", log_path));
+    }
+
+    // Safety check - ensure path is within bundle
+    if !log_file.starts_with(bundle_base) {
+        return Err("Invalid log path".to_string());
+    }
+
+    fs::read_to_string(log_file).map_err(|e| format!("Failed to read log: {}", e))
+}
+
+/// Get ArgoCD applications from the bundle
+#[tauri::command]
+pub async fn get_bundle_argocd_apps(bundle_path: String) -> Result<Vec<serde_json::Value>, String> {
+    let apps_dir = Path::new(&bundle_path)
+        .join("argocd")
+        .join("custom-resources")
+        .join("applications.argoproj.io");
+
+    if !apps_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut apps = Vec::new();
+
+    for entry in fs::read_dir(&apps_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    let obj = if yaml.get("object").is_some() {
+                        yaml.get("object").unwrap().clone()
+                    } else {
+                        yaml
+                    };
+
+                    // Convert to JSON for easier frontend handling
+                    if let Ok(json) = serde_json::to_value(&obj) {
+                        apps.push(json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(apps)
+}
+
+/// Get storage classes from the bundle
+#[tauri::command]
+pub async fn get_bundle_storage_classes(bundle_path: String) -> Result<Vec<serde_json::Value>, String> {
+    let sc_dir = Path::new(&bundle_path)
+        .join("cluster-scope-resources")
+        .join("storageclasses");
+
+    if !sc_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut storage_classes = Vec::new();
+
+    for entry in fs::read_dir(&sc_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    let obj = if yaml.get("object").is_some() {
+                        yaml.get("object").unwrap().clone()
+                    } else {
+                        yaml
+                    };
+
+                    if let Ok(json) = serde_json::to_value(&obj) {
+                        storage_classes.push(json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(storage_classes)
+}
+
+/// Get persistent volumes from the bundle
+#[tauri::command]
+pub async fn get_bundle_pvs(bundle_path: String) -> Result<Vec<serde_json::Value>, String> {
+    let pv_dir = Path::new(&bundle_path)
+        .join("cluster-scope-resources")
+        .join("persistentvolumes");
+
+    if !pv_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut pvs = Vec::new();
+
+    for entry in fs::read_dir(&pv_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    let obj = if yaml.get("object").is_some() {
+                        yaml.get("object").unwrap().clone()
+                    } else {
+                        yaml
+                    };
+
+                    if let Ok(json) = serde_json::to_value(&obj) {
+                        pvs.push(json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(pvs)
+}
+
+/// Get CRDs from the bundle
+#[tauri::command]
+pub async fn get_bundle_crds(bundle_path: String) -> Result<Vec<serde_json::Value>, String> {
+    let crd_dir = Path::new(&bundle_path)
+        .join("cluster-scope-resources")
+        .join("customresourcedefinitions");
+
+    if !crd_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut crds = Vec::new();
+
+    for entry in fs::read_dir(&crd_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    let obj = if yaml.get("object").is_some() {
+                        yaml.get("object").unwrap().clone()
+                    } else {
+                        yaml
+                    };
+
+                    if let Ok(json) = serde_json::to_value(&obj) {
+                        crds.push(json);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(crds)
+}
+
+/// Get namespace summary with resource counts
+#[tauri::command]
+pub async fn get_bundle_namespace_summary(bundle_path: String) -> Result<Vec<serde_json::Value>, String> {
+    let base = Path::new(&bundle_path);
+    let skip_dirs = ["alerts", "current-logs", "cluster-scope-resources", "service-metrics", ".DS_Store"];
+
+    let mut namespaces = Vec::new();
+
+    for entry in fs::read_dir(base).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let dir_name = entry.file_name().to_string_lossy().to_string();
+
+        if !entry.path().is_dir() || skip_dirs.contains(&dir_name.as_str()) || dir_name.starts_with('.') {
+            continue;
+        }
+
+        // Count resources in this namespace
+        let mut resource_counts: HashMap<String, usize> = HashMap::new();
+        let mut total = 0;
+
+        for resource_entry in fs::read_dir(entry.path()).map_err(|e| e.to_string())? {
+            if let Ok(re) = resource_entry {
+                if re.path().is_dir() {
+                    let resource_type = re.file_name().to_string_lossy().to_string();
+                    if resource_type.starts_with('.') {
+                        continue;
+                    }
+                    let count = fs::read_dir(re.path())
+                        .map(|d| d.filter(|e| {
+                            e.as_ref().ok().map(|f| {
+                                f.path().extension().map(|ext| ext == "yaml" || ext == "yml").unwrap_or(false)
+                            }).unwrap_or(false)
+                        }).count())
+                        .unwrap_or(0);
+                    resource_counts.insert(resource_type, count);
+                    total += count;
+                }
+            }
+        }
+
+        namespaces.push(serde_json::json!({
+            "name": dir_name,
+            "resourceCounts": resource_counts,
+            "totalResources": total,
+        }));
+    }
+
+    // Sort by name
+    namespaces.sort_by(|a, b| {
+        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+    });
+
+    Ok(namespaces)
+}
+
+/// Get service metrics XML content
+#[tauri::command]
+pub async fn get_bundle_service_metrics(bundle_path: String) -> Result<HashMap<String, String>, String> {
+    let metrics_dir = Path::new(&bundle_path).join("service-metrics");
+
+    if !metrics_dir.exists() {
+        return Ok(HashMap::new());
+    }
+
+    let mut metrics = HashMap::new();
+
+    for entry in fs::read_dir(&metrics_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+
+        if path.extension().map(|e| e == "xml").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                let name = path.file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                metrics.insert(name, content);
+            }
+        }
+    }
+
+    Ok(metrics)
+}
+
+/// Read raw YAML content of a resource file
+#[tauri::command]
+pub async fn read_bundle_resource_yaml(bundle_path: String, file_path: String) -> Result<String, String> {
+    let bundle_base = Path::new(&bundle_path);
+    let resource_file = Path::new(&file_path);
+
+    // Safety check - ensure path is within bundle
+    if !resource_file.starts_with(bundle_base) {
+        return Err("Invalid resource path".to_string());
+    }
+
+    if !resource_file.exists() {
+        return Err(format!("Resource file not found: {}", file_path));
+    }
+
+    fs::read_to_string(resource_file).map_err(|e| format!("Failed to read resource: {}", e))
 }

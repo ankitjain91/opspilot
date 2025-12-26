@@ -20,7 +20,7 @@ def test_binary_startup():
         print(f"❌ Binary not found at: {binary_path}")
         return False
 
-    print(f"🚀 Testing binary at: {binary_path}")
+    print(f"[RUN] Testing binary at: {binary_path}")
     
     # Start process
     process = subprocess.Popen(

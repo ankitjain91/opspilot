@@ -28,13 +28,13 @@ AZURE_CROSSPLANE_EXPERTISE = """
 
 **Query**: "Find all Azure resources"
 
-**❌ WRONG APPROACH** (What the agent did):
+**[X] WRONG APPROACH** (What the agent did):
 ```bash
 kubectl get managed -A -o json | jq '.items[] | select(.kind | test("Azure"; "i"))'
 ```
 **Problem**: Assumes 'managed' is a resource type, and filters by kind name containing "Azure"
 
-**✅ CORRECT APPROACH** (What an expert does):
+**[OK] CORRECT APPROACH** (What an expert does):
 
 ### Step 1: Check if Crossplane is installed
 ```bash
@@ -137,10 +137,10 @@ kubectl get nodes -o json | jq '.items[].spec.providerID'
 ### Pattern 1: "Resource not found" when querying Azure resources
 
 **Diagnosis Steps**:
-1. ✅ Check Crossplane installed: `kubectl get providers`
-2. ✅ Check Azure provider installed: `kubectl get providers | grep azure`
-3. ✅ Check CRDs available: `kubectl api-resources | grep azure`
-4. ✅ Check managed resources exist: `kubectl get managed -A`
+1. [OK] Check Crossplane installed: `kubectl get providers`
+2. [OK] Check Azure provider installed: `kubectl get providers | grep azure`
+3. [OK] Check CRDs available: `kubectl api-resources | grep azure`
+4. [OK] Check managed resources exist: `kubectl get managed -A`
 
 **Common Root Causes**:
 - Crossplane not installed
@@ -226,7 +226,7 @@ User Query: "Find all Azure resources"
 
 **Total**: 8 Azure resources managed by Crossplane
 
-💡 **Tip**: Use `kubectl describe <resource-type> <name>` for detailed status
+[TIP] **Tip**: Use `kubectl describe <resource-type> <name>` for detailed status
 ```
 
 ### Example 2: Crossplane Not Installed
@@ -235,7 +235,7 @@ User Query: "Find all Azure resources"
 
 **Crossplane** is an infrastructure-as-code platform for Kubernetes that manages cloud resources (Azure, AWS, GCP) as Kubernetes Custom Resources.
 
-💡 **To install Crossplane**:
+[TIP] **To install Crossplane**:
 ```bash
 helm repo add crossplane-stable https://charts.crossplane.io/stable
 helm install crossplane crossplane-stable/crossplane --namespace crossplane-system --create-namespace
@@ -247,11 +247,11 @@ helm install crossplane crossplane-stable/crossplane --namespace crossplane-syst
 **No Azure resources found** (yet).
 
 **Status**:
-- ✅ Crossplane is installed
-- ✅ Azure provider is installed and configured
-- ❌ No Azure resources have been provisioned
+- [OK] Crossplane is installed
+- [OK] Azure provider is installed and configured
+- [X] No Azure resources have been provisioned
 
-💡 **To create an Azure resource**, apply a manifest like:
+[TIP] **To create an Azure resource**, apply a manifest like:
 ```yaml
 apiVersion: azure.upbound.io/v1beta1
 kind: ResourceGroup

@@ -32,18 +32,18 @@ YOUR JOB: Determine if this answer FULLY satisfies what the user asked for.
 VALIDATION CHECKLIST:
 
 1. **Does it answer the ACTUAL question?**
-   - User asked "find azure resources" but got "CustomerCluster only" → ❌ INSUFFICIENT
-   - User asked "why is X failing" but got "X is failing" without root cause → ❌ INSUFFICIENT
-   - User asked "list all X" but got partial list or "found X" without listing → ❌ INSUFFICIENT
+   - User asked "find azure resources" but got "CustomerCluster only" -> [ERROR] INSUFFICIENT
+   - User asked "why is X failing" but got "X is failing" without root cause -> [ERROR] INSUFFICIENT
+   - User asked "list all X" but got partial list or "found X" without listing -> [ERROR] INSUFFICIENT
 
 2. **Is there concrete data/evidence?**
-   - Answer says "I found resources" but doesn't list them → ❌ INSUFFICIENT
-   - Answer says "root cause is X" with supporting evidence from logs/status → ✅ SUFFICIENT
-   - Answer says "no resources found" with evidence of checking → ✅ SUFFICIENT (valid answer)
+   - Answer says "I found resources" but doesn't list them -> [ERROR] INSUFFICIENT
+   - Answer says "root cause is X" with supporting evidence from logs/status -> [OK] SUFFICIENT
+   - Answer says "no resources found" with evidence of checking -> [OK] SUFFICIENT (valid answer)
 
 3. **Is it actionable?**
-   - Vague: "There might be an issue" → ❌ INSUFFICIENT
-   - Clear: "OOMKilled - increase memory limit to 2Gi" → ✅ SUFFICIENT
+   - Vague: "There might be an issue" -> [ERROR] INSUFFICIENT
+   - Clear: "OOMKilled - increase memory limit to 2Gi" -> [OK] SUFFICIENT
 
 COMMON FAILURE PATTERNS TO CATCH:
 - Agent found ONE resource type when user asked for "all resources"
@@ -64,22 +64,22 @@ EXAMPLES:
 Query: "find all azure resources"
 Answer: "Found 1 CustomerCluster: taasvstst"
 Evidence: ["kubectl get customercluster -A"]
-→ {{"is_satisfied": false, "reason": "User asked for ALL azure resources but only checked CustomerCluster. Need to check other azure CRD types.", "what_is_missing": "Check all azure resource types: kubectl api-resources | grep azure, then check each type"}}
+-> {{"is_satisfied": false, "reason": "User asked for ALL azure resources but only checked CustomerCluster. Need to check other azure CRD types.", "what_is_missing": "Check all azure resource types: kubectl api-resources | grep azure, then check each type"}}
 
 Query: "why is pod X crashing"
 Answer: "Pod X is in CrashLoopBackOff"
 Evidence: ["kubectl get pods", "kubectl describe pod X"]
-→ {{"is_satisfied": false, "reason": "Identified symptom but not ROOT CAUSE. Need to check logs.", "what_is_missing": "Check pod logs: kubectl logs X --previous"}}
+-> {{"is_satisfied": false, "reason": "Identified symptom but not ROOT CAUSE. Need to check logs.", "what_is_missing": "Check pod logs: kubectl logs X --previous"}}
 
 Query: "list failing pods"
 Answer: "Found 3 failing pods: pod-a (OOMKilled), pod-b (ImagePullBackOff), pod-c (CrashLoopBackOff)"
 Evidence: ["kubectl get pods -A | grep -v Running", "kubectl describe pods"]
-→ {{"is_satisfied": true, "reason": "Complete list with failure reasons provided"}}
+-> {{"is_satisfied": true, "reason": "Complete list with failure reasons provided"}}
 
 Query: "cluster health check"
 Answer: "All nodes are Ready, 0 failing pods, no warning events in last hour"
 Evidence: ["kubectl get nodes", "kubectl get pods -A", "kubectl get events"]
-→ {{"is_satisfied": true, "reason": "Comprehensive health check with concrete findings"}}
+-> {{"is_satisfied": true, "reason": "Comprehensive health check with concrete findings"}}
 
 CRITICAL: Be strict. If the answer feels incomplete or doesn't match what was asked, mark is_satisfied=false.
 The user's time is valuable - better to investigate properly than give half-answers.
@@ -99,7 +99,7 @@ async def questioner_node(state: AgentState) -> Dict:
     iteration = state.get('iteration', 0)
     events = list(state.get('events', []))
 
-    print(f"[questioner] 🤔 Validating if answer satisfies user's query: '{query}'", flush=True)
+    print(f"[questioner] [THINK] Validating if answer satisfies user's query: '{query}'", flush=True)
 
     # Format evidence for review
     evidence_summary = "\n".join([
@@ -133,7 +133,7 @@ async def questioner_node(state: AgentState) -> Dict:
         what_is_missing = validation.get('what_is_missing', '')
         confidence = validation.get('confidence', 0.0)
 
-        print(f"[questioner] {'✅' if is_satisfied else '❌'} Validation: {reason} (confidence: {confidence:.2f})", flush=True)
+        print(f"[questioner] {'[OK]' if is_satisfied else '[ERROR]'} Validation: {reason} (confidence: {confidence:.2f})", flush=True)
 
         if is_satisfied:
             # Answer is good - let it through
@@ -151,7 +151,7 @@ async def questioner_node(state: AgentState) -> Dict:
             }
         else:
             # Answer is insufficient - send back to supervisor
-            print(f"[questioner] 🔄 Answer insufficient. Feedback: {what_is_missing}", flush=True)
+            print(f"[questioner] [SYNC] Answer insufficient. Feedback: {what_is_missing}", flush=True)
 
             events.append(emit_event("quality_check", {
                 "status": "rejected",
@@ -172,7 +172,7 @@ async def questioner_node(state: AgentState) -> Dict:
             }
 
     except json.JSONDecodeError as e:
-        print(f"[questioner] ⚠️ Failed to parse validation response: {e}", flush=True)
+        print(f"[questioner] [WARN] Failed to parse validation response: {e}", flush=True)
         # On parse error, be permissive and let answer through
         # (Better to show potentially incomplete answer than block everything)
         return {
@@ -182,7 +182,7 @@ async def questioner_node(state: AgentState) -> Dict:
             'questioner_approved': True
         }
     except Exception as e:
-        print(f"[questioner] ⚠️ Validation error: {e}", flush=True)
+        print(f"[questioner] [WARN] Validation error: {e}", flush=True)
         # On error, let answer through
         return {
             **state,

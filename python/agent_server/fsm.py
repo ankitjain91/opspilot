@@ -5,12 +5,12 @@ This module enforces strict phase progression for CRD troubleshooting.
 Prevents the agent from skipping mandatory steps or transitioning prematurely.
 
 Debug Phases:
-1. INIT → Resource not yet discovered
-2. DISCOVER → Finding resource location (namespace + name)
-3. STATUS_CHECK → Extracting status fields and error messages
-4. CONTROLLER_SEARCH → Finding the controller managing the CRD
-5. LOG_ANALYSIS → Checking controller logs for the resource
-6. ROOT_CAUSE → Root cause identified
+1. INIT -> Resource not yet discovered
+2. DISCOVER -> Finding resource location (namespace + name)
+3. STATUS_CHECK -> Extracting status fields and error messages
+4. CONTROLLER_SEARCH -> Finding the controller managing the CRD
+5. LOG_ANALYSIS -> Checking controller logs for the resource
+6. ROOT_CAUSE -> Root cause identified
 """
 
 from typing import Tuple, Optional, Dict, List

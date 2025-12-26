@@ -70,7 +70,7 @@ async def update_hypotheses_with_llm(
     if current_hypotheses:
         hyp_context = "**Current Hypotheses:**\n"
         for h in current_hypotheses:
-            status_emoji = "🔍" if h['status'] == 'active' else "✅" if h['status'] == 'confirmed' else "❌"
+            status_emoji = "[SEARCH]" if h['status'] == 'active' else "[OK]" if h['status'] == 'confirmed' else "[ERROR]"
             hyp_context += f"{status_emoji} {h['id']}: {h['description']} (confidence: {h['confidence']:.2f}, status: {h['status']})\n"
     else:
         hyp_context = "**Current Hypotheses:** None yet - generate initial hypotheses based on the query.\n"
@@ -140,7 +140,7 @@ Generate hypotheses now (respond with JSON array only):"""
 
         # Validate response is a list of dictionaries
         if not isinstance(hypotheses, list):
-            print(f"[supervisor] ⚠️ Hypothesis response is not a list: {type(hypotheses)}. Returning empty.", flush=True)
+            print(f"[supervisor] [WARN] Hypothesis response is not a list: {type(hypotheses)}. Returning empty.", flush=True)
             return current_hypotheses or []
 
         # Filter to only valid hypothesis dictionaries
@@ -155,7 +155,7 @@ Generate hypotheses now (respond with JSON array only):"""
         return valid_hypotheses
 
     except Exception as e:
-        print(f"[supervisor] ⚠️ Hypothesis tracking failed: {e}. Continuing without hypotheses.", flush=True)
+        print(f"[supervisor] [WARN] Hypothesis tracking failed: {e}. Continuing without hypotheses.", flush=True)
         return current_hypotheses or []  # Return existing or empty list
 
 
@@ -294,7 +294,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
                 hypothesis=state.get('current_hypothesis')
             )
 
-            final_response += f"\n\n⚠️ **Investigation Loop Detected**: The agent executed the same commands multiple times without making progress. This usually means more specific information is needed to proceed."
+            final_response += f"\n\n[WARN] **Investigation Loop Detected**: The agent executed the same commands multiple times without making progress. This usually means more specific information is needed to proceed."
 
             return {
                 **state,
@@ -346,7 +346,7 @@ The same invalid command is being generated repeatedly, indicating I need more s
     if state['command_history']:
         last_entry = state['command_history'][-1]
         if last_entry.get('assessment') in ['SOLVED', 'AUTO_SOLVED']:
-            print(f"[agent-sidecar] ✅ SOLVED detected, routing to synthesizer for final response", flush=True)
+            print(f"[agent-sidecar] [OK] SOLVED detected, routing to synthesizer for final response", flush=True)
             events.append(emit_event("progress", {"message": "Solution found - generating final response..."}))
             return {
                 **state,
@@ -401,8 +401,8 @@ LLM-DRIVEN RULES:
 
             # LLM-DRIVEN: Trust the LLM's should_complete decision without hardcoded confidence threshold
             if completion_result.get('should_complete'):
-                print(f"[agent-sidecar] ✅ LLM decided investigation is complete (confidence: {completion_result.get('confidence', 0):.2f}): {completion_result.get('reason')}", flush=True)
-                print(f"[agent-sidecar] 🔄 Routing to synthesizer to format results", flush=True)
+                print(f"[agent-sidecar] [OK] LLM decided investigation is complete (confidence: {completion_result.get('confidence', 0):.2f}): {completion_result.get('reason')}", flush=True)
+                print(f"[agent-sidecar] [SYNC] Routing to synthesizer to format results", flush=True)
 
                 # Route to synthesizer to format the final response properly
                 # Don't bypass the synthesis step - it's critical for user-friendly output
@@ -414,10 +414,10 @@ LLM-DRIVEN RULES:
                     'events': events,
                 }
             else:
-                print(f"[agent-sidecar] 🔄 LLM says continue investigation: {completion_result.get('reason')}", flush=True)
+                print(f"[agent-sidecar] [SYNC] LLM says continue investigation: {completion_result.get('reason')}", flush=True)
 
         except Exception as e:
-            print(f"[agent-sidecar] ⚠️ Completion check failed: {e}. Continuing investigation.", flush=True)
+            print(f"[agent-sidecar] [WARN] Completion check failed: {e}. Continuing investigation.", flush=True)
 
     # Smart Query Refinement (Brain Model) - REMOVED: refiner.py deleted as dead code
     query = state.get('query') or ''
@@ -432,7 +432,7 @@ LLM-DRIVEN RULES:
     #         query = refined_query
     #         state['query'] = query
     #         query_lower = query.lower()
-    #         print(f"[agent-sidecar] 🧠 Query updated: {query}", flush=True)
+    #         print(f"[agent-sidecar] [BRAIN] Query updated: {query}", flush=True)
 
     # Normalize query (still useful for pattern matching)
     normalized_query, normalization_note = normalize_query(query or '')  # Safety: ensure query is never None
@@ -480,26 +480,26 @@ LLM-DRIVEN RULES:
             "has_results": kb_snippet_count > 0,
             "preview": kb_context[:200] + "..." if len(kb_context) > 200 else kb_context
         }))
-        print(f"[supervisor] 📚 KB Search: Found {kb_snippet_count} relevant entries for '{query}'", flush=True)
+        print(f"[supervisor] [KB] KB Search: Found {kb_snippet_count} relevant entries for '{query}'", flush=True)
     else:
         events.append(emit_event("kb_search", {
             "query": query,
             "results_found": 0,
             "has_results": False
         }))
-        print(f"[supervisor] 📚 KB Search: No relevant entries found for '{query}'", flush=True)
+        print(f"[supervisor] [KB] KB Search: No relevant entries found for '{query}'", flush=True)
 
     # KB is used for PLANNING assistance only, NOT for replacing command execution
     # All queries that need current cluster state MUST execute kubectl commands
     # The agent must be autonomous and investigate, not just provide documentation
 
-    # 🧠 THE LIBRARY: Experience Replay
+    # [BRAIN] THE LIBRARY: Experience Replay
     try:
         from ..memory.experience import search_experiences
         past_exps = await search_experiences(query)
         if past_exps:
-             print(f"[agent-sidecar] 🧠 The Library: Found {len(past_exps)} relevant past experiences", flush=True)
-             exp_str = "## 🧠 MEMORY: RELEVANT PAST EXPERIENCES (The Library)\n"
+             print(f"[agent-sidecar] [BRAIN] The Library: Found {len(past_exps)} relevant past experiences", flush=True)
+             exp_str = "## [BRAIN] MEMORY: RELEVANT PAST EXPERIENCES (The Library)\n"
              for exp in past_exps:
                  # Format: [DATE] QUERY -> OUTCOME
                  # Analysis: ...
@@ -540,9 +540,9 @@ LLM-DRIVEN RULES:
     # Only add Azure/Crossplane expertise if query mentions it
     if any(keyword in query_lower for keyword in ['azure', 'crossplane', 'managed', 'composite', 'claim', 'provider']):
         dynamic_prompt_parts.append(AZURE_CROSSPLANE_EXPERTISE)
-        print(f"[supervisor] 📚 Loaded Azure/Crossplane expertise (query-relevant)", flush=True)
+        print(f"[supervisor] [KB] Loaded Azure/Crossplane expertise (query-relevant)", flush=True)
     else:
-        print(f"[supervisor] ⚡ Skipped Azure/Crossplane expertise (not relevant, saved ~4500 tokens)", flush=True)
+        print(f"[supervisor] [RUN] Skipped Azure/Crossplane expertise (not relevant, saved ~4500 tokens)", flush=True)
 
     dynamic_prompt_parts.append(INSTRUCTIONS_PROMPT)
 
@@ -552,7 +552,7 @@ LLM-DRIVEN RULES:
     critic_feedback = state.get('critic_feedback', '')
     if critic_feedback:
         critic_feedback_section = f"""
-⚖️ **JUDGE FEEDBACK (Previous Plan Rejected)**:
+[JUDGE] **JUDGE FEEDBACK (Previous Plan Rejected)**:
 The Judge rejected your last plan with this feedback:
 "{critic_feedback}"
 
@@ -568,7 +568,7 @@ The Judge rejected your last plan with this feedback:
     suggested_commands = state.get('suggested_commands', [])
     if suggested_commands:
         suggested_commands_context = f"""
-🔄 **PROGRESSIVE DISCOVERY - ALTERNATIVE METHODS SUGGESTED**:
+[SYNC] **PROGRESSIVE DISCOVERY - ALTERNATIVE METHODS SUGGESTED**:
 The previous discovery method returned empty. Try these alternative approaches:
 {chr(10).join([f'- {cmd}' for cmd in suggested_commands])}
 
@@ -614,7 +614,7 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
         if result['thought']:
             events.append(emit_event("reflection", {"assessment": "PLANNING", "reasoning": result['thought']}))
 
-        # 🧬 LLM-DRIVEN HYPOTHESIS TRACKING (Phase 3: AI-Native)
+        # [DNA] LLM-DRIVEN HYPOTHESIS TRACKING (Phase 3: AI-Native)
         # Let the LLM generate, update, and rank hypotheses dynamically
         hypotheses = await update_hypotheses_with_llm(
             query=query,
@@ -637,13 +637,13 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
                     "confidence": active_hyp['confidence'],
                     "evidence_count": len(active_hyp.get('supporting_evidence', []))
                 }))
-                print(f"[supervisor] 🧬 Active hypothesis: {active_hyp['description']} (confidence: {active_hyp['confidence']:.2f})", flush=True)
+                print(f"[supervisor] [DNA] Active hypothesis: {active_hyp['description']} (confidence: {active_hyp['confidence']:.2f})", flush=True)
 
         # ENFORCE plan creation for ALL kubectl queries (accuracy over speed)
         confidence = result.get('confidence', 1.0)
         next_action = result['next_action']
 
-        print(f"[agent-sidecar] 📊 Supervisor decision: action={next_action}, confidence={confidence:.2f}", flush=True)
+        print(f"[agent-sidecar] [STATS] Supervisor decision: action={next_action}, confidence={confidence:.2f}", flush=True)
 
         # Emit plan decision event for UI transparency
         events.append(emit_event("plan_decision", {
@@ -659,7 +659,7 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
 
         if next_action in ['delegate', 'batch_delegate']:
             await broadcaster.broadcast(emit_event("intent", {"type": "delegating", "message": "Delegating execution to Worker node...", "target": "worker"}))
-            events.append(emit_event("progress", {"message": f"🧠 Brain Instruction: {result['plan']}"}))
+            events.append(emit_event("progress", {"message": f"[BRAIN] Brain Instruction: {result['plan']}"}))
             return {
                 **state,
                 'iteration': iteration,
@@ -707,7 +707,7 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
             plan = create_execution_plan(execution_steps)
             plan_summary = get_plan_summary(plan)
 
-            print(f"[agent-sidecar] 📋 Created {len(plan)}-step execution plan", flush=True)
+            print(f"[agent-sidecar] [LIST] Created {len(plan)}-step execution plan", flush=True)
             print(f"[agent-sidecar] Plan:\n{plan_summary}", flush=True)
 
             # Emit plan to frontend for display
@@ -719,7 +719,7 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
 
             # Route to plan_executor which will handle the entire plan systematically
             events.append(emit_event("progress", {
-                "message": f"🎯 Executing {len(plan)}-step plan systematically..."
+                "message": f"[TARGET] Executing {len(plan)}-step plan systematically..."
             }))
 
             return {
@@ -736,7 +736,7 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
         else:
             # Calculate confidence score for the final response (High #9 fix)
             confidence = calculate_confidence_score(state)
-            print(f"[agent-sidecar] 📊 Response confidence: {confidence:.2%}", flush=True)
+            print(f"[agent-sidecar] [STATS] Response confidence: {confidence:.2%}", flush=True)
 
             # Use LLM-driven intelligent response formatter if we have command history to analyze
             if state.get('command_history'):
@@ -755,11 +755,11 @@ Tried methods so far: {', '.join(state.get('tried_discovery_methods', []))}
                 # Validate response quality
                 is_valid, error_msg = validate_response_quality(final_response, state.get('query') or '')
                 if not is_valid:
-                    print(f"[agent-sidecar] ⚠️ Response quality check failed: {error_msg}", flush=True)
+                    print(f"[agent-sidecar] [WARN] Response quality check failed: {error_msg}", flush=True)
 
                 # CRITICAL: Ensure we never return an empty response
                 if not final_response or len(final_response) < 10:
-                    print(f"[agent-sidecar] ⚠️ Empty response detected. using fallback.", flush=True)
+                    print(f"[agent-sidecar] [WARN] Empty response detected. using fallback.", flush=True)
                     from ..response_formatter import _format_simple_fallback
                     final_response = _format_simple_fallback(state.get('query') or '', state.get('command_history', []), state.get('discovered_resources', {}))
             else:

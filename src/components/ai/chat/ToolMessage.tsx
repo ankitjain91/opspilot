@@ -26,7 +26,7 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({ toolName, command, con
 
     // Auto-collapse after 3 seconds if not an error/warning
     const [isExpanded, setIsExpanded] = useState(true);
-    const isWarning = content.startsWith('⚠️') || content.includes('Error') || content.includes('Failed');
+    const isWarning = content.startsWith('[WARN]') || content.includes('Error') || content.includes('Failed');
     const isRecipeSaved = content.includes('saved to library') && content.includes('Recipe');
 
     useEffect(() => {

@@ -149,7 +149,7 @@ export function MCPSettings() {
         // Validation for placeholders
         if (formState.args?.some(a => a.includes('YOUR_ORG_NAME'))) {
             setTestStatus('error');
-            setTestMessage('⚠️ Configuration Error:\n\nPlease replace "YOUR_ORG_NAME" in the Arguments field with your actual Azure DevOps organization name.');
+            setTestMessage('[WARN] Configuration Error:\n\nPlease replace "YOUR_ORG_NAME" in the Arguments field with your actual Azure DevOps organization name.');
             return;
         }
 

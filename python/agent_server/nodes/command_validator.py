@@ -90,11 +90,11 @@ async def validate_kubectl_command(cmd: str, kube_context: str) -> Tuple[bool, s
         return False, error_msg
 
     except asyncio.TimeoutError:
-        print(f"[validator] ⚠️ Timeout validating resource type '{resource_type}'", flush=True)
+        print(f"[validator] [WARN] Timeout validating resource type '{resource_type}'", flush=True)
         return True, ""  # Timeout - allow command to proceed
 
     except Exception as e:
-        print(f"[validator] ⚠️ Validation error: {e}", flush=True)
+        print(f"[validator] [WARN] Validation error: {e}", flush=True)
         return True, ""  # Error - allow command to proceed
 
 async def command_validator_node(state: AgentState) -> Dict:
@@ -109,14 +109,14 @@ async def command_validator_node(state: AgentState) -> Dict:
     if not pending_command:
         return {**state, 'next_action': 'verify'}
 
-    print(f"[validator] 🔍 Validating command: {pending_command}", flush=True)
+    print(f"[validator] [SEARCH] Validating command: {pending_command}", flush=True)
 
     # Validate kubectl commands
     if pending_command.strip().startswith('kubectl'):
         is_valid, error_msg = await validate_kubectl_command(pending_command, kube_context)
 
         if not is_valid:
-            print(f"[validator] ❌ Validation failed: {error_msg}", flush=True)
+            print(f"[validator] [ERROR] Validation failed: {error_msg}", flush=True)
             events.append(emit_event("validation_failed", {
                 "command": pending_command,
                 "reason": error_msg
@@ -131,7 +131,7 @@ async def command_validator_node(state: AgentState) -> Dict:
             }
 
     # Validation passed
-    print(f"[validator] ✅ Validation passed", flush=True)
+    print(f"[validator] [OK] Validation passed", flush=True)
     events.append(emit_event("validation_passed", {
         "command": pending_command
     }))

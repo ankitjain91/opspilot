@@ -29,7 +29,7 @@ async def plan_executor_node(state: AgentState) -> dict:
         if active_step:
             step_idx = active_step['step'] - 1
             plan[step_idx]['status'] = 'skipped'
-            print(f"[plan_executor] ⏭️ User skipped step {active_step['step']}: {active_step['instruction'][:50]}...", flush=True)
+            print(f"[plan_executor] [SKIP] User skipped step {active_step['step']}: {active_step['instruction'][:50]}...", flush=True)
             return {
                 **state,
                 'execution_plan': plan,
@@ -73,7 +73,7 @@ async def plan_executor_node(state: AgentState) -> dict:
                 if fact not in accumulated_evidence:
                     accumulated_evidence.append(fact)
             updates['accumulated_evidence'] = accumulated_evidence
-            print(f"[plan_executor] 📝 Accumulated Evidence: {len(accumulated_evidence)} facts", flush=True)
+            print(f"[plan_executor] [NOTE] Accumulated Evidence: {len(accumulated_evidence)} facts", flush=True)
 
     # Get the "Active" step (the one we arguably just finished or are working on)
     active_step = get_current_step(plan)
@@ -94,11 +94,11 @@ async def plan_executor_node(state: AgentState) -> dict:
         step_idx = active_step['step'] - 1
         directive = previous_reflection.get('directive', 'CONTINUE')
 
-        print(f"[plan_executor] 🧠 Directive: {directive} (Step {active_step['step']}, Retry {retry_count})", flush=True)
+        print(f"[plan_executor] [BRAIN] Directive: {directive} (Step {active_step['step']}, Retry {retry_count})", flush=True)
 
         if directive == 'SOLVED':
             # SUCCESS - Route to synthesizer for proper final response generation
-            print(f"[plan_executor] 🏆 SOLVED. Routing to synthesizer for final response.", flush=True)
+            print(f"[plan_executor] [WIN] SOLVED. Routing to synthesizer for final response.", flush=True)
             return {
                 **state_for_exec,
                 'next_action': 'synthesizer',  # Route to synthesizer node
@@ -120,7 +120,7 @@ async def plan_executor_node(state: AgentState) -> dict:
             # FAILURE - RETRY
             if retry_count < 3:
                 # Increment retry and CONTINUE to execution (which re-runs the same step)
-                print(f"[plan_executor] 🔄 Retrying step {active_step['step']}...", flush=True)
+                print(f"[plan_executor] [SYNC] Retrying step {active_step['step']}...", flush=True)
                 
                 # Update retry count in our working state params
                 retry_updates = {
@@ -145,7 +145,7 @@ async def plan_executor_node(state: AgentState) -> dict:
             
             else:
                 # RETRIES EXHAUSTED - SKIP
-                print(f"[plan_executor] ⚠️ Max retries ({retry_count}) reached. Skipping step.", flush=True)
+                print(f"[plan_executor] [WARN] Max retries ({retry_count}) reached. Skipping step.", flush=True)
                 plan = mark_step_skipped(plan, active_step['step'], reason="Max retries exceeded")
                 
                 # Reset state for next step
@@ -165,7 +165,7 @@ async def plan_executor_node(state: AgentState) -> dict:
         
         elif directive == 'CONTINUE':
             # SUCCESS - NEXT STEP
-            print(f"[plan_executor] ✅ Step {active_step['step']} Complete.", flush=True)
+            print(f"[plan_executor] [OK] Step {active_step['step']} Complete.", flush=True)
 
             # Use reflection reason as the result
             completion_reason = previous_reflection.get('reason', 'Step completed successfully')
@@ -198,7 +198,7 @@ async def plan_executor_node(state: AgentState) -> dict:
 
     # If no more steps or plan is complete, route to synthesizer
     if target_step is None or is_plan_complete(plan):
-        print(f"[plan_executor] ✅ Plan complete. Routing to synthesizer.", flush=True)
+        print(f"[plan_executor] [OK] Plan complete. Routing to synthesizer.", flush=True)
         return {
             **state_for_exec,
             'next_action': 'synthesizer',  # Route to synthesizer for final response
@@ -233,7 +233,7 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
     working_plan = mark_step_in_progress(working_plan, step_num)
 
     # Emit progress
-    msg = f"🔍 Step {step_num}/{len(plan)}: {step_desc}"
+    msg = f"[SEARCH] Step {step_num}/{len(plan)}: {step_desc}"
     if state.get('retry_count', 0) > 0:
         msg += f" (Retry {state.get('retry_count')})"
         
@@ -327,7 +327,7 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
             # Command needs approval - return to graph to handle approval flow
             # The graph will route to human_approval node which waits for user approval
             # The approval loop guard will generate a fallback response if stuck
-            print(f"[plan_executor] ⚠️ Step requires approval. Returning to approval flow.", flush=True)
+            print(f"[plan_executor] [WARN] Step requires approval. Returning to approval flow.", flush=True)
             return verify_state  # Keep next_action='human_approval' from verify node
 
         # 3. Execute
@@ -357,7 +357,7 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
         # Medium #13 fix: Log full error server-side for debugging
         import traceback
         full_trace = traceback.format_exc()
-        print(f"[plan_executor] ❌ Error in step {step_num}:", flush=True)
+        print(f"[plan_executor] [ERROR] Error in step {step_num}:", flush=True)
         print(full_trace, flush=True)
 
         # Sanitize error for user-facing reflection (hide secrets/paths)
@@ -384,11 +384,11 @@ async def _execute_single_step(state: AgentState, plan: list, step_idx: int) -> 
 
 async def _synthesize_final_response(state: AgentState, plan: list) -> dict:
     """Synthesize findings from all completed steps."""
-    print(f"[plan_executor] ✅ Plan complete. Synthesizing findings...", flush=True)
+    print(f"[plan_executor] [OK] Plan complete. Synthesizing findings...", flush=True)
 
     events = list(state.get('events', []))
     events.append(emit_event("progress", {
-        "message": "✅ All investigation steps complete. Synthesizing findings..."
+        "message": "[OK] All investigation steps complete. Synthesizing findings..."
     }))
     
     # Collect all gathered evidence

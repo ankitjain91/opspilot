@@ -35,8 +35,8 @@ pub async fn delete_context(context_name: String, custom_path: Option<String>) -
         PathBuf::from(path)
     } else {
         // Default kubeconfig path
-        let home = std::env::var("HOME").map_err(|_| "Could not find HOME directory")?;
-        PathBuf::from(home).join(".kube").join("config")
+        let home = dirs::home_dir().ok_or("Could not find HOME directory")?;
+        home.join(".kube").join("config")
     };
 
     // Read the current kubeconfig
@@ -417,9 +417,9 @@ fn persist_context_change(path: &Option<String>, context_name: &str) -> Result<(
     let kubeconfig_path = if let Some(ref p) = path {
         PathBuf::from(p)
     } else {
-        match std::env::var("HOME") {
-            Ok(home) => PathBuf::from(home).join(".kube").join("config"),
-            Err(_) => return Err("Could not find HOME directory".to_string()),
+        match dirs::home_dir() {
+            Some(home) => home.join(".kube").join("config"),
+            None => return Err("Could not find HOME directory".to_string()),
         }
     };
 

@@ -76,7 +76,7 @@ async def reflect_node(state: AgentState) -> dict:
             # LLM-DRIVEN: Trust the LLM's empty_is_answer decision without hardcoded confidence threshold
             if decision.get('empty_is_answer'):
                 # LLM confirmed: Empty output answers the question
-                print(f"[reflect] ⚡ LLM determined empty output answers query (confidence: {decision.get('confidence', 0):.2f})", flush=True)
+                print(f"[reflect] [RUN] LLM determined empty output answers query (confidence: {decision.get('confidence', 0):.2f})", flush=True)
                 print(f"[reflect] Reasoning: {decision.get('reasoning')}", flush=True)
 
                 # Create reflection without final_response so synthesizer generates it
@@ -163,7 +163,7 @@ async def reflect_node(state: AgentState) -> dict:
                             break
 
                     if next_strategy:
-                        print(f"[reflect] 🔄 Suggesting alternative discovery method: {next_strategy.name}", flush=True)
+                        print(f"[reflect] [SYNC] Suggesting alternative discovery method: {next_strategy.name}", flush=True)
 
                         # Add to tried methods
                         tried_methods.append(next_strategy.name)
@@ -207,7 +207,7 @@ async def reflect_node(state: AgentState) -> dict:
 
         except Exception as e:
             # Error in LLM call - fall through to normal reflection
-            print(f"[reflect] ⚠️ Empty output LLM check failed: {e}. Proceeding with normal reflection.", flush=True)
+            print(f"[reflect] [WARN] Empty output LLM check failed: {e}. Proceeding with normal reflection.", flush=True)
 
     # Native AI Refactor: Removed regex-based "Phase 2" Semantic Checks.
     # The Reflection LLM (70B) is fully capable of reading "Connection Refused" 
@@ -231,7 +231,7 @@ async def reflect_node(state: AgentState) -> dict:
     error_guidance_section = ""
     
     if error_match:
-        print(f"[agent-sidecar] 🧠 Recognized Error Pattern: {error_match['name']}", flush=True)
+        print(f"[agent-sidecar] [BRAIN] Recognized Error Pattern: {error_match['name']}", flush=True)
         error_guidance_section = f"""
 *** EXPERT ERROR ANALYSIS ***
 The system recognized a known error pattern: "{error_match['name']}"
@@ -288,7 +288,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
         # If the agent wants to ABORT because a resource wasn't found, we should RETRY 
         # with a discovery command (get all) instead.
         if directive == 'ABORT' and any(err in last_output.lower() for err in ['not found', 'no such', 'does not exist']):
-             print(f"[agent-sidecar] 🛡️  Preventing ABORT on NotFound error. Forcing RETRY to discover correct resource name.", flush=True)
+             print(f"[agent-sidecar] [SHIELD]  Preventing ABORT on NotFound error. Forcing RETRY to discover correct resource name.", flush=True)
              directive = 'RETRY'
              reflection['directive'] = 'RETRY'
              reflection['next_command_hint'] = "The resource was not found. List ALL resources in the namespace to find the correct name."
@@ -301,9 +301,9 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             reflection['reason'] = reflection.get('thought', 'Investigation halted based on analysis.')
 
         # Log decision
-        print(f"[agent-sidecar] 🧠 Reflection Decision: {directive}", flush=True)
+        print(f"[agent-sidecar] [BRAIN] Reflection Decision: {directive}", flush=True)
         if verified_facts:
-            print(f"[agent-sidecar] 📝 New Facts: {verified_facts}", flush=True)
+            print(f"[agent-sidecar] [NOTE] New Facts: {verified_facts}", flush=True)
             
         events.append(emit_event("reflection", {
             "assessment": directive,
@@ -349,7 +349,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
                 # If tail is small, suggest expanding
                 if current_tail < 2000 and retry_count < 2:
                     new_tail = current_tail * 5 # 100 -> 500 -> 2500
-                    print(f"[agent-sidecar] 🔍 Logs inconclusive. Expanding tail to {new_tail}...", flush=True)
+                    print(f"[agent-sidecar] [SEARCH] Logs inconclusive. Expanding tail to {new_tail}...", flush=True)
                     
                     return {
                         **state,
@@ -371,7 +371,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
         else:
             # SIMPLE DELEGATE MODE: Route to synthesizer for answer generation
             next_action = 'synthesizer'
-            print(f"[reflect] 📊 No plan detected - routing to synthesizer for answer generation", flush=True)
+            print(f"[reflect] [STATS] No plan detected - routing to synthesizer for answer generation", flush=True)
 
         # FSM ENFORCEMENT: Check if action is allowed for CRD debugging
         allowed, error_msg, required_action = enforce_fsm_rules(
@@ -382,7 +382,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
         )
 
         if not allowed:
-            print(f"[reflect] 🛡️ FSM blocked transition: {error_msg}", flush=True)
+            print(f"[reflect] [SHIELD] FSM blocked transition: {error_msg}", flush=True)
             print(f"[reflect] Required action: {required_action}", flush=True)
 
             # Override next_action - route back to supervisor with specific instruction
@@ -403,7 +403,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             'events': events,
         }
     except asyncio.TimeoutError:
-        print(f"[agent-sidecar] ⚠️ Reflection Timeout: LLM call exceeded 30s", flush=True)
+        print(f"[agent-sidecar] [WARN] Reflection Timeout: LLM call exceeded 30s", flush=True)
         events.append(emit_event("error", {"message": "Reflection timeout"}))
         return {
             **state,
@@ -419,7 +419,7 @@ DIRECTIVE: You SHOULD strongly consider returning 'RETRY' with the suggested hin
             'events': events,
         }
     except Exception as e:
-        print(f"[agent-sidecar] ⚠️ Reflection Error: {e}", flush=True)
+        print(f"[agent-sidecar] [WARN] Reflection Error: {e}", flush=True)
         events.append(emit_event("error", {"message": f"Reflection error: {e}"}))
         return {
             **state,

@@ -67,7 +67,7 @@ def clean_json_response(response: str) -> str:
 def parse_supervisor_response(response: str) -> dict:
     """Parse the Brain's JSON response with robust fallback extraction."""
     if response.strip().startswith("Error:"):
-        print(f"[agent-sidecar] 🛑 LLM Error: {response}", flush=True)
+        print(f"[agent-sidecar] [STOP] LLM Error: {response}", flush=True)
         return {
             "thought": "LLM Call Failed",
             "plan": "Stop execution due to LLM error.",
@@ -229,7 +229,7 @@ def parse_reflection(response: str) -> dict:
             "verified_facts": data.get("verified_facts"), # New field
         }
     except json.JSONDecodeError:
-        print("[agent-sidecar] ⚠️ Failed to parse reflection JSON", flush=True)
+        print("[agent-sidecar] WARNING: Failed to parse reflection JSON", flush=True)
         return {
             "thought": response[:500],
             "directive": "CONTINUE",

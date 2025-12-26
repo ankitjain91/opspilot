@@ -65,7 +65,7 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
       → Header + pods with >3 restarts
 
 **11. RESOURCE DISCOVERY STRATEGY** (finding any resource type):
-    ⚠️ IMPORTANT: Resources don't always have CRDs! Use multi-method discovery:
+    [WARN] IMPORTANT: Resources don't always have CRDs! Use multi-method discovery:
 
     **When looking for ANY resource (e.g., "istio", "argocd", "prometheus", "vcluster"):**
     1. `kubectl get pods,deployments,statefulsets -A | grep -i <NAME>` → Find workloads
@@ -80,13 +80,13 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     - May use generic resources: Deployments, StatefulSets, DaemonSets
     - Operator pattern: CRD exists but instances are StatefulSets/Pods
 
-    **⚠️ NEVER conclude "resource X not found" from just ONE check!**
+    **[WARN] NEVER conclude "resource X not found" from just ONE check!**
     - If CRD not found → check pods/deployments/services/helm
     - If no pods found in default namespace → try -A (all namespaces)
     - If exact name fails → try grep with partial match
 
 **12. CRD CONTROLLER DISCOVERY & ROOT CAUSE ANALYSIS** (climb the chain):
-    ⚠️ When a CRD resource is failing, find its controller to see WHY!
+    [WARN] When a CRD resource is failing, find its controller to see WHY!
 
     **Step-by-step controller discovery (try ALL methods):**
 
@@ -124,12 +124,12 @@ BASH & LOG ANALYSIS POWER TRICKS (use these for effective debugging)
     7. Look for webhook failures: `kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations`
 
     **EXHAUSTIVE SEARCH RULES (keep trying!):**
-    - ✅ Found controller but no errors? → Search logs with resource name, check older logs
-    - ✅ Controller healthy but resource failing? → Check webhooks, RBAC, network policies
-    - ✅ Can't find controller? → Try all 4 methods above, check all system namespaces
-    - ✅ Controller logs empty? → Check if multiple controller pods exist, check all replicas
-    - ❌ NEVER give up after one method - try ALL discovery methods
-    - ❌ NEVER say "no errors found" without checking controller logs for the specific resource name
+    - [OK] Found controller but no errors? → Search logs with resource name, check older logs
+    - [OK] Controller healthy but resource failing? → Check webhooks, RBAC, network policies
+    - [OK] Can't find controller? → Try all 4 methods above, check all system namespaces
+    - [OK] Controller logs empty? → Check if multiple controller pods exist, check all replicas
+    - [X] NEVER give up after one method - try ALL discovery methods
+    - [X] NEVER say "no errors found" without checking controller logs for the specific resource name
 
 **12. ANTI-PATTERNS & FORBIDDEN COMMANDS (DO NOT USE)**:
     - ⛔ `kubectl api-resources -o wider` → INVALID FLAG. `api-resources` does NOT support `-o wider`.

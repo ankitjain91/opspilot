@@ -120,7 +120,7 @@ export function useSentinel(onInvestigate?: (prompt: string) => void) {
                     }
 
                     if (data.type === 'alert') {
-                        console.log("🛡️ Sentinel Alert:", data);
+                        console.log("[SHIELD] Sentinel Alert:", data);
                         // Use ref to get latest addNotification
                         addNotificationRef.current(
                             data.message,

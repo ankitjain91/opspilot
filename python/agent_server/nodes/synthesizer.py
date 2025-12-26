@@ -23,8 +23,8 @@ async def synthesizer_node(state: AgentState) -> Dict:
     Decision Tree:
     1. Analyze all evidence collected so far
     2. Check: Can we answer the user's original question?
-    3. If YES → Generate answer → route to 'done'
-    4. If NO → Generate specific gap → route to 'supervisor' with request
+    3. If YES -> Generate answer -> route to 'done'
+    4. If NO -> Generate specific gap -> route to 'supervisor' with request
     """
 
     query = state.get('query', '')
@@ -38,14 +38,14 @@ async def synthesizer_node(state: AgentState) -> Dict:
         pass
     iteration = state.get('iteration', 0)
 
-    print(f"[synthesizer] 🧪 Analyzing evidence to answer: '{query}'", flush=True)
+    print(f"[synthesizer] [TEST] Analyzing evidence to answer: '{query}'", flush=True)
 
     # Emit progress
-    events.append(emit_event("progress", {"message": "🧪 Synthesizing answer from collected evidence..."}))
+    events.append(emit_event("progress", {"message": "[TEST] Synthesizing answer from collected evidence..."}))
 
     # Check if we have ANY evidence
     if not command_history and not accumulated_evidence:
-        print(f"[synthesizer] ⚠️ No evidence collected yet, routing back to supervisor", flush=True)
+        print(f"[synthesizer] [WARN] No evidence collected yet, routing back to supervisor", flush=True)
         return {
             **state,
             'events': events,
@@ -91,17 +91,17 @@ async def synthesizer_node(state: AgentState) -> Dict:
 ┌─────────────────────────────────────────────────────────────┐
 │ AUTONOMY VERIFICATION CHECKLIST                             │
 ├─────────────────────────────────────────────────────────────┤
-│ 1. ☐ Did the user ask for specific DATA or CONTENT?        │
+│ 1. [ ] Did the user ask for specific DATA or CONTENT?        │
 │      (e.g., "find X", "show me Y", "get data from Z")      │
 │                                                              │
-│ 2. ☐ Do I know the kubectl command to get that data?       │
+│ 2. [ ] Do I know the kubectl command to get that data?       │
 │                                                              │
-│ 3. ☐ Have I actually RUN that command and received output? │
+│ 3. [ ] Have I actually RUN that command and received output? │
 │                                                              │
-│ 4. ☐ Does the evidence contain the ACTUAL DATA requested?  │
+│ 4. [ ] Does the evidence contain the ACTUAL DATA requested?  │
 │                                                              │
-│ 5. ☐ Am I about to suggest a command instead of providing  │
-│      the answer? (If YES → STOP, set can_answer=FALSE)     │
+│ 5. [ ] Am I about to suggest a command instead of providing  │
+│      the answer? (If YES -> STOP, set can_answer=FALSE)     │
 └─────────────────────────────────────────────────────────────┘
 
 **CRITICAL SELF-CRITIQUE:**
@@ -111,31 +111,31 @@ async def synthesizer_node(state: AgentState) -> Dict:
   * "try running..."
   * "use kubectl..."
   * "execute this command..."
-- If ANY of these appear → DELETE that response immediately
+- If ANY of these appear -> DELETE that response immediately
 - Set can_answer=FALSE with missing_info explaining what command needs to be run
 - **The agent must be AUTONOMOUS** - no delegation to user!
 
 **EXAMPLES - RIGHT vs WRONG:**
 
-❌ WRONG Example 1:
+[ERROR] WRONG Example 1:
 Query: "find insights section in configmap tetrisinputjson"
 Evidence: "found configmap in namespace taasvstst"
 Response: "The configmap is in namespace taasvstst. You can run: kubectl get configmap tetrisinputjson -n taasvstst -o yaml"
 WHY WRONG: Agent delegated to user instead of fetching data autonomously
 
-✅ CORRECT Example 1:
+[OK] CORRECT Example 1:
 Query: "find insights section in configmap tetrisinputjson"
 Evidence: "found configmap in namespace taasvstst" + "ran kubectl get -o yaml" + "insights: [actual data]"
 Response: "Found insights section in configmap: [actual data from yaml output]"
 WHY CORRECT: Agent fetched and extracted data autonomously
 
-❌ WRONG Example 2:
+[ERROR] WRONG Example 2:
 Query: "why is customercluster failing"
 Evidence: "found customercluster in ASFailed state" + "checked events (none)"
 Response: "The resource is in ASFailed state. No events found. You may need to check controller logs."
 WHY WRONG: Gave up without checking controller logs, delegated investigation to user
 
-✅ CORRECT Example 2:
+[OK] CORRECT Example 2:
 Query: "why is customercluster failing"
 Evidence: "ASFailed state" + "no events" + "found controller" + "logs show: 403 Forbidden"
 Response: "Root cause: Azure RBAC authorization failed (403 Forbidden) in upbound-provider-azure controller logs."
@@ -152,8 +152,8 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
 ```
 
 **PRIMARY DIRECTIVE - "No Issues" Scenarios:**
-- If the query asks "find issues/problems/health" and evidence shows resources exist BUT have NO errors/warnings → can_answer=TRUE with message "No issues found"
-- Example: Query "find gateway issues", Evidence shows gateway exists with correct config and no errors → Answer: "No issues found with gateway X. Configuration is correct."
+- If the query asks "find issues/problems/health" and evidence shows resources exist BUT have NO errors/warnings -> can_answer=TRUE with message "No issues found"
+- Example: Query "find gateway issues", Evidence shows gateway exists with correct config and no errors -> Answer: "No issues found with gateway X. Configuration is correct."
 - DO NOT say "potential issue" or "could indicate problem" when there are NO actual errors.
 - "Resource exists and is properly configured" = HEALTHY STATE, not an issue.
 - Only report issues when you find ACTUAL errors (CrashLoopBackOff, Failed status, error logs, etc.).
@@ -167,42 +167,42 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
 - If the user asked for specific data/content (e.g., "show me X", "find Y", "get Z")
 - AND we know how to get it (we know the kubectl command to run)
 - BUT we haven't actually fetched it yet
-- → can_answer=FALSE with missing_info="Run kubectl command X to fetch the actual data"
+- -> can_answer=FALSE with missing_info="Run kubectl command X to fetch the actual data"
 - **NEVER** answer with "You can run this command..." or "Use kubectl get..." - WE run it ourselves!
 - The agent must be AUTONOMOUS - if we know what command to run, we execute it and get the result
 
 **SPECIAL CASE - "List/Get/Find" Queries:**
-- If the query is "list X", "get X", "find X", "show me X" AND we have kubectl output showing X resources → can_answer=TRUE immediately
-- Example: Query "list customerclusters", Evidence shows kubectl output with customercluster resources → can_answer=TRUE (we have the list)
+- If the query is "list X", "get X", "find X", "show me X" AND we have kubectl output showing X resources -> can_answer=TRUE immediately
+- Example: Query "list customerclusters", Evidence shows kubectl output with customercluster resources -> can_answer=TRUE (we have the list)
 - Don't overthink it - if we executed the list command and got results, that IS the answer
-- Empty results (no resources found) is ALSO a valid answer → can_answer=TRUE with "No X resources found"
+- Empty results (no resources found) is ALSO a valid answer -> can_answer=TRUE with "No X resources found"
 
 **CRITICAL - "Fetch Details" Queries (MUST CONTINUE INVESTIGATING):**
 - If query asks for details/contents/sections of a resource (e.g., "find insights section in configmap X", "show me data in secret Y")
 - AND evidence shows we found the resource location (namespace + name)
 - BUT evidence does NOT include the actual data/contents
-- → can_answer=FALSE, missing_info="Need to fetch full resource data with kubectl get <type> <name> -n <ns> -o yaml"
+- -> can_answer=FALSE, missing_info="Need to fetch full resource data with kubectl get <type> <name> -n <ns> -o yaml"
 - **NEVER say can_answer=TRUE** if you only know WHERE a resource is but haven't fetched WHAT it contains
 - Location ≠ Data. Finding the resource is only step 1. Fetching the data is step 2.
 
 **Examples:**
-✅ CORRECT: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" but no yaml/data → can_answer=FALSE, missing="Need kubectl get configmap X -n Y -o yaml"
-❌ WRONG: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" → can_answer=TRUE with "use this command..." → NO! Fetch it yourself!
+[OK] CORRECT: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" but no yaml/data -> can_answer=FALSE, missing="Need kubectl get configmap X -n Y -o yaml"
+[ERROR] WRONG: Query "find insights in configmap X", Evidence shows "found configmap X in namespace Y" -> can_answer=TRUE with "use this command..." -> NO! Fetch it yourself!
 
 **ANTI-SPECULATION RULES** (STRICTLY ENFORCE):
 - NEVER use words: "may", "might", "could", "potentially", "possibly", "seems", "appears to"
 - ONLY state FACTS from evidence
-- If evidence shows X → Say "X exists" (not "X may exist" or "X could be a problem")
-- If evidence shows no errors → Say "No errors found" (not "may be impaired" or "potentially affecting")
+- If evidence shows X -> Say "X exists" (not "X may exist" or "X could be a problem")
+- If evidence shows no errors -> Say "No errors found" (not "may be impaired" or "potentially affecting")
 - Absence of a resource type (e.g., no nginx-ingress) ≠ problem (cluster might use different solution)
 - SPECULATION = WRONG. FACTS ONLY = CORRECT.
 
 **Examples**:
-❌ BAD: "This may be impaired, potentially affecting access"
-✅ GOOD: "No errors detected. Gateway is configured correctly."
+[ERROR] BAD: "This may be impaired, potentially affecting access"
+[OK] GOOD: "No errors detected. Gateway is configured correctly."
 
-❌ BAD: "No ingress-nginx found, which could indicate issues"
-✅ GOOD: "No ingress-nginx controller found. If you need ingress, please specify which type you'd like to check."
+[ERROR] BAD: "No ingress-nginx found, which could indicate issues"
+[OK] GOOD: "No ingress-nginx controller found. If you need ingress, please specify which type you'd like to check."
 """
 
     try:
@@ -254,8 +254,8 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
 
         if not can_answer:
                 # INSUFFICIENT EVIDENCE - Route directly to worker to gather missing info
-                # Routing to supervisor would create circular loop (supervisor → synthesizer → supervisor)
-                print(f"[synthesizer] ❌ Insufficient evidence. Missing: {missing_info}", flush=True)
+                # Routing to supervisor would create circular loop (supervisor -> synthesizer -> supervisor)
+                print(f"[synthesizer] [ERROR] Insufficient evidence. Missing: {missing_info}", flush=True)
                 events.append(emit_event("reflection", {
                     "assessment": "INSUFFICIENT_EVIDENCE",
                     "reasoning": reasoning,
@@ -273,9 +273,9 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
                 }
 
         # SUFFICIENT EVIDENCE - Generate final answer
-        print(f"[synthesizer] ✅ Sufficient evidence (confidence: {confidence:.2f}). Generating answer...", flush=True)
+        print(f"[synthesizer] [OK] Sufficient evidence (confidence: {confidence:.2f}). Generating answer...", flush=True)
 
-        events.append(emit_event("progress", {"message": "✅ Evidence sufficient - generating final answer..."}))
+        events.append(emit_event("progress", {"message": "[OK] Evidence sufficient - generating final answer..."}))
 
         # Generate final answer using the response formatter
         final_response = await format_intelligent_response_with_llm(
@@ -299,7 +299,7 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
             print(f"[synthesizer] ℹ️ Response contains 'Unknown' despite KB context (confidence: {confidence:.2f})", flush=True)
 
         if not is_valid:
-            print(f"[synthesizer] ⚠️ Generated response failed validation: {error_msg}", flush=True)
+            print(f"[synthesizer] [WARN] Generated response failed validation: {error_msg}", flush=True)
              
             # Native AI Refactor: Trust the LLM's output even if imperfect.
             # Only loop back if the response is completely unusable (empty).
@@ -325,7 +325,7 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
 
         # CRITICAL BACKSTOP: If response is empty/None, use simple fallback
         if not final_response or len(final_response) < 10:
-             print(f"[synthesizer] ⚠️ Response empty/short. Using reliable fallback.", flush=True)
+             print(f"[synthesizer] [WARN] Response empty/short. Using reliable fallback.", flush=True)
              from ..response_formatter import _format_simple_fallback
              final_response = _format_simple_fallback(query, command_history, state.get('discovered_resources', {}))
 
@@ -339,9 +339,9 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
                 pass
 
         # SUCCESS - Return final answer
-        print(f"[synthesizer] 🎉 Final answer generated successfully", flush=True)
+        print(f"[synthesizer] [DONE] Final answer generated successfully", flush=True)
 
-        events.append(emit_event("progress", {"message": "🎉 Investigation complete!"}))
+        events.append(emit_event("progress", {"message": "[DONE] Investigation complete!"}))
         # Emit confidence metric for UI/tracing
         try:
             events.append(emit_event("progress", {"message": f"[CONFIDENCE] {confidence:.2f}"}))
@@ -377,14 +377,14 @@ WHY CORRECT: Found root cause by checking controller logs autonomously
 
     except Exception as e:
         import traceback
-        print(f"[synthesizer] ❌ Error during synthesis: {e}", flush=True)
+        print(f"[synthesizer] [ERROR] Error during synthesis: {e}", flush=True)
         print(traceback.format_exc(), flush=True)
 
         # CRITICAL FIX: Route to 'done' not 'supervisor' to prevent error loops
         # Generate a fallback error message for the user
         from ..response_formatter import _format_simple_fallback
         error_response = _format_simple_fallback(query, command_history, state.get('discovered_resources', {}))
-        error_response += f"\n\n⚠️ **Error**: An internal error occurred during answer synthesis. The data above is what I was able to gather."
+        error_response += f"\n\n[WARN] **Error**: An internal error occurred during answer synthesis. The data above is what I was able to gather."
 
         return {
             **state,
@@ -475,10 +475,10 @@ Generate suggestions now:"""
             if s and len(s.split()) <= 8:  # Max 8 words
                 validated.append(s)
 
-        print(f"[synthesizer] 💡 Generated {len(validated)} next-step suggestions", flush=True)
+        print(f"[synthesizer] [TIP] Generated {len(validated)} next-step suggestions", flush=True)
         return validated
 
     except Exception as e:
-        print(f"[synthesizer] ⚠️  Failed to generate suggestions: {e}", flush=True)
+        print(f"[synthesizer] [WARN]  Failed to generate suggestions: {e}", flush=True)
         # Return empty list on error - suggestions are optional
         return []

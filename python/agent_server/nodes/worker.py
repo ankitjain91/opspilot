@@ -112,7 +112,7 @@ async def worker_node(state: AgentState) -> dict:
             if isinstance(executor_model, str) and 'k8s-cli' in executor_model:
                 mini_model = executor_model.replace('k8s-cli', 'k8s-cli-mini')
             if mini_model and mini_model != executor_model:
-                events.append(emit_event("progress", {"message": f"⚡ Executor parse failed, retrying with {mini_model}"}))
+                events.append(emit_event("progress", {"message": f"[RUN] Executor parse failed, retrying with {mini_model}"}))
                 response = await call_llm(system_prefix + prompt, state['llm_endpoint'], mini_model, state.get('llm_provider', 'ollama'), temperature=0.1, api_key=state.get('api_key'))
                 parsed = parse_worker_response(response)
             else:
@@ -142,8 +142,8 @@ async def worker_node(state: AgentState) -> dict:
                     # 1. Handle Python Tools IMMEDIATELY (Sequence)
                     # Python tools run in-process, so we execute them here instead of sending to shell batch node
                     if isinstance(tool_obj, RunK8sPython):
-                        print(f"[worker] 🐍 Executing Batch Python: {tool_obj.code[:50]}...", flush=True)
-                        events.append(emit_event("progress", {"message": f"🐍 Executing Python Logic..."}))
+                        print(f"[worker] [PY] Executing Batch Python: {tool_obj.code[:50]}...", flush=True)
+                        events.append(emit_event("progress", {"message": f"[PY] Executing Python Logic..."}))
                         
                         try:
                             output = run_k8s_python(tool_obj.code, context_name=state.get('kube_context'))
@@ -157,7 +157,7 @@ async def worker_node(state: AgentState) -> dict:
                                 'error': None if not output.startswith("Error") else output
                             })
                         except Exception as e:
-                             print(f"[worker] ❌ Python Batch Error: {e}", flush=True)
+                             print(f"[worker] [ERROR] Python Batch Error: {e}", flush=True)
                              executed_python_results.append({
                                 'command': f"python: {tool_obj.code}", 
                                 'output': "", 
@@ -170,7 +170,7 @@ async def worker_node(state: AgentState) -> dict:
                     # We only allow discovery/read-only tools in batch for safety
                     # shell_command is allowed for efficient filtering with grep/awk/jq
                     if tool_obj.tool not in ['kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_events', 'kubectl_top', 'kubectl_api_resources', 'shell_command']:
-                        print(f"[worker] ⚠️ Skipping unsafe batch tool: {tool_obj.tool}", flush=True)
+                        print(f"[worker] [WARN] Skipping unsafe batch tool: {tool_obj.tool}", flush=True)
                         continue
                         
                     # Build command
@@ -182,8 +182,8 @@ async def worker_node(state: AgentState) -> dict:
                 new_history = state['command_history'] + executed_python_results
                 
                 if valid_shell_commands:
-                    print(f"[worker] 🚀 Prepared {len(valid_shell_commands)} parallel commands", flush=True)
-                    events.append(emit_event("progress", {"message": f"🚀 Preparing {len(valid_shell_commands)} parallel discovery commands..."}))
+                    print(f"[worker] [START] Prepared {len(valid_shell_commands)} parallel commands", flush=True)
+                    events.append(emit_event("progress", {"message": f"[START] Preparing {len(valid_shell_commands)} parallel discovery commands..."}))
                     
                     return {
                         **state,
@@ -203,7 +203,7 @@ async def worker_node(state: AgentState) -> dict:
                         'pending_command': None
                     }
             except Exception as e:
-                print(f"[worker] ❌ Batch processing failed: {e}", flush=True)
+                print(f"[worker] [ERROR] Batch processing failed: {e}", flush=True)
                 # Fallback to single command flow if batch fails
                 pass
 
@@ -212,7 +212,7 @@ async def worker_node(state: AgentState) -> dict:
 
         if tool_call:
             try:
-                from ..tools.definitions import AgentToolWrapper, KubectlContext, GitCommit, PredictScaling, RunK8sPython
+                from ..tools.definitions import AgentToolWrapper, KubectlContext, GitCommit, PredictScaling, RunK8sPython, GitHubSmartSearch
                 from ..tools.safe_executor import SafeExecutor
                 
                 # Validation (Discriminated Union)
@@ -236,7 +236,7 @@ async def worker_node(state: AgentState) -> dict:
                 # SPECIAL HANDLING: Context Switching
                 # If the tool is KubectlContext(action='use'), we must update the agent's state
                 if isinstance(tool_obj, KubectlContext) and tool_obj.action == "use" and tool_obj.context_name:
-                    print(f"[agent-sidecar] 🔄 Switching context to: {tool_obj.context_name}", flush=True)
+                    print(f"[agent-sidecar] [SYNC] Switching context to: {tool_obj.context_name}", flush=True)
                     events.append(emit_event("progress", {"message": f"Switching context to {tool_obj.context_name}"}))
                     # Store context for return value (immutable pattern)
                     context_override = tool_obj.context_name
@@ -244,8 +244,8 @@ async def worker_node(state: AgentState) -> dict:
                 # SPECIAL HANDLING: GitCommit (GitOps)
                 # Instead of a shell command, we perform the git operation directly
                 if isinstance(tool_obj, GitCommit):
-                    print(f"[agent-sidecar] 🐙 Executing GitOps: {tool_obj.repo_url}", flush=True)
-                    events.append(emit_event("progress", {"message": f"🐙 Creating Git Branch & Commit for {tool_obj.file_path}..."}))
+                    print(f"[agent-sidecar] [GIT] Executing GitOps: {tool_obj.repo_url}", flush=True)
+                    events.append(emit_event("progress", {"message": f"[GIT] Creating Git Branch & Commit for {tool_obj.file_path}..."}))
 
                     import tempfile
                     import os
@@ -281,7 +281,7 @@ async def worker_node(state: AgentState) -> dict:
                         # Return a virtual success command/result
                         # This tricks the supervisor into thinking a command ran successfully
                         result_msg = f"SUCCESS: Created branch '{branch}' and pushed commit to {tool_obj.repo_url}"
-                        print(f"[agent-sidecar] ✅ GitOps Complete: {result_msg}", flush=True)
+                        print(f"[agent-sidecar] [OK] GitOps Complete: {result_msg}", flush=True)
 
                         # Create a virtual history entry
                         events.append(emit_event("command_output", {"command": f"git push origin {branch}", "output": result_msg}))
@@ -298,7 +298,7 @@ async def worker_node(state: AgentState) -> dict:
                     except subprocess.CalledProcessError as e:
                         # Git operation failed (auth error, network error, etc.)
                         error_msg = f"GitOps failed: {e.stderr if e.stderr else str(e)}"
-                        print(f"[agent-sidecar] ❌ GitOps Error: {error_msg}", flush=True)
+                        print(f"[agent-sidecar] [ERROR] GitOps Error: {error_msg}", flush=True)
 
                         events.append(emit_event("error", {"message": f"Git operation failed: {error_msg[:200]}"}))
 
@@ -317,7 +317,7 @@ async def worker_node(state: AgentState) -> dict:
                     except Exception as e:
                         # Unexpected error (filesystem, network, etc.)
                         error_msg = f"Unexpected GitOps error: {str(e)}"
-                        print(f"[agent-sidecar] ❌ GitOps Unexpected Error: {error_msg}", flush=True)
+                        print(f"[agent-sidecar] [ERROR] GitOps Unexpected Error: {error_msg}", flush=True)
 
                         events.append(emit_event("error", {"message": f"Git operation failed unexpectedly"}))
 
@@ -334,8 +334,8 @@ async def worker_node(state: AgentState) -> dict:
 
                 # SPECIAL HANDLING: PredictScaling (Time Lord)
                 if isinstance(tool_obj, PredictScaling):
-                    print(f"[agent-sidecar] 🔮 Time Lord: Predicting scaling for {tool_obj.name}...", flush=True)
-                    events.append(emit_event("progress", {"message": f"🔮 Calculating scaling trend for {tool_obj.name}..."}))
+                    print(f"[agent-sidecar] [PREDICT] Time Lord: Predicting scaling for {tool_obj.name}...", flush=True)
+                    events.append(emit_event("progress", {"message": f"[PREDICT] Calculating scaling trend for {tool_obj.name}..."}))
                     
                     from ..tools.predictor import predict_scaling
                     
@@ -346,7 +346,7 @@ async def worker_node(state: AgentState) -> dict:
                         horizon_minutes=tool_obj.horizon_minutes
                     )
                     
-                    print(f"[agent-sidecar] 📈 Prediction Result:\n{prediction}", flush=True)
+                    print(f"[agent-sidecar] [CHART] Prediction Result:\n{prediction}", flush=True)
                     
                     # Return virtual command result
                     virtual_cmd = f"predict_scaling {tool_obj.resource_type}/{tool_obj.name}"
@@ -388,7 +388,7 @@ async def worker_node(state: AgentState) -> dict:
                         output = write_file(tool_obj.path, tool_obj.content, tool_obj.overwrite)
                         cmd_str = f"write {tool_obj.path}"
 
-                     print(f"[agent-sidecar] 📂 FS Tool Execution: {cmd_str}", flush=True)
+                     print(f"[agent-sidecar] [FS] FS Tool Execution: {cmd_str}", flush=True)
                      events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
                      
                      return {
@@ -401,17 +401,18 @@ async def worker_node(state: AgentState) -> dict:
                         'events': events
                     }
                 
-                # SPECIAL HANDLING: Code Navigation (Smart Discovery)
+                # SPECIAL HANDLING: Code Navigation & Remote Search (Smart Discovery)
                 if isinstance(tool_obj, LocateSource):
                      from ..tools.code_nav import locate_source
                      
-                     print(f"[agent-sidecar] 🧭 Locating Source Code: {tool_obj.file_pattern}", flush=True)
-                     events.append(emit_event("progress", {"message": f"🧭 Scanning local source code for {tool_obj.file_pattern}..."}))
+                     print(f"[agent-sidecar] [NAV] Locating Source Code: {tool_obj.file_pattern}", flush=True)
+                     events.append(emit_event("progress", {"message": f"[NAV] Scanning local source code for {tool_obj.file_pattern}..."}))
                      
                      output = locate_source(
                          file_pattern=tool_obj.file_pattern,
                          line_number=tool_obj.line_number,
-                         project_mappings=state.get('project_mappings', [])
+                         project_mappings=state.get('project_mappings', []),
+                         search_paths=state.get('workspace_roots', [])
                      )
                      
                      cmd_str = f"locate_source(pattern='{tool_obj.file_pattern}')"
@@ -428,18 +429,45 @@ async def worker_node(state: AgentState) -> dict:
                         'events': events
                     }
 
+                if isinstance(tool_obj, GitHubSmartSearch):
+                     from ..tools.github_tools import search_github_code
+                     
+                     print(f"[agent-sidecar] [GITHUB] Remote Code Search: {tool_obj.query} in {tool_obj.repo_filter or 'defaults'}", flush=True)
+                     events.append(emit_event("progress", {"message": f"[GITHUB] Searching remote code for '{tool_obj.query}'..."}))
+                     
+                     # Async execution
+                     output = await search_github_code(
+                         query=tool_obj.query,
+                         repo_filter=tool_obj.repo_filter,
+                         file_pattern=tool_obj.file_pattern
+                     )
+                     
+                     cmd_str = f"github_search('{tool_obj.query}')"
+                     
+                     events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
+                     
+                     return {
+                        **state,
+                        'next_action': 'reflect',
+                        'command_history': state['command_history'] + [
+                            {'command': cmd_str, 'output': output, 'error': None if output.startswith("Error:") else None}
+                        ],
+                        'pending_command': None,
+                        'events': events
+                    }
+
 
 
                 # SPECIAL HANDLING: Python Execution (The 10X Tool)
                 if isinstance(tool_obj, RunK8sPython):
-                    print(f"[agent-sidecar] 🐍 Executing 10X Python Code...", flush=True)
-                    events.append(emit_event("progress", {"message": f"🐍 Executing Python Logic on cluster..."}))
+                    print(f"[agent-sidecar] [PY] Executing 10X Python Code...", flush=True)
+                    events.append(emit_event("progress", {"message": f"[PY] Executing Python Logic on cluster..."}))
                     
                     # Execute
                     output = run_k8s_python(tool_obj.code, context_name=state.get('kube_context'))
                     
                     cmd_str = f"python: {tool_obj.code}"
-                    print(f"[agent-sidecar] 🐍 Result: {output[:200]}...", flush=True)
+                    print(f"[agent-sidecar] [PY] Result: {output[:200]}...", flush=True)
                     
                     events.append(emit_event("command_output", {"command": cmd_str, "output": output}))
                      
@@ -553,12 +581,12 @@ async def worker_node(state: AgentState) -> dict:
             reason = duplicate_info['reason']
             message = duplicate_info['message']
 
-            print(f"[worker] 🚫 Smart deduplication blocked command", flush=True)
+            print(f"[worker] [BLOCKED] Smart deduplication blocked command", flush=True)
             print(f"[worker]    Reason: {reason}", flush=True)
             
             # FIX: If command succeeded before, return cached output to satisfy agent and prevent loops
             if reason in ['already_succeeded', 'already_solved', 'likely_succeeded'] and duplicate_info.get('output'):
-                 print(f"[worker]    🔄 Returning CACHED OUTPUT to prevent infinite loop.", flush=True)
+                 print(f"[worker]    [SYNC] Returning CACHED OUTPUT to prevent infinite loop.", flush=True)
                  cached_out = duplicate_info['output']
                  events.append(emit_event("command_output", {"command": command, "output": cached_out, "cached": True}))
                  return {
@@ -574,7 +602,7 @@ async def worker_node(state: AgentState) -> dict:
             print(f"[worker]    Command: {command}", flush=True)
 
             events.append(emit_event("progress", {
-                "message": f"⚠️ Duplicate detected: {message}"
+                "message": f"[WARN] Duplicate detected: {message}"
             }))
 
             return {
@@ -588,12 +616,12 @@ async def worker_node(state: AgentState) -> dict:
         # Store raw tool JSON for self-correction/verification path
         if tool_call:
             try:
-                events.append(emit_event("progress", {"message": "🛠️ Validating tool JSON..."}))
+                events.append(emit_event("progress", {"message": "[TOOL] Validating tool JSON..."}))
             except Exception:
                 pass
             state['pending_tool_json'] = json.dumps(tool_call)
 
-        events.append(emit_event("reflection", {"assessment": "EXECUTING", "reasoning": f"🔧 Executor Plan: {thought}"}))
+        events.append(emit_event("reflection", {"assessment": "EXECUTING", "reasoning": f"[FIX] Executor Plan: {thought}"}))
         # events.append(emit_event("progress", {"message": f"[TRACE] worker:end {time.time():.3f}"}))
         
         # --- SAFETY CHECK: REMEDIATION VERBS ---
@@ -629,7 +657,7 @@ async def worker_node(state: AgentState) -> dict:
             }
 
         if is_remediation:
-             print(f"[agent-sidecar] ⚠️ EXECUTING REMEDIATION COMMAND: {command}", flush=True)
+             print(f"[agent-sidecar] [WARN] EXECUTING REMEDIATION COMMAND: {command}", flush=True)
              events.append(emit_event("warning", {"message": f"Executing remediation action: {command}"}))
 
 
@@ -684,7 +712,7 @@ async def execute_node(state: AgentState) -> dict:
     # Check cache for discovery commands (session continuity)
     cached_output = get_cached_result(state, command)
     if cached_output:
-        print(f"[agent-sidecar] ⚡ Using cached result for: {command}", flush=True)
+        print(f"[agent-sidecar] [RUN] Using cached result for: {command}", flush=True)
         events = list(state.get('events', []))
         events.append(emit_event("command_output", {
             "command": command,
@@ -709,7 +737,7 @@ async def execute_node(state: AgentState) -> dict:
         if state['kube_context'] and '--context' not in command:
             full_command = command.replace('kubectl ', f"kubectl --context={state['kube_context']} ", 1)
 
-        print(f"[agent-sidecar] 🚀 NOTE: Executing command with context: {full_command}", flush=True)
+        print(f"[agent-sidecar] [START] NOTE: Executing command with context: {full_command}", flush=True)
 
         # REMOVED: Don't force -o json - prefer shell filtering with grep/awk/jq
         # The prompts now instruct the LLM to use pipes for efficient filtering
@@ -755,10 +783,10 @@ async def execute_node(state: AgentState) -> dict:
                 summary = parse_kubectl_json_output(stdout)
                 output = summary
                 is_json_output = True
-                print(f"[agent-sidecar] 🧠 Parsed JSON Output: {summary[:100]}...", flush=True)
+                print(f"[agent-sidecar] [BRAIN] Parsed JSON Output: {summary[:100]}...", flush=True)
             except Exception as e:
                 # Medium #15 fix: Try partial JSON extraction before fallback
-                print(f"[agent-sidecar] ⚠️ Full JSON parse failed: {e}", flush=True)
+                print(f"[agent-sidecar] [WARN] Full JSON parse failed: {e}", flush=True)
                 import re
                 json_match = re.search(r'\{[\s\S]*\}', stdout)
                 if json_match:
@@ -766,7 +794,7 @@ async def execute_node(state: AgentState) -> dict:
                         partial_summary = parse_kubectl_json_output(json_match.group(0))
                         output = partial_summary
                         is_json_output = True
-                        print(f"[agent-sidecar] ✅ Partial JSON extraction succeeded", flush=True)
+                        print(f"[agent-sidecar] [OK] Partial JSON extraction succeeded", flush=True)
                     except:
                         output = smart_truncate_output(raw_output, max_chars=4000)
                 else:
@@ -783,7 +811,7 @@ async def execute_node(state: AgentState) -> dict:
             discovered_resources
         )
 
-        print(f"[agent-sidecar] 🔍 Discovered resources: {discovered_resources}", flush=True)
+        print(f"[agent-sidecar] [SEARCH] Discovered resources: {discovered_resources}", flush=True)
 
         # Cache discovery command results for session continuity
         updated_state = cache_command_result(state, command, raw_output) if not error else state
@@ -803,9 +831,9 @@ async def execute_node(state: AgentState) -> dict:
                 api_key=state.get('api_key')
             )
             updated_state['debugging_context'] = updated_debugging_context
-            print(f"[agent-sidecar] 🧠 Extracted context: {updated_debugging_context}", flush=True)
+            print(f"[agent-sidecar] [BRAIN] Extracted context: {updated_debugging_context}", flush=True)
         except Exception as e:
-            print(f"[agent-sidecar] ⚠️  Extraction failed: {e}", flush=True)
+            print(f"[agent-sidecar] [WARN]  Extraction failed: {e}", flush=True)
             # Continue without extraction if it fails
 
         events = list(state.get('events', []))
@@ -853,7 +881,7 @@ async def execute_batch_node(state: AgentState) -> dict:
     if not batch_commands:
         return {**state, 'next_action': 'supervisor'}
 
-    print(f"[agent-sidecar] 🚀 Executing {len(batch_commands)} commands in parallel...", flush=True)
+    print(f"[agent-sidecar] [START] Executing {len(batch_commands)} commands in parallel...", flush=True)
     events = list(state.get('events', []))
     events.append(emit_event("batch_execution", {"count": len(batch_commands), "commands": batch_commands}))
 
@@ -943,7 +971,7 @@ async def execute_batch_node(state: AgentState) -> dict:
         "successful": sum(1 for r in all_results if not r.get('error'))
     }))
 
-    print(f"[agent-sidecar] ✅ Batch complete: {len(cached_results)} cached, {len(execution_results)} executed", flush=True)
+    print(f"[agent-sidecar] [OK] Batch complete: {len(cached_results)} cached, {len(execution_results)} executed", flush=True)
 
     return {
         **updated_state,
@@ -983,7 +1011,7 @@ async def execute_batch_node(state: AgentState) -> dict:
         "successful": sum(1 for r in all_results if not r.get('error'))
     }))
 
-    print(f"[agent-sidecar] ✅ Batch complete: {len(cached_results)} cached, {len(execution_results)} executed", flush=True)
+    print(f"[agent-sidecar] [OK] Batch complete: {len(cached_results)} cached, {len(execution_results)} executed", flush=True)
 
     return {
         **updated_state,

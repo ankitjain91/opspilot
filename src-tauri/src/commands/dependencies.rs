@@ -13,7 +13,15 @@ pub struct DependencyStatus {
 fn check_tool(name: &str, version_args: &[&str]) -> DependencyStatus {
     // First check if the command exists
     let which_result = if cfg!(target_os = "windows") {
-        Command::new("where").arg(name).output()
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            Command::new("where").arg(name).creation_flags(0x08000000).output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("where").arg(name).output() // Unreachable but keeps compiler happy if cfg check above is weird
+        }
     } else {
         Command::new("which").arg(name).output()
     };
@@ -37,7 +45,16 @@ fn check_tool(name: &str, version_args: &[&str]) -> DependencyStatus {
 
     // Get version
     let version = if !version_args.is_empty() {
-        match Command::new(name).args(version_args).output() {
+        let mut cmd = Command::new(name);
+        cmd.args(version_args);
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        match cmd.output() {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);

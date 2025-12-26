@@ -72,6 +72,21 @@
           "name": "xdg-open",
           "cmd": "xdg-open",
           "args": true
+        },
+        {
+          "name": "claude",
+          "cmd": "claude",
+          "args": true
+        },
+        {
+          "name": "claude-check",
+          "cmd": "claude",
+          "args": ["--version"]
+        },
+        {
+          "name": "claude-login-check",
+          "cmd": "claude",
+          "args": true
         }
       ]
     },
