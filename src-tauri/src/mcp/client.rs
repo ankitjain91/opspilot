@@ -47,25 +47,36 @@ impl McpClient {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
             let mut line = String::new();
-            
+
             while let Ok(n) = reader.read_line(&mut line).await {
-                if n == 0 { break; } // EOF
-                
+                if n == 0 {
+                    eprintln!("[MCP] EOF received from server");
+                    break;
+                }
+
                 let text = line.trim();
                 if !text.is_empty() {
+                    eprintln!("[MCP] Received: {}", &text[..text.len().min(200)]);
                     // Try parsing as JSON-RPC response
-                    if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(text) {
-                        if let Some(id) = response.id {
-                            let mut pending = pending_clone.lock().await;
-                            if let Some(tx) = pending.remove(&id) {
-                                // Send result or error
-                                let res = if let Some(err) = response.error {
-                                    Err(format!("MCP Error {}: {}", err.code, err.message))
+                    match serde_json::from_str::<JsonRpcResponse>(text) {
+                        Ok(response) => {
+                            if let Some(id) = response.id {
+                                let mut pending = pending_clone.lock().await;
+                                if let Some(tx) = pending.remove(&id) {
+                                    // Send result or error
+                                    let res = if let Some(err) = response.error {
+                                        Err(format!("MCP Error {}: {}", err.code, err.message))
+                                    } else {
+                                        Ok(response.result.unwrap_or(Value::Null))
+                                    };
+                                    let _ = tx.send(res);
                                 } else {
-                                    Ok(response.result.unwrap_or(Value::Null))
-                                };
-                                let _ = tx.send(res);
+                                    eprintln!("[MCP] No pending request for id {}", id);
+                                }
                             }
+                        }
+                        Err(e) => {
+                            eprintln!("[MCP] Failed to parse response: {}", e);
                         }
                     }
                 }
@@ -73,6 +84,9 @@ impl McpClient {
             }
             eprintln!("[MCP] Server process exited");
         });
+
+        // Give the reader task and server process time to start
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         Ok(Self {
             stdin: Arc::new(Mutex::new(stdin)),
@@ -100,7 +114,8 @@ impl McpClient {
         };
 
         let json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
-        
+        eprintln!("[MCP] Sending request: {}", &json[..json.len().min(200)]);
+
         let (tx, rx) = oneshot::channel();
         
         {
@@ -113,10 +128,11 @@ impl McpClient {
         stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
         stdin.flush().await.map_err(|e| e.to_string())?;
 
-        // Wait for response with timeout?
-        match rx.await {
-            Ok(res) => res,
-            Err(_) => Err("Request cancelled or server died".to_string()),
+        // Wait for response with 30 second timeout
+        match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(_)) => Err("Request cancelled or server died".to_string()),
+            Err(_) => Err("MCP request timed out after 30 seconds".to_string()),
         }
     }
 
