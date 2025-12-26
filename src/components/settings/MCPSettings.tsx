@@ -227,7 +227,7 @@ export function MCPSettings() {
     // --- Presets ---
     const PRESET_SERVERS: McpServer[] = [
         { name: 'kubernetes', command: 'uvx', args: ['mcp-server-kubernetes'], env: { KUBECONFIG: '~/.kube/config' }, connected: false, autoConnect: true },
-        { name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '' }, connected: false, autoConnect: false },
+        { name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_PERSONAL_ACCESS_TOKEN: '' }, connected: false, autoConnect: false },
         { name: 'gitlab', command: 'npx', args: ['-y', '@modelcontextprotocol/server-gitlab'], env: { GITLAB_TOKEN: '', GITLAB_API_URL: 'https://gitlab.com/api/v4' }, connected: false, autoConnect: false },
         // OFFICIAL Microsoft Azure DevOps Server
         { name: 'azure-devops', command: 'npx', args: ['-y', '@azure-devops/mcp', 'YOUR_ORG_NAME'], env: {}, connected: false, autoConnect: false },
