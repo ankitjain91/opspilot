@@ -188,6 +188,9 @@ impl McpClient {
         // Notify initialized - MUST use notify (no ID)
         self.notify("notifications/initialized", None).await?;
 
+        // Give the server time to process the initialized notification
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
         // Fetch tools
         let tools_res = self.request("tools/list", None).await?;
         
