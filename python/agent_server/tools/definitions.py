@@ -230,6 +230,8 @@ class GitHubSmartSearch(BaseModel):
     query: str = Field(..., description="String to search for (e.g. error message, class name)")
     repo_filter: Optional[str] = Field(None, description="Specific repo (owner/name). If omitted, searches default repos.")
     file_pattern: Optional[str] = Field(None, description="Glob pattern for filename (e.g. *.java, config.yaml). HIGHLY RECOMMENDED.")
+    max_results: Optional[int] = Field(15, description="Maximum results to return (default 15, max 50). Use lower values for faster responses.")
+    include_snippets: Optional[bool] = Field(True, description="Include code snippets (True) or just file paths (False). Set False for faster initial discovery.")
 
 class AgentToolWrapper(BaseModel):
     tool_call: Annotated[Union[

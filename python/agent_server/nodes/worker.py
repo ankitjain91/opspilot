@@ -431,15 +431,17 @@ async def worker_node(state: AgentState) -> dict:
 
                 if isinstance(tool_obj, GitHubSmartSearch):
                      from ..tools.github_tools import search_github_code
-                     
+
                      print(f"[agent-sidecar] [GITHUB] Remote Code Search: {tool_obj.query} in {tool_obj.repo_filter or 'defaults'}", flush=True)
                      events.append(emit_event("progress", {"message": f"[GITHUB] Searching remote code for '{tool_obj.query}'..."}))
-                     
-                     # Async execution
+
+                     # Async execution with new parameters
                      output = await search_github_code(
                          query=tool_obj.query,
                          repo_filter=tool_obj.repo_filter,
-                         file_pattern=tool_obj.file_pattern
+                         file_pattern=tool_obj.file_pattern,
+                         max_results=tool_obj.max_results if hasattr(tool_obj, 'max_results') and tool_obj.max_results else 15,
+                         include_snippets=tool_obj.include_snippets if hasattr(tool_obj, 'include_snippets') and tool_obj.include_snippets is not None else True
                      )
                      
                      cmd_str = f"github_search('{tool_obj.query}')"

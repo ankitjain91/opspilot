@@ -60,7 +60,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import keyring
+# keyring removed - using local encrypted file storage instead
 from typing import Any, Literal
 import httpx
 import json
@@ -424,22 +424,213 @@ def trigger_background_preload(kube_context: str) -> bool:
 
 
 # --- startup ---
+
+# Global flag to track Claude CLI auth status
+_claude_auth_status = {"authenticated": None, "error": None, "version": None, "last_check": 0, "consecutive_failures": 0}
+
+# Lock for thread-safe auth status updates
+import threading
+_claude_auth_lock = threading.Lock()
+
+
+async def _check_claude_auth(force_recheck: bool = False) -> tuple[bool, str | None]:
+    """Check if Claude CLI is authenticated by running a simple command.
+
+    Args:
+        force_recheck: If True, skip cache and always check. Otherwise uses 60s cache.
+
+    Returns tuple: (is_authenticated: bool, error_message: str or None)
+    """
+    import asyncio
+    import time
+
+    global _claude_auth_status
+
+    # Check cache (60 second TTL) unless force_recheck
+    now = time.time()
+    if not force_recheck and _claude_auth_status.get("last_check", 0) > now - 60:
+        return _claude_auth_status.get("authenticated", False), _claude_auth_status.get("error")
+
+    claude_bin = find_executable_path("claude")
+    if not claude_bin:
+        return False, "Claude CLI not installed"
+
+    # Try multiple verification methods for maximum reliability
+    methods = [
+        # Method 1: Quick version check (doesn't require API auth)
+        (["--version"], 10.0, False),
+        # Method 2: Print mode with minimal prompt (tests API auth)
+        (["-p", "--output-format", "json", "Say 'ok'"], 30.0, True),
+    ]
+
+    version_ok = False
+    api_auth_ok = False
+    last_error = None
+
+    for args, timeout, is_api_check in methods:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                claude_bin, *args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**dict(os.environ), "CI": "true", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+
+            stdout_text = stdout.decode('utf-8', errors='replace').strip()
+            stderr_text = stderr.decode('utf-8', errors='replace').strip()
+
+            if process.returncode == 0:
+                if is_api_check:
+                    api_auth_ok = True
+                    print(f"[Claude] Auth check passed (API verified)", flush=True)
+                else:
+                    version_ok = True
+                    print(f"[Claude] Version check passed: {stdout_text[:50]}", flush=True)
+            else:
+                # Analyze the error
+                combined = (stdout_text + " " + stderr_text).lower()
+                if "not logged in" in combined or "authentication" in combined or "unauthorized" in combined:
+                    last_error = "Not authenticated. Run 'claude login' in your terminal."
+                elif "rate limit" in combined or "429" in combined:
+                    last_error = "Rate limited. Please wait a few minutes."
+                elif "keychain" in combined or "keyring" in combined or "password" in combined:
+                    last_error = "Keychain access required. Grant access when prompted or run 'claude login'."
+                elif "network" in combined or "connection" in combined or "timeout" in combined:
+                    last_error = "Network error. Check your internet connection."
+                else:
+                    last_error = f"CLI error (code {process.returncode}): {stderr_text[:150]}"
+
+        except asyncio.TimeoutError:
+            last_error = f"CLI timed out after {timeout}s (may be waiting for keychain)"
+        except BrokenPipeError:
+            last_error = "CLI crashed (BrokenPipe). Try: 'claude logout && claude login'"
+        except FileNotFoundError:
+            last_error = "Claude CLI not found. Install: npm install -g @anthropic-ai/claude-code"
+        except PermissionError:
+            last_error = "Permission denied running Claude CLI. Check file permissions."
+        except Exception as e:
+            last_error = f"Unexpected error: {str(e)}"
+
+    # Determine final status
+    # If version works but API doesn't, we need auth
+    # If both work, we're good
+    # If neither works, CLI is broken
+    is_authenticated = api_auth_ok  # API auth is what matters
+    final_error = None if is_authenticated else last_error
+
+    # Update cache with thread safety
+    with _claude_auth_lock:
+        if is_authenticated:
+            _claude_auth_status["consecutive_failures"] = 0
+        else:
+            _claude_auth_status["consecutive_failures"] = _claude_auth_status.get("consecutive_failures", 0) + 1
+
+        _claude_auth_status.update({
+            "authenticated": is_authenticated,
+            "error": final_error,
+            "last_check": time.time(),
+            "version_ok": version_ok,
+        })
+
+    return is_authenticated, final_error
+
+
+async def _attempt_auto_recovery() -> tuple[bool, str]:
+    """Attempt automatic recovery when Claude auth fails.
+
+    Returns tuple: (recovered: bool, message: str)
+    """
+    global _claude_auth_status
+
+    consecutive_failures = _claude_auth_status.get("consecutive_failures", 0)
+
+    # Only attempt recovery after multiple failures
+    if consecutive_failures < 2:
+        return False, "Not enough failures to trigger recovery"
+
+    print(f"[Claude] Attempting auto-recovery after {consecutive_failures} failures...", flush=True)
+
+    claude_bin = find_executable_path("claude")
+    if not claude_bin:
+        return False, "CLI not installed"
+
+    recovery_steps = []
+
+    # Step 1: Try clearing any stale sessions
+    try:
+        # Check if there's a stuck process
+        import subprocess
+        result = subprocess.run(
+            ["pgrep", "-f", "claude"],
+            capture_output=True,
+            timeout=5
+        )
+        if result.stdout:
+            recovery_steps.append("Found existing Claude processes")
+    except Exception:
+        pass
+
+    # Step 2: Verify CLI can start at all
+    try:
+        process = await asyncio.create_subprocess_exec(
+            claude_bin, "--help",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**dict(os.environ), "CI": "true"},
+        )
+        await asyncio.wait_for(process.communicate(), timeout=10.0)
+        if process.returncode == 0:
+            recovery_steps.append("CLI responds to --help")
+        else:
+            recovery_steps.append("CLI --help failed")
+    except Exception as e:
+        recovery_steps.append(f"CLI check failed: {e}")
+
+    # Step 3: Re-check auth after brief pause
+    await asyncio.sleep(2)
+    is_auth, error = await _check_claude_auth(force_recheck=True)
+
+    if is_auth:
+        print(f"[Claude] Auto-recovery successful!", flush=True)
+        return True, "Recovery successful - auth restored"
+    else:
+        msg = f"Recovery attempted but auth still failing. Steps: {', '.join(recovery_steps)}. Error: {error}"
+        print(f"[Claude] {msg}", flush=True)
+        return False, msg
+
 async def _warmup_claude_cli():
     """Run claude --version at startup to trigger keyring permission dialog early.
 
     Retries until successful or max attempts reached, giving user time to approve keyring access.
+    Also checks authentication status and caches it for /status endpoint.
     """
     import asyncio
+    global _claude_auth_status
 
     claude_bin = find_executable_path("claude")
     if not claude_bin:
         print("[Claude] CLI not found - install with: npm install -g @anthropic-ai/claude-code", flush=True)
+        with _claude_auth_lock:
+            _claude_auth_status.update({
+                "authenticated": False,
+                "error": "CLI not installed",
+                "version": None,
+                "last_check": 0
+            })
         return
 
     print(f"[Claude] Warming up CLI at: {claude_bin}", flush=True)
 
     max_attempts = 10
     retry_delay = 3  # seconds between retries
+    version_found = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -457,9 +648,9 @@ async def _warmup_claude_cli():
             )
 
             if process.returncode == 0:
-                version = stdout.decode('utf-8', errors='replace').strip()
-                print(f"[Claude] CLI ready: {version}", flush=True)
-                return  # Success!
+                version_found = stdout.decode('utf-8', errors='replace').strip()
+                print(f"[Claude] CLI ready: {version_found}", flush=True)
+                break  # Success - exit retry loop
             else:
                 err = stderr.decode('utf-8', errors='replace').strip()
                 print(f"[Claude] Attempt {attempt}/{max_attempts} failed: {err}", flush=True)
@@ -475,7 +666,106 @@ async def _warmup_claude_cli():
             print(f"[Claude] Retrying in {retry_delay}s... (grant keyring access if prompted)", flush=True)
             await asyncio.sleep(retry_delay)
 
-    print(f"[Claude] CLI warmup failed after {max_attempts} attempts", flush=True)
+    if not version_found:
+        print(f"[Claude] CLI warmup failed after {max_attempts} attempts", flush=True)
+        with _claude_auth_lock:
+            _claude_auth_status.update({
+                "authenticated": False,
+                "error": "CLI warmup failed - may need reinstall",
+                "version": None,
+                "last_check": 0
+            })
+        return
+
+    # Now check authentication status using the comprehensive check
+    print("[Claude] Checking authentication status...", flush=True)
+    is_auth, auth_error = await _check_claude_auth(force_recheck=True)
+
+    # Update with version info
+    with _claude_auth_lock:
+        _claude_auth_status["version"] = version_found
+
+    if is_auth:
+        print(f"[Claude] ✓ Authenticated and ready! Version: {version_found}", flush=True)
+    else:
+        print(f"[Claude] ⚠ WARNING: Not authenticated - {auth_error}", flush=True)
+        print(f"[Claude] Chat will fail until you run 'claude login' in your terminal", flush=True)
+        # Don't block startup, but schedule a background retry
+        asyncio.create_task(_background_auth_retry())
+
+
+async def _background_auth_retry():
+    """Background task that periodically retries auth check until successful.
+
+    This runs in the background after startup if auth initially failed,
+    automatically detecting when the user has logged in.
+    """
+    import asyncio
+
+    max_retries = 30  # Try for up to 5 minutes (30 * 10s)
+    retry_interval = 10  # Check every 10 seconds
+
+    print("[Claude] Starting background auth monitor...", flush=True)
+
+    for attempt in range(1, max_retries + 1):
+        await asyncio.sleep(retry_interval)
+
+        # Check if already authenticated (user might have run claude login)
+        is_auth, error = await _check_claude_auth(force_recheck=True)
+
+        if is_auth:
+            print(f"[Claude] ✓ Background auth check successful! Claude is now ready.", flush=True)
+            return
+
+        # Log progress periodically
+        if attempt % 6 == 0:  # Every minute
+            print(f"[Claude] Background auth check {attempt}/{max_retries}: still waiting for login... ({error})", flush=True)
+
+    print(f"[Claude] Background auth monitor stopped after {max_retries} attempts. User needs to run 'claude login'.", flush=True)
+
+
+async def _check_secrets_access():
+    """Check secrets storage at startup and log status."""
+    print("[Secrets] Checking local secrets storage...", flush=True)
+
+    # Test reading the github_token
+    token = get_secret("github_token")
+    if token:
+        print(f"[Secrets] ✓ GitHub token found ({len(token)} chars)", flush=True)
+    else:
+        print(f"[Secrets] No GitHub token configured yet", flush=True)
+        print(f"[Secrets] Add your GitHub PAT in Settings -> Code Search", flush=True)
+
+
+async def ensure_claude_authenticated() -> tuple[bool, str | None]:
+    """Ensure Claude is authenticated before making a request.
+
+    Call this before any Claude API operation. It will:
+    1. Check cached auth status
+    2. If not authenticated, attempt recovery
+    3. Return current status
+
+    Returns: (is_authenticated, error_message)
+    """
+    global _claude_auth_status
+
+    # Quick check from cache
+    is_auth = _claude_auth_status.get("authenticated")
+    if is_auth:
+        return True, None
+
+    # Force recheck
+    is_auth, error = await _check_claude_auth(force_recheck=True)
+    if is_auth:
+        return True, None
+
+    # Attempt auto-recovery if multiple failures
+    recovered, recovery_msg = await _attempt_auto_recovery()
+    if recovered:
+        return True, None
+
+    return False, error or "Authentication failed"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -499,6 +789,9 @@ async def lifespan(app: FastAPI):
 
     # Warmup Claude CLI (triggers keyring permission dialog early)
     await _warmup_claude_cli()
+
+    # Check secrets storage and log status
+    await _check_secrets_access()
 
     # Write server info for frontend discovery
     import json
@@ -594,10 +887,163 @@ async def install_package(req: InstallRequest):
             return {"success": False, "error": f"NPM install failed: {err_msg}"}
 
         return {"success": True, "path": os.path.join(bin_dir, "claude")}
-        
+
     except Exception as e:
         print(f"[Installer] Internal error: {e}", flush=True)
         return {"success": False, "error": str(e)}
+
+
+# --- Claude Login Endpoint ---
+@app.post("/setup/claude-login")
+async def trigger_claude_login():
+    """Trigger Claude CLI login process.
+
+    This will launch 'claude login' which opens a browser for OAuth.
+    The user must complete the login flow in the browser.
+
+    Returns immediately with status - poll /status to check when login completes.
+    """
+    global _claude_auth_status
+
+    claude_bin = find_executable_path("claude")
+    if not claude_bin:
+        return {
+            "success": False,
+            "error": "Claude CLI not installed. Install with: npm install -g @anthropic-ai/claude-code"
+        }
+
+    print(f"[Claude] Triggering login via: {claude_bin}", flush=True)
+
+    try:
+        # Launch claude login in a subprocess
+        # This will open a browser for OAuth - we can't automate this part
+        process = await asyncio.create_subprocess_exec(
+            claude_bin, "login",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**dict(os.environ), "CI": "true"},
+        )
+
+        # Wait up to 60 seconds for login to complete
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=60.0
+            )
+
+            stdout_text = stdout.decode('utf-8', errors='replace').strip()
+            stderr_text = stderr.decode('utf-8', errors='replace').strip()
+
+            if process.returncode == 0:
+                print(f"[Claude] Login successful!", flush=True)
+
+                # Re-check auth status with force to update cache
+                is_auth, auth_error = await _check_claude_auth(force_recheck=True)
+
+                return {
+                    "success": True,
+                    "message": "Login successful! Claude is now authenticated.",
+                    "output": stdout_text,
+                    "authenticated": is_auth
+                }
+            else:
+                print(f"[Claude] Login failed: {stderr_text}", flush=True)
+                return {
+                    "success": False,
+                    "error": stderr_text or "Login failed",
+                    "hint": "Please try running 'claude login' manually in your terminal"
+                }
+
+        except asyncio.TimeoutError:
+            # Login didn't complete in time - might need browser interaction
+            print(f"[Claude] Login timed out - browser interaction may be needed", flush=True)
+            return {
+                "success": False,
+                "error": "Login timed out",
+                "hint": "Please open a terminal and run 'claude login' to complete authentication"
+            }
+
+    except Exception as e:
+        print(f"[Claude] Login error: {e}", flush=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "hint": "Please try running 'claude login' manually in your terminal"
+        }
+
+
+@app.get("/setup/claude-status")
+async def get_claude_status():
+    """Get Claude CLI authentication status.
+
+    Returns current auth status without triggering any prompts.
+    """
+    import time
+
+    return {
+        "authenticated": _claude_auth_status.get("authenticated"),
+        "error": _claude_auth_status.get("error"),
+        "version": _claude_auth_status.get("version"),
+        "version_ok": _claude_auth_status.get("version_ok"),
+        "installed": find_executable_path("claude") is not None,
+        "consecutive_failures": _claude_auth_status.get("consecutive_failures", 0),
+        "last_check_ago": int(time.time() - _claude_auth_status.get("last_check", 0)) if _claude_auth_status.get("last_check") else None,
+    }
+
+
+@app.post("/setup/claude-recheck")
+async def recheck_claude_auth():
+    """Re-check Claude authentication status.
+
+    Call this after user has logged in via browser to refresh the cached status.
+    """
+    claude_bin = find_executable_path("claude")
+    if not claude_bin:
+        with _claude_auth_lock:
+            _claude_auth_status.update({
+                "authenticated": False,
+                "error": "CLI not installed",
+                "version": None,
+                "last_check": 0
+            })
+        return dict(_claude_auth_status)
+
+    print("[Claude] Re-checking authentication status (force)...", flush=True)
+    is_auth, auth_error = await _check_claude_auth(force_recheck=True)
+
+    return {
+        "authenticated": is_auth,
+        "error": auth_error,
+        "version": _claude_auth_status.get("version"),
+        "consecutive_failures": _claude_auth_status.get("consecutive_failures", 0)
+    }
+
+
+@app.post("/setup/claude-recover")
+async def recover_claude_connection():
+    """Attempt to recover Claude connection after failures.
+
+    Triggers the auto-recovery mechanism which:
+    1. Checks for stale processes
+    2. Verifies CLI health
+    3. Re-authenticates if possible
+    """
+    print("[Claude] Manual recovery triggered by user...", flush=True)
+
+    # Force a failure count to trigger recovery
+    with _claude_auth_lock:
+        _claude_auth_status["consecutive_failures"] = 3
+
+    recovered, message = await _attempt_auto_recovery()
+
+    return {
+        "recovered": recovered,
+        "message": message,
+        "authenticated": _claude_auth_status.get("authenticated"),
+        "error": _claude_auth_status.get("error")
+    }
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -663,6 +1109,7 @@ async def server_status():
         "server": "ok",
         "sentinel": "unknown",
         "kb_search": "unknown",
+        "claude": "unknown",
     }
 
     # Check Sentinel
@@ -680,12 +1127,21 @@ async def server_status():
     except Exception as e:
         components["kb_search"] = f"error: {e}"
 
-    overall = "ok" if all(v in ["ok", "running", "available"] for v in components.values()) else "degraded"
+    # Check Claude CLI auth status
+    if _claude_auth_status.get("authenticated") is True:
+        components["claude"] = "authenticated"
+    elif _claude_auth_status.get("authenticated") is False:
+        components["claude"] = f"not_authenticated: {_claude_auth_status.get('error', 'unknown')}"
+    else:
+        components["claude"] = "checking"
+
+    overall = "ok" if all(v in ["ok", "running", "available", "authenticated"] for v in components.values()) else "degraded"
 
     return {
         "status": overall,
         "components": components,
-        "version": AGENT_VERSION
+        "version": AGENT_VERSION,
+        "claude_status": _claude_auth_status
     }
 
 
@@ -1095,28 +1551,104 @@ async def _test_codex_connection():
 
 OPSPILOT_CONFIG_PATH = os.path.expanduser("~/.opspilot/config.json")
 OPSPILOT_CONFIG_LEGACY_PATH = os.path.expanduser("~/.opspilot.json")
+OPSPILOT_SECRETS_PATH = os.path.expanduser("~/.opspilot/secrets.enc")
+
+def _get_machine_key() -> bytes:
+    """Get a machine-specific key for obfuscating secrets.
+
+    Uses a combination of username and home directory to create a stable key.
+    This is NOT cryptographically secure - just obfuscation to prevent casual reading.
+    """
+    import hashlib
+    # Use stable machine identifiers
+    identity = f"{os.getenv('USER', 'user')}:{os.path.expanduser('~')}:opspilot"
+    return hashlib.sha256(identity.encode()).digest()
+
+def _obfuscate(plaintext: str) -> str:
+    """Obfuscate a string using XOR with machine key + base64."""
+    import base64
+    key = _get_machine_key()
+    data = plaintext.encode('utf-8')
+    # XOR with repeating key
+    obfuscated = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+    return base64.b64encode(obfuscated).decode('ascii')
+
+def _deobfuscate(encoded: str) -> str:
+    """Deobfuscate a string."""
+    import base64
+    key = _get_machine_key()
+    obfuscated = base64.b64decode(encoded.encode('ascii'))
+    # XOR with repeating key (same operation reverses it)
+    data = bytes(b ^ key[i % len(key)] for i, b in enumerate(obfuscated))
+    return data.decode('utf-8')
+
+def _load_local_secrets() -> dict:
+    """Load secrets from local encrypted file."""
+    if not os.path.exists(OPSPILOT_SECRETS_PATH):
+        return {}
+    try:
+        with open(OPSPILOT_SECRETS_PATH, 'r') as f:
+            encoded_data = json.load(f)
+        # Decode each secret
+        return {k: _deobfuscate(v) for k, v in encoded_data.items()}
+    except Exception as e:
+        print(f"[secret] Failed to load local secrets: {e}", flush=True)
+        return {}
+
+def _save_local_secrets(secrets: dict):
+    """Save secrets to local encrypted file."""
+    try:
+        os.makedirs(os.path.dirname(OPSPILOT_SECRETS_PATH), exist_ok=True)
+        # Encode each secret
+        encoded_data = {k: _obfuscate(v) for k, v in secrets.items()}
+        with open(OPSPILOT_SECRETS_PATH, 'w') as f:
+            json.dump(encoded_data, f)
+        # Set restrictive permissions (owner read/write only)
+        os.chmod(OPSPILOT_SECRETS_PATH, 0o600)
+        print(f"[secret] Saved secrets to local file", flush=True)
+    except Exception as e:
+        print(f"[secret] Failed to save local secrets: {e}", flush=True)
 
 def get_secret(key: str) -> str | None:
-    """Retrieve a secret from the OS Keyring."""
-    try:
-        return keyring.get_password("opspilot", key)
-    except Exception as e:
-        print(f"[secret] Failed to retrieve secret {key}: {e}", flush=True)
-        return None
+    """Retrieve a secret from local encrypted file or environment variables.
+
+    Priority order:
+    1. Local encrypted file (~/.opspilot/secrets.enc) - primary storage
+    2. Environment variables (GITHUB_TOKEN or OPSPILOT_GITHUB_TOKEN)
+    """
+    # 1. Try local encrypted file first (primary storage)
+    local_secrets = _load_local_secrets()
+    if key in local_secrets and local_secrets[key]:
+        return local_secrets[key]
+
+    # 2. Fallback to environment variable
+    env_key = key.upper()
+    env_value = os.environ.get(env_key)
+    if env_value:
+        print(f"[secret] Using fallback: ${env_key} environment variable", flush=True)
+        return env_value
+
+    # Also try OPSPILOT_ prefixed version
+    prefixed_key = f"OPSPILOT_{env_key}"
+    prefixed_value = os.environ.get(prefixed_key)
+    if prefixed_value:
+        print(f"[secret] Using fallback: ${prefixed_key} environment variable", flush=True)
+        return prefixed_value
+
+    return None
 
 def set_secret(key: str, value: str):
-    """Store a secret in the OS Keyring."""
-    try:
-        keyring.set_password("opspilot", key, value)
-    except Exception as e:
-        print(f"[secret] Failed to store secret {key}: {e}", flush=True)
+    """Store a secret in local encrypted file."""
+    local_secrets = _load_local_secrets()
+    local_secrets[key] = value
+    _save_local_secrets(local_secrets)
 
 def delete_secret(key: str):
-    """Remove a secret from the OS Keyring."""
-    try:
-        keyring.delete_password("opspilot", key)
-    except Exception:
-        pass
+    """Remove a secret from local storage."""
+    local_secrets = _load_local_secrets()
+    if key in local_secrets:
+        del local_secrets[key]
+        _save_local_secrets(local_secrets)
 
 def load_opspilot_config() -> dict:
     """Load OpsPilot config from ~/.opspilot/config.json or legacy ~/.opspilot.json"""

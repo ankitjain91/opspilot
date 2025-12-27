@@ -606,29 +606,43 @@ You are in STRICT READ-ONLY mode. ALL mutation operations are BLOCKED.
 [ERROR] MCP WRITE OPERATIONS - FORBIDDEN:
    • Any create_*, update_*, delete_*, push_*, post_*, put_* MCP tools
 
-[SEARCH] GITHUB CODE SEARCH - MANDATORY STEPS:
-   BEFORE running any GitHub code search (mcp__github__search_code), you MUST:
+[SEARCH] GITHUB CODE SEARCH - CRITICAL RULES:
 
-   1. ASK THE USER these questions first:
-      • "Which GitHub organization should I search in? (e.g., 'kubernetes', 'your-company')"
-      • "Or do you have a specific repository? (e.g., 'owner/repo-name')"
-      • "What programming language is the code in? (e.g., Python, Go, Rust)"
+   ⚠️ UNBOUNDED SEARCHES WILL FAIL WITH TOKEN OVERFLOW ⚠️
 
-   2. WAIT for user response before searching
+   BEFORE running mcp__github__search_code, you MUST narrow the search:
 
-   3. BUILD the search query with qualifiers:
-      • Use "org:orgname" to search within an organization
-      • Use "repo:owner/repo" to search a specific repository
-      • Use "language:python" or similar to filter by language
-      • Always add "per_page:10" to limit results
+   1. REQUIRED QUALIFIERS (use at least 2):
+      • "repo:owner/repo-name" - BEST: search specific repository
+      • "org:orgname" - search within an organization
+      • "user:username" - search user's repos
+      • "language:go" (or python, java, rust, etc.)
+      • "path:src/main" - limit to specific directory
+      • "filename:config.yaml" - search by filename
+      • "extension:py" - search by file extension
 
-   4. EXAMPLE correct search:
-      User asks: "Find where sa-patcher is defined"
-      You ask: "Which organization or repo should I search?"
-      User says: "kubernetes-sigs"
-      You search: "sa-patcher org:kubernetes-sigs language:go per_page:10"
+   2. ALWAYS LIMIT RESULTS:
+      • Add "per_page=5" or "per_page=10" to the query
+      • Never request more than 10 results at a time
 
-   5. NEVER run unbounded searches - they WILL fail with token overflow
+   3. QUERY CONSTRUCTION EXAMPLES:
+      ✅ GOOD: "PaymentGateway repo:mycompany/payments language:java per_page=5"
+      ✅ GOOD: "sa-patcher org:kubernetes-sigs path:cmd language:go per_page=10"
+      ✅ GOOD: "filename:Dockerfile org:mycompany per_page=5"
+      ❌ BAD:  "PaymentGateway" (too broad - will return 50k+ tokens!)
+      ❌ BAD:  "error handling" (too vague - will fail)
+
+   4. IF SEARCH FAILS OR RETURNS TOO MANY RESULTS:
+      • Add more qualifiers to narrow down
+      • Try searching for exact function/class name
+      • Use "filename:" if you know the file type
+      • Ask user which repo or org to search
+
+   5. SEARCH STRATEGY:
+      • Start with the most specific search (repo + filename)
+      • If no results, broaden slightly (repo + language)
+      • If still no results, try org-level search
+      • NEVER do unqualified global searches
 
 [OK] ALLOWED READ-ONLY OPERATIONS ONLY:
    • kubectl get, kubectl describe, kubectl logs, kubectl events
@@ -679,6 +693,22 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
             print(f"[claude-code-streaming] [DIR] Working directory: {effective_working_dir}", flush=True)
 
         process = None
+        stderr_task = None
+        stderr_lines = []
+
+        async def monitor_stderr(proc):
+            """Continuously read stderr in the background to catch MCP errors early."""
+            try:
+                async for line in proc.stderr:
+                    line_str = line.decode('utf-8', errors='replace').strip()
+                    if line_str:
+                        stderr_lines.append(line_str)
+                        # Log MCP-related errors immediately
+                        if any(kw in line_str.lower() for kw in ['mcp', 'spawn', 'error', 'fail', 'token', 'auth']):
+                            print(f"[claude-code-streaming] [STDERR] {line_str}", flush=True)
+            except Exception:
+                pass
+
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -688,6 +718,9 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 cwd=effective_working_dir,
                 env=env
             )
+
+            # Start background stderr monitoring
+            stderr_task = asyncio.create_task(monitor_stderr(process))
 
             final_text = ""
             current_tool = None
@@ -761,11 +794,17 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                             if block.get('type') == 'tool_result':
                                 # Tool execution completed
                                 result = block.get('content', '')
+                                # Truncate excessively large tool results to prevent UI issues
+                                if isinstance(result, str) and len(result) > 50000:
+                                    result = result[:50000] + f"\n\n[... truncated {len(result) - 50000} chars - result too large ...]"
                                 yield {'type': 'tool_result', 'output': result, 'tool': current_tool}
 
                     elif event_type == 'tool_result':
                         # Legacy: Tool execution result (direct format)
                         result = event.get('result', '')
+                        # Truncate excessively large tool results
+                        if isinstance(result, str) and len(result) > 50000:
+                            result = result[:50000] + f"\n\n[... truncated {len(result) - 50000} chars - result too large ...]"
                         yield {'type': 'tool_result', 'output': result, 'tool': current_tool}
 
                     elif event_type == 'result':
@@ -824,18 +863,31 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                     # Check if process is even running
                     if process.returncode is not None:
                         error_msg += f"Process exited with code {process.returncode}. "
-                    
-                    stderr = await process.stderr.read()
-                    if stderr:
-                        stderr_text = stderr.decode('utf-8', errors='replace')
+
+                    # First check if we captured any stderr via our background monitor
+                    if stderr_lines:
+                        stderr_text = "\n".join(stderr_lines)
                         error_msg += f"Stderr: {stderr_text}"
-                        
-                        # Check for specific keyring/auth keywords
-                        if "keyring" in stderr_text.lower() or "password" in stderr_text.lower() or "unlock" in stderr_text.lower():
-                             error_msg += "\n\nCRITICAL: Claude Code is waiting for Keychain/Keyring access. Please run 'claude login' in your terminal to authenticate once, which should unlock the keychain."
                     else:
-                        error_msg += "No stderr output captured. This often means the CLI crashed or was killed."
-                        
+                        # Fallback to reading remaining stderr directly
+                        stderr = await process.stderr.read()
+                        if stderr:
+                            stderr_text = stderr.decode('utf-8', errors='replace')
+                            error_msg += f"Stderr: {stderr_text}"
+                        else:
+                            error_msg += "No stderr output captured. This often means the CLI crashed or was killed."
+
+                    # Check for specific error patterns
+                    full_stderr = "\n".join(stderr_lines) if stderr_lines else ""
+                    stderr_lower = full_stderr.lower()
+
+                    if "keyring" in stderr_lower or "password" in stderr_lower or "unlock" in stderr_lower:
+                        error_msg += "\n\nCRITICAL: Claude Code is waiting for Keychain/Keyring access. Please run 'claude login' in your terminal to authenticate once, which should unlock the keychain."
+                    elif "mcp" in stderr_lower and ("spawn" in stderr_lower or "fail" in stderr_lower or "error" in stderr_lower):
+                        error_msg += "\n\nCRITICAL: MCP server failed to start. Check if your GitHub PAT is valid and has correct permissions. Try removing and re-adding the GitHub token in Settings."
+                    elif "token" in stderr_lower and ("invalid" in stderr_lower or "expired" in stderr_lower):
+                        error_msg += "\n\nCRITICAL: GitHub token appears invalid or expired. Please update your GitHub PAT in Settings."
+
                     # Add troubleshooting hint
                     error_msg += "\n\nHINT: Agent may need re-authentication. Try running 'claude login' in your specific terminal or ensure no other process is using the session."
                 except:
@@ -848,6 +900,13 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                 msg = "Claude Code connection lost (Broken Pipe). This usually happens when the CLI reaches a limit or crashes."
             yield {'type': 'error', 'message': f"Unexpected Error: {msg}"}
         finally:
+            # Cancel stderr monitoring task
+            if stderr_task and not stderr_task.done():
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
+                    pass
             # Ensure process is cleaned up
             if process and process.returncode is None:
                 try:
