@@ -88,9 +88,10 @@ jobs:
             fi
 
             # Install Python via x86_64 Homebrew
+            # Note: brew link may fail if another Python is installed - thats OK, we use full path
             /usr/local/bin/brew install python@3.11 || true
 
-            # Get the x86_64 Python path
+            # Get the x86_64 Python path (use full Cellar path, not symlink)
             X86_PYTHON=$(/usr/local/bin/brew --prefix python@3.11)/bin/python3.11
 
             echo "Using x86_64 Python: $X86_PYTHON"

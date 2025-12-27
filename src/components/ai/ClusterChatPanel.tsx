@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, Settings, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Bug, Zap } from 'lucide-react';
+import { Loader2, Send, Sparkles, X, Minimize2, Maximize2, Minus, ChevronDown, AlertCircle, StopCircle, RefreshCw, Terminal, CheckCircle2, XCircle, Trash2, Github, Copy, Check, Bug, Zap } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event';
 import ReactMarkdown from 'react-markdown';
@@ -11,13 +11,13 @@ import { ThinkingMessage } from './chat/ThinkingMessage';
 import { InvestigationTimeline } from './chat/InvestigationTimeline';
 import { AgentStatusHeader } from './chat/AgentStatusHeader';
 import { StreamingProgressCard, AgentPhase, CommandExecution } from './chat/StreamingProgressCard';
+import { CopyableCodeBlock, CopyableInlineCode } from './chat/CopyableCodeBlock';
 import remarkGfm from 'remark-gfm';
 import { LLMConfig, LLMStatus, ClusterHealthSummary } from '../../types/ai';
 import { fixMarkdownHeaders } from '../../utils/markdown';
 import { stripAnsi } from '../../utils/ansi';
 import { loadLLMConfig } from './utils';
 import { getAgentServerUrl } from '../../utils/config';
-import { LLMSettingsPanel } from './LLMSettingsPanel';
 import {
     executeTool, VALID_TOOLS, registerMcpTools, isValidTool, listRegisteredMcpTools
 } from './tools';
@@ -179,6 +179,9 @@ export function ClusterChatPanel({
         }
     });
     const [userInput, setUserInput] = useState("");
+    const [lastUserMessage, setLastUserMessage] = useState(""); // For up-arrow history
+    const [lastFailedQuery, setLastFailedQuery] = useState<string | null>(null); // For retry button
+    const inputRef = useRef<HTMLInputElement>(null);
 
     // Group messages for better UI presentation (timeline)
     const groupedHistory = useMemo(() => groupMessages(chatHistory), [chatHistory]);
@@ -195,7 +198,6 @@ export function ClusterChatPanel({
     const [llmConfig, setLlmConfig] = useState<LLMConfig>(loadLLMConfig);
     const [llmStatus, setLlmStatus] = useState<LLMStatus | null>(null);
     const [checkingLLM, setCheckingLLM] = useState(true);
-    const [showSettings, setShowSettings] = useState(false);
     const [suggestedActions, setSuggestedActions] = useState<string[]>([]);
     const [fastMode, setFastMode] = useState<boolean>(true); // Default to Fast Mode (true)
 
@@ -474,7 +476,7 @@ export function ClusterChatPanel({
         fetchMcpTools();
     }, [llmConfig, checkLLMStatus, fetchMcpTools]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Check GitHub configuration on mount and when settings close
+    // Check GitHub configuration on mount
     useEffect(() => {
         const checkGithubConfig = async () => {
             try {
@@ -487,11 +489,8 @@ export function ClusterChatPanel({
                 setGithubConfigured(false);
             }
         };
-        // Re-check when settings panel closes (showSettings goes from true to false)
-        if (!showSettings) {
-            checkGithubConfig();
-        }
-    }, [showSettings]);
+        checkGithubConfig();
+    }, []);
 
     // Initialize embedding model and listen for status events
     // ... (Embedding useEffect unchanged)
@@ -601,8 +600,33 @@ export function ClusterChatPanel({
 
     // ... (helper functions) ...
 
+    // Keyboard shortcut handler
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        // Up arrow: recall last message
+        if (e.key === 'ArrowUp' && !userInput && lastUserMessage) {
+            e.preventDefault();
+            setUserInput(lastUserMessage);
+        }
+        // Escape: cancel current request or clear input
+        if (e.key === 'Escape') {
+            if (llmLoading && abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            } else if (userInput) {
+                setUserInput('');
+            }
+        }
+        // Cmd/Ctrl + Enter: send message (even if loading, will be ignored by sendMessage)
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            sendMessage(userInput);
+        }
+    };
+
     const sendMessage = async (message: string, hiddenContext?: string, toolSubset?: string) => {
         if (!message.trim() || llmLoading) return;
+
+        // Track last user message for up-arrow recall
+        setLastUserMessage(message.trim());
 
         // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
@@ -1008,6 +1032,7 @@ export function ClusterChatPanel({
 
             setChatHistory(prev => [...prev, { role: 'assistant', content: formattedResult }]);
             setLlmLoading(false);
+            setLastFailedQuery(null); // Clear failed query on success
         } catch (e: any) {
             // Handle cancellation gracefully
             if (e?.message === 'CANCELLED' || abortControllerRef.current?.signal.aborted) {
@@ -1017,6 +1042,9 @@ export function ClusterChatPanel({
             }
             console.error("Agent Loop Failed:", e);
             const errorMsg = String(e || '');
+
+            // Track failed query for retry
+            setLastFailedQuery(message);
 
             // Set streaming phase to error
             setStreamingPhase({
@@ -1302,14 +1330,10 @@ export function ClusterChatPanel({
                     <div className="min-w-0">
                         <h3 className="font-semibold text-zinc-100 text-sm tracking-tight truncate">AI Assistant</h3>
                         <div className="flex items-center gap-2 flex-wrap">
-                            <button
-                                onClick={() => setShowSettings(true)}
-                                className="text-[10px] text-zinc-500 hover:text-zinc-400 flex items-center gap-1.5 transition-colors group"
-                            >
+                            <div className="text-[10px] text-zinc-500 flex items-center gap-1.5">
                                 <div className={`w-1.5 h-1.5 rounded-full ${llmStatus?.connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
                                 <span className="truncate">{llmConfig.provider === 'codex-cli' ? 'Codex (OpenAI)' : 'Claude Code'}</span>
-                                <ChevronDown size={10} className="text-zinc-600 shrink-0" />
-                            </button>
+                            </div>
                             {extendedMode && (
                                 <span
                                     className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300"
@@ -1376,14 +1400,6 @@ export function ClusterChatPanel({
                     )}
                     <div className="w-px h-4 bg-white/10 mx-0.5" />
                     <button
-                        onClick={() => setShowSettings(true)}
-                        className="p-2 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
-                        title="Settings"
-                    >
-                        <Settings size={14} />
-                    </button>
-                    <div className="w-px h-4 bg-white/10 mx-0.5" />
-                    <button
                         onClick={onToggleMinimize}
                         className="p-2 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
                         title="Minimize"
@@ -1406,41 +1422,6 @@ export function ClusterChatPanel({
                     </button>
                 </div>
             </div>
-
-            {/* Settings Panel Modal */}
-            {showSettings && createPortal(
-                <>
-                    {/* Backdrop */}
-                    <div
-                        className="fixed inset-0 bg-black/70 backdrop-blur-md z-[59] flex items-center justify-center p-4 animate-in fade-in duration-200"
-                        onClick={() => setShowSettings(false)}
-                    >
-                        {/* Modal Container */}
-                        <div
-                            className="relative w-full max-w-2xl max-h-[90vh] bg-gradient-to-br from-[#1a1a2e] via-[#16161a] to-[#1a1a2e] rounded-3xl shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 duration-300"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Subtle gradient overlay */}
-                            <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
-
-                            {/* Content */}
-                            <div className="relative z-10 overflow-y-auto max-h-[90vh]">
-                                <LLMSettingsPanel
-                                    config={llmConfig}
-                                    onConfigChange={(newConfig) => {
-                                        setLlmConfig(newConfig);
-                                        setShowSettings(false);
-                                    }}
-                                    onClose={() => setShowSettings(false)}
-                                    systemSpecs={systemSpecs}
-                                    kbProgress={kbProgress}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </>,
-                document.body
-            )}
 
             {/* Messages - Elegant Scrollable Area */}
             <div
@@ -1709,8 +1690,15 @@ export function ClusterChatPanel({
                                                             p: ({ children }) => <p className="text-[14px] text-zinc-300 my-3 leading-relaxed opacity-90 break-words">{children}</p>,
                                                             strong: ({ children }) => <strong className="text-white font-bold tracking-tight">{children}</strong>,
                                                             em: ({ children }) => <em className="text-zinc-400 italic font-medium">{children}</em>,
-                                                            code: ({ children }) => <code className="text-[12px] bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-emerald-400 font-mono shadow-inner break-all">{children}</code>,
-                                                            pre: ({ children }) => <pre className="text-[12px] bg-black/60 p-4 rounded-xl overflow-x-auto my-4 border border-white/5 shadow-inner font-mono leading-relaxed">{children}</pre>,
+                                                            code: ({ className, children, ...props }) => {
+                                                                // Check if this is a code block (inside pre) or inline code
+                                                                const isInline = !className;
+                                                                if (isInline) {
+                                                                    return <CopyableInlineCode>{children}</CopyableInlineCode>;
+                                                                }
+                                                                return <code className={className} {...props}>{children}</code>;
+                                                            },
+                                                            pre: ({ children }) => <CopyableCodeBlock>{children}</CopyableCodeBlock>,
                                                             ul: ({ children }) => <ul className="text-[14px] list-none ml-0 my-3 space-y-2.5">{children}</ul>,
                                                             ol: ({ children }) => <ol className="text-[14px] list-decimal ml-5 my-3 space-y-2.5 text-zinc-400">{children}</ol>,
                                                             li: ({ children }) => (
@@ -1985,19 +1973,37 @@ export function ClusterChatPanel({
                 </div>
             )}
 
-            {/* Suggested Actions */}
+            {/* Suggested Follow-ups */}
             {suggestedActions.length > 0 && !llmLoading && (
-                <div className="px-4 pb-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {suggestedActions.map((action, i) => (
+                <div className="px-4 pb-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                            <Sparkles size={10} className="text-indigo-400" />
+                            Suggested Follow-ups
+                        </span>
                         <button
-                            key={i}
-                            onClick={() => sendMessage(action)}
-                            className="px-3 py-1.5 text-[11px] font-medium bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/15 text-zinc-300 rounded-lg transition-all flex items-center gap-1.5"
+                            onClick={() => setSuggestedActions([])}
+                            className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                            title="Dismiss suggestions"
                         >
-                            <Sparkles size={10} className="text-zinc-500" />
-                            {action}
+                            <X size={12} />
                         </button>
-                    ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {suggestedActions.map((action, i) => (
+                            <button
+                                key={i}
+                                onClick={() => {
+                                    sendMessage(action);
+                                    setSuggestedActions([]);
+                                }}
+                                className="px-3 py-1.5 text-[11px] font-medium bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 hover:border-indigo-500/30 text-indigo-300 rounded-lg transition-all flex items-center gap-1.5 group"
+                            >
+                                <ChevronDown size={10} className="text-indigo-400 group-hover:translate-y-0.5 transition-transform rotate-[-90deg]" />
+                                {action}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -2046,6 +2052,31 @@ export function ClusterChatPanel({
                     </div>
                 )}
 
+                {/* Retry Failed Query Banner */}
+                {lastFailedQuery && !llmLoading && (
+                    <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <AlertCircle size={14} className="text-amber-400 flex-shrink-0" />
+                        <span className="text-xs text-amber-300 flex-1 truncate">Last query failed</span>
+                        <button
+                            onClick={() => {
+                                const query = lastFailedQuery;
+                                setLastFailedQuery(null);
+                                sendMessage(query);
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold text-amber-400 bg-amber-500/20 hover:bg-amber-500/30 rounded-md border border-amber-500/30 transition-all"
+                        >
+                            <RefreshCw size={10} />
+                            Retry
+                        </button>
+                        <button
+                            onClick={() => setLastFailedQuery(null)}
+                            className="p-1 text-amber-400/60 hover:text-amber-300 transition-colors"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                )}
+
                 {/* Active Context Banner */}
                 {resourceContext && (
                     <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-md">
@@ -2086,14 +2117,16 @@ export function ClusterChatPanel({
                         </div>
                     </button>
                     <input
+                        ref={inputRef}
                         type="text"
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         disabled={llmLoading || !llmStatus?.connected || !!llmStatus?.error}
                         placeholder={
                             (!llmStatus?.connected || !!llmStatus?.error)
                                 ? "Setup required..."
-                                : "Ask anything..."
+                                : "Ask anything... (↑ for last, Esc to cancel)"
                         }
                         className="flex-1 px-4 py-2.5 bg-transparent border-none text-zinc-100 text-sm placeholder-zinc-600 focus:outline-none min-w-0 disabled:cursor-not-allowed disabled:text-zinc-600"
                     />

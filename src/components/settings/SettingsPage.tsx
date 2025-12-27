@@ -1727,7 +1727,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                                                     </a>
                                                 </p>
                                                 <p className="text-[10px] text-zinc-500">
-                                                    Storage: Saved securely in your OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service). Not stored in localStorage.
+                                                    Storage: Encrypted locally on your machine. Not stored in localStorage or sent to any server.
                                                 </p>
                                             </div>
                                         </div>

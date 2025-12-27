@@ -231,6 +231,71 @@ def emit_phase_event(name: str, detail: str = "") -> dict:
 def emit_hypotheses_event(hypotheses: list[dict]) -> dict:
     return emit_event('hypotheses', {'items': hypotheses})
 
+
+def _generate_fast_mode_suggestions(query: str, command_history: list[dict], final_answer: str) -> list[str]:
+    """Generate quick context-aware suggestions for Fast Mode without LLM call.
+
+    Uses heuristics based on:
+    - What was asked
+    - What commands were run
+    - What resources were mentioned
+    """
+    suggestions = []
+    query_lower = query.lower()
+    answer_lower = final_answer.lower() if final_answer else ""
+
+    # Extract resource types mentioned
+    commands_str = " ".join([h.get('command', '') for h in (command_history or [])])
+    outputs_str = " ".join([h.get('output', '')[:500] for h in (command_history or [])])
+
+    # Pod-related suggestions
+    if 'pod' in query_lower or 'pod' in commands_str:
+        if 'log' not in query_lower and 'log' not in commands_str:
+            suggestions.append("Show pod logs")
+        if 'describe' not in commands_str:
+            suggestions.append("Describe the pod")
+        if 'event' not in query_lower and 'event' not in commands_str:
+            suggestions.append("Check related events")
+
+    # Deployment-related
+    if 'deployment' in query_lower or 'deploy' in commands_str:
+        if 'rollout' not in commands_str:
+            suggestions.append("Check rollout status")
+        if 'replica' not in query_lower:
+            suggestions.append("Show replica count")
+
+    # Error/crash related
+    if any(x in query_lower or x in answer_lower for x in ['crash', 'error', 'fail', 'oom', 'restart']):
+        if 'log' not in commands_str:
+            suggestions.append("Get container logs")
+        if 'previous' not in commands_str:
+            suggestions.append("Check previous logs")
+        suggestions.append("Show resource limits")
+
+    # Service/networking
+    if 'service' in query_lower or 'endpoint' in query_lower or 'svc' in commands_str:
+        if 'endpoint' not in commands_str:
+            suggestions.append("Check service endpoints")
+        suggestions.append("Test connectivity")
+
+    # General follow-ups if nothing specific
+    if not suggestions:
+        if 'get' in commands_str and 'describe' not in commands_str:
+            suggestions.append("Describe the resource")
+        suggestions.append("Show recent events")
+        suggestions.append("Check resource health")
+
+    # Limit to 3 and dedupe
+    seen = set()
+    unique = []
+    for s in suggestions:
+        if s.lower() not in seen:
+            seen.add(s.lower())
+            unique.append(s)
+
+    return unique[:3]
+
+
 def verify_goal_completion(query: str, command_history: list[dict], final_answer: str | None) -> dict:
     """Assess if the user's goal appears satisfied based on outputs and the final answer.
 
@@ -3528,7 +3593,10 @@ Protocol:
                     for h in command_history
                 )
 
-                yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': [], 'is_solution': is_solution}))}\n\n"
+                # Generate quick context-aware suggestions for Fast Mode
+                suggestions = _generate_fast_mode_suggestions(request.query, command_history, final_answer)
+
+                yield f"data: {json.dumps(emit_event('done', {'final_response': final_answer, 'suggested_next_steps': suggestions, 'is_solution': is_solution}))}\n\n"
             else:
                 yield f"data: {json.dumps(emit_event('error', {'message': 'No response generated'}))}\n\n"
 
