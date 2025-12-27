@@ -645,6 +645,10 @@ async function runPythonAgent(
                                             // Non-fatal if suggestions fail to emit
                                         }
                                     }
+                                    // Emit is_solution flag to UI for "Mark as Solution" button visibility
+                                    if (eventData.is_solution) {
+                                        onProgress?.('[IS_SOLUTION]');
+                                    }
                                     break;
                                 case 'error':
                                     // Store error but don't throw immediately - agent may recover

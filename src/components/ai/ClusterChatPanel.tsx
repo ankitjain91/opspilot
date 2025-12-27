@@ -607,6 +607,8 @@ export function ClusterChatPanel({
         // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
 
+        // Track current group index for IS_SOLUTION callback (before adding new message)
+        currentMessageIndexRef.current = groupedHistory.length;
         setChatHistory(prev => [...prev, { role: 'user', content: message }]);
         setUserInput("");
         setLlmLoading(true);
@@ -733,6 +735,12 @@ export function ClusterChatPanel({
                         } catch (_) {
                             // ignore parse errors
                         }
+                    }
+                    // Capture IS_SOLUTION flag from agent - marks this message as a solution
+                    if (msg === '[IS_SOLUTION]') {
+                        // Mark the current message group as a solution (for "Mark as Solution" button visibility)
+                        const messageIndex = currentMessageIndexRef.current;
+                        setAgentSolutions(prev => new Set([...prev, messageIndex]));
                     }
                     // Update streaming phase based on progress message
                     const lowerMsg = msg.toLowerCase();
@@ -1043,6 +1051,10 @@ export function ClusterChatPanel({
 
     // Adaptive Knowledge Base: Mark as Solution
     const [markedSolutions, setMarkedSolutions] = useState<Set<number>>(new Set());
+    // Track which messages the agent determined were solutions (for showing "Mark as Solution" button)
+    const [agentSolutions, setAgentSolutions] = useState<Set<number>>(new Set());
+    // Ref to track current message index for IS_SOLUTION callback
+    const currentMessageIndexRef = useRef<number>(0);
 
     const { showToast } = useToast();
 
@@ -1719,8 +1731,8 @@ export function ClusterChatPanel({
                                                         <span className="inline-block w-2 h-5 bg-emerald-400 animate-pulse ml-1 align-middle" />
                                                     )}
 
-                                                    {/* Mark as Solution Button */}
-                                                    {!group.answer.isStreaming && group.user && (
+                                                    {/* Mark as Solution Button - Only show when agent marked this as a solution */}
+                                                    {!group.answer.isStreaming && group.user && (isJiraConnected() || agentSolutions.has(i)) && (
                                                         <div className="mt-3 flex justify-end items-center gap-3 border-t border-white/5 pt-2">
                                                             {isJiraConnected() && (
                                                                 <button
@@ -1732,17 +1744,19 @@ export function ClusterChatPanel({
                                                                     Create JIRA Issue
                                                                 </button>
                                                             )}
-                                                            <button
-                                                                onClick={() => handleMarkSolution(i, group.user?.content || '', group.answer?.content || '')}
-                                                                className={`text-[10px] flex items-center gap-1.5 px-2 py-1 rounded transition-all ${markedSolutions.has(i)
-                                                                    ? 'text-emerald-400 bg-emerald-500/10 cursor-default'
-                                                                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
-                                                                title={markedSolutions.has(i) ? "Saved to Knowledge Base" : "Mark as Solution (improves future answers)"}
-                                                                disabled={markedSolutions.has(i)}
-                                                            >
-                                                                {markedSolutions.has(i) ? <CheckCircle2 size={12} /> : <CheckCircle2 size={12} className="opacity-50" />}
-                                                                {markedSolutions.has(i) ? 'Solution Saved' : 'Mark as Solution'}
-                                                            </button>
+                                                            {agentSolutions.has(i) && (
+                                                                <button
+                                                                    onClick={() => handleMarkSolution(i, group.user?.content || '', group.answer?.content || '')}
+                                                                    className={`text-[10px] flex items-center gap-1.5 px-2 py-1 rounded transition-all ${markedSolutions.has(i)
+                                                                        ? 'text-emerald-400 bg-emerald-500/10 cursor-default'
+                                                                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
+                                                                    title={markedSolutions.has(i) ? "Saved to Knowledge Base" : "Mark as Solution (improves future answers)"}
+                                                                    disabled={markedSolutions.has(i)}
+                                                                >
+                                                                    {markedSolutions.has(i) ? <CheckCircle2 size={12} /> : <CheckCircle2 size={12} className="opacity-50" />}
+                                                                    {markedSolutions.has(i) ? 'Solution Saved' : 'Mark as Solution'}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

@@ -6,14 +6,15 @@ import { fetch } from '@tauri-apps/plugin-http';
 import {
     Settings, Server, Link2, Download, FileText, AlertCircle, Check, Loader2,
     ChevronRight, ExternalLink, Terminal, Brain, Database, Puzzle,
-    Bug, FolderOpen, Copy, RefreshCw, X, LogOut, Trash2, Sun, Moon, Monitor, Search, Info, Plus, Github
+    Bug, FolderOpen, Copy, RefreshCw, X, LogOut, Trash2, Sun, Moon, Monitor, Search, Info, Plus, Github,
+    Network, HardDrive, BookOpen, Eye, EyeOff, FileJson, FileCode, ShieldCheck
 } from 'lucide-react';
 import { open as openExternal, Command } from '@tauri-apps/plugin-shell';
 import { MCPSettings } from './MCPSettings';
 import { getLogs, getLogStats, exportLogsAsText, clearLogs } from '../../utils/logger';
 import { useTheme, Theme } from '../../contexts/ThemeContext';
 import { getAgentServerStatus, restartServerComponent } from '../ai/agentOrchestrator';
-import { getAgentServerUrl } from '../../utils/config';
+import { getAgentServerUrl, setAgentServerUrl, getAllConfigWithSources, ConfigSource } from '../../utils/config';
 
 interface OpsPilotConfig {
     agentServerUrl?: string;
@@ -42,7 +43,43 @@ interface JiraProject {
     name: string;
 }
 
-type SettingsSection = 'general' | 'agent' | 'integrations' | 'code-search' | 'mcp' | 'diagnostics';
+interface GitHubGroup {
+    id: string;
+    name: string;
+    type: 'user' | 'org';
+    avatar_url: string;
+}
+
+interface ClaudeCodeStatus {
+    connected: boolean;
+    error?: string;
+}
+
+interface CodexStatus {
+    connected: boolean;
+    version?: string;
+    error?: string;
+}
+
+interface EmbeddingModelStatus {
+    model: string;
+    available: boolean;
+    size_mb: number | null;
+    ollama_connected: boolean;
+    error?: string;
+}
+
+interface KBEmbeddingsStatus {
+    available: boolean;
+    source: 'bundled' | 'cached' | null;
+    document_count: number;
+    kb_files_found?: number;
+    can_generate?: boolean;
+    embedding_model?: string;
+    embedding_model_available?: boolean;
+}
+
+type SettingsSection = 'general' | 'agent' | 'integrations' | 'mcp' | 'diagnostics';
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
     const [activeSection, setActiveSection] = useState<SettingsSection>('general');
@@ -84,12 +121,99 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     const [githubTesting, setGithubTesting] = useState(false);
     const [jiraTesting, setJiraTesting] = useState(false);
 
+    // Agent & AI Settings State (merged from LLMSettingsPanel)
+    const [claudeCodeStatus, setClaudeCodeStatus] = useState<ClaudeCodeStatus | null>(null);
+    const [checkingClaudeCode, setCheckingClaudeCode] = useState(false);
+    const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+    const [checkingCodex, setCheckingCodex] = useState(false);
+    const [codingProvider, setCodingProvider] = useState<'claude-code' | 'codex-cli'>('claude-code');
+
+    // GitHub Integration State
+    const [githubPat, setGithubPat] = useState<string>('');
+    const [showGithubPat, setShowGithubPat] = useState(false);
+    const [githubRepos, setGithubRepos] = useState<string[]>([]);
+    const [githubConfigured, setGithubConfigured] = useState(false);
+    const [githubUser, setGithubUser] = useState<string | null>(null);
+    const [githubGroups, setGithubGroups] = useState<GitHubGroup[]>([]);
+    const [selectedGroup, setSelectedGroup] = useState<string>('');
+    const [availableRepos, setAvailableRepos] = useState<string[]>([]);
+    const [repoSearch, setRepoSearch] = useState('');
+    const [loadingGroups, setLoadingGroups] = useState(false);
+    const [loadingRepos, setLoadingRepos] = useState(false);
+    const [searchAllRepos, setSearchAllRepos] = useState(true);
+    const [githubConfigLoaded, setGithubConfigLoaded] = useState(false);
+
+    // Embedding & KB State
+    const [embeddingMode, setEmbeddingMode] = useState<'local' | 'custom'>('local');
+    const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingModelStatus | null>(null);
+    const [checkingEmbedding, setCheckingEmbedding] = useState(false);
+    const [kbStatus, setKbStatus] = useState<KBEmbeddingsStatus | null>(null);
+    const [reindexingKb, setReindexingKb] = useState(false);
+    const [kbMessage, setKbMessage] = useState<string | null>(null);
+    const [kbDirInfo, setKbDirInfo] = useState<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean } | null>(null);
+    const [initializingKb, setInitializingKb] = useState(false);
+
+    // Config source tracking
+    const [configSources, setConfigSources] = useState<{
+        agentUrl?: ConfigSource;
+        claudeCliPath?: ConfigSource;
+        embeddingEndpoint?: ConfigSource;
+    }>({});
+
     // Load config on mount
     useEffect(() => {
         loadConfig();
         loadSystemInfo();
         loadJiraConfig();
+        // Load Agent & AI settings
+        checkClaudeCodeStatus();
+        checkCodexStatus();
+        checkEmbeddingStatus();
+        checkKbStatus();
+        checkKbDirectory();
+        loadGithubConfig();
+        // Load config sources
+        getAllConfigWithSources().then(cfg => {
+            setConfigSources({
+                agentUrl: cfg.agentUrl.source,
+                claudeCliPath: cfg.claudeCliPath.source,
+                embeddingEndpoint: cfg.embeddingEndpoint.source,
+            });
+        }).catch(e => console.warn('Failed to load config sources:', e));
     }, []);
+
+    // Load repos when group changes
+    useEffect(() => {
+        if (selectedGroup) {
+            loadGithubRepos(selectedGroup);
+        }
+    }, [selectedGroup]);
+
+    // Update KB status when embedding status changes
+    useEffect(() => {
+        if (embeddingStatus?.available) checkKbStatus();
+    }, [embeddingStatus?.available]);
+
+    // Auto-save GitHub config when repos or searchAllRepos changes
+    useEffect(() => {
+        if (!githubConfigLoaded || !githubConfigured) return;
+        const saveTimeout = setTimeout(async () => {
+            try {
+                await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        default_repos: githubRepos,
+                        search_all_repos: searchAllRepos,
+                        claude_cli_path: config.claudeCliPath
+                    })
+                });
+            } catch (e) {
+                console.error("Failed to auto-save GitHub config:", e);
+            }
+        }, 500);
+        return () => clearTimeout(saveTimeout);
+    }, [githubRepos, searchAllRepos, githubConfigLoaded, githubConfigured]);
 
     // Refresh log stats and agent health when viewing diagnostics
     useEffect(() => {
@@ -358,6 +482,310 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         }
     };
 
+    // ========== Agent & AI Functions (merged from LLMSettingsPanel) ==========
+    const AGENT_SERVER_URL = getAgentServerUrl();
+
+    const checkClaudeCodeStatus = async (retries = 3) => {
+        setCheckingClaudeCode(true);
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: 'claude-code' })
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    setClaudeCodeStatus({ connected: data.connected, error: data.error });
+                    setCheckingClaudeCode(false);
+                    return;
+                } else {
+                    const errorMessage = data.detail || data.error || `Server Error ${resp.status}`;
+                    setClaudeCodeStatus({ connected: false, error: errorMessage });
+                    setCheckingClaudeCode(false);
+                    return;
+                }
+            } catch (e: any) {
+                if (attempt === retries - 1) {
+                    setClaudeCodeStatus({ connected: false, error: `Connection failed: ${e.message || 'Agent unreachable'}` });
+                } else {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            }
+        }
+        setCheckingClaudeCode(false);
+    };
+
+    const checkCodexStatus = async () => {
+        setCheckingCodex(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/llm/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: 'codex-cli' })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                setCodexStatus({ connected: data.connected, version: data.version, error: data.error });
+            }
+        } catch (e) {
+            setCodexStatus({ connected: false, error: 'Agent unreachable' });
+        }
+        setCheckingCodex(false);
+    };
+
+    const getEffectiveEmbeddingEndpoint = () => {
+        if (embeddingMode === 'custom') return config.embeddingEndpoint;
+        return 'http://127.0.0.1:11434';
+    };
+
+    const checkEmbeddingStatus = async () => {
+        setCheckingEmbedding(true);
+        try {
+            const modelParam = config.embeddingModel ? `&model_name=${encodeURIComponent(config.embeddingModel)}` : '';
+            const targetEndpoint = getEffectiveEmbeddingEndpoint();
+            const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
+            const resp = await fetch(`${AGENT_SERVER_URL}/embedding-model/status?llm_endpoint=${modelParam}${endpointParam}`);
+            if (resp.ok) {
+                setEmbeddingStatus(await resp.json());
+            }
+        } catch (e) {
+            console.error("Embedding status check failed", e);
+            setEmbeddingStatus(null);
+        }
+        setCheckingEmbedding(false);
+    };
+
+    const checkKbStatus = async () => {
+        try {
+            const targetEndpoint = getEffectiveEmbeddingEndpoint();
+            const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/status?llm_endpoint=${endpointParam}`);
+            if (resp.ok) setKbStatus(await resp.json());
+        } catch (e) {
+            console.error("KB status failed", e);
+        }
+    };
+
+    const reindexKb = async () => {
+        setReindexingKb(true);
+        setKbMessage("Starting indexing...");
+        try {
+            const modelParam = config.embeddingModel ? `&model_name=${encodeURIComponent(config.embeddingModel)}` : '';
+            const targetEndpoint = getEffectiveEmbeddingEndpoint();
+            const endpointParam = targetEndpoint ? `&embedding_endpoint=${encodeURIComponent(targetEndpoint)}` : '';
+            const resp = await fetch(`${AGENT_SERVER_URL}/kb-embeddings/generate?llm_endpoint=${modelParam}${endpointParam}`, { method: 'POST' });
+            if (!resp.body) throw new Error("No stream");
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const lines = decoder.decode(value).split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.message) setKbMessage(data.message);
+                            if (data.status === 'success') setTimeout(checkKbStatus, 1000);
+                        } catch { }
+                    }
+                }
+            }
+        } catch (e) {
+            setKbMessage("Failed: " + e);
+        }
+        setReindexingKb(false);
+    };
+
+    const checkKbDirectory = async () => {
+        try {
+            const info = await invoke<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean }>('get_kb_directory_info');
+            setKbDirInfo(info);
+        } catch (e) {
+            console.error("Failed to check KB directory:", e);
+        }
+    };
+
+    const initializeKbDirectory = async () => {
+        setInitializingKb(true);
+        try {
+            const info = await invoke<{ path: string; exists: boolean; has_files: boolean; file_count: number; initialized: boolean }>('init_kb_directory');
+            setKbDirInfo(info);
+            setKbMessage("Knowledge base initialized with sample entries!");
+        } catch (e) {
+            setKbMessage("Failed to initialize: " + e);
+        }
+        setInitializingKb(false);
+    };
+
+    // GitHub Integration Functions
+    const loadGithubConfig = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubConfigured(data.configured);
+                setGithubRepos(data.default_repos || []);
+                setSearchAllRepos(data.search_all_repos !== false);
+                setGithubConfigLoaded(true);
+                if (data.configured) {
+                    testGithubConnectionAgent();
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub config:", e);
+        }
+    };
+
+    const saveGithubConfig = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pat_token: githubPat || null,
+                    default_repos: githubRepos,
+                    search_all_repos: searchAllRepos,
+                    claude_cli_path: config.claudeCliPath
+                })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubConfigured(data.configured);
+                if (data.configured) {
+                    testGithubConnectionAgent();
+                }
+            }
+        } catch (e) {
+            console.error("Failed to save GitHub config:", e);
+        }
+    };
+
+    const handleDisconnectGithub = async () => {
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pat_token: null,
+                    default_repos: [],
+                    search_all_repos: true
+                })
+            });
+            if (resp.ok) {
+                setGithubConfigured(false);
+                setGithubUser(null);
+                setGithubPat('');
+                setGithubRepos([]);
+                setAvailableRepos([]);
+                setSelectedGroup('');
+            }
+        } catch (e) {
+            console.error("Failed to disconnect GitHub:", e);
+        }
+    };
+
+    const testGithubConnectionAgent = async (tokenToTest?: string) => {
+        setGithubTesting(true);
+        try {
+            const testToken = tokenToTest || (githubPat && githubPat !== 'replace' ? githubPat : undefined);
+            const resp = await fetch(`${AGENT_SERVER_URL}/github-config/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pat_token: testToken })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.connected) {
+                    setGithubConfigured(true);
+                    setGithubUser(data.user);
+                    loadGithubGroups();
+                } else {
+                    setGithubConfigured(false);
+                    setGithubUser(null);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to test GitHub:", e);
+            setGithubConfigured(false);
+            setGithubUser(null);
+        }
+        setGithubTesting(false);
+    };
+
+    const loadGithubGroups = async () => {
+        if (loadingGroups) return;
+        setLoadingGroups(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/orgs`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setGithubGroups(data);
+                if (data.length > 0 && !selectedGroup) {
+                    setSelectedGroup(data[0].id);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub groups:", e);
+        }
+        setLoadingGroups(false);
+    };
+
+    const loadGithubRepos = async (groupId: string) => {
+        if (!groupId || loadingRepos) return;
+        setLoadingRepos(true);
+        try {
+            const resp = await fetch(`${AGENT_SERVER_URL}/github/repos/${groupId}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setAvailableRepos(data);
+            }
+        } catch (e) {
+            console.error("Failed to load GitHub repos:", e);
+        }
+        setLoadingRepos(false);
+    };
+
+    // Filter repos based on search
+    const filteredRepos = availableRepos.filter(repo =>
+        repo.toLowerCase().includes(repoSearch.toLowerCase())
+    );
+
+    // Helper to determine if error is actionable
+    const isAuthError = (err?: string) => {
+        if (!err) return false;
+        const lower = err.toLowerCase();
+        return lower.includes('login') || lower.includes('auth') || lower.includes('keyring') || lower.includes('broken pipe');
+    };
+
+    // Status dot component
+    const StatusDot = ({ ok, loading }: { ok?: boolean, loading?: boolean }) => (
+        <div className={`relative w-2 h-2 rounded-full ${loading ? 'bg-amber-400' : ok ? 'bg-emerald-400' : 'bg-red-400/80'}`}>
+            {loading && <div className="absolute inset-0 bg-amber-400 rounded-full animate-ping" />}
+            {ok && !loading && <div className="absolute inset-0 bg-emerald-400 rounded-full animate-pulse opacity-50" />}
+        </div>
+    );
+
+    // Config source badge
+    const ConfigSourceBadge = ({ source }: { source?: ConfigSource }) => {
+        if (!source || source === 'default') return null;
+        const labels: Record<ConfigSource, { label: string; color: string }> = {
+            'env': { label: 'ENV', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
+            'file': { label: 'CONFIG', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+            'localStorage': { label: 'SAVED', color: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30' },
+            'auto-detected': { label: 'AUTO', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
+            'default': { label: '', color: '' },
+        };
+        const cfg = labels[source];
+        return (
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${cfg.color}`}
+                title={`Value loaded from: ${source === 'env' ? 'Environment Variable' : source === 'file' ? '.opspilot.json config file' : source === 'auto-detected' ? 'Auto-detected' : 'Saved in app'}`}>
+                {cfg.label}
+            </span>
+        );
+    };
+
     const handleSave = async () => {
         setSaving(true);
         setSaveMessage(null);
@@ -532,7 +960,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         { id: 'general', label: 'General', icon: <Settings size={18} /> },
         { id: 'agent', label: 'Agent & AI', icon: <Brain size={18} /> },
         { id: 'integrations', label: 'Integrations', icon: <Link2 size={18} /> },
-        { id: 'code-search', label: 'Code Search', icon: <Search size={18} /> },
         { id: 'mcp', label: 'MCP Servers', icon: <Puzzle size={18} /> },
         { id: 'diagnostics', label: 'Diagnostics', icon: <Bug size={18} /> },
     ];
@@ -709,252 +1136,524 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     )}
 
                     {activeSection === 'agent' && (
-                        <div className="space-y-6 max-w-2xl">
+                        <div className="space-y-6 max-w-3xl overflow-y-auto">
                             <div>
                                 <h2 className="text-lg font-semibold text-white mb-1">Agent & AI Settings</h2>
-                                <p className="text-sm text-zinc-500">Configure AI assistant and agent server</p>
+                                <p className="text-sm text-zinc-500">Configure AI assistant, GitHub integration, and knowledge base</p>
                             </div>
 
-                            {/* Agent Server URL */}
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-zinc-300">Agent Server URL</label>
-                                <input
-                                    type="text"
-                                    value={config.agentServerUrl || ''}
-                                    onChange={(e) => setConfig({ ...config, agentServerUrl: e.target.value })}
-                                    placeholder="http://127.0.0.1:8765 (default)"
-                                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                />
-                                <div className="flex items-center gap-2 mt-1">
-                                    <button
-                                        onClick={testAgentServer}
-                                        disabled={agentTesting}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                                    >
-                                        {agentTesting ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                        Test Agent Server
-                                    </button>
-                                    {agentTestMessage && (
-                                        <span className={`text-xs px-2 py-1 rounded ${agentTestMessage.startsWith('Agent reachable') ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-700 text-zinc-300'}`}>
-                                            {agentTestMessage}
-                                        </span>
+                            {/* === SECTION 1: AGENT CONNECTION === */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-1.5 bg-indigo-500/20 rounded-lg text-indigo-400">
+                                        <Network size={18} />
+                                    </div>
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Agent Connection</h3>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-xs font-medium text-zinc-400">Agent Server URL</label>
+                                            <ConfigSourceBadge source={configSources.agentUrl} />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            value={config.agentServerUrl || ''}
+                                            onChange={(e) => setConfig({ ...config, agentServerUrl: e.target.value })}
+                                            placeholder="http://127.0.0.1:8765 (default)"
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                        />
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={testAgentServer}
+                                                disabled={agentTesting}
+                                                className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                                            >
+                                                {agentTesting ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                                                Test
+                                            </button>
+                                            {agentTestMessage && (
+                                                <span className={`text-xs px-2 py-1 rounded ${agentTestMessage.startsWith('Agent reachable') ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-700 text-zinc-300'}`}>
+                                                    {agentTestMessage}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-xs font-medium text-zinc-400">Claude CLI Path</label>
+                                            <ConfigSourceBadge source={configSources.claudeCliPath} />
+                                        </div>
+                                        <input
+                                            type="text"
+                                            value={config.claudeCliPath || ''}
+                                            onChange={(e) => setConfig({ ...config, claudeCliPath: e.target.value })}
+                                            placeholder="claude (uses PATH)"
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* === SECTION 2: CODING AGENT === */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-violet-500/20 rounded-lg text-violet-400">
+                                            <Terminal size={18} />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Coding Agent</h3>
+                                    </div>
+                                    <div className="flex bg-black/40 rounded-lg p-1 border border-white/10">
+                                        <button
+                                            onClick={() => setCodingProvider('claude-code')}
+                                            className={`px-3 py-1.5 rounded text-[10px] font-bold transition-all ${codingProvider === 'claude-code'
+                                                ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            Claude Code
+                                        </button>
+                                        <button
+                                            onClick={() => setCodingProvider('codex-cli')}
+                                            className={`px-3 py-1.5 rounded text-[10px] font-bold transition-all ${codingProvider === 'codex-cli'
+                                                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            Codex CLI
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {codingProvider === 'claude-code' ? (
+                                    <div className="space-y-3">
+                                        <div className={`p-3 rounded-xl border flex items-center gap-3 transition-all ${checkingClaudeCode ? 'bg-amber-500/5 border-amber-500/20' :
+                                            claudeCodeStatus?.connected ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'
+                                        }`}>
+                                            <StatusDot ok={claudeCodeStatus?.connected} loading={checkingClaudeCode} />
+                                            <div className="flex-1">
+                                                <div className={`text-xs font-bold ${checkingClaudeCode ? 'text-amber-400' :
+                                                    claudeCodeStatus?.connected ? 'text-emerald-400' : 'text-red-400'
+                                                }`}>
+                                                    {checkingClaudeCode ? 'Checking...' : claudeCodeStatus?.connected ? 'Claude Code Ready' : 'Connection Failed'}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => checkClaudeCodeStatus()}
+                                                disabled={checkingClaudeCode}
+                                                className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 transition-colors disabled:opacity-50"
+                                            >
+                                                Retry
+                                            </button>
+                                        </div>
+                                        {claudeCodeStatus?.error && !checkingClaudeCode && (
+                                            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                                                <div className="flex gap-2">
+                                                    <AlertCircle className="text-red-400 shrink-0" size={14} />
+                                                    <div className="text-[11px] text-zinc-300 font-mono">{claudeCodeStatus.error}</div>
+                                                </div>
+                                                {isAuthError(claudeCodeStatus.error) && (
+                                                    <div className="mt-2 pt-2 border-t border-red-500/20">
+                                                        <p className="text-[10px] text-zinc-400">Run in terminal: <code className="bg-black/30 px-1 rounded text-emerald-300">claude login</code></p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className={`p-3 rounded-xl border flex items-center gap-3 ${checkingCodex ? 'bg-amber-500/5 border-amber-500/20' :
+                                        codexStatus?.connected ? 'bg-blue-500/5 border-blue-500/20' : 'bg-red-500/5 border-red-500/20'
+                                    }`}>
+                                        <StatusDot ok={codexStatus?.connected} loading={checkingCodex} />
+                                        <div className="flex-1">
+                                            <div className={`text-xs font-bold ${checkingCodex ? 'text-amber-400' : codexStatus?.connected ? 'text-blue-400' : 'text-red-400'}`}>
+                                                {checkingCodex ? 'Checking...' : codexStatus?.connected ? `Codex Ready (${codexStatus.version})` : 'Codex CLI Not Available'}
+                                            </div>
+                                        </div>
+                                        <button onClick={() => checkCodexStatus()} disabled={checkingCodex}
+                                            className="text-[10px] bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-1 text-zinc-400 disabled:opacity-50">
+                                            Test
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* === SECTION 3: GITHUB INTEGRATION === */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-gray-500/20 rounded-lg text-gray-300">
+                                            <Github size={18} />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">GitHub Integration</h3>
+                                    </div>
+                                    {githubConfigured && (
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                                <span className="text-[10px] font-bold text-emerald-400">Connected</span>
+                                            </div>
+                                            <button onClick={handleDisconnectGithub} className="p-1.5 hover:bg-white/10 text-zinc-500 hover:text-white rounded-lg">
+                                                <X size={14} />
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
-                                <p className="text-xs text-zinc-500">URL of the OpsPilot agent server. Testing confirms reachability without saving.</p>
+
+                                {!githubConfigured ? (
+                                    <div className="space-y-3">
+                                        <p className="text-[11px] text-zinc-400">Connect GitHub to allow the agent to search your repositories for context.</p>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="password"
+                                                value={githubPat}
+                                                onChange={(e) => setGithubPat(e.target.value)}
+                                                placeholder="GitHub Personal Access Token (classic)..."
+                                                className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-gray-500/50 outline-none font-mono"
+                                            />
+                                            <button
+                                                onClick={() => testGithubConnectionAgent()}
+                                                disabled={githubTesting || !githubPat}
+                                                className="px-4 py-2 bg-white text-black text-xs font-bold rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-50 flex items-center gap-2"
+                                            >
+                                                {githubTesting ? <Loader2 size={14} className="animate-spin" /> : <Network size={14} />}
+                                                Connect
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-zinc-500">Token requires <code className="bg-white/10 px-1 rounded text-zinc-300">repo</code> scope.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {githubUser && (
+                                            <div className="flex items-center gap-3 p-2 bg-black/20 rounded-lg border border-white/5">
+                                                <div className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] font-bold">
+                                                    {githubUser.substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <div className="text-xs text-white">Logged in as <strong>{githubUser}</strong></div>
+                                            </div>
+                                        )}
+
+                                        {/* Search Mode */}
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-bold text-zinc-400 uppercase">Search Mode</label>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setSearchAllRepos(true)}
+                                                    className={`flex-1 p-2 rounded-lg border-2 transition-all text-left ${searchAllRepos
+                                                        ? 'bg-violet-500/10 border-violet-500/50' : 'bg-black/20 border-white/10 hover:border-white/20'
+                                                    }`}
+                                                >
+                                                    <div className={`text-[10px] font-bold ${searchAllRepos ? 'text-violet-300' : 'text-zinc-400'}`}>
+                                                        🌐 Search All Repos
+                                                    </div>
+                                                </button>
+                                                <button
+                                                    onClick={() => setSearchAllRepos(false)}
+                                                    className={`flex-1 p-2 rounded-lg border-2 transition-all text-left ${!searchAllRepos
+                                                        ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-black/20 border-white/10 hover:border-white/20'
+                                                    }`}
+                                                >
+                                                    <div className={`text-[10px] font-bold ${!searchAllRepos ? 'text-emerald-300' : 'text-zinc-400'}`}>
+                                                        📁 Selected Repos Only
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Org & Repo Browser */}
+                                        <div className="rounded-lg border border-white/10 overflow-hidden">
+                                            <div className="p-2 border-b border-white/5 flex gap-2 overflow-x-auto">
+                                                {loadingGroups ? (
+                                                    <div className="text-[10px] text-zinc-500 animate-pulse">Loading orgs...</div>
+                                                ) : (
+                                                    githubGroups.map(group => (
+                                                        <button
+                                                            key={group.id}
+                                                            onClick={() => setSelectedGroup(group.id)}
+                                                            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] shrink-0 ${selectedGroup === group.id
+                                                                ? 'bg-white/10 border-white/30 text-white' : 'bg-black/20 border-white/5 text-zinc-400 hover:bg-white/5'
+                                                            }`}
+                                                        >
+                                                            {group.avatar_url && <img src={group.avatar_url} alt="" className="w-3 h-3 rounded-full" />}
+                                                            {group.name}
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+                                            <div className="p-2 border-b border-white/5">
+                                                <div className="relative">
+                                                    <Search size={10} className="absolute left-2 top-1.5 text-zinc-500" />
+                                                    <input
+                                                        type="text"
+                                                        value={repoSearch}
+                                                        onChange={(e) => setRepoSearch(e.target.value)}
+                                                        placeholder="Filter repositories..."
+                                                        className="w-full bg-black/20 rounded pl-6 pr-2 py-1 text-[10px] text-white focus:outline-none"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="max-h-[120px] overflow-y-auto p-1">
+                                                {loadingRepos ? (
+                                                    <div className="p-3 text-center"><Loader2 size={14} className="animate-spin mx-auto text-zinc-500" /></div>
+                                                ) : filteredRepos.length === 0 ? (
+                                                    <div className="p-3 text-center text-[10px] text-zinc-500 italic">
+                                                        {repoSearch ? `No repos matching "${repoSearch}"` : 'Select an organization'}
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-2 gap-1">
+                                                        {filteredRepos.slice(0, 50).map(repo => {
+                                                            const isSelected = githubRepos.includes(repo);
+                                                            return (
+                                                                <button
+                                                                    key={repo}
+                                                                    onClick={() => {
+                                                                        if (isSelected) setGithubRepos(githubRepos.filter(r => r !== repo));
+                                                                        else setGithubRepos([...githubRepos, repo]);
+                                                                    }}
+                                                                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-left ${isSelected
+                                                                        ? 'bg-emerald-500/10 text-emerald-300' : 'hover:bg-white/5 text-zinc-400'
+                                                                    }`}
+                                                                >
+                                                                    <div className={`w-3 h-3 rounded border flex items-center justify-center ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'}`}>
+                                                                        {isSelected && <Check size={8} className="text-black" />}
+                                                                    </div>
+                                                                    <span className="text-[10px] truncate">{repo.split('/')[1]}</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {githubRepos.length > 0 && (
+                                                <div className="px-2 py-1.5 bg-white/5 border-t border-white/5 flex flex-wrap gap-1">
+                                                    {githubRepos.map(repo => (
+                                                        <span key={repo} className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded text-[9px] text-emerald-300">
+                                                            {repo.split('/')[1]}
+                                                            <button onClick={() => setGithubRepos(githubRepos.filter(r => r !== repo))} className="hover:text-red-400"><X size={8} /></button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Claude CLI Path */}
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-zinc-300">Claude CLI Path</label>
-                                <input
-                                    type="text"
-                                    value={config.claudeCliPath || ''}
-                                    onChange={(e) => setConfig({ ...config, claudeCliPath: e.target.value })}
-                                    placeholder="claude (uses PATH)"
-                                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                />
-                                <p className="text-xs text-zinc-500">Path to the Claude CLI binary for terminal integration</p>
-                            </div>
-
-                            {/* Embedding Settings */}
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-zinc-300">Embedding Endpoint</label>
-                                <input
-                                    type="text"
-                                    value={config.embeddingEndpoint || ''}
-                                    onChange={(e) => setConfig({ ...config, embeddingEndpoint: e.target.value })}
-                                    placeholder="Leave empty for local Ollama"
-                                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                />
-                                <p className="text-xs text-zinc-500">Custom embedding API endpoint (OpenAI-compatible)</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <button
-                                        onClick={testEmbeddingEndpoint}
-                                        disabled={embeddingTesting}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                                    >
-                                        {embeddingTesting ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                        Test Embeddings
-                                    </button>
-                                    {embeddingTestMessage && (
-                                        <span className={`text-xs px-2 py-1 rounded ${embeddingTestMessage.includes('OK') ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-700 text-zinc-300'}`}>
-                                            {embeddingTestMessage}
-                                        </span>
-                                    )}
+                            {/* === SECTION 4: CODE DISCOVERY === */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-400">
+                                        <FileCode size={18} />
+                                    </div>
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Code Discovery</h3>
                                 </div>
-                            </div>
+                                <p className="text-[11px] text-zinc-400">Map container images to local project folders for deep source code investigation.</p>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-zinc-300">Embedding Model</label>
-                                <input
-                                    type="text"
-                                    value={config.embeddingModel || ''}
-                                    onChange={(e) => setConfig({ ...config, embeddingModel: e.target.value })}
-                                    placeholder="nomic-embed-text (default)"
-                                    className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                />
-                                <p className="text-xs text-zinc-500">Model name for generating embeddings</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeSection === 'code-search' && (
-                        <div className="space-y-8 max-w-3xl">
-                            <div>
-                                <h2 className="text-lg font-semibold text-white mb-1">Code Search & Deep Investigation</h2>
-                                <p className="text-sm text-zinc-500">Configure how OpsPilot finds and reads your source code during investigations.</p>
-                            </div>
-
-                            {/* Local Project Mappings */}
-                            <div className="space-y-4">
-                                <div>
-                                    <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                        <FolderOpen size={16} />
-                                        Local Project Mappings
-                                    </h3>
-                                    <p className="text-xs text-zinc-500 mt-1">
-                                        Optional: Map specific Docker images to folders.
-                                        By default, OpsPilot searches <strong>all</strong> your open workspaces. Use this only if you need to disambiguate or map to paths outside your workspace.
-                                    </p>
-                                </div>
-
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                     {(config.projectMappings || []).map((mapping, idx) => (
-                                        <div key={idx} className="flex gap-2 items-center">
-                                            <input
-                                                type="text"
-                                                value={mapping.imageRegex}
-                                                onChange={(e) => {
-                                                    const newMappings = [...(config.projectMappings || [])];
-                                                    newMappings[idx].imageRegex = e.target.value;
-                                                    setConfig({ ...config, projectMappings: newMappings });
-                                                }}
-                                                placeholder="Docker Image Pattern (e.g. my-app, *)"
-                                                className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={mapping.localPath}
-                                                onChange={(e) => {
-                                                    const newMappings = [...(config.projectMappings || [])];
-                                                    newMappings[idx].localPath = e.target.value;
-                                                    setConfig({ ...config, projectMappings: newMappings });
-                                                }}
-                                                placeholder="/absolute/path/to/source"
-                                                className="flex-[2] bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                            />
+                                        <div key={idx} className="flex items-center gap-2 p-2 bg-black/20 rounded-lg border border-white/5">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-[10px] font-mono text-emerald-300 truncate">{mapping.imageRegex}</div>
+                                                <div className="text-[10px] font-mono text-zinc-500 truncate">{mapping.localPath}</div>
+                                            </div>
                                             <button
                                                 onClick={() => {
                                                     const newMappings = config.projectMappings?.filter((_, i) => i !== idx);
                                                     setConfig({ ...config, projectMappings: newMappings });
                                                 }}
-                                                className="p-2 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-colors"
+                                                className="p-1 hover:bg-red-500/20 text-zinc-600 hover:text-red-400 rounded"
                                             >
-                                                <Trash2 size={16} />
+                                                <Trash2 size={12} />
                                             </button>
                                         </div>
                                     ))}
-
                                     <button
                                         onClick={() => {
                                             const newMappings = [...(config.projectMappings || []), { imageRegex: '', localPath: '' }];
                                             setConfig({ ...config, projectMappings: newMappings });
                                         }}
-                                        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium rounded-lg transition-colors border border-white/5 border-dashed hover:border-white/20"
+                                        className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs rounded-lg border border-white/5 border-dashed hover:border-white/20"
                                     >
                                         <Plus size={14} />
-                                        Add Project Mapping
+                                        Add Mapping
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Separator */}
-                            <div className="h-px bg-white/5" />
-
-                            {/* GitHub Smart Search */}
-                            <div className="space-y-4">
-                                <div>
-                                    <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                        <Github size={16} />
-                                        GitHub Smart Search ("Sniper Mode")
-                                    </h3>
-                                    <p className="text-xs text-zinc-500 mt-1">
-                                        If local files aren't found, the agent uses the GitHub API to fetch specific files referenced in stack traces.
-                                        This is lightweight and does not clone repositories.
-                                    </p>
+                            {/* === SECTION 5: MEMORY SYSTEM === */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-1.5 bg-cyan-500/20 rounded-lg text-cyan-400">
+                                        <HardDrive size={18} />
+                                    </div>
+                                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">Memory System</h3>
                                 </div>
 
-                                <div className="space-y-3">
+                                <div className="flex gap-2 p-1 bg-black/20 rounded-lg border border-white/5">
+                                    <button
+                                        onClick={() => {
+                                            setEmbeddingMode('local');
+                                            setConfig(prev => ({ ...prev, embeddingEndpoint: undefined }));
+                                        }}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg ${embeddingMode === 'local' ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                    >
+                                        <Server size={14} /> Local (Ollama)
+                                    </button>
+                                    <button
+                                        onClick={() => setEmbeddingMode('custom')}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg ${embeddingMode === 'custom' ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                    >
+                                        <Network size={14} /> Custom
+                                    </button>
+                                </div>
+
+                                {embeddingMode === 'custom' && (
                                     <div className="space-y-2">
-                                        <label className="text-xs font-medium text-zinc-400">Personal Access Token (PAT)</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="password"
-                                                value={config.githubToken || ''}
-                                                onChange={(e) => setConfig({ ...config, githubToken: e.target.value })}
-                                                placeholder="github_pat_..."
-                                                className="flex-1 bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                            />
-                                            <button
-                                                onClick={testGitHubConnection}
-                                                disabled={githubTesting || !config.githubToken}
-                                                className="px-3 py-2 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                                            >
-                                                {githubTesting ? <Loader2 size={14} className="animate-spin" /> : 'Test'}
-                                            </button>
-                                        </div>
-                                        {githubTestMessage && (
-                                            <p className={`text-xs ${githubTestMessage.includes('Connected') ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {githubTestMessage}
-                                            </p>
+                                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Endpoint URL</label>
+                                        <input
+                                            type="text"
+                                            value={config.embeddingEndpoint || ''}
+                                            onChange={e => setConfig({ ...config, embeddingEndpoint: e.target.value })}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-cyan-500/50 outline-none font-mono"
+                                            placeholder="https://api.openai.com/v1"
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Embedding Model</label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            value={config.embeddingModel || 'nomic-embed-text'}
+                                            onChange={e => setConfig({ ...config, embeddingModel: e.target.value })}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-cyan-500/50 outline-none font-mono"
+                                        />
+                                        {embeddingMode === 'local' && (
+                                            <div className="absolute right-3 top-2 flex items-center gap-2">
+                                                <StatusDot ok={embeddingStatus?.available} loading={checkingEmbedding} />
+                                                <span className={`text-[10px] font-bold ${embeddingStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                                    {checkingEmbedding ? 'CHECK' : embeddingStatus?.available ? 'READY' : 'MISSING'}
+                                                </span>
+                                            </div>
                                         )}
-                                        <p className="text-[10px] text-zinc-500">
-                                            Requires <code>repo</code> scope (for private repos) or public access.
-                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Custom KB Directory Status */}
+                                <div className="bg-black/20 border border-white/5 rounded-xl p-4 mb-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <FolderOpen size={14} className="text-amber-400" />
+                                            <span className="text-[10px] font-bold text-zinc-300 uppercase">Your Custom Entries</span>
+                                        </div>
+                                        {kbDirInfo?.initialized && (
+                                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                                INITIALIZED
+                                            </span>
+                                        )}
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-medium text-zinc-400">Default Repositories (Format: owner/repo)</label>
-                                        <div className="p-3 bg-zinc-900 border border-white/10 rounded-lg space-y-2">
-                                            <p className="text-xs text-zinc-500 mb-2">
-                                                The agent will prioritize searching these repositories when verifying stack traces.
-                                            </p>
-                                            {(config.githubRepos || []).map((repo, idx) => (
-                                                <div key={idx} className="flex gap-2 items-center">
-                                                    <input
-                                                        type="text"
-                                                        value={repo}
-                                                        onChange={(e) => {
-                                                            const newRepos = [...(config.githubRepos || [])];
-                                                            newRepos[idx] = e.target.value;
-                                                            setConfig({ ...config, githubRepos: newRepos });
-                                                        }}
-                                                        placeholder="owner/repo"
-                                                        className="flex-1 bg-zinc-800 border border-white/5 rounded px-2 py-1.5 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                                    />
+                                    {kbDirInfo ? (
+                                        <div className="space-y-3">
+                                            <div className="text-[10px] font-mono text-zinc-500 bg-black/30 px-2 py-1.5 rounded border border-white/5 truncate" title={kbDirInfo.path}>
+                                                {kbDirInfo.path}
+                                            </div>
+
+                                            {kbDirInfo.initialized ? (
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <FileJson size={12} className="text-amber-400" />
+                                                            <span className="text-[10px] text-zinc-400">
+                                                                <strong className="text-white">{kbDirInfo.file_count}</strong> custom file{kbDirInfo.file_count !== 1 ? 's' : ''}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <button
-                                                        onClick={() => {
-                                                            const newRepos = config.githubRepos?.filter((_, i) => i !== idx);
-                                                            setConfig({ ...config, githubRepos: newRepos });
+                                                        onClick={async () => {
+                                                            try {
+                                                                const platform = navigator.platform.toLowerCase();
+                                                                let cmd;
+                                                                if (platform.includes('mac') || platform.includes('darwin')) {
+                                                                    cmd = Command.create('open', [kbDirInfo.path]);
+                                                                } else if (platform.includes('win')) {
+                                                                    cmd = Command.create('explorer', [kbDirInfo.path]);
+                                                                } else {
+                                                                    cmd = Command.create('xdg-open', [kbDirInfo.path]);
+                                                                }
+                                                                await cmd.execute();
+                                                            } catch (err) {
+                                                                console.error("Failed to open folder:", err);
+                                                                navigator.clipboard.writeText(kbDirInfo.path);
+                                                                setKbMessage("Path copied to clipboard");
+                                                            }
                                                         }}
-                                                        className="p-1.5 hover:bg-white/10 text-zinc-500 hover:text-white rounded transition-colors"
+                                                        className="text-[9px] text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors"
                                                     >
-                                                        <X size={14} />
+                                                        Open Folder
                                                     </button>
                                                 </div>
-                                            ))}
-                                            <button
-                                                onClick={() => {
-                                                    const newRepos = [...(config.githubRepos || []), ''];
-                                                    setConfig({ ...config, githubRepos: newRepos });
-                                                }}
-                                                className="text-xs text-violet-400 hover:text-violet-300 font-medium flex items-center gap-1"
-                                            >
-                                                <Plus size={12} />
-                                                Add Repository
-                                            </button>
+                                            ) : (
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] text-zinc-500">
+                                                        No custom entries yet
+                                                    </span>
+                                                    <button
+                                                        onClick={initializeKbDirectory}
+                                                        disabled={initializingKb}
+                                                        className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/20 transition-colors disabled:opacity-50"
+                                                    >
+                                                        {initializingKb ? (
+                                                            <>
+                                                                <Loader2 size={10} className="animate-spin" />
+                                                                Initializing...
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Plus size={10} />
+                                                                Initialize with Examples
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
+                                    ) : (
+                                        <div className="text-[10px] text-zinc-600 animate-pulse">Checking...</div>
+                                    )}
+                                </div>
+
+                                {/* KB Status */}
+                                <div className="pt-3 border-t border-white/5">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <BookOpen size={14} className="text-fuchsia-400" />
+                                            <span className="text-xs font-bold text-white uppercase">Knowledge Base</span>
+                                        </div>
+                                        <span className={`text-[10px] font-bold ${kbStatus?.available ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                            {kbStatus?.available ? 'ACTIVE' : 'OFFLINE'}
+                                        </span>
                                     </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1 bg-white/5 rounded-lg p-2 border border-white/5 flex flex-col items-center">
+                                            <span className="text-[9px] text-zinc-500 uppercase font-bold">Docs</span>
+                                            <span className="text-sm font-bold text-white">{kbStatus?.document_count || 0}</span>
+                                        </div>
+                                        <button
+                                            onClick={reindexKb}
+                                            disabled={reindexingKb || !embeddingStatus?.available}
+                                            className="flex-[2] py-2 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-bold rounded-lg border border-white/10 flex items-center justify-center gap-2 disabled:opacity-50 h-[50px]"
+                                        >
+                                            <RefreshCw size={14} className={reindexingKb ? "animate-spin" : ""} />
+                                            {reindexingKb ? 'Re-Indexing...' : 'Re-Index'}
+                                        </button>
+                                    </div>
+                                    {kbMessage && <div className="text-[10px] text-center text-zinc-500 mt-2">{kbMessage}</div>}
                                 </div>
                             </div>
                         </div>
@@ -964,61 +1663,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                         <div className="space-y-6 max-w-2xl">
                             <div>
                                 <h2 className="text-lg font-semibold text-white mb-1">Integrations</h2>
-                                <p className="text-sm text-zinc-500">Connect external services</p>
-                            </div>
-
-                            {/* GitHub */}
-                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-white/10 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 rounded-lg bg-zinc-800">
-                                            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-sm font-medium text-white">GitHub</h3>
-                                            <p className="text-xs text-zinc-500">Search code across repositories</p>
-                                        </div>
-                                    </div>
-                                    <span className={`text-xs px-2 py-1 rounded-full ${config.githubToken ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-700 text-zinc-400'}`}>
-                                        {config.githubToken ? 'Connected' : 'Not configured'}
-                                    </span>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs text-zinc-400">Personal Access Token</label>
-                                    <input
-                                        type="password"
-                                        value={config.githubToken || ''}
-                                        onChange={(e) => setConfig({ ...config, githubToken: e.target.value })}
-                                        placeholder="ghp_xxxxxxxxxxxx"
-                                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-violet-500/50 outline-none font-mono"
-                                    />
-                                    <p className="text-xs text-zinc-500">
-                                        Create a token with <code className="bg-black/40 px-1 rounded">repo</code> scope at{' '}
-                                        <a href="https://github.com/settings/tokens" target="_blank" rel="noopener" className="text-violet-400 hover:underline">
-                                            github.com/settings/tokens
-                                        </a>
-                                    </p>
-                                    <p className="text-[10px] text-zinc-500">
-                                        Storage: Saved securely in your OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service). Not written to config files or logs.
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={testGitHubConnection}
-                                            disabled={githubTesting}
-                                            className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-zinc-300 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                                        >
-                                            {githubTesting ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-                                            Test Connection
-                                        </button>
-                                        {githubTestMessage && (
-                                            <span className={`text-xs px-2 py-1 rounded ${githubTestMessage.startsWith('Connected') ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-700 text-zinc-300'}`}>
-                                                {githubTestMessage}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
+                                <p className="text-sm text-zinc-500">Connect external services (GitHub is now in Agent & AI)</p>
                             </div>
 
                             {/* JIRA Cloud */}
