@@ -28,8 +28,8 @@ echo "✓ python/agent_server/_version.py"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$NEW_VERSION\"/" src-tauri/tauri.conf.json
 echo "✓ src-tauri/tauri.conf.json"
 
-# Update Cargo.toml (only the first version line which is the package version)
-sed -i '' "0,/^version = \"[^\"]*\"/s//version = \"$NEW_VERSION\"/" src-tauri/Cargo.toml
+# Update Cargo.toml (package version on line 3)
+sed -i '' '3s/version = "[^"]*"/version = "'"$NEW_VERSION"'"/' src-tauri/Cargo.toml
 echo "✓ src-tauri/Cargo.toml"
 
 echo ""
