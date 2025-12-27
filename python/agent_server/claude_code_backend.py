@@ -11,6 +11,7 @@ Key Features:
 4. Session management for multi-turn conversations
 5. Tool use extraction for command execution
 6. Response caching for identical queries (token optimization)
+7. Backend command validation (blocks mutations before execution)
 """
 
 import asyncio
@@ -23,6 +24,14 @@ import time
 from typing import AsyncIterator, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from collections import OrderedDict
+
+# Command validation for CLI-based agents
+from .cli_command_validator import (
+    validate_command,
+    ValidationResult,
+    CommandValidation,
+    format_blocked_message
+)
 
 
 # ============================================================================
@@ -746,6 +755,33 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                             if block_type == 'text':
                                 text = block.get('text', '')
                                 final_text += text
+
+                                # Parse investigation plan blocks for UI display
+                                if '📋 **Investigation Plan**' in text:
+                                    # Extract the plan content
+                                    plan_match = re.search(
+                                        r'📋 \*\*Investigation Plan\*\*\s*━+\s*(.*?)━+',
+                                        text,
+                                        re.DOTALL
+                                    )
+                                    if plan_match:
+                                        plan_content = plan_match.group(1).strip()
+                                        yield {
+                                            'type': 'investigation_plan',
+                                            'plan': plan_content,
+                                            'raw': text
+                                        }
+
+                                # Parse confidence results
+                                if '✅ **Found with' in text:
+                                    conf_match = re.search(r'Found with (\d+)% confidence', text)
+                                    if conf_match:
+                                        yield {
+                                            'type': 'search_result',
+                                            'confidence': int(conf_match.group(1)),
+                                            'raw': text
+                                        }
+
                                 yield {'type': 'text', 'content': text}
 
                             elif block_type == 'thinking':
@@ -757,6 +793,33 @@ EFFICIENCY: Minimize token usage. Combine commands. Be concise.
                                 tool_name = block.get('name', '')
                                 tool_input = block.get('input', {})
                                 current_tool = tool_name
+
+                                # SECURITY: Validate Bash commands before execution
+                                if tool_name == 'Bash':
+                                    bash_command = tool_input.get('command', '')
+                                    validation = validate_command(bash_command)
+
+                                    if validation.result == ValidationResult.BLOCKED:
+                                        print(f"[claude-code-streaming] [BLOCKED] Command blocked: {bash_command[:100]}", flush=True)
+                                        print(f"[claude-code-streaming] [BLOCKED] Reason: {validation.reason}", flush=True)
+                                        # Emit blocked event - UI can show this to user
+                                        yield {
+                                            'type': 'command_blocked',
+                                            'command': bash_command,
+                                            'reason': validation.reason,
+                                            'message': format_blocked_message(validation)
+                                        }
+                                        # Skip yielding the tool_use - command won't execute
+                                        continue
+                                    elif validation.result == ValidationResult.REQUIRES_APPROVAL:
+                                        # Future: could emit approval request event
+                                        yield {
+                                            'type': 'command_approval_required',
+                                            'command': bash_command,
+                                            'reason': validation.reason
+                                        }
+                                        continue
+
                                 yield {'type': 'tool_use', 'tool': tool_name, 'input': tool_input}
 
                     elif event_type == 'error':

@@ -3,6 +3,11 @@ Codex CLI Backend Integration
 
 This module provides an async interface to Codex CLI, allowing the agent
 to use Codex as an LLM backend instead of direct API calls.
+
+Key Features:
+1. Subprocess-based execution of Codex CLI
+2. Streaming output parsing
+3. Backend command validation (blocks mutations before execution)
 """
 
 import asyncio
@@ -11,6 +16,14 @@ import os
 import subprocess
 from typing import AsyncIterator, Dict, Any, Optional, List
 from dataclasses import dataclass, field
+
+# Command validation for CLI-based agents
+from .cli_command_validator import (
+    validate_command,
+    ValidationResult,
+    CommandValidation,
+    format_blocked_message
+)
 
 
 @dataclass
@@ -121,7 +134,20 @@ class CodexBackend:
                             # Simulate tool cycle: Use -> Result
                             cmd_str = item.get('command')
                             output_str = item.get('aggregated_output')
-                            
+
+                            # SECURITY: Validate command before reporting execution
+                            validation = validate_command(cmd_str)
+                            if validation.result == ValidationResult.BLOCKED:
+                                print(f"[codex-cli] [BLOCKED] Command blocked: {cmd_str[:100]}", flush=True)
+                                print(f"[codex-cli] [BLOCKED] Reason: {validation.reason}", flush=True)
+                                yield {
+                                    'type': 'command_blocked',
+                                    'command': cmd_str,
+                                    'reason': validation.reason,
+                                    'message': format_blocked_message(validation)
+                                }
+                                continue
+
                             yield {
                                 'type': 'tool_use',
                                 'tool': 'Bash',
@@ -129,7 +155,7 @@ class CodexBackend:
                             }
                             yield {
                                 'type': 'tool_result',
-                                'tool': 'Bash', 
+                                'tool': 'Bash',
                                 'output': output_str
                             }
                             

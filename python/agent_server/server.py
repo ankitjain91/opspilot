@@ -3570,6 +3570,22 @@ Protocol:
                 elif event_type == 'error':
                     yield f"data: {json.dumps(emit_event('error', {'message': event.get('message', 'Unknown error')}))}\n\n"
 
+                elif event_type == 'investigation_plan':
+                    # Code search investigation plan - show in UI
+                    yield f"data: {json.dumps(emit_event('investigation_plan', {'plan': event.get('plan', ''), 'raw': event.get('raw', '')}))}\n\n"
+
+                elif event_type == 'search_result':
+                    # Code search result with confidence score
+                    yield f"data: {json.dumps(emit_event('search_result', {'confidence': event.get('confidence', 0), 'raw': event.get('raw', '')}))}\n\n"
+
+                elif event_type == 'command_blocked':
+                    # Security: Command was blocked by validator
+                    yield f"data: {json.dumps(emit_event('command_blocked', {'command': event.get('command', ''), 'reason': event.get('reason', ''), 'message': event.get('message', '')}))}\n\n"
+
+                elif event_type == 'command_approval_required':
+                    # Command requires user approval (future feature)
+                    yield f"data: {json.dumps(emit_event('command_approval_required', {'command': event.get('command', ''), 'reason': event.get('reason', '')}))}\n\n"
+
             # 4. Return final answer and save session
             if final_answer:
                 print(f"[direct-agent] [OK] Investigation complete ({len(final_answer)} chars)", flush=True)

@@ -401,9 +401,57 @@ async function runDirectAgent(
                             break;
                         case 'done':
                             finalResponse = eventData.final_response || '';
+                            // Emit IS_SOLUTION marker if present
+                            if (eventData.is_solution) {
+                                onStep?.({
+                                    role: 'SPECIALIST',
+                                    content: '[IS_SOLUTION]'
+                                });
+                            }
+                            // Emit suggested next steps if available
+                            if (eventData.suggested_next_steps?.length > 0) {
+                                onStep?.({
+                                    role: 'SPECIALIST',
+                                    content: `[SUGGESTIONS]${JSON.stringify(eventData.suggested_next_steps)}`
+                                });
+                            }
                             break;
                         case 'error':
                             throw new Error(eventData.message);
+                        case 'investigation_plan':
+                            // Code search investigation plan - display in UI
+                            onStep?.({
+                                role: 'SUPERVISOR',
+                                content: `[INVESTIGATION_PLAN]${eventData.plan || eventData.raw || ''}`
+                            });
+                            break;
+                        case 'search_result':
+                            // Code search result with confidence
+                            onStep?.({
+                                role: 'SPECIALIST',
+                                content: `[SEARCH_RESULT:${eventData.confidence || 0}%]${eventData.raw || ''}`
+                            });
+                            break;
+                        case 'command_blocked':
+                            // Security: Command was blocked - show warning to user
+                            onStep?.({
+                                role: 'SCOUT',
+                                content: JSON.stringify({
+                                    command: eventData.command,
+                                    output: `🛡️ BLOCKED: ${eventData.reason}\n${eventData.message || 'This command was blocked for security reasons.'}`
+                                })
+                            });
+                            break;
+                        case 'command_approval_required':
+                            // Command requires user approval (future)
+                            onStep?.({
+                                role: 'SCOUT',
+                                content: JSON.stringify({
+                                    command: eventData.command,
+                                    output: `⏸️ APPROVAL REQUIRED: ${eventData.reason}\nThis command needs your approval to run.`
+                                })
+                            });
+                            break;
                     }
                 } catch (e) {
                     // Ignore parse errors for malformed lines
